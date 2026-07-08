@@ -1,0 +1,28 @@
+# PostgreSQL for production-like local development
+# Usage:
+#   1. docker compose up -d
+#   2. Copy .env.postgres.example → .env (or set DATABASE_URL)
+#   3. Update prisma/schema.prisma provider to "postgresql"
+#   4. npx prisma db push && npm run db:seed
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: forgeerp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: forgeerp
+      POSTGRES_PASSWORD: forgeerp
+      POSTGRES_DB: forgeerp
+    ports:
+      - "5432:5432"
+    volumes:
+      - forgeerp_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forgeerp -d forgeerp"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  forgeerp_pgdata:

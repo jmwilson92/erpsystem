@@ -1,0 +1,1232 @@
+// ForgeERP — Manufacturing ERP Schema
+// SQLite for zero-config local dev; switch to PostgreSQL via docker-compose
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CORE / AUTH / AUDIT
+// ═══════════════════════════════════════════════════════════════
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  name          String
+  role          String   @default("OPERATOR") // ADMIN, ENGINEERING, CM, QUALITY, PURCHASING, PRODUCTION, ACCOUNTING, HR, VIEWER, OPERATOR
+  department    String?
+  title         String?
+  skills        String?  // JSON array
+  certifications String? // JSON array with expiry dates
+  avatarUrl     String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  auditLogs           AuditLog[]
+  timeEntries         TimeEntry[]
+  ptoRequests         PtoRequest[]
+  expenseReports      ExpenseReport[]
+  performanceReviews  PerformanceReview[]      @relation("ReviewSubject")
+  reviewsGiven        PerformanceReview[]      @relation("Reviewer")
+  goals               EmployeeGoal[]
+  assignedWorkOrders  WorkOrder[]              @relation("WOAssignee")
+  createdWorkOrders   WorkOrder[]              @relation("WOCreator")
+  stepSignOffs        WorkInstructionSignOff[]
+  wiCreated           WorkInstruction[]        @relation("WICreator")
+  approvals           Approval[]
+  engTicketsAssigned  EngineeringTicket[]      @relation("TicketAssignee")
+  engTicketsCreated   EngineeringTicket[]      @relation("TicketCreator")
+  ncrsCreated         NonConformance[]         @relation("NCRCreator")
+  mrbDecisions        MrbDisposition[]
+  projectMemberships  ProjectMember[]
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  entityType String
+  entityId   String
+  action     String
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  changes    String?  // JSON diff
+  metadata   String?  // JSON
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@index([userId])
+}
+
+model Approval {
+  id          String    @id @default(cuid())
+  entityType  String
+  entityId    String
+  stage       String
+  status      String    @default("PENDING") // PENDING, APPROVED, REJECTED
+  approverId  String?
+  approver    User?     @relation(fields: [approverId], references: [id])
+  comments    String?
+  decidedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([entityType, entityId])
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PARTS / ITEMS / BOM
+// ═══════════════════════════════════════════════════════════════
+
+model Part {
+  id              String   @id @default(cuid())
+  partNumber      String   @unique
+  description     String
+  revision        String   @default("A")
+  uom             String   @default("EA")
+  partType        String   @default("MAKE") // MAKE, BUY, PHANTOM, ASSEMBLY
+  standardCost    Float    @default(0)
+  leadTimeDays    Int      @default(0)
+  isSerialized    Boolean  @default(false)
+  isLotControlled Boolean  @default(false)
+  isActive        Boolean  @default(true)
+  drawingNumber   String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  bomHeaders      BomHeader[]
+  bomLines        BomLine[]        @relation("ComponentPart")
+  inventoryItems  InventoryItem[]
+  poLines         PurchaseOrderLine[]
+  workOrders      WorkOrder[]
+  workInstructions WorkInstruction[]
+  ncrs            NonConformance[]
+  serials         SerialNumber[]
+  lots            Lot[]
+}
+
+model BomHeader {
+  id              String   @id @default(cuid())
+  partId          String
+  part            Part     @relation(fields: [partId], references: [id])
+  revision        String
+  status          String   @default("DRAFT") // DRAFT, PROTOTYPE, IN_REVIEW, CERTIFIED, OBSOLETE
+  description     String?
+  isPrototype     Boolean  @default(false)
+  certifiedAt     DateTime?
+  certifiedById   String?
+  effectiveDate   DateTime?
+  obsoleteDate    DateTime?
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  lines           BomLine[]
+  workOrders      WorkOrder[]
+  changeRequests  ChangeRequest[]
+
+  @@unique([partId, revision])
+  @@index([status])
+}
+
+model BomLine {
+  id              String  @id @default(cuid())
+  bomHeaderId     String
+  bomHeader       BomHeader @relation(fields: [bomHeaderId], references: [id], onDelete: Cascade)
+  componentPartId String
+  componentPart   Part    @relation("ComponentPart", fields: [componentPartId], references: [id])
+  quantity        Float
+  findNumber      String?
+  referenceDesignators String?
+  notes           String?
+  scrapFactor     Float   @default(0)
+  sortOrder       Int     @default(0)
+}
+
+// ═══════════════════════════════════════════════════════════════
+// WORK INSTRUCTIONS
+// ═══════════════════════════════════════════════════════════════
+
+model WorkInstruction {
+  id              String   @id @default(cuid())
+  documentNumber  String
+  revision        String   @default("A")
+  title           String
+  status          String   @default("DRAFT") // DRAFT, ENGINEERING_REVIEW, CM_REVIEW, RELEASED, OBSOLETE
+  partId          String?
+  part            Part?    @relation(fields: [partId], references: [id])
+  bomRevision     String?
+  workCenter      String?
+  estimatedMinutes Int?
+  createdById     String?
+  createdBy       User?    @relation("WICreator", fields: [createdById], references: [id])
+  releasedAt      DateTime?
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  steps           WorkInstructionStep[]
+  signOffs        WorkInstructionSignOff[]
+  workOrderLinks  WorkOrderInstruction[]
+  changeRequests  ChangeRequest[]
+
+  @@unique([documentNumber, revision])
+  @@index([status])
+}
+
+model WorkInstructionStep {
+  id                  String  @id @default(cuid())
+  workInstructionId   String
+  workInstruction     WorkInstruction @relation(fields: [workInstructionId], references: [id], onDelete: Cascade)
+  stepNumber          Int
+  title               String
+  instructions        String  // rich text / markdown
+  isTestStep          Boolean @default(false)
+  testCriteria        String?
+  expectedValue       String?
+  workCenter          String?
+  estimatedMinutes    Int?
+  attachmentUrls      String? // JSON array
+  drawingLinks        String? // JSON array
+  requiresSignOff     Boolean @default(true)
+  sortOrder           Int     @default(0)
+
+  signOffs            WorkInstructionSignOff[]
+  woStepCompletions   WorkOrderStepCompletion[]
+}
+
+model WorkInstructionSignOff {
+  id          String   @id @default(cuid())
+  stepId      String?
+  step        WorkInstructionStep? @relation(fields: [stepId], references: [id])
+  workInstructionId String
+  workInstruction WorkInstruction @relation(fields: [workInstructionId], references: [id])
+  workOrderId String?
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  result      String?  // PASS, FAIL, NA
+  measuredValue String?
+  notes       String?
+  signedAt    DateTime @default(now())
+}
+
+// ═══════════════════════════════════════════════════════════════
+// WORK ORDERS
+// ═══════════════════════════════════════════════════════════════
+
+model WorkOrder {
+  id              String   @id @default(cuid())
+  number          String   @unique
+  type            String   @default("PRODUCTION") // PRODUCTION, TASK_ONLY, REWORK, INSPECTION, PROTOTYPE
+  status          String   @default("PLANNED") // PLANNED, RELEASED, IN_PROGRESS, ON_HOLD, COMPLETED, CLOSED, CANCELLED
+  priority        String   @default("NORMAL") // LOW, NORMAL, HIGH, CRITICAL
+  partId          String?
+  part            Part?    @relation(fields: [partId], references: [id])
+  bomHeaderId     String?
+  bomHeader       BomHeader? @relation(fields: [bomHeaderId], references: [id])
+  quantity        Float    @default(1)
+  quantityCompleted Float  @default(0)
+  projectId       String?
+  project         Project? @relation(fields: [projectId], references: [id])
+  wbsElementId    String?
+  wbsElement      WbsElement? @relation(fields: [wbsElementId], references: [id])
+  salesOrderRef   String?
+  workCenter      String?
+  department      String?
+  assigneeId      String?
+  assignee        User?    @relation("WOAssignee", fields: [assigneeId], references: [id])
+  createdById     String?
+  createdBy       User?    @relation("WOCreator", fields: [createdById], references: [id])
+  plannedStart    DateTime?
+  plannedEnd      DateTime?
+  actualStart     DateTime?
+  actualEnd       DateTime?
+  standardCost    Float    @default(0)
+  actualCost      Float    @default(0)
+  description     String?
+  notes           String?
+  requiresInspection Boolean @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  instructions    WorkOrderInstruction[]
+  stepCompletions WorkOrderStepCompletion[]
+  materialIssues  MaterialTransaction[]
+  timeEntries     TimeEntry[]
+  ncrs            NonConformance[]
+  inspections     Inspection[]
+  statusHistory   WorkOrderStatusHistory[]
+
+  @@index([status])
+  @@index([workCenter])
+  @@index([projectId])
+}
+
+model WorkOrderInstruction {
+  id                  String @id @default(cuid())
+  workOrderId         String
+  workOrder           WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  workInstructionId   String
+  workInstruction     WorkInstruction @relation(fields: [workInstructionId], references: [id])
+  sequence            Int    @default(1)
+}
+
+model WorkOrderStepCompletion {
+  id          String   @id @default(cuid())
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  stepId      String
+  step        WorkInstructionStep @relation(fields: [stepId], references: [id])
+  status      String   @default("PENDING") // PENDING, IN_PROGRESS, PASSED, FAILED, SKIPPED, SIGNED
+  result      String?
+  measuredValue String?
+  signedById  String?
+  signedAt    DateTime?
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([workOrderId, stepId])
+}
+
+model WorkOrderStatusHistory {
+  id          String   @id @default(cuid())
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  fromStatus  String?
+  toStatus    String
+  userId      String?
+  notes       String?
+  createdAt   DateTime @default(now())
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CONFIGURATION MANAGEMENT
+// ═══════════════════════════════════════════════════════════════
+
+model ChangeRequest {
+  id              String   @id @default(cuid())
+  number          String   @unique
+  title           String
+  description     String
+  type            String   // BOM, WORK_INSTRUCTION, DRAWING, PROCESS, OTHER
+  status          String   @default("DRAFT") // DRAFT, SUBMITTED, IMPACT_ANALYSIS, REVIEW_BOARD, APPROVED, REJECTED, IMPLEMENTED, CLOSED
+  priority        String   @default("NORMAL")
+  requestedById   String?
+  impactAnalysis  String?
+  affectedParts   String?  // JSON
+  bomHeaderId     String?
+  bomHeader       BomHeader? @relation(fields: [bomHeaderId], references: [id])
+  workInstructionId String?
+  workInstruction WorkInstruction? @relation(fields: [workInstructionId], references: [id])
+  engineeringTicketId String?
+  boardDate       DateTime?
+  decidedAt       DateTime?
+  decisionNotes   String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  boardMembers    CmBoardMember[]
+}
+
+model CmBoardMember {
+  id              String @id @default(cuid())
+  changeRequestId String
+  changeRequest   ChangeRequest @relation(fields: [changeRequestId], references: [id], onDelete: Cascade)
+  userId          String
+  role            String // CHAIR, ENGINEERING, QUALITY, PRODUCTION, PURCHASING
+  vote            String? // APPROVE, REJECT, ABSTAIN
+  comments        String?
+  votedAt         DateTime?
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PROJECTS / EVM
+// ═══════════════════════════════════════════════════════════════
+
+model Project {
+  id              String   @id @default(cuid())
+  number          String   @unique
+  name            String
+  description     String?
+  status          String   @default("PLANNING") // PLANNING, ACTIVE, ON_HOLD, COMPLETED, CANCELLED
+  customerName    String?
+  contractValue   Float    @default(0)
+  budgetCost      Float    @default(0)
+  actualCost      Float    @default(0)
+  plannedValue    Float    @default(0) // PV / BCWS
+  earnedValue     Float    @default(0) // EV / BCWP
+  startDate       DateTime?
+  endDate         DateTime?
+  percentComplete Float    @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  wbsElements     WbsElement[]
+  tasks           ProjectTask[]
+  milestones      Milestone[]
+  risks           ProjectRisk[]
+  issues          ProjectIssue[]
+  workOrders      WorkOrder[]
+  members         ProjectMember[]
+  timeEntries     TimeEntry[]
+}
+
+model WbsElement {
+  id              String  @id @default(cuid())
+  projectId       String
+  project         Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  code            String
+  name            String
+  parentId        String?
+  budgetCost      Float   @default(0)
+  actualCost      Float   @default(0)
+  percentComplete Float   @default(0)
+  sortOrder       Int     @default(0)
+
+  workOrders      WorkOrder[]
+  tasks           ProjectTask[]
+}
+
+model ProjectTask {
+  id              String    @id @default(cuid())
+  projectId       String
+  project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  wbsElementId    String?
+  wbsElement      WbsElement? @relation(fields: [wbsElementId], references: [id])
+  name            String
+  description     String?
+  status          String    @default("TODO") // TODO, IN_PROGRESS, BLOCKED, DONE
+  priority        String    @default("NORMAL")
+  assigneeId      String?
+  startDate       DateTime?
+  endDate         DateTime?
+  estimatedHours  Float?
+  actualHours     Float     @default(0)
+  percentComplete Float     @default(0)
+  dependsOnIds    String?   // JSON array of task ids
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model Milestone {
+  id          String    @id @default(cuid())
+  projectId   String
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name        String
+  dueDate     DateTime?
+  status      String    @default("PENDING") // PENDING, ACHIEVED, MISSED
+  description String?
+}
+
+model ProjectRisk {
+  id          String  @id @default(cuid())
+  projectId   String
+  project     Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  probability String  @default("MEDIUM") // LOW, MEDIUM, HIGH
+  impact      String  @default("MEDIUM")
+  status      String  @default("OPEN") // OPEN, MITIGATING, CLOSED
+  mitigation  String?
+  ownerId     String?
+}
+
+model ProjectIssue {
+  id          String    @id @default(cuid())
+  projectId   String
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  status      String    @default("OPEN") // OPEN, IN_PROGRESS, RESOLVED, CLOSED
+  priority    String    @default("NORMAL")
+  resolution  String?
+  raisedAt    DateTime  @default(now())
+  resolvedAt  DateTime?
+}
+
+model ProjectMember {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User    @relation(fields: [userId], references: [id])
+  role      String  @default("MEMBER") // PM, MEMBER, STAKEHOLDER
+}
+
+// ═══════════════════════════════════════════════════════════════
+// QUALITY / MRB / NCR / INSPECTIONS
+// ═══════════════════════════════════════════════════════════════
+
+model Inspection {
+  id              String   @id @default(cuid())
+  number          String   @unique
+  type            String   // RECEIVING, IN_PROCESS, FINAL, VISUAL
+  status          String   @default("PENDING") // PENDING, IN_PROGRESS, PASSED, FAILED, WAIVED
+  partId          String?
+  workOrderId     String?
+  workOrder       WorkOrder? @relation(fields: [workOrderId], references: [id])
+  purchaseOrderId String?
+  purchaseOrder   PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
+  inventoryItemId String?
+  lotNumber       String?
+  serialNumber    String?
+  quantity        Float    @default(1)
+  quantityPassed  Float    @default(0)
+  quantityFailed  Float    @default(0)
+  inspectorId     String?
+  notes           String?
+  completedAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  results         InspectionResult[]
+  ncrs            NonConformance[]
+}
+
+model InspectionResult {
+  id            String  @id @default(cuid())
+  inspectionId  String
+  inspection    Inspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  characteristic String
+  specification String?
+  measuredValue String?
+  result        String  // PASS, FAIL, NA
+  notes         String?
+}
+
+model NonConformance {
+  id              String   @id @default(cuid())
+  number          String   @unique
+  title           String
+  description     String
+  status          String   @default("OPEN") // OPEN, UNDER_REVIEW, MRB, DISPOSITIONED, CLOSED
+  severity        String   @default("MINOR") // MINOR, MAJOR, CRITICAL
+  source          String   // RECEIVING, IN_PROCESS, FINAL, CUSTOMER, SUPPLIER
+  partId          String?
+  part            Part?    @relation(fields: [partId], references: [id])
+  workOrderId     String?
+  workOrder       WorkOrder? @relation(fields: [workOrderId], references: [id])
+  inspectionId    String?
+  inspection      Inspection? @relation(fields: [inspectionId], references: [id])
+  supplierId      String?
+  supplier        Supplier? @relation(fields: [supplierId], references: [id])
+  quantity        Float    @default(1)
+  lotNumber       String?
+  serialNumber    String?
+  createdById     String?
+  createdBy       User?    @relation("NCRCreator", fields: [createdById], references: [id])
+  rootCause       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  closedAt        DateTime?
+
+  mrbCases        MrbCase[]
+}
+
+model MrbCase {
+  id              String   @id @default(cuid())
+  number          String   @unique
+  ncrId           String
+  ncr             NonConformance @relation(fields: [ncrId], references: [id])
+  status          String   @default("OPEN") // OPEN, IN_REVIEW, DISPOSITIONED, CLOSED
+  boardDate       DateTime?
+  chairId         String?
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  closedAt        DateTime?
+
+  dispositions    MrbDisposition[]
+  inventoryHolds  InventoryItem[]
+}
+
+model MrbDisposition {
+  id              String   @id @default(cuid())
+  mrbCaseId       String
+  mrbCase         MrbCase  @relation(fields: [mrbCaseId], references: [id], onDelete: Cascade)
+  disposition     String   // USE_AS_IS, REWORK, SCRAP, RETURN_TO_SUPPLIER, REPAIR
+  quantity        Float    @default(1)
+  justification   String?
+  decidedById     String?
+  decidedBy       User?    @relation(fields: [decidedById], references: [id])
+  decidedAt       DateTime @default(now())
+  carNumber       String?  // Corrective Action Request
+  carStatus       String?
+}
+
+// ═══════════════════════════════════════════════════════════════
+// INVENTORY
+// ═══════════════════════════════════════════════════════════════
+
+model Warehouse {
+  id        String @id @default(cuid())
+  code      String @unique
+  name      String
+  isActive  Boolean @default(true)
+
+  locations Location[]
+}
+
+model Location {
+  id          String @id @default(cuid())
+  warehouseId String
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id])
+  code        String
+  name        String?
+  type        String @default("STORAGE") // STORAGE, RECEIVING, QUARANTINE, SHIPPING, WIP
+
+  inventoryItems InventoryItem[]
+
+  @@unique([warehouseId, code])
+}
+
+model InventoryItem {
+  id              String  @id @default(cuid())
+  partId          String
+  part            Part    @relation(fields: [partId], references: [id])
+  locationId      String
+  location        Location @relation(fields: [locationId], references: [id])
+  quantityOnHand  Float   @default(0)
+  quantityAvailable Float @default(0)
+  quantityCommitted Float @default(0)
+  quantityQuarantine Float @default(0)
+  ownership       String  @default("COMPANY") // COMPANY, CUSTOMER, GOVERNMENT
+  lotNumber       String?
+  serialNumber    String?
+  unitCost        Float   @default(0)
+  lastCountedAt   DateTime?
+  mrbCaseId       String?
+  mrbCase         MrbCase? @relation(fields: [mrbCaseId], references: [id])
+  updatedAt       DateTime @updatedAt
+
+  transactions    MaterialTransaction[]
+  governmentProperty GovernmentProperty?
+
+  @@index([partId])
+  @@index([ownership])
+}
+
+model MaterialTransaction {
+  id              String   @id @default(cuid())
+  type            String   // RECEIPT, ISSUE, TRANSFER, ADJUSTMENT, QUARANTINE, RELEASE, SCRAP, SHIP
+  partId          String?
+  inventoryItemId String?
+  inventoryItem   InventoryItem? @relation(fields: [inventoryItemId], references: [id])
+  workOrderId     String?
+  workOrder       WorkOrder? @relation(fields: [workOrderId], references: [id])
+  purchaseOrderId String?
+  quantity        Float
+  unitCost        Float    @default(0)
+  fromLocation    String?
+  toLocation      String?
+  lotNumber       String?
+  serialNumber    String?
+  reference       String?
+  notes           String?
+  userId          String?
+  createdAt       DateTime @default(now())
+
+  @@index([type])
+  @@index([workOrderId])
+}
+
+model Lot {
+  id          String   @id @default(cuid())
+  lotNumber   String   @unique
+  partId      String
+  part        Part     @relation(fields: [partId], references: [id])
+  quantity    Float
+  receivedAt  DateTime?
+  supplierId  String?
+  poNumber    String?
+  expiresAt   DateTime?
+  status      String   @default("AVAILABLE")
+}
+
+model SerialNumber {
+  id          String  @id @default(cuid())
+  serial      String  @unique
+  partId      String
+  part        Part    @relation(fields: [partId], references: [id])
+  status      String  @default("IN_STOCK") // IN_STOCK, ISSUED, INSTALLED, SHIPPED, QUARANTINE, SCRAPPED
+  workOrderId String?
+  lotNumber   String?
+  uid         String? // DoD Unique Item Identifier
+  ownership   String  @default("COMPANY")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PURCHASING / SUPPLIERS
+// ═══════════════════════════════════════════════════════════════
+
+model Supplier {
+  id              String  @id @default(cuid())
+  code            String  @unique
+  name            String
+  status          String  @default("APPROVED") // PROSPECT, APPROVED, CONDITIONAL, DISQUALIFIED
+  contactName     String?
+  contactEmail    String?
+  contactPhone    String?
+  address         String?
+  paymentTerms    String  @default("NET30")
+  category        String?
+  notes           String?
+  // Scorecard metrics (computed/cached)
+  onTimeDeliveryPct Float @default(100)
+  qualityPpm      Float   @default(0)
+  costVariancePct Float   @default(0)
+  overallScore    Float   @default(100)
+  rating          String  @default("A") // A, B, C, D, F
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  purchaseOrders  PurchaseOrder[]
+  purchaseRequests PurchaseRequest[]
+  ncrs            NonConformance[]
+  scorecardHistory SupplierScorecardHistory[]
+  rfqs            Rfq[]
+}
+
+model SupplierScorecardHistory {
+  id              String   @id @default(cuid())
+  supplierId      String
+  supplier        Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  period          String   // YYYY-MM
+  onTimeDeliveryPct Float
+  qualityPpm      Float
+  costVariancePct Float
+  overallScore    Float
+  rating          String
+  ncrCount        Int      @default(0)
+  poCount         Int      @default(0)
+  createdAt       DateTime @default(now())
+}
+
+model PurchaseRequest {
+  id              String   @id @default(cuid())
+  number          String   @unique
+  status          String   @default("DRAFT") // DRAFT, SUBMITTED, APPROVED, REJECTED, CONVERTED, CANCELLED
+  requestedById   String?
+  department      String?
+  neededBy        DateTime?
+  justification   String?
+  totalEstimate   Float    @default(0)
+  supplierId      String?
+  supplier        Supplier? @relation(fields: [supplierId], references: [id])
+  approvedById    String?
+  approvedAt      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  lines           PurchaseRequestLine[]
+  purchaseOrders  PurchaseOrder[]
+}
+
+model PurchaseRequestLine {
+  id                String @id @default(cuid())
+  purchaseRequestId String
+  purchaseRequest   PurchaseRequest @relation(fields: [purchaseRequestId], references: [id], onDelete: Cascade)
+  partId            String?
+  description       String
+  quantity          Float
+  estimatedUnitCost Float  @default(0)
+  uom               String @default("EA")
+  notes             String?
+}
+
+model PurchaseOrder {
+  id              String   @id @default(cuid())
+  number          String   @unique
+  status          String   @default("DRAFT") // DRAFT, APPROVED, ISSUED, ACKNOWLEDGED, PARTIAL_RECEIPT, RECEIVED, INVOICED, CLOSED, CANCELLED
+  supplierId      String
+  supplier        Supplier @relation(fields: [supplierId], references: [id])
+  purchaseRequestId String?
+  purchaseRequest PurchaseRequest? @relation(fields: [purchaseRequestId], references: [id])
+  orderDate       DateTime @default(now())
+  promisedDate    DateTime?
+  acknowledgedAt  DateTime?
+  paymentTerms    String   @default("NET30")
+  shippingMethod  String?
+  totalAmount     Float    @default(0)
+  currency        String   @default("USD")
+  buyerId         String?
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  lines           PurchaseOrderLine[]
+  receipts        Receipt[]
+  inspections     Inspection[]
+  apInvoices      ApInvoice[]
+
+  @@index([status])
+  @@index([supplierId])
+}
+
+model PurchaseOrderLine {
+  id              String @id @default(cuid())
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  partId          String?
+  part            Part?  @relation(fields: [partId], references: [id])
+  description     String
+  quantity        Float
+  quantityReceived Float @default(0)
+  unitCost        Float  @default(0)
+  uom             String @default("EA")
+  promisedDate    DateTime?
+  lineNumber      Int    @default(1)
+}
+
+model Receipt {
+  id              String   @id @default(cuid())
+  number          String   @unique
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  receivedAt      DateTime @default(now())
+  receivedById    String?
+  status          String   @default("COMPLETE") // COMPLETE, PARTIAL, DISCREPANCY
+  notes           String?
+  packingSlip     String?
+
+  lines           ReceiptLine[]
+}
+
+model ReceiptLine {
+  id              String @id @default(cuid())
+  receiptId       String
+  receipt         Receipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  poLineId        String?
+  partId          String?
+  description     String
+  quantityOrdered Float
+  quantityReceived Float
+  lotNumber       String?
+  serialNumbers   String? // JSON
+  unitCost        Float   @default(0)
+}
+
+model Rfq {
+  id          String   @id @default(cuid())
+  number      String   @unique
+  title       String
+  status      String   @default("OPEN") // OPEN, CLOSED, AWARDED
+  supplierId  String?
+  supplier    Supplier? @relation(fields: [supplierId], references: [id])
+  dueDate     DateTime?
+  notes       String?
+  createdAt   DateTime @default(now())
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ACCOUNTING
+// ═══════════════════════════════════════════════════════════════
+
+model Account {
+  id          String  @id @default(cuid())
+  code        String  @unique
+  name        String
+  type        String  // ASSET, LIABILITY, EQUITY, REVENUE, EXPENSE, COGS
+  subtype     String?
+  parentCode  String?
+  isActive    Boolean @default(true)
+  balance     Float   @default(0)
+
+  journalLines JournalLine[]
+}
+
+model JournalEntry {
+  id          String   @id @default(cuid())
+  number      String   @unique
+  date        DateTime @default(now())
+  description String
+  status      String   @default("DRAFT") // DRAFT, POSTED, VOID
+  source      String?  // MANUAL, AP, AR, PAYROLL, INVENTORY, WO
+  sourceId    String?
+  postedAt    DateTime?
+  createdAt   DateTime @default(now())
+
+  lines       JournalLine[]
+}
+
+model JournalLine {
+  id              String @id @default(cuid())
+  journalEntryId  String
+  journalEntry    JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  accountId       String
+  account         Account @relation(fields: [accountId], references: [id])
+  debit           Float  @default(0)
+  credit          Float  @default(0)
+  memo            String?
+}
+
+model Customer {
+  id            String @id @default(cuid())
+  code          String @unique
+  name          String
+  contactEmail  String?
+  paymentTerms  String @default("NET30")
+  creditLimit   Float  @default(0)
+  isActive      Boolean @default(true)
+
+  invoices      ArInvoice[]
+  salesOrders   SalesOrder[]
+}
+
+model ArInvoice {
+  id            String   @id @default(cuid())
+  number        String   @unique
+  customerId    String
+  customer      Customer @relation(fields: [customerId], references: [id])
+  salesOrderId  String?
+  invoiceDate   DateTime @default(now())
+  dueDate       DateTime?
+  status        String   @default("OPEN") // DRAFT, OPEN, PARTIAL, PAID, VOID
+  subtotal      Float    @default(0)
+  tax           Float    @default(0)
+  total         Float    @default(0)
+  amountPaid    Float    @default(0)
+  notes         String?
+
+  lines         ArInvoiceLine[]
+  payments      ArPayment[]
+}
+
+model ArInvoiceLine {
+  id          String @id @default(cuid())
+  invoiceId   String
+  invoice     ArInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  description String
+  quantity    Float  @default(1)
+  unitPrice   Float  @default(0)
+  amount      Float  @default(0)
+}
+
+model ArPayment {
+  id          String   @id @default(cuid())
+  invoiceId   String
+  invoice     ArInvoice @relation(fields: [invoiceId], references: [id])
+  amount      Float
+  paymentDate DateTime @default(now())
+  method      String   @default("CHECK")
+  reference   String?
+}
+
+model ApInvoice {
+  id              String   @id @default(cuid())
+  number          String   @unique
+  supplierId      String?
+  purchaseOrderId String?
+  purchaseOrder   PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
+  invoiceDate     DateTime @default(now())
+  dueDate         DateTime?
+  status          String   @default("OPEN") // DRAFT, OPEN, PARTIAL, PAID, VOID
+  subtotal        Float    @default(0)
+  tax             Float    @default(0)
+  total           Float    @default(0)
+  amountPaid      Float    @default(0)
+  notes           String?
+
+  payments        ApPayment[]
+}
+
+model ApPayment {
+  id          String   @id @default(cuid())
+  invoiceId   String
+  invoice     ApInvoice @relation(fields: [invoiceId], references: [id])
+  amount      Float
+  paymentDate DateTime @default(now())
+  method      String   @default("ACH")
+  reference   String?
+}
+
+model Budget {
+  id          String @id @default(cuid())
+  name        String
+  fiscalYear  Int
+  department  String?
+  accountCode String?
+  amount      Float
+  actual      Float  @default(0)
+  period      String? // Q1, Q2, etc or MONTH
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SALES / SHIPPING
+// ═══════════════════════════════════════════════════════════════
+
+model SalesOrder {
+  id            String   @id @default(cuid())
+  number        String   @unique
+  customerId    String
+  customer      Customer @relation(fields: [customerId], references: [id])
+  status        String   @default("OPEN") // OPEN, IN_PRODUCTION, READY_TO_SHIP, SHIPPED, CLOSED, CANCELLED
+  orderDate     DateTime @default(now())
+  requiredDate  DateTime?
+  totalAmount   Float    @default(0)
+  notes         String?
+
+  lines         SalesOrderLine[]
+  shipments     Shipment[]
+}
+
+model SalesOrderLine {
+  id            String @id @default(cuid())
+  salesOrderId  String
+  salesOrder    SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  partId        String?
+  description   String
+  quantity      Float
+  quantityShipped Float @default(0)
+  unitPrice     Float  @default(0)
+  workOrderId   String?
+}
+
+model Shipment {
+  id            String   @id @default(cuid())
+  number        String   @unique
+  salesOrderId  String?
+  salesOrder    SalesOrder? @relation(fields: [salesOrderId], references: [id])
+  status        String   @default("DRAFT") // DRAFT, PICKING, PACKED, SHIPPED, DELIVERED
+  shipDate      DateTime?
+  carrier       String?
+  trackingNumber String?
+  shipToAddress String?
+  packedById    String?
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  lines         ShipmentLine[]
+}
+
+model ShipmentLine {
+  id          String @id @default(cuid())
+  shipmentId  String
+  shipment    Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  partId      String?
+  description String
+  quantity    Float
+  lotNumber   String?
+  serialNumbers String?
+}
+
+// ═══════════════════════════════════════════════════════════════
+// GOVERNMENT PROPERTY
+// ═══════════════════════════════════════════════════════════════
+
+model GovernmentProperty {
+  id                String   @id @default(cuid())
+  assetTag          String   @unique
+  uid               String?  // Unique Item Identifier
+  serialNumber      String?
+  description       String
+  partNumber        String?
+  acquisitionCost   Float    @default(0)
+  acquisitionDate   DateTime?
+  propertyType      String   // GFP, CAP, STE, ST, MATERIAL
+  classification    String?  // EQUIPMENT, MATERIAL, REAL_PROPERTY
+  status            String   @default("ACTIVE") // ACTIVE, IN_USE, IN_STORAGE, DISPOSED, LOST, DAMAGED
+  contractNumber    String?
+  custodialCode     String?
+  location          String?
+  inventoryItemId   String?  @unique
+  inventoryItem     InventoryItem? @relation(fields: [inventoryItemId], references: [id])
+  lastInventoryDate DateTime?
+  condition         String   @default("SERVICEABLE")
+  notes             String?
+  dfarsCompliant    Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  complianceChecks  ComplianceCheck[]
+}
+
+model ComplianceCheck {
+  id          String   @id @default(cuid())
+  propertyId  String
+  property    GovernmentProperty @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  checkType   String   // PHYSICAL_INVENTORY, CONDITION, DOCUMENTATION, UID_VERIFY
+  status      String   // PASS, FAIL, N_A
+  checkedById String?
+  checkedAt   DateTime @default(now())
+  notes       String?
+  findings    String?
+}
+
+// ═══════════════════════════════════════════════════════════════
+// HR / WORKFORCE
+// ═══════════════════════════════════════════════════════════════
+
+model TimeEntry {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  workOrderId String?
+  workOrder   WorkOrder? @relation(fields: [workOrderId], references: [id])
+  projectId   String?
+  project     Project? @relation(fields: [projectId], references: [id])
+  date        DateTime
+  hours       Float
+  type        String   @default("REGULAR") // REGULAR, OT, PTO, SICK, HOLIDAY
+  description String?
+  status      String   @default("SUBMITTED") // DRAFT, SUBMITTED, APPROVED, REJECTED
+  createdAt   DateTime @default(now())
+}
+
+model PtoRequest {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  type        String   // PTO, SICK, HOLIDAY, UNPAID
+  startDate   DateTime
+  endDate     DateTime
+  hours       Float
+  status      String   @default("PENDING") // PENDING, APPROVED, REJECTED, CANCELLED
+  reason      String?
+  approvedById String?
+  createdAt   DateTime @default(now())
+}
+
+model ExpenseReport {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  number      String   @unique
+  title       String
+  status      String   @default("DRAFT") // DRAFT, SUBMITTED, APPROVED, REJECTED, PAID
+  totalAmount Float    @default(0)
+  submittedAt DateTime?
+  createdAt   DateTime @default(now())
+
+  lines       ExpenseLine[]
+}
+
+model ExpenseLine {
+  id          String @id @default(cuid())
+  reportId    String
+  report      ExpenseReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  date        DateTime
+  category    String
+  description String
+  amount      Float
+  receiptUrl  String?
+}
+
+model PerformanceReview {
+  id          String   @id @default(cuid())
+  employeeId  String
+  employee    User     @relation("ReviewSubject", fields: [employeeId], references: [id])
+  reviewerId  String
+  reviewer    User     @relation("Reviewer", fields: [reviewerId], references: [id])
+  period      String   // 2025-Q1, 2025-Q2, etc
+  status      String   @default("DRAFT") // DRAFT, IN_PROGRESS, COMPLETED
+  overallRating Float?
+  strengths   String?
+  improvements String?
+  careerNotes String?
+  aiSuggestions String?
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+}
+
+model EmployeeGoal {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  title       String
+  description String?
+  status      String   @default("ACTIVE") // ACTIVE, COMPLETED, CANCELLED
+  targetDate  DateTime?
+  progress    Float    @default(0)
+  category    String?  // SKILL, CAREER, PERFORMANCE, CERTIFICATION
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ENGINEERING TRACKERS (JIRA-style)
+// ═══════════════════════════════════════════════════════════════
+
+model EngineeringTicket {
+  id              String   @id @default(cuid())
+  number          String   @unique
+  title           String
+  description     String?
+  type            String   @default("TASK") // EPIC, STORY, TASK, BUG, CHANGE
+  status          String   @default("BACKLOG") // BACKLOG, TODO, IN_PROGRESS, IN_REVIEW, DONE, BLOCKED
+  priority        String   @default("MEDIUM") // LOWEST, LOW, MEDIUM, HIGH, CRITICAL
+  assigneeId      String?
+  assignee        User?    @relation("TicketAssignee", fields: [assigneeId], references: [id])
+  createdById     String?
+  createdBy       User?    @relation("TicketCreator", fields: [createdById], references: [id])
+  projectId       String?
+  sprintId        String?
+  sprint          Sprint?  @relation(fields: [sprintId], references: [id])
+  storyPoints     Int?
+  labels          String?  // JSON
+  linkedBomId     String?
+  linkedWiId      String?
+  linkedCrId      String?
+  linkedPoId      String?
+  dueDate         DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  comments        TicketComment[]
+
+  @@index([status])
+  @@index([assigneeId])
+}
+
+model Sprint {
+  id          String    @id @default(cuid())
+  name        String
+  goal        String?
+  startDate   DateTime?
+  endDate     DateTime?
+  status      String    @default("PLANNED") // PLANNED, ACTIVE, COMPLETED
+
+  tickets     EngineeringTicket[]
+}
+
+model TicketComment {
+  id        String   @id @default(cuid())
+  ticketId  String
+  ticket    EngineeringTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  userId    String?
+  body      String
+  createdAt DateTime @default(now())
+}
+
+// ═══════════════════════════════════════════════════════════════
+// VALUE STREAM / METRICS CACHE
+// ═══════════════════════════════════════════════════════════════
+
+model ValueStreamMetric {
+  id          String   @id @default(cuid())
+  stage       String   // SUPPLIER, PO, RECEIVING, INSPECTION, MRB, INVENTORY, PRODUCTION, SHIPPING
+  metricKey   String
+  metricValue Float
+  unit        String?
+  period      String?  // daily snapshot date
+  metadata    String?  // JSON
+  recordedAt  DateTime @default(now())
+
+  @@index([stage, metricKey])
+}
+
+model WorkCenter {
+  id              String @id @default(cuid())
+  code            String @unique
+  name            String
+  department      String?
+  capacityHoursPerDay Float @default(16)
+  efficiency      Float  @default(0.85)
+  isActive        Boolean @default(true)
+}
