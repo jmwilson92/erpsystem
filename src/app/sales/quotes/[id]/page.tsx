@@ -51,9 +51,17 @@ export default async function QuoteDetailPage({
               </form>
             )}
             {canAccept && (
-              <form action={actionAcceptQuote}>
+              <form action={actionAcceptQuote} className="flex flex-wrap items-center gap-2">
                 <input type="hidden" name="quoteId" value={quote.id} />
                 <input type="hidden" name="autoPlan" value="true" />
+                <label className="flex items-center gap-1.5 rounded border border-slate-700 bg-slate-900/80 px-2 py-1 text-[11px] text-slate-400">
+                  <input
+                    type="checkbox"
+                    name="bypassStockCheck"
+                    className="rounded border-slate-600"
+                  />
+                  Bypass stock on plan
+                </label>
                 <Button type="submit" size="sm">
                   Accept → create sales order
                 </Button>

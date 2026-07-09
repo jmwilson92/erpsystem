@@ -293,15 +293,25 @@ export default async function NewSalesOrderPage({
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 pt-5">
-              <label className="flex items-center gap-2 text-sm text-slate-400">
-                <input
-                  type="checkbox"
-                  name="autoPlan"
-                  defaultChecked
-                  className="rounded border-slate-600"
-                />
-                Plan fulfillment after create (stock check → WO / PRs)
-              </label>
+              <div className="flex flex-col gap-2">
+                <label className="flex items-center gap-2 text-sm text-slate-400">
+                  <input
+                    type="checkbox"
+                    name="autoPlan"
+                    defaultChecked
+                    className="rounded border-slate-600"
+                  />
+                  Plan fulfillment after create (stock check → WO / PRs)
+                </label>
+                <label className="flex items-center gap-2 text-sm text-slate-400">
+                  <input
+                    type="checkbox"
+                    name="bypassStockCheck"
+                    className="rounded border-slate-600"
+                  />
+                  Bypass stock check — PR full BOM / demand (ignore on-hand)
+                </label>
+              </div>
               <div className="flex gap-2">
                 <Link href="/sales">
                   <Button type="button" variant="outline">

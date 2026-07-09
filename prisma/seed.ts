@@ -28,12 +28,13 @@ async function main() {
     "TicketComment", "EngineeringTicket", "Sprint",
     "EmployeeGoal", "PerformanceReview", "ExpenseLine", "ExpenseReport", "PtoRequest", "TimeEntry",
     "ComplianceCheck", "GovernmentProperty",
-    "TraceEvent", "ReceivingPhoto", "KitOrderLine", "KitOrder",
+    "TraceEvent", "ReceivingDocument", "ReceivingPhoto", "KitOrderLine", "KitOrder",
     "ShipmentLine", "Shipment", "SalesOrderLine", "SalesOrder",
     "QuoteLine", "Quote",
-    "Budget", "ApPayment", "ApInvoice", "ArPayment", "ArInvoiceLine", "ArInvoice", "Customer",
+    "Budget", "ApPayment", "ApInvoice", "ArPayment", "ArInvoiceLine", "ArInvoice",
+    "Rfq", "ReceivingTravelerLine", "ReceivingTraveler", "ReceiptLine", "Receipt", "PurchaseOrderLine", "PurchaseOrder",
+    "Customer",
     "JournalLine", "JournalEntry", "Account",
-    "Rfq", "ReceivingTraveler", "ReceiptLine", "Receipt", "PurchaseOrderLine", "PurchaseOrder",
     "PurchaseRequestLine", "PurchaseRequest",
     "SupplierScorecardHistory", "Supplier",
     "SerialNumber", "Lot", "MaterialTransaction", "InventoryItem", "Location", "Warehouse",
@@ -42,8 +43,11 @@ async function main() {
     "CmBoardMember", "ChangeRequest",
     "WorkOrderStatusHistory", "WorkOrderStepCompletion", "WorkOrderInstruction", "WorkOrder",
     "WorkInstructionSignOff", "WorkInstructionStep", "WorkInstruction",
-    "BomLine", "BomHeader", "Part",
-    "Approval", "AuditLog", "WorkCenter", "ValueStreamMetric", "User",
+    "PartVendor", "BomLine", "BomHeader", "Part",
+    "UomConversion", "UomUnit",
+    // ensure clean suppliers even if FK order was partial
+    "Approval", "ApprovalPolicyStep", "ApprovalPolicy",
+    "AuditLog", "WorkCenter", "ValueStreamMetric", "User",
   ];
   for (const t of tables) {
     try {
@@ -68,10 +72,19 @@ async function main() {
       { email: "tech2@forge.erp", name: "Dana Kim", role: "OPERATOR", department: "Machining", title: "Machinist", skills: JSON.stringify(["CNC", "CMM", "GD&T"]) },
       { email: "insp@forge.erp", name: "Pat Okonkwo", role: "QUALITY", department: "Quality", title: "Inspector" },
       { email: "pm@forge.erp", name: "Quinn Foster", role: "ENGINEERING", department: "Programs", title: "Program Manager" },
-    ].map((u) =>
+    ].map((u, idx) =>
       prisma.user.create({
         data: {
           ...u,
+          // Demo PINs for WI step sign-off (techs 1234, quality 5678, etc.)
+          pinCode:
+            u.role === "OPERATOR"
+              ? "1234"
+              : u.role === "QUALITY"
+                ? "5678"
+                : u.role === "PRODUCTION"
+                  ? "2468"
+                  : String(1000 + idx).padStart(4, "0"),
           certifications: JSON.stringify([
             { name: "Security Clearance", expires: "2027-06-01" },
             { name: "ESD Awareness", expires: "2026-12-01" },
@@ -83,18 +96,53 @@ async function main() {
   const [admin, engLead, cmMgr, qualityMgr, buyer, prodSup, controller, hrMgr, tech1, tech2, inspector, pm] = users;
   console.log(`  ✓ ${users.length} users`);
 
+  // ── PR approval policy (threshold multi-step) ──────────────
+  await prisma.approvalPolicy.create({
+    data: {
+      name: "Standard PR approval",
+      entityType: "PurchaseRequest",
+      description:
+        "Buyer reviews all PRs; controller above $5k; ops admin above $25k. Customize under Purchasing → Approval rules.",
+      isActive: true,
+      isDefault: true,
+      steps: {
+        create: [
+          {
+            stepOrder: 1,
+            name: "Buyer review",
+            minAmount: 0,
+            approverRole: "PURCHASING",
+          },
+          {
+            stepOrder: 2,
+            name: "Finance / controller",
+            minAmount: 5000,
+            approverRole: "ACCOUNTING",
+          },
+          {
+            stepOrder: 3,
+            name: "Operations admin",
+            minAmount: 25000,
+            approverRole: "ADMIN",
+          },
+        ],
+      },
+    },
+  });
+  console.log("  ✓ PR approval policy (buyer / finance $5k / admin $25k)");
+
   // ── Work Centers ───────────────────────────────────────────
   const workCenters = await Promise.all(
     [
-      { code: "ASM-01", name: "Assembly Cell 1", department: "Assembly", capacityHoursPerDay: 16 },
-      { code: "ASM-02", name: "Assembly Cell 2", department: "Assembly", capacityHoursPerDay: 16 },
-      { code: "MCH-01", name: "CNC Mill", department: "Machining", capacityHoursPerDay: 20 },
-      { code: "QA-01", name: "Inspection Lab", department: "Quality", capacityHoursPerDay: 16 },
-      { code: "TEST-01", name: "Environmental Test", department: "Test", capacityHoursPerDay: 8 },
-      { code: "SHIP-01", name: "Shipping Dock", department: "Logistics", capacityHoursPerDay: 16 },
+      { code: "ASM-01", name: "Assembly Cell 1", area: "MANUFACTURING", department: "Assembly", capacityHoursPerDay: 16, isDefault: true, sortOrder: 1 },
+      { code: "ASM-02", name: "Assembly Cell 2", area: "MANUFACTURING", department: "Assembly", capacityHoursPerDay: 16, sortOrder: 2 },
+      { code: "MCH-01", name: "CNC Mill", area: "MANUFACTURING", department: "Machining", capacityHoursPerDay: 20, sortOrder: 3 },
+      { code: "QA-01", name: "QA Lab (visual / GD&T / continuity)", area: "QA", department: "Quality", capacityHoursPerDay: 16, isDefault: true, sortOrder: 1 },
+      { code: "TEST-01", name: "Functional / Power Test", area: "TEST", department: "Test", capacityHoursPerDay: 8, isDefault: true, sortOrder: 1 },
+      { code: "SHIP-01", name: "Shipping Dock", area: "MANUFACTURING", department: "Logistics", capacityHoursPerDay: 16, sortOrder: 10 },
     ].map((w) => prisma.workCenter.create({ data: w }))
   );
-  console.log(`  ✓ ${workCenters.length} work centers`);
+  console.log(`  ✓ ${workCenters.length} work centers (Manufacturing / QA / Test)`);
 
   // ── Chart of Accounts ──────────────────────────────────────
   const accounts = await Promise.all(
@@ -117,24 +165,242 @@ async function main() {
   );
   console.log(`  ✓ ${accounts.length} GL accounts`);
 
-  // ── Parts ──────────────────────────────────────────────────
+  // ── UOM master + conversions ───────────────────────────────
+  const uomDefs = [
+    { code: "EA", name: "Each", category: "COUNT", sortOrder: 1 },
+    { code: "PC", name: "Piece", category: "COUNT", sortOrder: 2 },
+    { code: "SET", name: "Set", category: "COUNT", sortOrder: 3 },
+    { code: "LB", name: "Pound", category: "WEIGHT", sortOrder: 10 },
+    { code: "KG", name: "Kilogram", category: "WEIGHT", sortOrder: 11 },
+    { code: "OZ", name: "Ounce", category: "WEIGHT", sortOrder: 12 },
+    { code: "FT", name: "Foot", category: "LENGTH", sortOrder: 20 },
+    { code: "IN", name: "Inch", category: "LENGTH", sortOrder: 21 },
+    { code: "M", name: "Meter", category: "LENGTH", sortOrder: 22 },
+    { code: "MM", name: "Millimeter", category: "LENGTH", sortOrder: 23 },
+    { code: "GAL", name: "Gallon", category: "VOLUME", sortOrder: 30 },
+    { code: "L", name: "Liter", category: "VOLUME", sortOrder: 31 },
+    { code: "HR", name: "Hour", category: "TIME", sortOrder: 40 },
+    { code: "MIN", name: "Minute", category: "TIME", sortOrder: 41 },
+    // Measurement / electrical for WI recordings
+    { code: "VDC", name: "Volts DC", category: "ELECTRICAL", sortOrder: 50 },
+    { code: "VAC", name: "Volts AC", category: "ELECTRICAL", sortOrder: 51 },
+    { code: "OHM", name: "Ohm", category: "ELECTRICAL", sortOrder: 52 },
+    { code: "MOHM", name: "Milliohm", category: "ELECTRICAL", sortOrder: 53 },
+    { code: "KOHM", name: "Kilohm", category: "ELECTRICAL", sortOrder: 54 },
+    { code: "A", name: "Ampere", category: "ELECTRICAL", sortOrder: 55 },
+    { code: "MA", name: "Milliampere", category: "ELECTRICAL", sortOrder: 56 },
+    { code: "HZ", name: "Hertz", category: "ELECTRICAL", sortOrder: 57 },
+    { code: "NM", name: "Newton-meter (torque)", category: "MEASURE", sortOrder: 60 },
+    { code: "PSI", name: "Pounds per square inch", category: "MEASURE", sortOrder: 61 },
+    { code: "DEG_C", name: "Degrees Celsius", category: "MEASURE", sortOrder: 62 },
+  ];
+  const uoms = await Promise.all(
+    uomDefs.map((u) => prisma.uomUnit.create({ data: u }))
+  );
+  const uom = Object.fromEntries(uoms.map((u) => [u.code, u]));
+  const convPairs: [string, string, number, string][] = [
+    ["FT", "IN", 12, "1 FT = 12 IN"],
+    ["M", "MM", 1000, "1 M = 1000 MM"],
+    ["M", "FT", 3.28084, "1 M ≈ 3.28084 FT"],
+    ["KG", "LB", 2.20462, "1 KG ≈ 2.20462 LB"],
+    ["LB", "OZ", 16, "1 LB = 16 OZ"],
+    ["GAL", "L", 3.78541, "1 GAL ≈ 3.78541 L"],
+  ];
+  for (const [from, to, factor, notes] of convPairs) {
+    await prisma.uomConversion.create({
+      data: {
+        fromUomId: uom[from].id,
+        toUomId: uom[to].id,
+        factor,
+        notes,
+      },
+    });
+    await prisma.uomConversion.create({
+      data: {
+        fromUomId: uom[to].id,
+        toUomId: uom[from].id,
+        factor: 1 / factor,
+        notes: `Inverse of: ${notes}`,
+      },
+    });
+  }
+  console.log(`  ✓ ${uoms.length} UOM units + ${convPairs.length * 2} conversions`);
+
+  const invRm = accounts.find((a) => a.code === "1200")!;
+  const cogs = accounts.find((a) => a.code === "5000")!;
+
+  // ── Parts / item cards ─────────────────────────────────────
   const partsData = [
-    { partNumber: "ASM-1000", description: "Avionics Control Module Assembly", revision: "C", partType: "ASSEMBLY", standardCost: 12500, isSerialized: true },
-    { partNumber: "PCB-2200", description: "Main Control PCB", revision: "B", partType: "MAKE", standardCost: 850, isLotControlled: true },
-    { partNumber: "HSG-3100", description: "Aluminum Housing CNC", revision: "A", partType: "MAKE", standardCost: 420, isSerialized: true },
-    { partNumber: "CON-4400", description: "MIL-DTL Circular Connector", revision: "A", partType: "BUY", standardCost: 185, leadTimeDays: 45 },
-    { partNumber: "RES-0805-10K", description: "Resistor 10K 0805 1%", revision: "A", partType: "BUY", standardCost: 0.12, leadTimeDays: 14, isLotControlled: true },
-    { partNumber: "IC-STM32", description: "STM32H7 MCU", revision: "A", partType: "BUY", standardCost: 18.5, leadTimeDays: 21, isLotControlled: true },
-    { partNumber: "SCR-M3-10", description: "Screw M3x10 SS", revision: "A", partType: "BUY", standardCost: 0.08, leadTimeDays: 7 },
-    { partNumber: "GASK-5500", description: "EMI Gasket", revision: "B", partType: "BUY", standardCost: 24, leadTimeDays: 30 },
-    { partNumber: "CBL-6600", description: "Harness Assembly Interface", revision: "A", partType: "MAKE", standardCost: 320 },
-    { partNumber: "BRK-7700", description: "Mounting Bracket Ti-6Al-4V", revision: "A", partType: "MAKE", standardCost: 890, isSerialized: true },
-    { partNumber: "FW-1000", description: "Firmware Image ACM", revision: "C", partType: "PHANTOM", standardCost: 0 },
-    { partNumber: "FAI-PROTO", description: "First Article Prototype Kit", revision: "A", partType: "ASSEMBLY", standardCost: 15000, isSerialized: true },
+    {
+      partNumber: "ASM-1000",
+      description: "Avionics Control Module Assembly",
+      revision: "C",
+      partType: "ASSEMBLY",
+      sourcingMethod: "BUILD",
+      itemStructure: "TOP_LEVEL_ASSEMBLY",
+      standardCost: 12500,
+      averageCost: 12480,
+      isSerialized: true,
+      uom: "EA",
+      uomUnitId: uom.EA.id,
+      inventoryAccountId: invRm.id,
+      cogsAccountId: cogs.id,
+    },
+    {
+      partNumber: "PCB-2200",
+      description: "Main Control PCB",
+      revision: "B",
+      partType: "MAKE",
+      sourcingMethod: "BUILD",
+      itemStructure: "SUB_ASSEMBLY",
+      standardCost: 850,
+      averageCost: 842,
+      isLotControlled: true,
+      uom: "EA",
+      uomUnitId: uom.EA.id,
+      inventoryAccountId: invRm.id,
+    },
+    {
+      partNumber: "HSG-3100",
+      description: "Aluminum Housing CNC",
+      revision: "A",
+      partType: "MAKE",
+      sourcingMethod: "BUILD",
+      itemStructure: "SUB_ASSEMBLY",
+      standardCost: 420,
+      averageCost: 415,
+      isSerialized: true,
+      requiresGdtInspection: true,
+      uom: "EA",
+      uomUnitId: uom.EA.id,
+    },
+    {
+      partNumber: "CON-4400",
+      description: "MIL-DTL Circular Connector",
+      revision: "A",
+      partType: "BUY",
+      sourcingMethod: "PURCHASE",
+      itemStructure: "RAW_MATERIAL",
+      standardCost: 185,
+      lastBuyCost: 192,
+      averageCost: 188,
+      leadTimeDays: 45,
+      requiresFunctionalTest: true,
+      uom: "EA",
+      uomUnitId: uom.EA.id,
+      inventoryAccountId: invRm.id,
+    },
+    {
+      partNumber: "RES-0805-10K",
+      description: "Resistor 10K 0805 1%",
+      revision: "A",
+      partType: "BUY",
+      sourcingMethod: "PURCHASE",
+      itemStructure: "RAW_MATERIAL",
+      standardCost: 0.12,
+      lastBuyCost: 0.11,
+      averageCost: 0.115,
+      leadTimeDays: 14,
+      isLotControlled: true,
+      uom: "EA",
+      uomUnitId: uom.EA.id,
+    },
+    {
+      partNumber: "IC-STM32",
+      description: "STM32H7 MCU",
+      revision: "A",
+      partType: "BUY",
+      sourcingMethod: "PURCHASE",
+      itemStructure: "RAW_MATERIAL",
+      standardCost: 18.5,
+      lastBuyCost: 19.2,
+      averageCost: 18.8,
+      leadTimeDays: 21,
+      isLotControlled: true,
+      uom: "EA",
+      uomUnitId: uom.EA.id,
+    },
+    {
+      partNumber: "SCR-M3-10",
+      description: "Screw M3x10 SS",
+      revision: "A",
+      partType: "BUY",
+      sourcingMethod: "PURCHASE",
+      itemStructure: "RAW_MATERIAL",
+      standardCost: 0.08,
+      lastBuyCost: 0.07,
+      averageCost: 0.075,
+      leadTimeDays: 7,
+      uom: "EA",
+      uomUnitId: uom.EA.id,
+    },
+    {
+      partNumber: "GASK-5500",
+      description: "EMI Gasket",
+      revision: "B",
+      partType: "BUY",
+      sourcingMethod: "PURCHASE",
+      itemStructure: "RAW_MATERIAL",
+      standardCost: 24,
+      lastBuyCost: 26,
+      averageCost: 25,
+      leadTimeDays: 30,
+      uom: "EA",
+      uomUnitId: uom.EA.id,
+    },
+    {
+      partNumber: "CBL-6600",
+      description: "Harness Assembly Interface",
+      revision: "A",
+      partType: "MAKE",
+      sourcingMethod: "BUILD",
+      itemStructure: "SUB_ASSEMBLY",
+      standardCost: 320,
+      averageCost: 318,
+      uom: "EA",
+      uomUnitId: uom.EA.id,
+    },
+    {
+      partNumber: "BRK-7700",
+      description: "Mounting Bracket Ti-6Al-4V",
+      revision: "A",
+      partType: "MAKE",
+      sourcingMethod: "BUILD",
+      itemStructure: "SUB_ASSEMBLY",
+      standardCost: 890,
+      averageCost: 885,
+      isSerialized: true,
+      uom: "EA",
+      uomUnitId: uom.EA.id,
+    },
+    {
+      partNumber: "FW-1000",
+      description: "Firmware Image ACM",
+      revision: "C",
+      partType: "PHANTOM",
+      sourcingMethod: "BUILD",
+      itemStructure: "N_A",
+      standardCost: 0,
+      uom: "EA",
+      uomUnitId: uom.EA.id,
+    },
+    {
+      partNumber: "FAI-PROTO",
+      description: "First Article Prototype Kit",
+      revision: "A",
+      partType: "ASSEMBLY",
+      sourcingMethod: "BUILD",
+      itemStructure: "TOP_LEVEL_ASSEMBLY",
+      standardCost: 15000,
+      averageCost: 15200,
+      isSerialized: true,
+      uom: "SET",
+      uomUnitId: uom.SET.id,
+    },
   ];
   const parts = await Promise.all(partsData.map((p) => prisma.part.create({ data: p })));
   const part = Object.fromEntries(parts.map((p) => [p.partNumber, p]));
-  console.log(`  ✓ ${parts.length} parts`);
+  console.log(`  ✓ ${parts.length} item cards (parts)`);
 
   // ── BOMs: multi-level + prototype → certified flow ─────────
   // Rev A PROTOTYPE (obsolete path), Rev B CERTIFIED, Rev C PROTOTYPE for next
@@ -238,13 +504,15 @@ async function main() {
       releasedAt: daysAgo(55),
       steps: {
         create: [
-          { stepNumber: 1, title: "Kit Verification", instructions: "Verify all kit components against certified BOM Rev B. Check lot traceability labels.", workCenter: "ASM-01", estimatedMinutes: 20, requiresSignOff: true, sortOrder: 1 },
-          { stepNumber: 2, title: "Install PCB into Housing", instructions: "Place PCB-2200 into HSG-3100. Torque M3 screws to 0.6 N·m ±0.05. ESD precautions required.", workCenter: "ASM-01", estimatedMinutes: 45, requiresSignOff: true, sortOrder: 2, drawingLinks: JSON.stringify(["DWG-HSG-3100-A"]) },
-          { stepNumber: 3, title: "Install Connectors", instructions: "Install CON-4400 connectors per MIL-DTL torque spec. Apply threadlocker.", workCenter: "ASM-01", estimatedMinutes: 30, requiresSignOff: true, sortOrder: 3 },
-          { stepNumber: 4, title: "EMI Gasket Installation", instructions: "Install GASK-5500 ensuring full contact along sealing surface. No gaps >0.1mm.", workCenter: "ASM-01", estimatedMinutes: 25, requiresSignOff: true, sortOrder: 4 },
-          { stepNumber: 5, title: "Continuity Test", instructions: "Perform pin-to-pin continuity per TP-ASM-1000. Record resistance values.", isTestStep: true, testCriteria: "All pins < 0.5 Ω", expectedValue: "<0.5Ω", workCenter: "TEST-01", estimatedMinutes: 30, requiresSignOff: true, sortOrder: 5 },
-          { stepNumber: 6, title: "Functional Power-On Test", instructions: "Apply 28V DC. Verify boot sequence and BIT pass. Capture serial log.", isTestStep: true, testCriteria: "BIT PASS, voltage 27-29V", expectedValue: "PASS", workCenter: "TEST-01", estimatedMinutes: 40, requiresSignOff: true, sortOrder: 6 },
-          { stepNumber: 7, title: "Final Visual & Package", instructions: "Final FOD inspection. Apply serial label and UID. Stage for QA.", workCenter: "ASM-01", estimatedMinutes: 20, requiresSignOff: true, sortOrder: 7 },
+          { stepNumber: 1, title: "Kit Verification", instructions: "Verify all kit components against certified BOM Rev B. Check lot traceability labels.", requiredArea: "MANUFACTURING", workCenter: "ASM-01", estimatedMinutes: 20, requiresSignOff: true, sortOrder: 1 },
+          { stepNumber: 2, title: "Install PCB into Housing", instructions: "Place PCB-2200 into HSG-3100. Torque M3 screws to 0.6 N·m ±0.05. ESD precautions required.", requiredArea: "MANUFACTURING", workCenter: "ASM-01", estimatedMinutes: 45, requiresSignOff: true, sortOrder: 2, drawingLinks: JSON.stringify(["DWG-HSG-3100-A"]) },
+          { stepNumber: 3, title: "Install Connectors", instructions: "Install CON-4400 connectors per MIL-DTL torque spec. Apply threadlocker.", requiredArea: "MANUFACTURING", estimatedMinutes: 30, requiresSignOff: true, sortOrder: 3 },
+          { stepNumber: 4, title: "EMI Gasket Installation", instructions: "Install GASK-5500 ensuring full contact along sealing surface. No gaps >0.1mm.", requiredArea: "MANUFACTURING", estimatedMinutes: 25, requiresSignOff: true, sortOrder: 4 },
+          // Continuity = DMM → QA (general area; default QA station unless locked specific)
+          { stepNumber: 5, title: "Continuity Test", instructions: "Perform pin-to-pin continuity per TP-ASM-1000 with DMM. Record resistance values.", isTestStep: true, testCriteria: "All pins < 0.5 Ω", expectedValue: "<0.5Ω", requiredArea: "QA", workCenter: "QA-01", routeLock: false, estimatedMinutes: 30, requiresSignOff: true, sortOrder: 5 },
+          // Functional = power applied → Test (can lock to a specific TEST cell if needed)
+          { stepNumber: 6, title: "Functional Power-On Test", instructions: "Apply 28V DC. Verify boot sequence and BIT pass. Capture serial log.", isTestStep: true, testCriteria: "BIT PASS, voltage 27-29V", expectedValue: "PASS", requiredArea: "TEST", workCenter: "TEST-01", routeLock: false, estimatedMinutes: 40, requiresSignOff: true, sortOrder: 6 },
+          { stepNumber: 7, title: "Final Visual & Package", instructions: "Final FOD inspection. Apply serial label and UID. Stage for QA.", requiredArea: "MANUFACTURING", estimatedMinutes: 20, requiresSignOff: true, sortOrder: 7 },
         ],
       },
     },
@@ -308,7 +576,8 @@ async function main() {
           { code: "QUAR-01", name: "Quarantine Cage", type: "QUARANTINE" },
           { code: "WIP-ASM", name: "Assembly WIP", type: "WIP" },
           { code: "SHIP-01", name: "Shipping Staging", type: "SHIPPING" },
-          { code: "GFP-01", name: "Government Property Cage", type: "STORAGE" },
+          // GFP area — material instances here are government-owned (P/N is not inherently GFP)
+          { code: "GFP-01", name: "Government Property Cage", type: "GFP" },
         ],
       },
     },
@@ -332,10 +601,74 @@ async function main() {
 
   // ── Suppliers ──────────────────────────────────────────────
   const suppliers = await Promise.all([
-    prisma.supplier.create({ data: { code: "SUP-AERO", name: "AeroConnect Industries", status: "APPROVED", contactName: "Lisa Hart", contactEmail: "lisa@aeroconnect.example", category: "Connectors", onTimeDeliveryPct: 96.5, qualityPpm: 120, costVariancePct: 1.2, overallScore: 94.2, rating: "A" } }),
-    prisma.supplier.create({ data: { code: "SUP-CHIP", name: "SiliconForge Semiconductors", status: "APPROVED", contactName: "Raj Patel", contactEmail: "raj@siliconforge.example", category: "Electronics", onTimeDeliveryPct: 88.0, qualityPpm: 850, costVariancePct: 3.5, overallScore: 82.1, rating: "B" } }),
-    prisma.supplier.create({ data: { code: "SUP-METAL", name: "PrecisionMetals LLC", status: "CONDITIONAL", contactName: "Mike Torres", contactEmail: "mike@pmetals.example", category: "Machined Parts", onTimeDeliveryPct: 72.0, qualityPpm: 4200, costVariancePct: 8.0, overallScore: 68.5, rating: "C" } }),
-    prisma.supplier.create({ data: { code: "SUP-FAST", name: "FastenRight Corp", status: "APPROVED", contactName: "Amy Zhou", contactEmail: "amy@fastenright.example", category: "Hardware", onTimeDeliveryPct: 99.1, qualityPpm: 50, costVariancePct: 0.5, overallScore: 98.0, rating: "A" } }),
+    prisma.supplier.create({
+      data: {
+        code: "SUP-AERO",
+        name: "AeroConnect Industries",
+        status: "APPROVED",
+        isApprovedVendor: true,
+        approvedAt: daysAgo(200),
+        contactName: "Lisa Hart",
+        contactEmail: "lisa@aeroconnect.example",
+        category: "Connectors",
+        onTimeDeliveryPct: 96.5,
+        qualityPpm: 120,
+        costVariancePct: 1.2,
+        overallScore: 94.2,
+        rating: "A",
+      },
+    }),
+    prisma.supplier.create({
+      data: {
+        code: "SUP-CHIP",
+        name: "SiliconForge Semiconductors",
+        status: "APPROVED",
+        isApprovedVendor: true,
+        approvedAt: daysAgo(150),
+        contactName: "Raj Patel",
+        contactEmail: "raj@siliconforge.example",
+        category: "Electronics",
+        onTimeDeliveryPct: 88.0,
+        qualityPpm: 850,
+        costVariancePct: 3.5,
+        overallScore: 82.1,
+        rating: "B",
+      },
+    }),
+    prisma.supplier.create({
+      data: {
+        code: "SUP-METAL",
+        name: "PrecisionMetals LLC",
+        status: "CONDITIONAL",
+        isApprovedVendor: true,
+        approvedAt: daysAgo(60),
+        contactName: "Mike Torres",
+        contactEmail: "mike@pmetals.example",
+        category: "Machined Parts",
+        onTimeDeliveryPct: 72.0,
+        qualityPpm: 4200,
+        costVariancePct: 8.0,
+        overallScore: 68.5,
+        rating: "C",
+      },
+    }),
+    prisma.supplier.create({
+      data: {
+        code: "SUP-FAST",
+        name: "FastenRight Corp",
+        status: "APPROVED",
+        isApprovedVendor: true,
+        approvedAt: daysAgo(300),
+        contactName: "Amy Zhou",
+        contactEmail: "amy@fastenright.example",
+        category: "Hardware",
+        onTimeDeliveryPct: 99.1,
+        qualityPpm: 50,
+        costVariancePct: 0.5,
+        overallScore: 98.0,
+        rating: "A",
+      },
+    }),
   ]);
   const [supAero, supChip, supMetal, supFast] = suppliers;
 
@@ -360,7 +693,78 @@ async function main() {
       });
     }
   }
-  console.log(`  ✓ ${suppliers.length} suppliers + scorecard history`);
+  console.log(`  ✓ ${suppliers.length} suppliers + scorecard history (ASL)`);
+
+  // ── Part vendor catalog (item card vendor lines) ───────────
+  await Promise.all([
+    prisma.partVendor.create({
+      data: {
+        partId: part["CON-4400"].id,
+        supplierId: supAero.id,
+        vendorPartNumber: "ACI-MDTL-38999",
+        vendorDescription: "MIL-DTL circular connector, shell size 17",
+        vendorSku: "SKU-CON-4400-A",
+        manufacturer: "AeroConnect",
+        manufacturerPn: "AC-38999-17",
+        unitCost: 192,
+        leadTimeDays: 45,
+        isPreferred: true,
+      },
+    }),
+    prisma.partVendor.create({
+      data: {
+        partId: part["IC-STM32"].id,
+        supplierId: supChip.id,
+        vendorPartNumber: "STM32H743VIT6",
+        vendorDescription: "STM32H7 MCU LQFP100",
+        vendorSku: "SF-STM32H7",
+        manufacturer: "STMicroelectronics",
+        manufacturerPn: "STM32H743VIT6",
+        unitCost: 19.2,
+        leadTimeDays: 21,
+        isPreferred: true,
+      },
+    }),
+    prisma.partVendor.create({
+      data: {
+        partId: part["RES-0805-10K"].id,
+        supplierId: supChip.id,
+        vendorPartNumber: "RC0805FR-0710KL",
+        vendorDescription: "Thick film 10K 1% 0805",
+        vendorSku: "SF-RES-10K",
+        unitCost: 0.11,
+        leadTimeDays: 14,
+        minOrderQty: 100,
+        isPreferred: true,
+      },
+    }),
+    prisma.partVendor.create({
+      data: {
+        partId: part["SCR-M3-10"].id,
+        supplierId: supFast.id,
+        vendorPartNumber: "FR-M3X10-SS",
+        vendorDescription: "M3x10 stainless pan head",
+        vendorSku: "FAST-M3-10",
+        unitCost: 0.07,
+        leadTimeDays: 7,
+        minOrderQty: 100,
+        isPreferred: true,
+      },
+    }),
+    prisma.partVendor.create({
+      data: {
+        partId: part["GASK-5500"].id,
+        supplierId: supAero.id,
+        vendorPartNumber: "ACI-EMI-GASK-55",
+        vendorDescription: "EMI gasket conductive",
+        vendorSku: "SKU-GASK-55",
+        unitCost: 26,
+        leadTimeDays: 30,
+        isPreferred: true,
+      },
+    }),
+  ]);
+  console.log("  ✓ Part vendor catalog lines (ASL only)");
 
   // ── Purchase Requests → POs → Receipts → Inspection/MRB ────
   const pr1 = await prisma.purchaseRequest.create({
@@ -403,6 +807,10 @@ async function main() {
     },
   });
 
+  const prPolicy = await prisma.approvalPolicy.findFirst({
+    where: { isDefault: true },
+    include: { steps: { orderBy: { stepOrder: "asc" } } },
+  });
   const pr3 = await prisma.purchaseRequest.create({
     data: {
       number: "PR-00003",
@@ -412,6 +820,9 @@ async function main() {
       neededBy: daysFromNow(45),
       justification: "Housing blanks for next lot",
       totalEstimate: 8400,
+      supplierId: supMetal.id,
+      approvalPolicyId: prPolicy?.id,
+      currentStepOrder: 1,
       lines: {
         create: [
           { partId: part["HSG-3100"].id, description: "Aluminum Housing CNC blanks", quantity: 20, estimatedUnitCost: 420 },
@@ -419,6 +830,22 @@ async function main() {
       },
     },
   });
+  // Multi-step approvals: $8400 → buyer + finance (skip admin $25k)
+  if (prPolicy) {
+    for (const step of prPolicy.steps.filter((s) => 8400 >= s.minAmount)) {
+      await prisma.approval.create({
+        data: {
+          entityType: "PurchaseRequest",
+          entityId: pr3.id,
+          stage: step.name,
+          stepOrder: step.stepOrder,
+          minAmount: step.minAmount,
+          policyStepId: step.id,
+          status: "PENDING",
+        },
+      });
+    }
+  }
 
   // PO fully received OK
   const po1 = await prisma.purchaseOrder.create({

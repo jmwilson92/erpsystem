@@ -5,7 +5,10 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatCurrency, formatDate, scoreRatingColor, cn } from "@/lib/utils";
-import { actionRefreshScorecard } from "@/app/actions";
+import {
+  actionRefreshScorecard,
+  actionToggleSupplierAsl,
+} from "@/app/actions";
 import { SupplierTrendChart } from "@/components/suppliers/trend-chart";
 import Link from "next/link";
 
@@ -37,12 +40,32 @@ export default async function SupplierDetailPage({
         title={supplier.name}
         description={`${supplier.code} · ${supplier.category || "General"} · ${supplier.contactEmail || ""}`}
         actions={
-          <form action={actionRefreshScorecard}>
-            <input type="hidden" name="supplierId" value={supplier.id} />
-            <Button type="submit" size="sm" variant="outline">
-              Recalculate Scorecard
-            </Button>
-          </form>
+          <div className="flex flex-wrap gap-2">
+            <form action={actionToggleSupplierAsl}>
+              <input type="hidden" name="supplierId" value={supplier.id} />
+              {supplier.isApprovedVendor ? (
+                <>
+                  <input type="hidden" name="approve" value="false" />
+                  <Button type="submit" size="sm" variant="outline">
+                    Remove from ASL
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <input type="hidden" name="approve" value="on" />
+                  <Button type="submit" size="sm">
+                    Add to ASL
+                  </Button>
+                </>
+              )}
+            </form>
+            <form action={actionRefreshScorecard}>
+              <input type="hidden" name="supplierId" value={supplier.id} />
+              <Button type="submit" size="sm" variant="outline">
+                Recalculate Scorecard
+              </Button>
+            </form>
+          </div>
         }
       />
 
@@ -55,6 +78,16 @@ export default async function SupplierDetailPage({
           <p className="text-xs text-slate-500">Overall score</p>
         </div>
         <StatusBadge status={supplier.status} />
+        {supplier.isApprovedVendor &&
+        (supplier.status === "APPROVED" || supplier.status === "CONDITIONAL") ? (
+          <span className="rounded border border-emerald-500/40 px-2 py-1 text-xs font-medium text-emerald-400">
+            On Approved Supplier List
+          </span>
+        ) : (
+          <span className="rounded border border-amber-500/30 px-2 py-1 text-xs text-amber-400">
+            Not eligible for new POs
+          </span>
+        )}
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">

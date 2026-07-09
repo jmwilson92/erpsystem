@@ -4,7 +4,8 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { actionShipSalesOrder, actionQueueShipment } from "@/app/actions";
+import { actionQueueShipment } from "@/app/actions";
+import { PackShipPanel } from "@/components/shipping/pack-ship-panel";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -29,7 +30,7 @@ export default async function ShippingPage() {
     <div className="space-y-6">
       <PageHeader
         title="Shipping"
-        description="Pull ready sales orders after FG stock — respects early-ship gates"
+        description="Queue → verify packing list → pack with photos → ship (inventory & SO update)"
       />
 
       {readyOrders.length > 0 && (
@@ -67,18 +68,9 @@ export default async function ShippingPage() {
                     <form action={actionQueueShipment}>
                       <input type="hidden" name="salesOrderId" value={so.id} />
                       <Button type="submit" size="sm" variant="outline">
-                        Queue
+                        Queue packing list
                       </Button>
                     </form>
-                    {so.status === "READY_TO_SHIP" && (
-                      <form action={actionShipSalesOrder}>
-                        <input type="hidden" name="salesOrderId" value={so.id} />
-                        {blocked && <input type="hidden" name="force" value="true" />}
-                        <Button type="submit" size="sm" variant={blocked ? "amber" : "default"}>
-                          {blocked ? "Force ship" : "Ship"}
-                        </Button>
-                      </form>
-                    )}
                   </div>
                 </div>
               );
@@ -112,6 +104,7 @@ export default async function ShippingPage() {
               </p>
               <p className="text-xs text-slate-500">
                 {s.shipToAddress} · {s.carrier || "Carrier TBD"}
+                {s.packingListVerified ? " · List verified" : ""}
               </p>
               <ul className="mt-2 space-y-1 text-xs text-slate-400">
                 {s.lines.map((l) => (
@@ -126,13 +119,20 @@ export default async function ShippingPage() {
                   Tracking: {s.trackingNumber}
                 </p>
               )}
-              {s.salesOrder && s.status !== "SHIPPED" && s.salesOrder.status === "READY_TO_SHIP" && (
-                <form action={actionShipSalesOrder} className="mt-3">
-                  <input type="hidden" name="salesOrderId" value={s.salesOrder.id} />
-                  <Button type="submit" size="sm">
-                    Confirm ship
-                  </Button>
-                </form>
+              {s.salesOrder && !["SHIPPED", "DELIVERED"].includes(s.status) && (
+                <PackShipPanel
+                  shipmentId={s.id}
+                  salesOrderId={s.salesOrder.id}
+                  packingListVerified={s.packingListVerified}
+                  status={s.status}
+                  shipToAddress={s.shipToAddress}
+                  lineSummary={s.lines.map(
+                    (l) =>
+                      `${l.description} × ${l.quantity}${
+                        l.lotNumber ? ` · Lot ${l.lotNumber}` : ""
+                      }`
+                  )}
+                />
               )}
             </CardContent>
           </Card>

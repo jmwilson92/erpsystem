@@ -3,6 +3,7 @@
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { createWorkOrder } from "@/lib/services/work-orders";
+import { startPrApprovalWorkflow } from "@/lib/services/pr-approval";
 
 /** Record a genealogical / process event for full traceability. */
 export async function recordTrace(params: {
@@ -64,7 +65,7 @@ export async function getAvailableInventory(partId: string) {
     where: {
       partId,
       quantityAvailable: { gt: 0 },
-      location: { type: { in: ["STORAGE", "SHIPPING"] } },
+      location: { type: { in: ["STORAGE", "SHIPPING", "GFP"] } },
     },
     include: { location: true, part: true },
     orderBy: { updatedAt: "asc" }, // FIFO-ish
@@ -332,15 +333,20 @@ export async function convertQuoteToSalesOrder(params: {
 
 /**
  * Plan fulfillment for every SO line:
- *  - stock check finished goods
+ *  - stock check finished goods (unless bypassStockCheck)
  *  - allocate if available
  *  - else create production WO (BOM + WI + due date schedule)
  *  - material shortage check → PRs for purchasing
+ *  - bypassStockCheck: skip FG allocation and order full BOM qty via PR
  */
 export async function planSalesOrderFulfillment(params: {
   salesOrderId: string;
   userId?: string;
   workCenter?: string;
+  /** Skip finished-goods stock check and treat full line qty as make/buy. */
+  bypassStockCheck?: boolean;
+  /** When planning materials for WOs, PR the full BOM qty (ignore on-hand). */
+  bypassMaterialStockCheck?: boolean;
 }) {
   const so = await prisma.salesOrder.findUnique({
     where: { id: params.salesOrderId },
@@ -394,8 +400,12 @@ export async function planSalesOrderFulfillment(params: {
       }
     }
 
-    const available = await getAvailableQty(line.partId);
-    const allocateQty = Math.min(available, remaining);
+    const available = params.bypassStockCheck
+      ? 0
+      : await getAvailableQty(line.partId);
+    const allocateQty = params.bypassStockCheck
+      ? 0
+      : Math.min(available, remaining);
 
     if (allocateQty > 0) {
       await allocateFinishedGoods({
@@ -446,7 +456,9 @@ export async function planSalesOrderFulfillment(params: {
               requestedById: params.userId,
               department: "Sales",
               neededBy: so.requiredDate || so.shipDate || daysFromNow(14),
-              justification: `Stock short for ${so.number} line — ${line.part?.partNumber}`,
+              justification: params.bypassStockCheck
+                ? `Bypass stock — buy full demand for ${so.number} — ${line.part?.partNumber}`
+                : `Stock short for ${so.number} line — ${line.part?.partNumber}`,
               totalEstimate: makeQty * (line.part?.standardCost || line.unitPrice || 0),
               supplierId: preferred?.id,
               salesOrderId: so.id,
@@ -462,6 +474,10 @@ export async function planSalesOrderFulfillment(params: {
                 ],
               },
             },
+          });
+          await startPrApprovalWorkflow({
+            purchaseRequestId: pr.id,
+            userId: params.userId,
           });
           prNumber = pr.number;
           lineAction = "BUY_SHORT";
@@ -541,6 +557,8 @@ export async function planSalesOrderFulfillment(params: {
         const mat = await planWorkOrderMaterials({
           workOrderId: wo.id,
           userId: params.userId,
+          bypassStockCheck:
+            params.bypassMaterialStockCheck || params.bypassStockCheck,
         });
         prNumber = mat.pr?.number;
         materialShortages = mat.shortages.length;
@@ -553,15 +571,25 @@ export async function planSalesOrderFulfillment(params: {
     }
 
     await recordTrace({
-      eventType: "STOCK_CHECK",
+      eventType: params.bypassStockCheck ? "STOCK_CHECK_BYPASS" : "STOCK_CHECK",
       partId: line.partId,
       quantity: remaining,
       salesOrderId: so.id,
       workOrderId,
-      notes: `Stock check: available ${available}, allocated ${allocateQty}, make ${makeQty}${
-        message ? ` · ${message}` : ""
-      }`,
-      metadata: { available, allocateQty, makeQty, lineAction },
+      notes: params.bypassStockCheck
+        ? `Stock check bypassed — order full demand: make ${makeQty}${
+            message ? ` · ${message}` : ""
+          }`
+        : `Stock check: available ${available}, allocated ${allocateQty}, make ${makeQty}${
+            message ? ` · ${message}` : ""
+          }`,
+      metadata: {
+        available,
+        allocateQty,
+        makeQty,
+        lineAction,
+        bypassStockCheck: !!params.bypassStockCheck,
+      },
       userId: params.userId,
     });
 
@@ -727,18 +755,30 @@ export async function checkBomMaterialAvailability(workOrderId: string) {
 /**
  * Check BOM component availability. Create purchase request for shortages.
  * Sets WO kitStatus + status accordingly.
+ * bypassStockCheck: PR full required qty for every BOM line (ignore on-hand).
  */
 export async function planWorkOrderMaterials(params: {
   workOrderId: string;
   userId?: string;
   supplierId?: string;
+  bypassStockCheck?: boolean;
 }) {
-  const { wo, requirements, allAvailable } = await checkBomMaterialAvailability(
+  const { wo, requirements } = await checkBomMaterialAvailability(
     params.workOrderId
   );
   if (!wo) throw new Error("Work order not found");
 
-  const shortages = requirements.filter((r) => r.short > 0);
+  // When bypassing stock, treat every line as fully short (order full BOM demand)
+  const effectiveRequirements = params.bypassStockCheck
+    ? requirements.map((r) => ({
+        ...r,
+        available: 0,
+        short: r.required,
+      }))
+    : requirements;
+
+  const shortages = effectiveRequirements.filter((r) => r.short > 0);
+  const allAvailable = shortages.length === 0;
 
   let pr: { id: string; number: string } | null = null;
 
@@ -767,10 +807,13 @@ export async function planWorkOrderMaterials(params: {
         requestedById: params.userId,
         department: "Production",
         neededBy: wo.dueDate || wo.plannedEnd || daysFromNow(14),
-        justification: `Material shortage for ${wo.number} traveler / kitting`,
+        justification: params.bypassStockCheck
+          ? `Bypass stock check — order full BOM for ${wo.number} traveler`
+          : `Material shortage for ${wo.number} traveler / kitting`,
         totalEstimate,
         supplierId,
         workOrderId: wo.id,
+        projectId: wo.projectId || undefined,
         salesOrderId: wo.salesOrderId || undefined,
         lines: {
           create: shortages.map((r) => ({
@@ -779,19 +822,31 @@ export async function planWorkOrderMaterials(params: {
             quantity: r.short,
             estimatedUnitCost: r.standardCost,
             uom: r.uom,
-            notes: `Required for WO ${wo.number}`,
+            notes: params.bypassStockCheck
+              ? `Full BOM demand for WO ${wo.number} (stock bypass)`
+              : `Required for WO ${wo.number}`,
           })),
         },
       },
     });
     pr = { id: created.id, number: created.number };
 
+    await startPrApprovalWorkflow({
+      purchaseRequestId: created.id,
+      userId: params.userId,
+    });
+
     await recordTrace({
       eventType: "PR_CREATED",
       workOrderId: wo.id,
       salesOrderId: wo.salesOrderId,
-      notes: `PR ${number} for ${shortages.length} shortage line(s)`,
-      metadata: { shortages: shortages.map((s) => ({ part: s.partNumber, short: s.short })) },
+      notes: `PR ${number} for ${shortages.length} line(s)${
+        params.bypassStockCheck ? " (stock bypass)" : ""
+      }`,
+      metadata: {
+        shortages: shortages.map((s) => ({ part: s.partNumber, short: s.short })),
+        bypassStockCheck: !!params.bypassStockCheck,
+      },
       userId: params.userId,
     });
 
@@ -800,7 +855,11 @@ export async function planWorkOrderMaterials(params: {
       entityId: created.id,
       action: "CREATED_FROM_WO",
       userId: params.userId,
-      metadata: { workOrderId: wo.id, number },
+      metadata: {
+        workOrderId: wo.id,
+        number,
+        bypassStockCheck: !!params.bypassStockCheck,
+      },
     });
   }
 
@@ -823,7 +882,9 @@ export async function planWorkOrderMaterials(params: {
           userId: params.userId,
           notes: allAvailable
             ? "All BOM material available — ready to kit"
-            : `Waiting material — ${shortages.length} shortage(s)${pr ? `, ${pr.number}` : ""}`,
+            : `Waiting material — ${shortages.length} line(s)${pr ? `, ${pr.number}` : ""}${
+                params.bypassStockCheck ? " (stock bypass)" : ""
+              }`,
         },
       },
     },
@@ -836,12 +897,25 @@ export async function planWorkOrderMaterials(params: {
     partId: wo.partId,
     notes: allAvailable
       ? "Material check passed — ready to kit"
-      : `Material short on ${shortages.length} part(s)`,
-    metadata: { requirements, prNumber: pr?.number },
+      : params.bypassStockCheck
+        ? `Stock bypass — PR full BOM (${shortages.length} part(s))`
+        : `Material short on ${shortages.length} part(s)`,
+    metadata: {
+      requirements: effectiveRequirements,
+      prNumber: pr?.number,
+      bypassStockCheck: !!params.bypassStockCheck,
+    },
     userId: params.userId,
   });
 
-  return { requirements, shortages, allAvailable, pr, kitStatus, status };
+  return {
+    requirements: effectiveRequirements,
+    shortages,
+    allAvailable,
+    pr,
+    kitStatus,
+    status,
+  };
 }
 
 /**
@@ -904,14 +978,46 @@ export async function captureReceivingPhotos(params: {
   purchaseOrderId?: string;
   lotNumber?: string;
   captions?: string[];
+  /** Explicit photo payloads (data URLs or paths) from the dock form */
+  photoInputs?: { url: string; caption?: string }[];
   userId?: string;
 }) {
+  const photos = [];
+
+  if (params.photoInputs?.length) {
+    for (const input of params.photoInputs) {
+      const photo = await prisma.receivingPhoto.create({
+        data: {
+          partId: params.partId,
+          receiptId: params.receiptId,
+          receiptLineId: params.receiptLineId,
+          inventoryItemId: params.inventoryItemId,
+          purchaseOrderId: params.purchaseOrderId,
+          lotNumber: params.lotNumber,
+          url: input.url,
+          caption: input.caption || "Receiving photo",
+          takenById: params.userId,
+        },
+      });
+      photos.push(photo);
+    }
+    await recordTrace({
+      eventType: "PHOTO",
+      partId: params.partId,
+      lotNumber: params.lotNumber,
+      purchaseOrderId: params.purchaseOrderId,
+      photoUrls: photos.map((p) => p.url),
+      notes: `Captured ${photos.length} dock photo(s)`,
+      userId: params.userId,
+    });
+    return photos;
+  }
+
   const captions =
     params.captions?.length
       ? params.captions
       : ["Overall package", "Part label / lot", "Visual condition"];
 
-  const photos = [];
   for (let i = 0; i < captions.length; i++) {
     const stamp = Date.now().toString(36);
     const url = `/mock-photos/rcv-${params.lotNumber || stamp}-${i + 1}.jpg`;
@@ -968,9 +1074,11 @@ export async function putAwayInventory(params: {
       where: params.targetLocationCode
         ? { code: params.targetLocationCode }
         : { type: "STORAGE" },
-    })) || (await prisma.location.findFirst({ where: { type: "STORAGE" } }));
+    })) ||
+    (await prisma.location.findFirst({ where: { type: "STORAGE" } })) ||
+    (await prisma.location.findFirst({ where: { type: "GFP" } }));
 
-  if (!storageLoc) throw new Error("No STORAGE location configured");
+  if (!storageLoc) throw new Error("No STORAGE/GFP location configured");
 
   let photoUrls: string[] = [];
   if (params.capturePhotos !== false) {
@@ -988,11 +1096,22 @@ export async function putAwayInventory(params: {
     }
   }
 
+  // GFP area putaway → material is government-owned instance (P/N itself is not GFP)
+  const isGfpArea =
+    storageLoc.type === "GFP" ||
+    storageLoc.code.toUpperCase().startsWith("GFP");
+  const ownership = isGfpArea
+    ? "GOVERNMENT"
+    : item.ownership === "GOVERNMENT"
+      ? "GOVERNMENT"
+      : "COMPANY";
+
   const fromCode = item.location.code;
   const updated = await prisma.inventoryItem.update({
     where: { id: item.id },
     data: {
       locationId: storageLoc.id,
+      ownership,
       // ensure available after putaway (inspection already passed)
       quantityAvailable: item.quantityOnHand - item.quantityCommitted,
     },
@@ -1142,12 +1261,19 @@ export async function createKitOrder(params: {
 export async function completeKitOrder(params: {
   kitOrderId: string;
   userId?: string;
+  /** Optional per-line preferred inventory item / location picks: lineId → inventoryItemId */
+  linePicks?: Record<string, string>;
 }) {
   const kit = await prisma.kitOrder.findUnique({
     where: { id: params.kitOrderId },
     include: {
       lines: { include: { part: true } },
-      workOrder: true,
+      workOrder: {
+        include: {
+          project: true,
+          salesOrder: true,
+        },
+      },
     },
   });
   if (!kit) throw new Error("Kit order not found");
@@ -1157,6 +1283,11 @@ export async function completeKitOrder(params: {
     (await prisma.location.findFirst({ where: { type: "WIP" } })) ||
     (await prisma.location.findFirst({ where: { code: "WIP-01" } })) ||
     (await prisma.location.findFirst({ where: { type: "STORAGE" } }));
+
+  const chargeNumber =
+    kit.workOrder.project?.number ||
+    kit.workOrder.salesOrder?.number ||
+    null;
 
   await prisma.kitOrder.update({
     where: { id: kit.id },
@@ -1169,9 +1300,77 @@ export async function completeKitOrder(params: {
 
   for (const line of kit.lines) {
     let remaining = line.quantityRequired - line.quantityPicked;
-    const items = await getAvailableInventory(line.partId);
+    let items = await getAvailableInventory(line.partId);
+
+    // GFP rules: government stock only if WO charges a project and contract matches
+    const gfpItems = items.filter(
+      (i) =>
+        i.ownership === "GOVERNMENT" ||
+        i.location.type === "GFP" ||
+        i.location.code.toUpperCase().startsWith("GFP")
+    );
+    const companyItems = items.filter(
+      (i) =>
+        !(
+          i.ownership === "GOVERNMENT" ||
+          i.location.type === "GFP" ||
+          i.location.code.toUpperCase().startsWith("GFP")
+        )
+    );
+
+    if (gfpItems.length > 0) {
+      if (!kit.workOrder.projectId) {
+        // Cannot kit GFP without project charge
+        items = companyItems;
+      } else {
+        // Load GFP contract tags for these inventory items
+        const invIds = gfpItems.map((i) => i.id);
+        const props = await prisma.governmentProperty.findMany({
+          where: { inventoryItemId: { in: invIds } },
+        });
+        const propByInv = Object.fromEntries(
+          props
+            .filter((p) => p.inventoryItemId)
+            .map((p) => [p.inventoryItemId!, p])
+        );
+        const allowedGfp = gfpItems.filter((i) => {
+          const p = propByInv[i.id];
+          if (!p?.contractNumber) return false;
+          // Contract / charge number must match project number or free-text match
+          const c = p.contractNumber.toUpperCase();
+          const charge = (chargeNumber || "").toUpperCase();
+          const projName = (kit.workOrder.project?.name || "").toUpperCase();
+          return (
+            c === charge ||
+            c.includes(charge) ||
+            charge.includes(c) ||
+            projName.includes(c) ||
+            c.includes(projName.slice(0, 8))
+          );
+        });
+        if (gfpItems.length && allowedGfp.length === 0 && companyItems.length === 0) {
+          throw new Error(
+            `GFP stock for ${line.part.partNumber} requires a WO project whose contract/charge number matches the government property contract. ` +
+              `WO project: ${kit.workOrder.project?.number || "none"}.`
+          );
+        }
+        items = [...allowedGfp, ...companyItems];
+      }
+    }
+
+    // Preferred pick location/item from UI
+    const preferredId = params.linePicks?.[line.id];
+    if (preferredId) {
+      items = [
+        ...items.filter((i) => i.id === preferredId),
+        ...items.filter((i) => i.id !== preferredId),
+      ];
+    }
+
     let picked = 0;
     let lastLot: string | null = null;
+    let lastLocId: string | null = null;
+    let lastInvId: string | null = null;
 
     for (const item of items) {
       if (remaining <= 0) break;
@@ -1220,6 +1419,8 @@ export async function completeKitOrder(params: {
       });
 
       lastLot = item.lotNumber;
+      lastLocId = item.locationId;
+      lastInvId = item.id;
       picked += take;
       remaining -= take;
     }
@@ -1230,6 +1431,8 @@ export async function completeKitOrder(params: {
         data: {
           quantityPicked: line.quantityPicked + picked,
           lotNumber: lastLot,
+          fromLocationId: lastLocId,
+          inventoryItemId: lastInvId,
           status: "SHORT",
         },
       });
@@ -1260,6 +1463,8 @@ export async function completeKitOrder(params: {
       data: {
         quantityPicked: line.quantityRequired,
         lotNumber: lastLot,
+        fromLocationId: lastLocId,
+        inventoryItemId: lastInvId,
         status: "PICKED",
       },
     });
@@ -1621,6 +1826,57 @@ export async function ensureShipmentForSalesOrder(params: {
   return { shipment, blocked: !shipCheck.ok, reason: shipCheck.reason };
 }
 
+/** Verify packing list before pack/ship. */
+export async function verifyShipmentPackingList(params: {
+  shipmentId: string;
+  userId?: string;
+}) {
+  const s = await prisma.shipment.findUnique({
+    where: { id: params.shipmentId },
+    include: { salesOrder: { include: { lines: true, customer: true } }, lines: true },
+  });
+  if (!s) throw new Error("Shipment not found");
+  if (["SHIPPED", "DELIVERED"].includes(s.status)) {
+    throw new Error("Shipment already shipped");
+  }
+  return prisma.shipment.update({
+    where: { id: s.id },
+    data: {
+      packingListVerified: true,
+      verifiedAt: new Date(),
+      verifiedById: params.userId,
+      status: s.status === "DRAFT" ? "PICKING" : s.status === "PICKING" ? "VERIFIED" : s.status,
+    },
+  });
+}
+
+/** Pack shipment — requires verified packing list + pack photos. */
+export async function packShipment(params: {
+  shipmentId: string;
+  packPhotos: { url: string; fileName?: string; caption?: string }[];
+  userId?: string;
+  notes?: string;
+}) {
+  const s = await prisma.shipment.findUnique({ where: { id: params.shipmentId } });
+  if (!s) throw new Error("Shipment not found");
+  if (!s.packingListVerified) {
+    throw new Error("Verify packing list before packing");
+  }
+  if (!params.packPhotos?.length) {
+    throw new Error("Attach pack photos before marking packed");
+  }
+  return prisma.shipment.update({
+    where: { id: s.id },
+    data: {
+      status: "PACKED",
+      packedAt: new Date(),
+      packedById: params.userId,
+      packPhotos: JSON.stringify(params.packPhotos),
+      notes: params.notes || s.notes,
+    },
+  });
+}
+
 export async function shipSalesOrder(params: {
   salesOrderId: string;
   shipmentId?: string;
@@ -1646,7 +1902,15 @@ export async function shipSalesOrder(params: {
 
   let shipment = params.shipmentId
     ? so.shipments.find((s) => s.id === params.shipmentId)
-    : so.shipments.find((s) => ["DRAFT", "PICKING", "PACKED"].includes(s.status));
+    : so.shipments.find((s) =>
+        ["DRAFT", "PICKING", "VERIFIED", "PACKED"].includes(s.status)
+      );
+
+  if (shipment && shipment.status !== "PACKED" && !params.force) {
+    throw new Error(
+      "Pack the shipment (verify packing list + attach pack photos) before shipping"
+    );
+  }
 
   if (!shipment) {
     const created = await ensureShipmentForSalesOrder({

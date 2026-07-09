@@ -3,10 +3,10 @@ import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, cn } from "@/lib/utils";
 import Link from "next/link";
 import { FloorAutoRefresh } from "@/components/floor/auto-refresh";
-import { cn } from "@/lib/utils";
+import { WorkcenterPanel } from "@/components/workcenters/workcenter-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +18,18 @@ const statusBorder: Record<string, string> = {
   CRITICAL: "border-l-red-500",
 };
 
-export default async function FloorPage() {
+function pick(sp: Record<string, string | string[] | undefined>, key: string) {
+  const v = sp[key];
+  return Array.isArray(v) ? v[0] : v || "";
+}
+
+export default async function FloorPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const sp = await searchParams;
+  const tab = pick(sp, "tab") || "board";
   const data = await getFloorBoardData();
   const progressMap = Object.fromEntries(data.signOffProgress.map((s) => [s.id, s.pct]));
 
@@ -29,6 +40,36 @@ export default async function FloorPage() {
         description="Live visual management — work orders, capacity, WIP, and sign-off progress"
         actions={<FloorAutoRefresh />}
       />
+
+      <div className="flex flex-wrap gap-2 border-b border-slate-800 pb-2">
+        <Link
+          href="/floor"
+          className={cn(
+            "rounded-md px-3 py-1.5 text-sm",
+            tab !== "stations"
+              ? "bg-slate-800 text-slate-50"
+              : "text-slate-400 hover:text-slate-200"
+          )}
+        >
+          Board
+        </Link>
+        <Link
+          href="/floor?tab=stations"
+          className={cn(
+            "rounded-md px-3 py-1.5 text-sm",
+            tab === "stations"
+              ? "bg-slate-800 text-slate-50"
+              : "text-slate-400 hover:text-slate-200"
+          )}
+        >
+          Workcenters &amp; scan
+        </Link>
+      </div>
+
+      {tab === "stations" ? (
+        <WorkcenterPanel area="MANUFACTURING" returnPath="/floor" />
+      ) : (
+        <>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         {[
@@ -136,6 +177,8 @@ export default async function FloorPage() {
           );
         })}
       </div>
+        </>
+      )}
     </div>
   );
 }

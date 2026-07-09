@@ -41,7 +41,16 @@ export function canAccess(role: string, module: string): boolean {
   const matrix: Record<string, string[]> = {
     ENGINEERING: ["bom", "work-instructions", "cm", "engineering", "projects", "dashboard", "sales"],
     CM: ["bom", "work-instructions", "cm", "engineering", "dashboard"],
-    QUALITY: ["quality", "mrb", "inventory", "suppliers", "dashboard", "work-orders"],
+    QUALITY: [
+      "quality",
+      "mrb",
+      "inventory",
+      "suppliers",
+      "dashboard",
+      "work-orders",
+      "test-center",
+      "receiving",
+    ],
     PURCHASING: [
       "purchasing",
       "suppliers",
@@ -61,11 +70,13 @@ export function canAccess(role: string, module: string): boolean {
       "kitting",
       "sales",
       "customers",
+      "test-center",
+      "workcenters",
     ],
     ACCOUNTING: ["accounting", "projects", "dashboard"],
     HR: ["hr", "dashboard"],
-    OPERATOR: ["work-orders", "floor", "dashboard", "kitting"],
-    VIEWER: ["dashboard", "floor", "radiators", "value-stream", "sales"],
+    OPERATOR: ["work-orders", "floor", "dashboard", "kitting", "test-center"],
+    VIEWER: ["dashboard", "floor", "radiators", "value-stream", "sales", "test-center"],
   };
   return matrix[role]?.includes(module) ?? false;
 }

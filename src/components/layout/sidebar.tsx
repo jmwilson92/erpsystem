@@ -48,7 +48,12 @@ const nav = [
     items: [
       { href: "/work-orders", label: "Work Orders", icon: ClipboardList },
       { href: "/work-instructions", label: "Work Instructions", icon: FileText },
-      { href: "/bom", label: "BOM / Parts", icon: Boxes },
+      { href: "/qa", label: "QA", icon: FlaskConical },
+      { href: "/test-center", label: "Test Center", icon: FlaskConical },
+      { href: "/workcenters", label: "Workcenters", icon: Factory },
+      { href: "/items", label: "Items", icon: Package },
+      { href: "/bom", label: "BOMs", icon: Boxes },
+      { href: "/uom", label: "UOM Master", icon: Gauge },
       { href: "/cm", label: "Config Mgmt", icon: GitBranch },
     ],
   },
@@ -59,7 +64,7 @@ const nav = [
       { href: "/customers", label: "Customers", icon: Building2 },
       { href: "/purchasing", label: "Purchasing", icon: ShoppingCart },
       { href: "/receiving", label: "Receiving", icon: PackageCheck },
-      { href: "/suppliers", label: "Suppliers", icon: Award },
+      { href: "/suppliers", label: "Suppliers / ASL", icon: Award },
       { href: "/inventory", label: "Inventory", icon: Package },
       { href: "/kitting", label: "Kitting", icon: Boxes },
       { href: "/shipping", label: "Shipping", icon: Truck },
@@ -68,8 +73,8 @@ const nav = [
   {
     label: "Quality & Compliance",
     items: [
-      { href: "/quality", label: "Quality / NCR", icon: FlaskConical },
-      { href: "/mrb", label: "MRB", icon: Gauge },
+      { href: "/quality", label: "NCR / Quality", icon: FlaskConical },
+      { href: "/mrb", label: "MRB / CAR", icon: Gauge },
       { href: "/government-property", label: "Gov Property", icon: Shield },
     ],
   },

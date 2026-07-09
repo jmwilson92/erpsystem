@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { CompanyLetterhead } from "@/components/sales/document-header";
 import { PoPdfActions } from "@/components/purchasing/po-pdf-button";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { actionClosePurchaseOrder } from "@/app/actions";
 import Link from "next/link";
 import type { PurchaseOrderPdfData } from "@/lib/pdf";
 
@@ -69,6 +70,15 @@ export default async function PoDetailPage({
   };
 
   const traveler = po.receivingTravelers[0];
+  const allLinesReceived =
+    po.lines.length > 0 &&
+    po.lines.every((l) => l.quantityReceived >= l.quantity);
+  const canClosePo =
+    allLinesReceived &&
+    !["CLOSED", "CANCELLED"].includes(po.status) &&
+    ["RECEIVED", "PARTIAL_RECEIPT", "INVOICED", "ISSUED", "ACKNOWLEDGED"].includes(
+      po.status
+    );
 
   return (
     <div className="space-y-6">
@@ -88,6 +98,14 @@ export default async function PoDetailPage({
                   Receiving {traveler.number}
                 </Button>
               </Link>
+            )}
+            {canClosePo && (
+              <form action={actionClosePurchaseOrder}>
+                <input type="hidden" name="purchaseOrderId" value={po.id} />
+                <Button type="submit" size="sm">
+                  Close PO
+                </Button>
+              </form>
             )}
             <PoPdfActions data={pdfData} />
           </div>
@@ -243,10 +261,37 @@ export default async function PoDetailPage({
             ) : (
               "(pending)"
             )}
-            .
+            . Closing the PO is a purchasing action and is done from this page, not the
+            receiving dock.
           </p>
         </CardContent>
       </Card>
+
+      {po.receivingTravelers.length > 0 && (
+        <Card>
+          <CardContent className="space-y-2 p-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Receiving travelers
+            </p>
+            {po.receivingTravelers.map((t) => (
+              <Link
+                key={t.id}
+                href={`/receiving/${t.id}`}
+                className="flex items-center justify-between rounded border border-slate-800 px-3 py-2 text-sm hover:border-teal-700"
+              >
+                <span className="font-mono text-teal-400">{t.number}</span>
+                <StatusBadge status={t.status} />
+              </Link>
+            ))}
+            {canClosePo && (
+              <p className="pt-1 text-xs text-emerald-400/90">
+                All lines fully received — you can close this PO when purchasing is done
+                (invoice match, etc.).
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

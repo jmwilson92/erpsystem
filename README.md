@@ -196,12 +196,16 @@ docker-compose.yml
 
 ```
 Sales Order (required date)
-    → Stock check finished goods
+    → Stock check finished goods  (or Bypass stock → order full demand / full BOM)
         → allocate if available
         → else Work Order (BOM + WI digital traveler, due date schedule)
             → BOM material check
-                → short? auto Purchase Request → Purchasing (approve/convert/receive)
-                → Receive: inspection + photos → putaway to stock
+                → short (or bypass)? auto Purchase Request
+                → PR multi-step approval (threshold policy) → Convert to PO
+                → Receiving traveler on PO issue
+                → Receive: per-line qty (partial OK) + photos + putaway location
+                    → partial? child traveler for remainder
+                    → all lines received → Close PO from receiving
             → Ready to kit → Kit order (travels with WO)
             → Kit complete → Start production → step sign-offs
             → Complete → FG to stock
@@ -211,14 +215,30 @@ Sales Order (required date)
 
 | Route | Role in flow |
 |-------|----------------|
-| `/sales` | Create SO, plan fulfillment, ship gate |
-| `/purchasing` | PR→PO→Receive |
-| `/inventory` | Put away receiving (photos on file) |
+| `/sales` | Create SO, plan fulfillment (optional **bypass stock**), ship gate |
+| `/purchasing` | PR multi-step approve → PO; **keyword search** all POs past/present |
+| `/purchasing/approvals` | Configure PR threshold approvers / steps |
+| `/receiving` | Dock travelers; partial receive, photos, putaway area, child remainders |
+| `/inventory` | Stock by location · lot/serial trace · quarantine |
 | `/kitting` | Create / complete kit for traveler |
-| `/work-orders/[id]` | Digital traveler, material, kit, sign-off, complete |
+| `/work-orders/[id]` | Digital traveler, material (bypass BOM stock), kit, sign-off, complete |
 | `/shipping` | Pull queue & confirm ship |
 
 Every step writes **TraceEvent** + material transactions for genealogy.
+
+### PR approval (configurable)
+
+Default policy (seeded, editable at `/purchasing/approvals`):
+
+1. **Buyer review** — all PRs (role `PURCHASING`)
+2. **Finance / controller** — estimate ≥ $5,000 (`ACCOUNTING`)
+3. **Operations admin** — estimate ≥ $25,000 (`ADMIN`)
+
+Steps below a PR’s dollar amount are skipped. Switch `DEMO_USER_ROLE` to walk steps as different roles; `ADMIN` can always approve.
+
+### Receiving partials
+
+On the traveler, enter only the qty that arrived, attach dock photos, and **must select a stock location**. Material inspects then putaways there. Open remainder spawns a **child traveler**. **Close PO** is enabled only when every line is fully received.
 
 ## Seed scenarios to click through
 

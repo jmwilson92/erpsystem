@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
+import { seedStepAssignments } from "@/lib/services/workcenters";
 
 /**
  * Create Work Order from BOM (certified revision only for PRODUCTION)
@@ -167,6 +168,9 @@ export async function createWorkOrder(params: {
     }
   }
 
+  // Seed step stations from WI routing (area/specific WC) + WO preferred station
+  await seedStepAssignments(wo.id, params.workCenter || wo.workCenter || undefined);
+
   await logAudit({
     entityType: "WorkOrder",
     entityId: wo.id,
@@ -238,8 +242,18 @@ export async function signOffStep(params: {
   userId: string;
   result?: string;
   measuredValue?: string;
+  measureUom?: string;
   notes?: string;
+  /** Tech PIN required to confirm identity */
+  pinCode?: string;
 }) {
+  const user = await prisma.user.findUnique({ where: { id: params.userId } });
+  if (!user) throw new Error("User not found");
+  const expectedPin = user.pinCode || "1234";
+  if (!params.pinCode || params.pinCode.trim() !== expectedPin) {
+    throw new Error("Invalid PIN — sign-off not recorded");
+  }
+
   const completion = await prisma.workOrderStepCompletion.findUnique({
     where: {
       workOrderId_stepId: {
@@ -251,10 +265,22 @@ export async function signOffStep(params: {
   });
   if (!completion) throw new Error("Step completion record not found");
 
+  const step = completion.step;
+  if (step.passFailRequired || step.isTestStep) {
+    if (!params.result || !["PASS", "FAIL"].includes(params.result)) {
+      throw new Error("Pass or Fail required for this step");
+    }
+  }
+  if (step.measureUom && !params.measuredValue?.trim()) {
+    throw new Error(
+      `Measured value required (${step.measureUom}${step.expectedValue ? ` · expect ${step.expectedValue}` : ""})`
+    );
+  }
+
   const status =
     params.result === "FAIL"
       ? "FAILED"
-      : params.result === "PASS" || !completion.step.isTestStep
+      : params.result === "PASS" || !step.isTestStep
         ? "SIGNED"
         : "SIGNED";
 
@@ -262,7 +288,7 @@ export async function signOffStep(params: {
     where: { id: completion.id },
     data: {
       status,
-      result: params.result || (completion.step.isTestStep ? "PASS" : "NA"),
+      result: params.result || (step.isTestStep ? "PASS" : "NA"),
       measuredValue: params.measuredValue,
       notes: params.notes,
       signedById: params.userId,
@@ -274,12 +300,14 @@ export async function signOffStep(params: {
   await prisma.workInstructionSignOff.create({
     data: {
       stepId: params.stepId,
-      workInstructionId: completion.step.workInstructionId,
+      workInstructionId: step.workInstructionId,
       workOrderId: params.workOrderId,
       userId: params.userId,
       result: params.result || "PASS",
       measuredValue: params.measuredValue,
+      measureUom: params.measureUom || step.measureUom || null,
       notes: params.notes,
+      pinVerified: true,
     },
   });
 
@@ -311,7 +339,7 @@ export async function signOffStep(params: {
     }
   }
 
-  // Auto-progress WO if all steps signed
+  // When all steps signed (no fails) → material handler putaway queue
   const remaining = await prisma.workOrderStepCompletion.count({
     where: {
       workOrderId: params.workOrderId,
@@ -323,9 +351,42 @@ export async function signOffStep(params: {
       where: { workOrderId: params.workOrderId, status: "FAILED" },
     });
     if (failed === 0) {
-      const wo = await prisma.workOrder.findUnique({ where: { id: params.workOrderId } });
-      if (wo && wo.status === "IN_PROGRESS") {
-        // leave as IN_PROGRESS for final QA — leadership sees 100% sign-off
+      const wo = await prisma.workOrder.findUnique({
+        where: { id: params.workOrderId },
+      });
+      if (
+        wo &&
+        ["IN_PROGRESS", "RELEASED", "KITTED"].includes(wo.status) &&
+        wo.type !== "TASK_ONLY"
+      ) {
+        const mh =
+          (await prisma.workCenter.findFirst({
+            where: {
+              isActive: true,
+              OR: [
+                { code: { startsWith: "SHIP" } },
+                { code: { startsWith: "MH" } },
+                { department: { contains: "Logistic" } },
+              ],
+            },
+          })) ||
+          (await prisma.workCenter.findFirst({
+            where: { code: "SHIP-01", isActive: true },
+          }));
+        await updateWorkOrderStatus({
+          workOrderId: wo.id,
+          toStatus: "READY_FOR_PUTAWAY",
+          userId: params.userId,
+          notes: `All WI steps complete — route to material handler${
+            mh ? ` (${mh.code})` : ""
+          } for putaway`,
+        });
+        if (mh) {
+          await prisma.workOrder.update({
+            where: { id: wo.id },
+            data: { workCenter: mh.code, department: mh.area || "MANUFACTURING" },
+          });
+        }
       }
     }
   }
@@ -402,11 +463,17 @@ export async function getFloorBoardData() {
       };
     }
     byCenter[center].orders.push(wo);
-    // Rough load estimate from remaining steps
+    // Rough load estimate from remaining steps, WO estimate, or default
     const pending = wo.stepCompletions.filter((s) =>
       ["PENDING", "IN_PROGRESS"].includes(s.status)
     ).length;
-    byCenter[center].loadHours += pending * 0.5 || 2;
+    if (pending > 0) {
+      byCenter[center].loadHours += pending * 0.5;
+    } else if (wo.estimatedMinutes && wo.estimatedMinutes > 0) {
+      byCenter[center].loadHours += wo.estimatedMinutes / 60;
+    } else {
+      byCenter[center].loadHours += wo.type === "INSPECTION" ? 1.5 : 2;
+    }
   }
 
   const wipValue = workOrders.reduce(

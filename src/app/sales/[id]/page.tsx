@@ -58,8 +58,16 @@ export default async function SalesOrderDetailPage({
               </Button>
             </Link>
             {!["SHIPPED", "CLOSED", "CANCELLED"].includes(so.status) && (
-              <form action={actionPlanSalesOrder}>
+              <form action={actionPlanSalesOrder} className="flex flex-wrap items-center gap-2">
                 <input type="hidden" name="salesOrderId" value={so.id} />
+                <label className="flex items-center gap-1.5 rounded border border-slate-700 bg-slate-900/80 px-2 py-1 text-[11px] text-slate-400">
+                  <input
+                    type="checkbox"
+                    name="bypassStockCheck"
+                    className="rounded border-slate-600"
+                  />
+                  Bypass stock — order full BOM / demand
+                </label>
                 <Button type="submit" size="sm" variant="secondary">
                   Plan fulfillment
                 </Button>

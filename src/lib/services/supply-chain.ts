@@ -4,15 +4,23 @@ import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import {
   captureReceivingPhotos,
+  putAwayInventory,
   recordTrace,
   refreshAllWaitingMaterial,
 } from "@/lib/services/order-fulfillment";
+import {
+  routeReceivingLineForInspection,
+  saveReceivingDocuments,
+  type DocType,
+} from "@/lib/services/receiving-inspection";
+import { isGfpLocation } from "@/lib/utils";
 
 /**
  * Core integrated flow:
- * PO Receipt → Inventory + Incoming Inspection → photos →
- *   PASS: hold in RECEIVING until putaway
- *   FAIL: NCR/MRB + Quarantine → Scorecard update
+ * PO Receipt → packing/CoC/certs → photos →
+ *   Part flags GD&T / Functional → TEST-01 queue (defer putaway)
+ *   No flags → putaway to selected stock area
+ *   FAIL → NCR/MRB + Quarantine → Scorecard update
  */
 
 export async function receivePurchaseOrder(params: {
@@ -22,32 +30,133 @@ export async function receivePurchaseOrder(params: {
     quantityReceived: number;
     lotNumber?: string;
     serialNumbers?: string[];
+    /** Per-line photos from dock form */
+    photos?: { url: string; caption?: string }[];
+    visualResult?: "PASS" | "FAIL" | "PENDING";
+    gdtResult?: "PASS" | "FAIL" | "PENDING";
+    functionalResult?: "PASS" | "FAIL" | "PENDING";
+    visualDocs?: { url: string; fileName?: string; caption?: string }[];
+    gdtDocs?: { url: string; fileName?: string; caption?: string }[];
+    functionalDocs?: { url: string; fileName?: string; caption?: string }[];
   }[];
   receivedById?: string;
   packingSlip?: string;
   notes?: string;
   failInspection?: boolean; // demo hook to force inspection failure
+  /** Stock area after pass (or planned putaway when routed to TEST-01). */
+  putawayLocationCode?: string;
+  /** Shared photos applied to every line if line-level photos omitted */
+  photos?: { url: string; caption?: string }[];
+  /** Receipt-level paperwork */
+  packingListDocs?: { url: string; fileName?: string; caption?: string }[];
+  cocDocs?: { url: string; fileName?: string; caption?: string }[];
+  materialCertDocs?: { url: string; fileName?: string; caption?: string }[];
+  /** DD Form 1149 — required when PO or item is government property */
+  dd1149Docs?: { url: string; fileName?: string; caption?: string }[];
+  travelerId?: string;
+  /** Owning government contract (required when material is GFP) */
+  contractNumber?: string;
+  /** Per-line government property numbers keyed by poLineId */
+  govPropNumbers?: Record<string, string>;
 }) {
   const po = await prisma.purchaseOrder.findUnique({
     where: { id: params.purchaseOrderId },
-    include: { lines: true, supplier: true },
+    include: {
+      lines: { include: { part: true } },
+      supplier: true,
+    },
   });
   if (!po) throw new Error("Purchase order not found");
 
+  // Validate quantities — allow partials, never exceed open qty
+  const receiveLines = params.lines.filter((l) => l.quantityReceived > 0);
+  if (receiveLines.length === 0) throw new Error("Nothing to receive — enter qty > 0");
+
+  for (const line of receiveLines) {
+    const poLine = po.lines.find((pl) => pl.id === line.poLineId);
+    if (!poLine) throw new Error(`Unknown PO line ${line.poLineId}`);
+    const open = poLine.quantity - poLine.quantityReceived;
+    if (line.quantityReceived > open + 0.0001) {
+      throw new Error(
+        `Cannot receive ${line.quantityReceived} on "${poLine.description}" — only ${open} open`
+      );
+    }
+  }
+
+  const putawayLoc = params.putawayLocationCode
+    ? await prisma.location.findFirst({
+        where: { code: params.putawayLocationCode },
+      })
+    : null;
+  const travelerRow = params.travelerId
+    ? await prisma.receivingTraveler.findUnique({
+        where: { id: params.travelerId },
+        select: {
+          isGovernmentProperty: true,
+          travelerType: true,
+          purchaseOrderId: true,
+        },
+      })
+    : null;
+
+  // Gov prop ONLY when docked on a GFP receiving traveler (not PO putaway/PO flag)
+  const receivingGovt =
+    !!travelerRow &&
+    (travelerRow.isGovernmentProperty ||
+      travelerRow.travelerType === "CUSTOMER_GFP" ||
+      travelerRow.travelerType === "DIRECT_GFP" ||
+      !travelerRow.purchaseOrderId);
+
+  // Will any line route to QA/TEST? (planned putaway only — stock after tests return to dock)
+  const willRouteInspect = po.lines.some((pl) => {
+    if (!receiveLines.find((l) => l.poLineId === pl.id)) return false;
+    return (
+      !!pl.part?.requiresGdtInspection || !!pl.part?.requiresFunctionalTest
+    );
+  });
+
+  if (!params.failInspection && !willRouteInspect && !params.putawayLocationCode) {
+    throw new Error(
+      "Select a putaway / stocking location before receiving (where is this going?)"
+    );
+  }
+
+  if (receivingGovt && !params.failInspection) {
+    if (!params.dd1149Docs?.length) {
+      throw new Error("DD Form 1149 is required on GFP receiving travelers.");
+    }
+    if (!params.contractNumber?.trim()) {
+      throw new Error(
+        "Contract number is required — which government contract owns this property?"
+      );
+    }
+  }
+
   const receiptCount = await prisma.receipt.count();
   const receiptNumber = `RCV-${String(receiptCount + 1).padStart(5, "0")}`;
+
+  // Determine if this receive is a partial against the full PO
+  const wouldBeFull = po.lines.every((pl) => {
+    const recv = receiveLines.find((l) => l.poLineId === pl.id);
+    const add = recv?.quantityReceived || 0;
+    return pl.quantityReceived + add >= pl.quantity;
+  });
 
   const receipt = await prisma.receipt.create({
     data: {
       number: receiptNumber,
       purchaseOrderId: po.id,
+      travelerId: params.travelerId,
       receivedById: params.receivedById,
       packingSlip: params.packingSlip,
       notes: params.notes,
-      status: "COMPLETE",
+      status: wouldBeFull ? "COMPLETE" : "PARTIAL",
+      dd1149Attached: receivingGovt && (params.dd1149Docs?.length || 0) > 0,
       lines: {
-        create: params.lines.map((l) => {
+        create: receiveLines.map((l) => {
           const poLine = po.lines.find((pl) => pl.id === l.poLineId);
+          // Material ownership from destination / traveler context — not part master
+          const ownership = receivingGovt ? "GOVERNMENT" : "COMPANY";
           return {
             poLineId: l.poLineId,
             partId: poLine?.partId,
@@ -57,6 +166,7 @@ export async function receivePurchaseOrder(params: {
             lotNumber: l.lotNumber,
             serialNumbers: l.serialNumbers ? JSON.stringify(l.serialNumbers) : null,
             unitCost: poLine?.unitCost || 0,
+            ownership,
           };
         }),
       },
@@ -65,7 +175,7 @@ export async function receivePurchaseOrder(params: {
   });
 
   // Update PO line quantities
-  for (const line of params.lines) {
+  for (const line of receiveLines) {
     const poLine = po.lines.find((pl) => pl.id === line.poLineId);
     if (!poLine) continue;
     const newQty = poLine.quantityReceived + line.quantityReceived;
@@ -94,10 +204,27 @@ export async function receivePurchaseOrder(params: {
     (await prisma.location.findFirst());
 
   // Create inventory and inspections for each line
-  const inspectionResults: { inspectionId: string; status: string; ncrId?: string; mrbId?: string }[] = [];
+  const inspectionResults: {
+    inspectionId: string;
+    status: string;
+    ncrId?: string;
+    mrbId?: string;
+    inventoryItemId?: string;
+    routedToTest?: boolean;
+    workOrderId?: string | null;
+  }[] = [];
+  const putAwayItems: string[] = [];
+  const testRouted: string[] = [];
+  let attachedReceiptPaperwork = false;
 
   for (const line of receipt.lines) {
     if (!line.partId || !receivingLoc) continue;
+
+    const poLine = po.lines.find((pl) => pl.id === line.poLineId);
+    const part = poLine?.part;
+    const needsTest =
+      !!part &&
+      (part.requiresGdtInspection || part.requiresFunctionalTest);
 
     const existing = await prisma.inventoryItem.findFirst({
       where: {
@@ -127,15 +254,64 @@ export async function receivePurchaseOrder(params: {
           partId: line.partId,
           locationId: receivingLoc.id,
           quantityOnHand: line.quantityReceived,
-          quantityAvailable: 0, // available only after putaway to STORAGE
+          quantityAvailable: 0, // available only after putaway
           lotNumber: line.lotNumber,
           unitCost: line.unitCost,
-          ownership: "COMPANY",
+          ownership: receivingGovt ? "GOVERNMENT" : "COMPANY",
         },
       });
     }
 
-    // Capture receiving photos (mock paths for demo)
+    // Align ownership with GFP material context (area / traveler / PO — not part master)
+    if (receivingGovt && invItem.ownership !== "GOVERNMENT") {
+      invItem = await prisma.inventoryItem.update({
+        where: { id: invItem.id },
+        data: { ownership: "GOVERNMENT" },
+      });
+    }
+
+    // Assign gov property number + owning contract after GFP receive
+    if (receivingGovt && line.partId && !fail) {
+      const existingGfp = await prisma.governmentProperty.findFirst({
+        where: { inventoryItemId: invItem.id },
+      });
+      if (!existingGfp) {
+        const assetTag = await nextGovPropNumber(
+          line.poLineId
+            ? params.govPropNumbers?.[line.poLineId]
+            : undefined
+        );
+        await prisma.governmentProperty.create({
+          data: {
+            assetTag,
+            description: line.description,
+            partNumber: part?.partNumber,
+            serialNumber: line.lotNumber || undefined,
+            acquisitionCost: line.unitCost * line.quantityReceived,
+            acquisitionDate: new Date(),
+            propertyType: "GFP",
+            classification: "MATERIAL",
+            status: "ACTIVE",
+            contractNumber: params.contractNumber!.trim(),
+            location: putawayLoc?.code || receivingLoc.code,
+            inventoryItemId: invItem.id,
+            condition: "SERVICEABLE",
+            notes: `Received ${receipt.number} / ${po.number} → ${putawayLoc?.code || "GFP"}`,
+            dfarsCompliant: true,
+          },
+        });
+      }
+    }
+
+    const lineParams = receiveLines.find((l) => l.poLineId === line.poLineId);
+    const photoInputs =
+      lineParams?.photos?.length
+        ? lineParams.photos
+        : params.photos?.length
+          ? params.photos
+          : undefined;
+
+    // Capture receiving photos (dock uploads or mock paths)
     const photos = await captureReceivingPhotos({
       partId: line.partId,
       receiptId: receipt.id,
@@ -143,8 +319,61 @@ export async function receivePurchaseOrder(params: {
       inventoryItemId: invItem.id,
       purchaseOrderId: po.id,
       lotNumber: line.lotNumber || undefined,
+      photoInputs,
       userId: params.receivedById,
     });
+
+    // Packing list / CoC / material certifications (once per receipt) + line test docs
+    const paperDocs: {
+      docType: DocType;
+      url: string;
+      fileName?: string;
+      caption?: string;
+    }[] = [];
+    if (!attachedReceiptPaperwork) {
+      for (const d of params.packingListDocs || []) {
+        paperDocs.push({ docType: "PACKING_LIST", ...d });
+      }
+      for (const d of params.cocDocs || []) {
+        paperDocs.push({ docType: "COC", ...d });
+      }
+      for (const d of params.materialCertDocs || []) {
+        paperDocs.push({ docType: "MATERIAL_CERT", ...d });
+      }
+      for (const d of params.dd1149Docs || []) {
+        paperDocs.push({ docType: "DD1149", ...d });
+      }
+      if (
+        (params.packingListDocs?.length || 0) +
+          (params.cocDocs?.length || 0) +
+          (params.materialCertDocs?.length || 0) +
+          (params.dd1149Docs?.length || 0) >
+        0
+      ) {
+        attachedReceiptPaperwork = true;
+      }
+    }
+    for (const d of lineParams?.visualDocs || []) {
+      paperDocs.push({ docType: "VISUAL_DOCS", ...d });
+    }
+    for (const d of lineParams?.gdtDocs || []) {
+      paperDocs.push({ docType: "GDT_DOCS", ...d });
+    }
+    for (const d of lineParams?.functionalDocs || []) {
+      paperDocs.push({ docType: "FUNCTIONAL_TEST", ...d });
+    }
+    if (paperDocs.length) {
+      await saveReceivingDocuments({
+        docs: paperDocs,
+        partId: line.partId,
+        receiptId: receipt.id,
+        receiptLineId: line.id,
+        inventoryItemId: invItem.id,
+        purchaseOrderId: po.id,
+        lotNumber: line.lotNumber || undefined,
+        userId: params.receivedById,
+      });
+    }
 
     await prisma.materialTransaction.create({
       data: {
@@ -158,7 +387,11 @@ export async function receivePurchaseOrder(params: {
         lotNumber: line.lotNumber,
         reference: receipt.number,
         photoUrls: JSON.stringify(photos.map((p) => p.url)),
-        notes: "Received — pending inspection / putaway",
+        notes: fail
+          ? "Received — failed inspection"
+          : needsTest
+            ? `Received — routed to TEST-01 (planned putaway ${params.putawayLocationCode || "TBD"})`
+            : `Received — putaway to ${params.putawayLocationCode || "stock"}`,
         userId: params.receivedById,
       },
     });
@@ -171,77 +404,50 @@ export async function receivePurchaseOrder(params: {
       toLocation: receivingLoc.code,
       purchaseOrderId: po.id,
       photoUrls: photos.map((p) => p.url),
-      notes: `Receipt ${receipt.number}`,
-      userId: params.receivedById,
-    });
-
-    // Create incoming inspection (visual + dimensional + docs; extensible for extra tests)
-    const inspCount = await prisma.inspection.count();
-    const inspNumber = `INSP-${String(inspCount + 1).padStart(5, "0")}`;
-
-    const inspection = await prisma.inspection.create({
-      data: {
-        number: inspNumber,
-        type: "RECEIVING",
-        status: fail ? "FAILED" : "PASSED",
-        partId: line.partId,
-        purchaseOrderId: po.id,
-        inventoryItemId: invItem.id,
-        lotNumber: line.lotNumber,
-        quantity: line.quantityReceived,
-        quantityPassed: fail ? 0 : line.quantityReceived,
-        quantityFailed: fail ? line.quantityReceived : 0,
-        inspectorId: params.receivedById,
-        completedAt: new Date(),
-        notes: fail
-          ? "Dimensional non-conformance detected on receipt"
-          : "Incoming inspection passed — ready for putaway",
-        results: {
-          create: [
-            {
-              characteristic: "Visual",
-              specification: "No damage, correct P/N, photo on file",
-              measuredValue: fail ? "Surface defect" : "OK — photographed",
-              result: fail ? "FAIL" : "PASS",
-            },
-            {
-              characteristic: "Dimensional",
-              specification: "Per drawing",
-              measuredValue: fail ? "Out of tolerance +0.015" : "Within tolerance",
-              result: fail ? "FAIL" : "PASS",
-            },
-            {
-              characteristic: "Documentation",
-              specification: "CoC / packing slip",
-              measuredValue: "Present",
-              result: "PASS",
-            },
-            {
-              characteristic: "Photo documentation",
-              specification: "Receiving photos required",
-              measuredValue: `${photos.length} photo(s)`,
-              result: "PASS",
-            },
-          ],
-        },
-      },
-    });
-
-    await recordTrace({
-      eventType: "INSPECTION",
-      partId: line.partId,
-      lotNumber: line.lotNumber,
-      quantity: line.quantityReceived,
-      purchaseOrderId: po.id,
-      inspectionId: inspection.id,
-      notes: `Receiving inspection ${inspection.number}: ${inspection.status}`,
+      notes: `Receipt ${receipt.number}${wouldBeFull ? "" : " (partial)"}${
+        needsTest ? " · test routing" : ""
+      }`,
       userId: params.receivedById,
     });
 
     let ncrId: string | undefined;
     let mrbId: string | undefined;
+    let primaryInspectionId = "";
+    let routedToTest = false;
+    let workOrderId: string | null = null;
 
     if (fail) {
+      // Hard dock fail (legacy / force fail) — quarantine path, no TEST route
+      const inspCount = await prisma.inspection.count();
+      const inspection = await prisma.inspection.create({
+        data: {
+          number: `INSP-${String(inspCount + 1).padStart(5, "0")}`,
+          type: "RECEIVING",
+          status: "FAILED",
+          partId: line.partId,
+          purchaseOrderId: po.id,
+          receiptId: receipt.id,
+          inventoryItemId: invItem.id,
+          lotNumber: line.lotNumber,
+          quantity: line.quantityReceived,
+          quantityPassed: 0,
+          quantityFailed: line.quantityReceived,
+          inspectorId: params.receivedById,
+          completedAt: new Date(),
+          notes: "Dock fail — dimensional / visual non-conformance",
+          results: {
+            create: [
+              {
+                characteristic: "Visual",
+                specification: "No damage, correct P/N",
+                measuredValue: "Fail at dock",
+                result: "FAIL",
+              },
+            ],
+          },
+        },
+      });
+      primaryInspectionId = inspection.id;
       const result = await createNcrAndMrbFromInspection({
         inspectionId: inspection.id,
         partId: line.partId,
@@ -253,39 +459,543 @@ export async function receivePurchaseOrder(params: {
       });
       ncrId = result.ncrId;
       mrbId = result.mrbId;
+    } else if (needsTest && part) {
+      const routed = await routeReceivingLineForInspection({
+        partId: line.partId,
+        partNumber: part.partNumber,
+        quantity: line.quantityReceived,
+        lotNumber: line.lotNumber,
+        inventoryItemId: invItem.id,
+        purchaseOrderId: po.id,
+        receiptId: receipt.id,
+        receiptLineId: line.id,
+        plannedPutawayCode: params.putawayLocationCode,
+        visualResult: lineParams?.visualResult,
+        gdtResult: lineParams?.gdtResult,
+        functionalResult: lineParams?.functionalResult,
+        userId: params.receivedById,
+      });
+      routedToTest = routed.routedToTest;
+      workOrderId = routed.workOrderId;
+      primaryInspectionId = routed.inspectionIds[0] || "";
+      testRouted.push(invItem.id);
+      // Attach line docs to first inspection if present
+      if (routed.inspectionIds[0] && paperDocs.length) {
+        await prisma.receivingDocument.updateMany({
+          where: {
+            receiptLineId: line.id,
+            inspectionId: null,
+          },
+          data: { inspectionId: routed.inspectionIds[0] },
+        });
+      }
+    } else {
+      // Bypass test WC — standard receiving inspection + putaway
+      const inspCount = await prisma.inspection.count();
+      const inspection = await prisma.inspection.create({
+        data: {
+          number: `INSP-${String(inspCount + 1).padStart(5, "0")}`,
+          type: "RECEIVING",
+          status: "PASSED",
+          partId: line.partId,
+          purchaseOrderId: po.id,
+          receiptId: receipt.id,
+          inventoryItemId: invItem.id,
+          lotNumber: line.lotNumber,
+          quantity: line.quantityReceived,
+          quantityPassed: line.quantityReceived,
+          quantityFailed: 0,
+          inspectorId: params.receivedById,
+          completedAt: new Date(),
+          plannedPutawayCode: params.putawayLocationCode,
+          notes: `Standard receive (no GD&T/functional required) — putaway ${params.putawayLocationCode || ""}`,
+          results: {
+            create: [
+              {
+                characteristic: "Visual",
+                specification: "No damage, correct P/N",
+                measuredValue: "OK",
+                result: "PASS",
+              },
+              {
+                characteristic: "Documentation",
+                specification: "Packing list / CoC / material certs",
+                measuredValue: `${paperDocs.filter((d) =>
+                  ["PACKING_LIST", "COC", "MATERIAL_CERT"].includes(d.docType)
+                ).length} doc(s)`,
+                result: "PASS",
+              },
+              {
+                characteristic: "Photo documentation",
+                specification: "Receiving photos",
+                measuredValue: `${photos.length} photo(s)`,
+                result: photos.length > 0 ? "PASS" : "NA",
+              },
+            ],
+          },
+        },
+      });
+      primaryInspectionId = inspection.id;
+      putAwayItems.push(invItem.id);
+
+      await recordTrace({
+        eventType: "INSPECTION",
+        partId: line.partId,
+        lotNumber: line.lotNumber,
+        quantity: line.quantityReceived,
+        purchaseOrderId: po.id,
+        inspectionId: inspection.id,
+        notes: `Receiving ${inspection.number}: PASSED (test bypass)`,
+        userId: params.receivedById,
+      });
     }
 
     inspectionResults.push({
-      inspectionId: inspection.id,
-      status: inspection.status,
+      inspectionId: primaryInspectionId,
+      status: fail ? "FAILED" : routedToTest ? "PENDING_TEST" : "PASSED",
       ncrId,
       mrbId,
+      inventoryItemId: invItem.id,
+      routedToTest,
+      workOrderId,
     });
   }
 
   await updateSupplierScorecard(po.supplierId);
 
-  // If any WO was waiting on this PO's material (via PR link), re-check after pass
-  // (putaway will also refresh; keep for auto-pass demos that putaway next)
-  if (!params.failInspection) {
-    // leave readiness until putaway — stock not yet in STORAGE
-  } else {
+  // Put away only lines that did NOT route to QA/TEST (they return to dock after pass)
+  if (!params.failInspection && params.putawayLocationCode) {
+    for (const inventoryItemId of putAwayItems) {
+      if (testRouted.includes(inventoryItemId)) continue;
+      await putAwayInventory({
+        inventoryItemId,
+        userId: params.receivedById,
+        capturePhotos: false,
+        targetLocationCode: params.putawayLocationCode,
+      });
+    }
+  } else if (params.failInspection) {
     await refreshAllWaitingMaterial(params.receivedById);
+  }
+
+  // Traveler stays open while in QA/Test
+  if (params.travelerId && testRouted.length > 0) {
+    await prisma.receivingTraveler.update({
+      where: { id: params.travelerId },
+      data: {
+        status: "IN_INSPECTION",
+        notes: undefined, // leave notes
+      },
+    });
   }
 
   await logAudit({
     entityType: "PurchaseOrder",
     entityId: po.id,
-    action: "RECEIVED",
+    action: wouldBeFull ? "RECEIVED" : "PARTIAL_RECEIPT",
     userId: params.receivedById,
     metadata: {
       receiptNumber: receipt.number,
-      lines: params.lines.length,
+      lines: receiveLines.length,
       inspections: inspectionResults,
+      putawayLocationCode: params.putawayLocationCode,
+      partial: !allReceived,
+      routedToInspection: testRouted.length,
+      governmentProperty: receivingGovt,
     },
   });
 
-  return { receipt, poStatus: newStatus, inspections: inspectionResults };
+  return {
+    receipt,
+    poStatus: newStatus,
+    inspections: inspectionResults,
+    allReceived,
+    partial: !allReceived,
+    testRouted: testRouted.length,
+    governmentProperty: receivingGovt,
+    inInspection: testRouted.length > 0,
+  };
+}
+
+/**
+ * Receive against a non-PO customer/GFP traveler (no purchase order).
+ * Always requires DD Form 1149 for government property.
+ */
+async function nextGovPropNumber(preferred?: string) {
+  const tag = preferred?.trim();
+  if (tag) {
+    const clash = await prisma.governmentProperty.findUnique({
+      where: { assetTag: tag },
+    });
+    if (clash) {
+      throw new Error(`Government property number ${tag} is already assigned`);
+    }
+    return tag;
+  }
+  const gfpCount = await prisma.governmentProperty.count();
+  return `GFP-${String(gfpCount + 1).padStart(5, "0")}`;
+}
+
+export async function receiveGfpTraveler(params: {
+  travelerId: string;
+  lines: {
+    travelerLineId: string;
+    quantityReceived: number;
+    lotNumber?: string;
+    govPropNumber?: string;
+    photos?: { url: string; caption?: string }[];
+    visualResult?: "PASS" | "FAIL" | "PENDING";
+    gdtResult?: "PASS" | "FAIL" | "PENDING";
+    functionalResult?: "PASS" | "FAIL" | "PENDING";
+    visualDocs?: { url: string; fileName?: string; caption?: string }[];
+    gdtDocs?: { url: string; fileName?: string; caption?: string }[];
+    functionalDocs?: { url: string; fileName?: string; caption?: string }[];
+  }[];
+  receivedById?: string;
+  packingSlip?: string;
+  notes?: string;
+  putawayLocationCode?: string;
+  photos?: { url: string; caption?: string }[];
+  packingListDocs?: { url: string; fileName?: string; caption?: string }[];
+  cocDocs?: { url: string; fileName?: string; caption?: string }[];
+  materialCertDocs?: { url: string; fileName?: string; caption?: string }[];
+  dd1149Docs?: { url: string; fileName?: string; caption?: string }[];
+  /** Owning government contract */
+  contractNumber?: string;
+}) {
+  const traveler = await prisma.receivingTraveler.findUnique({
+    where: { id: params.travelerId },
+    include: {
+      lines: { include: { part: true } },
+      customer: true,
+    },
+  });
+  // part relation on traveler lines required for QA/Test flags
+  if (!traveler) throw new Error("Receiving traveler not found");
+  if (traveler.purchaseOrderId) {
+    throw new Error("Use standard PO receive for purchase-order travelers");
+  }
+  if (["CLOSED", "COMPLETE"].includes(traveler.status) &&
+      traveler.lines.every((l) => l.quantityReceived >= l.quantity)) {
+    throw new Error("Traveler already complete");
+  }
+
+  const receiveLines = params.lines.filter((l) => l.quantityReceived > 0);
+  if (!receiveLines.length) throw new Error("Nothing to receive");
+
+  for (const line of receiveLines) {
+    const tl = traveler.lines.find((x) => x.id === line.travelerLineId);
+    if (!tl) throw new Error("Unknown traveler line");
+    const open = tl.quantity - tl.quantityReceived;
+    if (line.quantityReceived > open + 0.0001) {
+      throw new Error(
+        `Cannot receive ${line.quantityReceived} on "${tl.description}" — only ${open} open`
+      );
+    }
+  }
+
+  // GFP traveler only — DD1149 + contract required
+  if (!params.dd1149Docs?.length) {
+    throw new Error("DD Form 1149 is required on GFP receiving travelers.");
+  }
+  const contractNumber =
+    params.contractNumber?.trim() || traveler.contractNumber?.trim();
+  if (!contractNumber) {
+    throw new Error(
+      "Contract number is required — which government contract owns this property?"
+    );
+  }
+
+  const willRouteInspect = traveler.lines.some((tl) => {
+    if (!params.lines.find((l) => l.travelerLineId === tl.id && l.quantityReceived > 0))
+      return false;
+    return (
+      !!tl.part?.requiresGdtInspection || !!tl.part?.requiresFunctionalTest
+    );
+  });
+
+  if (!willRouteInspect && !params.putawayLocationCode) {
+    throw new Error("Select putaway destination (GFP area for final stock).");
+  }
+  const putawayLoc = params.putawayLocationCode
+    ? await prisma.location.findFirst({
+        where: { code: params.putawayLocationCode },
+      })
+    : null;
+  if (!willRouteInspect && !isGfpLocation(putawayLoc)) {
+    throw new Error("GFP traveler final putaway must be a GFP area (e.g. GFP-01).");
+  }
+
+  const wouldBeFull = traveler.lines.every((tl) => {
+    const recv = receiveLines.find((l) => l.travelerLineId === tl.id);
+    const add = recv?.quantityReceived || 0;
+    return tl.quantityReceived + add >= tl.quantity;
+  });
+
+  const receiptCount = await prisma.receipt.count();
+  const receipt = await prisma.receipt.create({
+    data: {
+      number: `RCV-${String(receiptCount + 1).padStart(5, "0")}`,
+      travelerId: traveler.id,
+      receivedById: params.receivedById,
+      packingSlip: params.packingSlip,
+      notes: params.notes,
+      status: wouldBeFull ? "COMPLETE" : "PARTIAL",
+      dd1149Attached: (params.dd1149Docs?.length || 0) > 0,
+      lines: {
+        create: receiveLines.map((l) => {
+          const tl = traveler.lines.find((x) => x.id === l.travelerLineId)!;
+          return {
+            travelerLineId: l.travelerLineId,
+            partId: tl.partId,
+            description: tl.description,
+            quantityOrdered: tl.quantity,
+            quantityReceived: l.quantityReceived,
+            lotNumber: l.lotNumber,
+            unitCost: tl.unitCost,
+            ownership: tl.ownership || "GOVERNMENT",
+          };
+        }),
+      },
+    },
+    include: { lines: true },
+  });
+
+  for (const line of receiveLines) {
+    const tl = traveler.lines.find((x) => x.id === line.travelerLineId)!;
+    await prisma.receivingTravelerLine.update({
+      where: { id: tl.id },
+      data: { quantityReceived: tl.quantityReceived + line.quantityReceived },
+    });
+  }
+
+  const receivingLoc =
+    (await prisma.location.findFirst({ where: { type: "RECEIVING" } })) ||
+    (await prisma.location.findFirst());
+  if (!receivingLoc) throw new Error("No receiving location configured");
+
+  // Paperwork once
+  const paperDocs: {
+    docType: DocType;
+    url: string;
+    fileName?: string;
+    caption?: string;
+  }[] = [];
+  for (const d of params.packingListDocs || []) {
+    paperDocs.push({ docType: "PACKING_LIST", ...d });
+  }
+  for (const d of params.cocDocs || []) {
+    paperDocs.push({ docType: "COC", ...d });
+  }
+  for (const d of params.materialCertDocs || []) {
+    paperDocs.push({ docType: "MATERIAL_CERT", ...d });
+  }
+  for (const d of params.dd1149Docs || []) {
+    paperDocs.push({ docType: "DD1149", ...d });
+  }
+
+  const putAwayItems: string[] = [];
+  const testRouted: string[] = [];
+
+  for (const line of receipt.lines) {
+    if (!line.partId) {
+      // Still allow non-catalog GFP description-only with mock inventory skip
+      continue;
+    }
+    const tl = traveler.lines.find((x) => x.id === line.travelerLineId);
+    const part = tl?.part;
+
+    const invItem = await prisma.inventoryItem.create({
+      data: {
+        partId: line.partId,
+        locationId: receivingLoc.id,
+        quantityOnHand: line.quantityReceived,
+        quantityAvailable: 0,
+        lotNumber: line.lotNumber,
+        unitCost: line.unitCost,
+        ownership: "GOVERNMENT",
+      },
+    });
+
+    if (paperDocs.length) {
+      await saveReceivingDocuments({
+        docs: paperDocs,
+        partId: line.partId,
+        receiptId: receipt.id,
+        receiptLineId: line.id,
+        inventoryItemId: invItem.id,
+        lotNumber: line.lotNumber || undefined,
+        userId: params.receivedById,
+      });
+    }
+
+    const lineParams = receiveLines.find(
+      (l) => l.travelerLineId === line.travelerLineId
+    );
+    const photoInputs =
+      lineParams?.photos?.length
+        ? lineParams.photos
+        : params.photos?.length
+          ? params.photos
+          : undefined;
+
+    await captureReceivingPhotos({
+      partId: line.partId,
+      receiptId: receipt.id,
+      receiptLineId: line.id,
+      inventoryItemId: invItem.id,
+      lotNumber: line.lotNumber || undefined,
+      photoInputs,
+      userId: params.receivedById,
+    });
+
+    const assetTag = await nextGovPropNumber(lineParams?.govPropNumber);
+    await prisma.governmentProperty.create({
+      data: {
+        assetTag,
+        description: line.description,
+        partNumber: part?.partNumber,
+        serialNumber: line.lotNumber || undefined,
+        acquisitionCost: line.unitCost * line.quantityReceived,
+        acquisitionDate: new Date(),
+        propertyType: "GFP",
+        classification: "MATERIAL",
+        status: "ACTIVE",
+        contractNumber,
+        custodialCode: traveler.customer?.code,
+        location: putawayLoc?.code || receivingLoc.code,
+        inventoryItemId: invItem.id,
+        condition: "SERVICEABLE",
+        notes: `GFP traveler ${traveler.number} · receipt ${receipt.number}`,
+        dfarsCompliant: true,
+      },
+    });
+
+    // Persist contract on traveler if it was entered at receive
+    if (params.contractNumber?.trim() && !traveler.contractNumber) {
+      await prisma.receivingTraveler.update({
+        where: { id: traveler.id },
+        data: { contractNumber: params.contractNumber.trim() },
+      });
+    }
+
+    await prisma.materialTransaction.create({
+      data: {
+        type: "RECEIPT",
+        partId: line.partId,
+        inventoryItemId: invItem.id,
+        quantity: line.quantityReceived,
+        unitCost: line.unitCost,
+        toLocation: receivingLoc.code,
+        lotNumber: line.lotNumber,
+        reference: receipt.number,
+        notes: `GFP customer receive · ${traveler.number}`,
+        userId: params.receivedById,
+      },
+    });
+
+    const needsTest =
+      !!part &&
+      (part.requiresGdtInspection || part.requiresFunctionalTest);
+
+    if (needsTest && part) {
+      const routed = await routeReceivingLineForInspection({
+        partId: line.partId,
+        partNumber: part.partNumber,
+        quantity: line.quantityReceived,
+        lotNumber: line.lotNumber,
+        inventoryItemId: invItem.id,
+        purchaseOrderId: null,
+        receiptId: receipt.id,
+        receiptLineId: line.id,
+        plannedPutawayCode: params.putawayLocationCode,
+        visualResult: lineParams?.visualResult,
+        gdtResult: lineParams?.gdtResult,
+        functionalResult: lineParams?.functionalResult,
+        userId: params.receivedById,
+      });
+      if (routed.deferPutaway) testRouted.push(invItem.id);
+      else putAwayItems.push(invItem.id);
+    } else {
+      putAwayItems.push(invItem.id);
+      const inspCount = await prisma.inspection.count();
+      await prisma.inspection.create({
+        data: {
+          number: `INSP-${String(inspCount + 1).padStart(5, "0")}`,
+          type: "RECEIVING",
+          status: "PASSED",
+          partId: line.partId,
+          receiptId: receipt.id,
+          inventoryItemId: invItem.id,
+          lotNumber: line.lotNumber,
+          quantity: line.quantityReceived,
+          quantityPassed: line.quantityReceived,
+          inspectorId: params.receivedById,
+          completedAt: new Date(),
+          plannedPutawayCode: params.putawayLocationCode,
+          notes: "GFP customer receive — standard path",
+          results: {
+            create: [
+              {
+                characteristic: "Documentation",
+                specification: "DD1149 required for GFP",
+                measuredValue: "DD1149 on file",
+                result: "PASS",
+              },
+            ],
+          },
+        },
+      });
+    }
+  }
+
+  for (const inventoryItemId of putAwayItems) {
+    if (testRouted.includes(inventoryItemId)) continue;
+    if (!params.putawayLocationCode) continue;
+    await putAwayInventory({
+      inventoryItemId,
+      userId: params.receivedById,
+      capturePhotos: false,
+      targetLocationCode: params.putawayLocationCode,
+    });
+  }
+
+  if (testRouted.length > 0) {
+    await prisma.receivingTraveler.update({
+      where: { id: traveler.id },
+      data: { status: "IN_INSPECTION" },
+    });
+  } else if (wouldBeFull) {
+    await prisma.receivingTraveler.update({
+      where: { id: traveler.id },
+      data: { status: "COMPLETE" },
+    });
+  } else {
+    await prisma.receivingTraveler.update({
+      where: { id: traveler.id },
+      data: { status: "PARTIAL" },
+    });
+  }
+
+  await logAudit({
+    entityType: "ReceivingTraveler",
+    entityId: traveler.id,
+    action: wouldBeFull ? "GFP_RECEIVED" : "GFP_PARTIAL_RECEIPT",
+    userId: params.receivedById,
+    metadata: {
+      receiptNumber: receipt.number,
+      lines: receiveLines.length,
+      dd1149: true,
+      inInspection: testRouted.length > 0,
+    },
+  });
+
+  return {
+    receipt,
+    allReceived: wouldBeFull,
+    partial: !wouldBeFull,
+    inInspection: testRouted.length > 0,
+  };
 }
 
 export async function createNcrAndMrbFromInspection(params: {
@@ -406,6 +1116,29 @@ export async function dispositionMrb(params: {
     ? `CAR-${String((await prisma.mrbDisposition.count()) + 1).padStart(5, "0")}`
     : null;
 
+  const carTitle = carNumber
+    ? `CAR for ${mrb.ncr.number} — ${params.disposition.replace(/_/g, " ")}`
+    : null;
+
+  let reworkWorkOrderId: string | null = null;
+  if (params.disposition === "REWORK" && mrb.ncr.partId) {
+    const { createWorkOrder } = await import("@/lib/services/work-orders");
+    const { getDefaultWorkCenter } = await import("@/lib/services/workcenters");
+    const station = await getDefaultWorkCenter("MANUFACTURING");
+    const wo = await createWorkOrder({
+      type: "REWORK",
+      partId: mrb.ncr.partId,
+      quantity: params.quantity,
+      workCenter: station?.code || "ASM-01",
+      department: "MANUFACTURING",
+      description: `MRB rework — ${mrb.number} / ${mrb.ncr.number}`,
+      travelerNotes: params.justification,
+      createdById: params.decidedById,
+      priority: "HIGH",
+    });
+    reworkWorkOrderId = wo.id;
+  }
+
   const disposition = await prisma.mrbDisposition.create({
     data: {
       mrbCaseId: mrb.id,
@@ -415,6 +1148,14 @@ export async function dispositionMrb(params: {
       decidedById: params.decidedById,
       carNumber,
       carStatus: carNumber ? "OPEN" : null,
+      carTitle,
+      carNotes: carNumber
+        ? `Opened from MRB ${mrb.number}. Disposition: ${params.disposition}. ${params.justification}`
+        : null,
+      carDueDate: carNumber
+        ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+        : null,
+      reworkWorkOrderId,
     },
   });
 
@@ -520,6 +1261,98 @@ export async function dispositionMrb(params: {
   });
 
   return disposition;
+}
+
+export async function updateCar(params: {
+  dispositionId: string;
+  carStatus?: string;
+  carResponse?: string;
+  carNotes?: string;
+  /** Vendor email / acknowledgment files */
+  carAttachments?: { url: string; fileName?: string; caption?: string }[];
+  userId?: string;
+}) {
+  const d = await prisma.mrbDisposition.findUnique({
+    where: { id: params.dispositionId },
+    include: { mrbCase: { include: { ncr: true } } },
+  });
+  if (!d) throw new Error("Disposition not found");
+  if (!d.carNumber) throw new Error("No CAR on this disposition");
+
+  // Terminal status is VERIFIED only (maps to closed). CLOSED not chosen by user.
+  let status = params.carStatus || d.carStatus || "OPEN";
+  if (status === "CLOSED") status = "VERIFIED";
+  const allowed = [
+    "OPEN",
+    "IN_PROGRESS",
+    "RESPONSE_RECEIVED",
+    "VERIFIED",
+  ];
+  if (!allowed.includes(status)) {
+    throw new Error(`Invalid CAR status ${status}`);
+  }
+  const verified = status === "VERIFIED";
+
+  let carAttachments = d.carAttachments;
+  if (params.carAttachments?.length) {
+    const existing: { url: string; fileName?: string; caption?: string }[] =
+      carAttachments ? JSON.parse(carAttachments) : [];
+    carAttachments = JSON.stringify(
+      [...existing, ...params.carAttachments].slice(0, 24)
+    );
+  }
+
+  const updated = await prisma.mrbDisposition.update({
+    where: { id: d.id },
+    data: {
+      carStatus: verified ? "CLOSED" : status, // store CLOSED after verify for reporting
+      ...(params.carResponse !== undefined
+        ? { carResponse: params.carResponse }
+        : {}),
+      ...(params.carNotes !== undefined ? { carNotes: params.carNotes } : {}),
+      ...(carAttachments !== d.carAttachments ? { carAttachments } : {}),
+      carClosedAt: verified ? new Date() : null,
+    },
+  });
+
+  if (verified) {
+    await prisma.mrbCase.update({
+      where: { id: d.mrbCaseId },
+      data: { status: "CLOSED", closedAt: new Date() },
+    });
+    await prisma.nonConformance.update({
+      where: { id: d.mrbCase.ncrId },
+      data: { status: "CLOSED", closedAt: new Date() },
+    });
+  }
+
+  await logAudit({
+    entityType: "MrbDisposition",
+    entityId: d.id,
+    action: verified ? "CAR_VERIFIED_CLOSED" : "CAR_UPDATED",
+    userId: params.userId,
+    metadata: { carNumber: d.carNumber, carStatus: status },
+  });
+
+  return updated;
+}
+
+export async function listOpenCars() {
+  return prisma.mrbDisposition.findMany({
+    where: {
+      carNumber: { not: null },
+      carStatus: { notIn: ["CLOSED", "VERIFIED"] },
+    },
+    include: {
+      mrbCase: {
+        include: {
+          ncr: { include: { part: true, supplier: true } },
+        },
+      },
+      decidedBy: { select: { name: true } },
+    },
+    orderBy: { decidedAt: "desc" },
+  });
 }
 
 export async function updateSupplierScorecard(supplierId: string) {

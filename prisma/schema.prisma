@@ -23,6 +23,8 @@ model User {
   skills        String?  // JSON array
   certifications String? // JSON array with expiry dates
   avatarUrl     String?
+  // Shop-floor sign-off PIN (demo: 4–6 digits). Required on WI step sign-off.
+  pinCode       String?
   isActive      Boolean  @default(true)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -68,7 +70,11 @@ model Approval {
   entityType  String
   entityId    String
   stage       String
-  status      String    @default("PENDING") // PENDING, APPROVED, REJECTED
+  status      String    @default("PENDING") // PENDING, APPROVED, REJECTED, SKIPPED
+  stepOrder   Int       @default(1)
+  minAmount   Float     @default(0)
+  policyStepId String?
+  policyStep  ApprovalPolicyStep? @relation(fields: [policyStepId], references: [id])
   approverId  String?
   approver    User?     @relation(fields: [approverId], references: [id])
   comments    String?
@@ -76,25 +82,112 @@ model Approval {
   createdAt   DateTime  @default(now())
 
   @@index([entityType, entityId])
+  @@index([status, stepOrder])
+}
+
+// Configurable multi-step approval for PRs (threshold-based)
+model ApprovalPolicy {
+  id          String   @id @default(cuid())
+  name        String
+  entityType  String   @default("PurchaseRequest")
+  description String?
+  isActive    Boolean  @default(true)
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  steps       ApprovalPolicyStep[]
+  purchaseRequests PurchaseRequest[]
+}
+
+model ApprovalPolicyStep {
+  id              String @id @default(cuid())
+  policyId        String
+  policy          ApprovalPolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  stepOrder       Int
+  name            String // e.g. Buyer review, Manager, Finance
+  // Step applies when PR totalEstimate >= minAmount (USD)
+  minAmount       Float  @default(0)
+  // Who may approve: role and/or specific user
+  approverRole    String? // PURCHASING, ACCOUNTING, ADMIN, etc.
+  approverUserId  String?
+  required        Boolean @default(true)
+  createdAt       DateTime @default(now())
+
+  approvals       Approval[]
+
+  @@index([policyId, stepOrder])
 }
 
 // ═══════════════════════════════════════════════════════════════
 // PARTS / ITEMS / BOM
 // ═══════════════════════════════════════════════════════════════
 
+// ── UOM master + conversions ─────────────────────────────────
+model UomUnit {
+  id          String  @id @default(cuid())
+  code        String  @unique // EA, LB, KG, FT, IN, GAL, L, ...
+  name        String
+  category    String  @default("COUNT") // COUNT, WEIGHT, LENGTH, VOLUME, TIME, OTHER
+  isActive    Boolean @default(true)
+  sortOrder   Int     @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  parts       Part[]
+  wiSteps     WorkInstructionStep[]
+  conversionsFrom UomConversion[] @relation("FromUom")
+  conversionsTo   UomConversion[] @relation("ToUom")
+}
+
+model UomConversion {
+  id          String @id @default(cuid())
+  fromUomId   String
+  fromUom     UomUnit @relation("FromUom", fields: [fromUomId], references: [id], onDelete: Cascade)
+  toUomId     String
+  toUom       UomUnit @relation("ToUom", fields: [toUomId], references: [id], onDelete: Cascade)
+  // multiply from qty by factor to get to qty (1 FT = 12 IN → factor 12)
+  factor      Float
+  notes       String?
+
+  @@unique([fromUomId, toUomId])
+}
+
 model Part {
   id              String   @id @default(cuid())
   partNumber      String   @unique
   description     String
   revision        String   @default("A")
+  // Display UOM code (synced with uomUnit when set)
   uom             String   @default("EA")
-  partType        String   @default("MAKE") // MAKE, BUY, PHANTOM, ASSEMBLY
+  uomUnitId       String?
+  uomUnit         UomUnit? @relation(fields: [uomUnitId], references: [id])
+  // Legacy + compat: MAKE, BUY, PHANTOM, ASSEMBLY
+  partType        String   @default("MAKE")
+  // PURCHASE → acquire via PO; BUILD → acquire via WO (components may still be purchased)
+  sourcingMethod  String   @default("BUILD") // PURCHASE, BUILD
+  // Structure class (especially for BUILD items)
+  // RAW_MATERIAL | SUB_ASSEMBLY | TOP_LEVEL_ASSEMBLY | N_A
+  itemStructure   String   @default("N_A")
   standardCost    Float    @default(0)
+  lastBuyCost     Float    @default(0) // last PO unit cost
+  averageCost     Float    @default(0) // rolling average
   leadTimeDays    Int      @default(0)
   isSerialized    Boolean  @default(false)
   isLotControlled Boolean  @default(false)
   isActive        Boolean  @default(true)
   drawingNumber   String?
+  // Accounting ledger assignment (choice only — not posted yet)
+  inventoryAccountId String?
+  inventoryAccount   Account? @relation("PartInventoryAccount", fields: [inventoryAccountId], references: [id])
+  expenseAccountId   String?
+  expenseAccount     Account? @relation("PartExpenseAccount", fields: [expenseAccountId], references: [id])
+  cogsAccountId      String?
+  cogsAccount        Account? @relation("PartCogsAccount", fields: [cogsAccountId], references: [id])
+  // Receiving inspection requirements (item card — not BOM)
+  requiresGdtInspection   Boolean @default(false)
+  requiresFunctionalTest  Boolean @default(false)
+  notes           String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -111,7 +204,41 @@ model Part {
   quoteLines      QuoteLine[]
   kitOrderLines   KitOrderLine[]
   receivingPhotos ReceivingPhoto[]
+  receivingDocuments ReceivingDocument[]
+  travelerLines   ReceivingTravelerLine[]
+  vendors         PartVendor[]
   traceEvents     TraceEvent[]
+
+  @@index([sourcingMethod])
+  @@index([itemStructure])
+  @@index([partType])
+  @@index([isActive])
+}
+
+// Vendor catalog lines for purchasable items
+model PartVendor {
+  id              String  @id @default(cuid())
+  partId          String
+  part            Part    @relation(fields: [partId], references: [id], onDelete: Cascade)
+  supplierId      String
+  supplier        Supplier @relation(fields: [supplierId], references: [id])
+  vendorPartNumber String?
+  vendorDescription String?
+  vendorSku       String?
+  manufacturer    String?
+  manufacturerPn  String?
+  unitCost        Float   @default(0)
+  currency        String  @default("USD")
+  minOrderQty     Float   @default(1)
+  leadTimeDays    Int     @default(0)
+  isPreferred     Boolean @default(false)
+  isActive        Boolean @default(true)
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([partId, supplierId, vendorPartNumber])
+  @@index([supplierId])
 }
 
 model BomHeader {
@@ -133,6 +260,7 @@ model BomHeader {
   lines           BomLine[]
   workOrders      WorkOrder[]
   changeRequests  ChangeRequest[]
+  workInstructions WorkInstruction[]
 
   @@unique([partId, revision])
   @@index([status])
@@ -164,12 +292,21 @@ model WorkInstruction {
   status          String   @default("DRAFT") // DRAFT, ENGINEERING_REVIEW, CM_REVIEW, RELEASED, OBSOLETE
   partId          String?
   part            Part?    @relation(fields: [partId], references: [id])
+  // Link to BOM when released (preferred over free-text bomRevision)
+  bomHeaderId     String?
+  bomHeader       BomHeader? @relation(fields: [bomHeaderId], references: [id])
   bomRevision     String?
   workCenter      String?
   estimatedMinutes Int?
   createdById     String?
   createdBy       User?    @relation("WICreator", fields: [createdById], references: [id])
   releasedAt      DateTime?
+  releasedById    String?
+  // Released docs are locked; edits require new revision (supersedes chain)
+  isLocked        Boolean  @default(false)
+  supersedesId    String?
+  supersedes      WorkInstruction?  @relation("WiRevisionChain", fields: [supersedesId], references: [id])
+  supersededBy    WorkInstruction[] @relation("WiRevisionChain")
   notes           String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -181,6 +318,7 @@ model WorkInstruction {
 
   @@unique([documentNumber, revision])
   @@index([status])
+  @@index([bomHeaderId])
 }
 
 model WorkInstructionStep {
@@ -191,11 +329,25 @@ model WorkInstructionStep {
   title               String
   instructions        String  // rich text / markdown
   isTestStep          Boolean @default(false)
+  // Operator must record PASS/FAIL for this step
+  passFailRequired    Boolean @default(false)
   testCriteria        String?
   expectedValue       String?
+  minValue            Float?
+  maxValue            Float?
+  // Measurement unit for recordings (VDC, OHM, etc.) — from UomUnit or free code
+  measureUom          String?
+  measureUomUnitId    String?
+  measureUomUnit      UomUnit? @relation(fields: [measureUomUnitId], references: [id])
+  // Optional cure / dwell time before next step can be signed
+  cureTimeMinutes     Int?
+  // Routing: general area and/or specific workcenter (both optional = free)
+  requiredArea        String?
   workCenter          String?
+  routeLock           Boolean @default(false)
   estimatedMinutes    Int?
-  attachmentUrls      String? // JSON array
+  attachmentUrls      String? // JSON array of photos
+  mediaUrls           String? // JSON array of recordings / videos
   drawingLinks        String? // JSON array
   requiresSignOff     Boolean @default(true)
   sortOrder           Int     @default(0)
@@ -215,7 +367,9 @@ model WorkInstructionSignOff {
   user        User     @relation(fields: [userId], references: [id])
   result      String?  // PASS, FAIL, NA
   measuredValue String?
+  measureUom    String?
   notes       String?
+  pinVerified Boolean  @default(false)
   signedAt    DateTime @default(now())
 }
 
@@ -303,6 +457,8 @@ model WorkOrderStepCompletion {
   status      String   @default("PENDING") // PENDING, IN_PROGRESS, PASSED, FAILED, SKIPPED, SIGNED
   result      String?
   measuredValue String?
+  // Runtime station assignment (coordinator may change unless step.routeLock)
+  assignedWorkCenter String?
   signedById  String?
   signedAt    DateTime?
   notes       String?
@@ -310,6 +466,7 @@ model WorkOrderStepCompletion {
   updatedAt   DateTime @updatedAt
 
   @@unique([workOrderId, stepId])
+  @@index([assignedWorkCenter])
 }
 
 model WorkOrderStatusHistory {
@@ -392,6 +549,7 @@ model Project {
   issues          ProjectIssue[]
   workOrders      WorkOrder[]
   purchaseOrders  PurchaseOrder[]
+  purchaseRequests PurchaseRequest[]
   members         ProjectMember[]
   timeEntries     TimeEntry[]
 }
@@ -486,13 +644,15 @@ model ProjectMember {
 model Inspection {
   id              String   @id @default(cuid())
   number          String   @unique
-  type            String   // RECEIVING, IN_PROCESS, FINAL, VISUAL
+  // RECEIVING, VISUAL, GDT, FUNCTIONAL, IN_PROCESS, FINAL
+  type            String
   status          String   @default("PENDING") // PENDING, IN_PROGRESS, PASSED, FAILED, WAIVED
   partId          String?
   workOrderId     String?
   workOrder       WorkOrder? @relation(fields: [workOrderId], references: [id])
   purchaseOrderId String?
   purchaseOrder   PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
+  receiptId       String?
   inventoryItemId String?
   lotNumber       String?
   serialNumber    String?
@@ -500,6 +660,9 @@ model Inspection {
   quantityPassed  Float    @default(0)
   quantityFailed  Float    @default(0)
   inspectorId     String?
+  workCenter      String?  // e.g. TEST-01 when routed to test
+  // Planned stock location after all receiving tests pass
+  plannedPutawayCode String?
   notes           String?
   completedAt     DateTime?
   createdAt       DateTime @default(now())
@@ -507,6 +670,11 @@ model Inspection {
 
   results         InspectionResult[]
   ncrs            NonConformance[]
+  documents       ReceivingDocument[]
+
+  @@index([status, workCenter])
+  @@index([type, status])
+  @@index([workOrderId])
 }
 
 model InspectionResult {
@@ -576,8 +744,17 @@ model MrbDisposition {
   decidedById     String?
   decidedBy       User?    @relation(fields: [decidedById], references: [id])
   decidedAt       DateTime @default(now())
-  carNumber       String?  // Corrective Action Request
-  carStatus       String?
+  // Corrective Action Request (created at disposition when requested)
+  carNumber       String?
+  carStatus       String?  // OPEN, IN_PROGRESS, RESPONSE_RECEIVED, VERIFIED, CLOSED
+  carTitle        String?
+  carNotes        String?
+  carResponse     String?
+  carDueDate      DateTime?
+  carClosedAt     DateTime?
+  reworkWorkOrderId String? // optional WO created for REWORK disposition
+  // Vendor email / acknowledgment attachments (JSON: [{url,fileName,caption}])
+  carAttachments  String?
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -599,7 +776,8 @@ model Location {
   warehouse   Warehouse @relation(fields: [warehouseId], references: [id])
   code        String
   name        String?
-  type        String @default("STORAGE") // STORAGE, RECEIVING, QUARANTINE, SHIPPING, WIP
+  // STORAGE, RECEIVING, QUARANTINE, SHIPPING, WIP, GFP (gov-furnished property cage / area)
+  type        String @default("STORAGE")
 
   inventoryItems InventoryItem[]
 
@@ -693,7 +871,8 @@ model Supplier {
   id              String  @id @default(cuid())
   code            String  @unique
   name            String
-  status          String  @default("APPROVED") // PROSPECT, APPROVED, CONDITIONAL, DISQUALIFIED
+  // PROSPECT, APPROVED (ASL), CONDITIONAL, DISQUALIFIED — only APPROVED/CONDITIONAL on POs
+  status          String  @default("APPROVED")
   contactName     String?
   contactEmail    String?
   contactPhone    String?
@@ -701,6 +880,10 @@ model Supplier {
   paymentTerms    String  @default("NET30")
   category        String?
   notes           String?
+  // Approved Supplier List flag (must be true + status APPROVED/CONDITIONAL for PO)
+  isApprovedVendor Boolean @default(false)
+  approvedAt      DateTime?
+  approvedById    String?
   // Scorecard metrics (computed/cached)
   onTimeDeliveryPct Float @default(100)
   qualityPpm      Float   @default(0)
@@ -715,6 +898,9 @@ model Supplier {
   ncrs            NonConformance[]
   scorecardHistory SupplierScorecardHistory[]
   rfqs            Rfq[]
+  partVendors     PartVendor[]
+
+  @@index([isApprovedVendor, status])
 }
 
 model SupplierScorecardHistory {
@@ -735,7 +921,8 @@ model SupplierScorecardHistory {
 model PurchaseRequest {
   id              String   @id @default(cuid())
   number          String   @unique
-  status          String   @default("DRAFT") // DRAFT, SUBMITTED, APPROVED, REJECTED, CONVERTED, CANCELLED
+  // DRAFT, SUBMITTED (awaiting approvals), APPROVED, REJECTED, CONVERTED, CANCELLED
+  status          String   @default("DRAFT")
   requestedById   String?
   department      String?
   neededBy        DateTime?
@@ -745,7 +932,16 @@ model PurchaseRequest {
   supplier        Supplier? @relation(fields: [supplierId], references: [id])
   workOrderId     String?
   workOrder       WorkOrder? @relation(fields: [workOrderId], references: [id])
+  projectId       String?
+  project         Project? @relation(fields: [projectId], references: [id])
   salesOrderId    String?
+  // Buyer-confirmed fields before convert
+  buyerConfirmedPrices Boolean @default(false)
+  buyerConfirmedShip   Boolean @default(false)
+  buyerNotes      String?
+  approvalPolicyId String?
+  approvalPolicy  ApprovalPolicy? @relation(fields: [approvalPolicyId], references: [id])
+  currentStepOrder Int     @default(0) // active approval step (0 = none / done)
   approvedById    String?
   approvedAt      DateTime?
   createdAt       DateTime @default(now())
@@ -755,6 +951,7 @@ model PurchaseRequest {
   purchaseOrders  PurchaseOrder[]
 
   @@index([workOrderId])
+  @@index([status])
 }
 
 model PurchaseRequestLine {
@@ -792,6 +989,8 @@ model PurchaseOrder {
   currency        String   @default("USD")
   buyerId         String?
   notes           String?
+  // PO procures government property (GFP/CAP) — requires DD Form 1149 at receive
+  isGovernmentProperty Boolean @default(false)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -806,20 +1005,62 @@ model PurchaseOrder {
   @@index([projectId])
 }
 
-// Created when a PO is issued — dock waits here for material to arrive
+// Created when a PO is issued — dock waits here for material to arrive.
+// Also used for customer/GFP travelers that are NOT on a purchase order.
+// Partial receives create child travelers for the open remainder.
 model ReceivingTraveler {
   id              String   @id @default(cuid())
   number          String   @unique
-  purchaseOrderId String
-  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  // PO = purchase order dock; CUSTOMER_GFP = customer-furnished gov property (no PO); DIRECT_GFP = direct GFP receipt
+  travelerType    String   @default("PO")
+  purchaseOrderId String?
+  purchaseOrder   PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  customerId      String?
+  customer        Customer? @relation(fields: [customerId], references: [id])
+  // Contract / CLIN for GFP accountability
+  contractNumber  String?
+  clin            String?
+  isGovernmentProperty Boolean @default(false)
   status          String   @default("WAITING") // WAITING, PARTIAL, COMPLETE, CLOSED
   expectedDate    DateTime?
   notes           String?
+  shipFromName    String?
+  shipFromAddress String?
+  // Parent/child split when only part of the PO arrives
+  parentId        String?
+  parent          ReceivingTraveler?  @relation("TravelerChildren", fields: [parentId], references: [id])
+  children        ReceivingTraveler[] @relation("TravelerChildren")
+  // Optional snapshot of remaining line qtys at split (JSON: { poLineId, openQty }[])
+  openLinesSnapshot String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
+  lines           ReceivingTravelerLine[]
+  receipts        Receipt[]
+
   @@index([status])
   @@index([purchaseOrderId])
+  @@index([customerId])
+  @@index([parentId])
+  @@index([travelerType])
+}
+
+// Expected lines on a traveler (required for non-PO GFP; optional snapshot for PO)
+model ReceivingTravelerLine {
+  id              String @id @default(cuid())
+  travelerId      String
+  traveler        ReceivingTraveler @relation(fields: [travelerId], references: [id], onDelete: Cascade)
+  partId          String?
+  part            Part?  @relation(fields: [partId], references: [id])
+  description     String
+  quantity        Float
+  quantityReceived Float @default(0)
+  uom             String @default("EA")
+  lineNumber      Int    @default(1)
+  // COMPANY | GOVERNMENT | CUSTOMER
+  ownership       String @default("COMPANY")
+  unitCost        Float  @default(0)
+  notes           String?
 }
 
 model PurchaseOrderLine {
@@ -840,13 +1081,17 @@ model PurchaseOrderLine {
 model Receipt {
   id              String   @id @default(cuid())
   number          String   @unique
-  purchaseOrderId String
-  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  purchaseOrderId String?
+  purchaseOrder   PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
+  travelerId      String?
+  traveler        ReceivingTraveler? @relation(fields: [travelerId], references: [id])
   receivedAt      DateTime @default(now())
   receivedById    String?
   status          String   @default("COMPLETE") // COMPLETE, PARTIAL, DISCREPANCY
   notes           String?
   packingSlip     String?
+  // True when DD1149 was required and attached for government property
+  dd1149Attached  Boolean  @default(false)
 
   lines           ReceiptLine[]
 }
@@ -856,6 +1101,7 @@ model ReceiptLine {
   receiptId       String
   receipt         Receipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
   poLineId        String?
+  travelerLineId  String?
   partId          String?
   description     String
   quantityOrdered Float
@@ -863,6 +1109,7 @@ model ReceiptLine {
   lotNumber       String?
   serialNumbers   String? // JSON
   unitCost        Float   @default(0)
+  ownership       String  @default("COMPANY") // COMPANY, GOVERNMENT, CUSTOMER
 }
 
 model Rfq {
@@ -892,6 +1139,9 @@ model Account {
   balance     Float   @default(0)
 
   journalLines JournalLine[]
+  partsInventory Part[] @relation("PartInventoryAccount")
+  partsExpense   Part[] @relation("PartExpenseAccount")
+  partsCogs      Part[] @relation("PartCogsAccount")
 }
 
 model JournalEntry {
@@ -935,6 +1185,7 @@ model Customer {
   invoices      ArInvoice[]
   salesOrders   SalesOrder[]
   quotes        Quote[]
+  receivingTravelers ReceivingTraveler[]
 }
 
 model ArInvoice {
@@ -1122,11 +1373,17 @@ model Shipment {
   number        String   @unique
   salesOrderId  String?
   salesOrder    SalesOrder? @relation(fields: [salesOrderId], references: [id])
-  status        String   @default("DRAFT") // DRAFT, PICKING, PACKED, SHIPPED, DELIVERED
+  status        String   @default("DRAFT") // DRAFT, PICKING, VERIFIED, PACKED, SHIPPED, DELIVERED
   shipDate      DateTime?
   carrier       String?
   trackingNumber String?
   shipToAddress String?
+  // Packing flow: verify packing list → pack with photos → ship
+  packingListVerified Boolean @default(false)
+  verifiedAt    DateTime?
+  verifiedById  String?
+  packPhotos    String?  // JSON [{url,fileName,caption}]
+  packedAt      DateTime?
   packedById    String?
   notes         String?
   createdAt     DateTime @default(now())
@@ -1170,6 +1427,7 @@ model KitOrderLine {
   quantityRequired Float
   quantityPicked  Float   @default(0)
   inventoryItemId String?
+  fromLocationId  String? // chosen pick location when multiple bins
   lotNumber       String?
   serialNumber    String?
   status          String  @default("OPEN") // OPEN, PICKED, SHORT
@@ -1196,6 +1454,33 @@ model ReceivingPhoto {
   @@index([partId])
   @@index([lotNumber])
   @@index([receiptId])
+}
+
+// Packing lists, CoC, material certs, GD&T / functional test paperwork
+model ReceivingDocument {
+  id              String   @id @default(cuid())
+  // PACKING_LIST, COC, MATERIAL_CERT, DD1149, VISUAL_DOCS, GDT_DOCS, FUNCTIONAL_TEST, OTHER
+  docType         String
+  url             String   // data URL or path
+  fileName        String?
+  caption         String?
+  partId          String?
+  part            Part?    @relation(fields: [partId], references: [id])
+  receiptId       String?
+  receiptLineId   String?
+  inventoryItemId String?
+  purchaseOrderId String?
+  inspectionId    String?
+  inspection      Inspection? @relation(fields: [inspectionId], references: [id])
+  lotNumber       String?
+  uploadedById    String?
+  uploadedAt      DateTime @default(now())
+  createdAt       DateTime @default(now())
+
+  @@index([docType])
+  @@index([receiptId])
+  @@index([inspectionId])
+  @@index([partId])
 }
 
 // End-to-end part genealogy / process history
@@ -1449,12 +1734,22 @@ model ValueStreamMetric {
   @@index([stage, metricKey])
 }
 
+// Plant stations under three modules:
+// MANUFACTURING (build/assembly), QA (inspections/DMM/GD&T), TEST (powered functional)
 model WorkCenter {
   id              String @id @default(cuid())
   code            String @unique
   name            String
+  // MANUFACTURING | QA | TEST
+  area            String @default("MANUFACTURING")
   department      String?
   capacityHoursPerDay Float @default(16)
   efficiency      Float  @default(0.85)
   isActive        Boolean @default(true)
+  isDefault       Boolean @default(false) // default station when routing by area only
+  sortOrder       Int     @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([area, isActive])
 }

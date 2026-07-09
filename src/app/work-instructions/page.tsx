@@ -2,8 +2,10 @@ import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { formatDate } from "@/lib/utils";
 import Link from "next/link";
+import { Plus } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +14,7 @@ export default async function WorkInstructionsPage() {
     orderBy: [{ documentNumber: "asc" }, { revision: "desc" }],
     include: {
       part: true,
+      bomHeader: { include: { part: true } },
       createdBy: true,
       steps: true,
       _count: { select: { workOrderLinks: true } },
@@ -22,7 +25,15 @@ export default async function WorkInstructionsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Work Instructions"
-        description="Version-controlled shop floor instructions with CM approval workflow"
+        description="Authoring → Submit to CM → Released & locked · Update creates a new in-development revision"
+        actions={
+          <Link href="/work-instructions/new">
+            <Button size="sm">
+              <Plus className="mr-1 h-4 w-4" />
+              New WI
+            </Button>
+          </Link>
+        }
       />
 
       <div className="grid gap-3">
@@ -39,15 +50,21 @@ export default async function WorkInstructionsPage() {
                       Rev {wi.revision}
                     </span>
                     <StatusBadge status={wi.status} />
+                    {wi.isLocked && <StatusBadge status="LOCKED" />}
                   </div>
                   <p className="mt-1 text-sm text-slate-200">{wi.title}</p>
                   <p className="text-xs text-slate-500">
                     {wi.part?.partNumber || "General"}
-                    {wi.bomRevision ? ` · BOM Rev ${wi.bomRevision}` : ""}
+                    {wi.bomHeader
+                      ? ` · BOM ${wi.bomHeader.part.partNumber} Rev ${wi.bomHeader.revision}`
+                      : wi.bomRevision
+                        ? ` · BOM Rev ${wi.bomRevision}`
+                        : ""}
                     {` · ${wi.steps.length} steps`}
                     {` · ${wi._count.workOrderLinks} WO links`}
-                    {wi.workCenter ? ` · ${wi.workCenter}` : ""}
-                    {wi.releasedAt ? ` · Released ${formatDate(wi.releasedAt)}` : ""}
+                    {wi.releasedAt
+                      ? ` · Released ${formatDate(wi.releasedAt)}`
+                      : ""}
                   </p>
                 </div>
                 <p className="text-xs text-slate-500">{wi.createdBy?.name}</p>
@@ -55,6 +72,19 @@ export default async function WorkInstructionsPage() {
             </Card>
           </Link>
         ))}
+        {wis.length === 0 && (
+          <Card>
+            <CardContent className="py-10 text-center text-sm text-slate-500">
+              No work instructions.{" "}
+              <Link
+                href="/work-instructions/new"
+                className="text-teal-400 hover:underline"
+              >
+                Create one
+              </Link>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   );

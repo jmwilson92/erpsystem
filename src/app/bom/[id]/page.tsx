@@ -52,6 +52,16 @@ export default async function BomDetailPage({
         description={bom.description || bom.part.description}
         actions={
           <div className="flex flex-wrap gap-2">
+            <Link href={`/items/${bom.partId}`}>
+              <Button type="button" size="sm" variant="outline">
+                Item card
+              </Button>
+            </Link>
+            <Link href="/bom">
+              <Button type="button" size="sm" variant="outline">
+                All BOMs
+              </Button>
+            </Link>
             {["PROTOTYPE", "IN_REVIEW"].includes(bom.status) && (
               <form action={actionCertifyBom}>
                 <input type="hidden" name="bomHeaderId" value={bom.id} />
@@ -138,8 +148,13 @@ export default async function BomDetailPage({
               {bom.lines.map((l) => (
                 <tr key={l.id} className="border-t border-slate-800/60">
                   <td className="py-2 font-mono text-xs text-slate-500">{l.findNumber}</td>
-                  <td className="py-2 font-mono text-teal-400">
-                    {l.componentPart.partNumber}
+                  <td className="py-2 font-mono">
+                    <Link
+                      href={`/items/${l.componentPart.id}`}
+                      className="text-teal-400 hover:underline"
+                    >
+                      {l.componentPart.partNumber}
+                    </Link>
                   </td>
                   <td className="py-2 text-slate-300">{l.componentPart.description}</td>
                   <td className="py-2 text-right tabular-nums">{l.quantity}</td>

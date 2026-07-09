@@ -8,15 +8,18 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { formatDate, formatCurrency } from "@/lib/utils";
 import {
-  actionSignOffStep,
   actionUpdateWoStatus,
   actionPlanWoMaterials,
   actionCreateKit,
   actionCompleteKit,
   actionStartProduction,
   actionCompleteWoToStock,
+  actionReassignWoStation,
+  actionReassignStepStation,
 } from "@/app/actions";
 import { checkBomMaterialAvailability } from "@/lib/services/order-fulfillment";
+import { listWorkCenters } from "@/lib/services/workcenters";
+import { SignOffStepForm } from "@/components/work-orders/sign-off-form";
 import { CheckCircle2, Circle, FlaskConical } from "lucide-react";
 import Link from "next/link";
 
@@ -28,35 +31,44 @@ export default async function WorkOrderDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const wo = await prisma.workOrder.findUnique({
-    where: { id },
-    include: {
-      part: true,
-      bomHeader: { include: { lines: { include: { componentPart: true } } } },
-      assignee: true,
-      createdBy: true,
-      project: true,
-      salesOrder: true,
-      instructions: {
-        include: {
-          workInstruction: {
-            include: { steps: { orderBy: { stepNumber: "asc" } } },
+  const [wo, workCenters] = await Promise.all([
+    prisma.workOrder.findUnique({
+      where: { id },
+      include: {
+        part: true,
+        bomHeader: { include: { lines: { include: { componentPart: true } } } },
+        assignee: true,
+        createdBy: true,
+        project: true,
+        salesOrder: true,
+        instructions: {
+          include: {
+            workInstruction: {
+              include: { steps: { orderBy: { stepNumber: "asc" } } },
+            },
           },
         },
+        stepCompletions: true,
+        statusHistory: { orderBy: { createdAt: "asc" } },
+        ncrs: true,
+        kitOrders: {
+          include: { lines: { include: { part: true } } },
+          orderBy: { createdAt: "desc" },
+        },
+        purchaseRequests: {
+          include: { lines: true },
+          orderBy: { createdAt: "desc" },
+        },
+        materialIssues: { orderBy: { createdAt: "desc" }, take: 30 },
+        traceEvents: { orderBy: { createdAt: "desc" }, take: 40 },
       },
-      stepCompletions: true,
-      statusHistory: { orderBy: { createdAt: "asc" } },
-      ncrs: true,
-      kitOrders: {
-        include: { lines: { include: { part: true } } },
-        orderBy: { createdAt: "desc" },
-      },
-      purchaseRequests: { include: { lines: true }, orderBy: { createdAt: "desc" } },
-      materialIssues: { orderBy: { createdAt: "desc" }, take: 30 },
-      traceEvents: { orderBy: { createdAt: "desc" }, take: 40 },
-    },
-  });
+    }),
+    listWorkCenters({ activeOnly: true }),
+  ]);
   if (!wo) notFound();
+
+  const selectClass =
+    "flex h-8 rounded-md border border-slate-700 bg-slate-950 px-2 text-xs text-slate-200";
 
   const material = await checkBomMaterialAvailability(wo.id);
   const openKit = wo.kitOrders.find((k) =>
@@ -82,8 +94,19 @@ export default async function WorkOrderDetailPage({
         actions={
           <div className="flex flex-wrap gap-2">
             {wo.bomHeader && (
-              <form action={actionPlanWoMaterials}>
+              <form
+                action={actionPlanWoMaterials}
+                className="flex flex-wrap items-center gap-2"
+              >
                 <input type="hidden" name="workOrderId" value={wo.id} />
+                <label className="flex items-center gap-1.5 rounded border border-slate-700 bg-slate-900/80 px-2 py-1 text-[11px] text-slate-400">
+                  <input
+                    type="checkbox"
+                    name="bypassStockCheck"
+                    className="rounded border-slate-600"
+                  />
+                  Bypass stock — PR full BOM
+                </label>
                 <Button type="submit" size="sm" variant="outline">
                   Check material / create PRs
                 </Button>
@@ -206,12 +229,45 @@ export default async function WorkOrderDetailPage({
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-4">
-            <p className="text-xs text-slate-500">Qty / Center</p>
+          <CardContent className="space-y-2 p-4">
+            <p className="text-xs text-slate-500">Qty / Station</p>
             <p className="font-medium text-slate-200">
-              {wo.quantityCompleted}/{wo.quantity} · {wo.workCenter || "—"}
+              {wo.quantityCompleted}/{wo.quantity} ·{" "}
+              <span className="font-mono text-teal-400">{wo.workCenter || "—"}</span>
             </p>
             <p className="text-xs text-slate-500">{wo.assignee?.name || "Unassigned"}</p>
+            <form action={actionReassignWoStation} className="flex flex-wrap items-end gap-1">
+              <input type="hidden" name="workOrderId" value={wo.id} />
+              <select
+                name="workCenterCode"
+                className={selectClass}
+                defaultValue={wo.workCenter || ""}
+                required
+              >
+                <option value="" disabled>
+                  Route to…
+                </option>
+                {["MANUFACTURING", "QA", "TEST"].map((area) => (
+                  <optgroup key={area} label={area}>
+                    {workCenters
+                      .filter((c) => c.area === area)
+                      .map((c) => (
+                        <option key={c.id} value={c.code}>
+                          {c.code} — {c.name}
+                          {c.isDefault ? " ★" : ""}
+                        </option>
+                      ))}
+                  </optgroup>
+                ))}
+              </select>
+              <label className="flex items-center gap-1 text-[10px] text-slate-500">
+                <input type="checkbox" name="force" className="rounded border-slate-600" />
+                Force
+              </label>
+              <Button type="submit" size="sm" variant="secondary">
+                Move WO
+              </Button>
+            </form>
           </CardContent>
         </Card>
         <Card>
@@ -224,16 +280,50 @@ export default async function WorkOrderDetailPage({
             </p>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-xs text-slate-500">WI Sign-off Progress</p>
-            <p className="font-medium text-teal-400">{pct}%</p>
-            <Progress value={pct} className="mt-2 h-1.5" />
-            <p className="mt-1 text-xs text-slate-500">
-              Cost {formatCurrency(wo.actualCost)} / {formatCurrency(wo.standardCost)}
-            </p>
-          </CardContent>
-        </Card>
+        {wo.type !== "TASK_ONLY" && total > 0 ? (
+          <Card>
+            <CardContent className="p-4">
+              <p className="text-xs text-slate-500">WI sign-off progress</p>
+              <p className="font-medium text-teal-400">{pct}%</p>
+              <Progress value={pct} className="mt-2 h-1.5" />
+              <p className="mt-1 text-[10px] text-slate-600">
+                {done}/{total} steps signed
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          <Card>
+            <CardContent className="p-4">
+              <p className="text-xs text-slate-500">
+                {wo.type === "TASK_ONLY" ? "Task order" : "WI steps"}
+              </p>
+              <p className="text-sm text-slate-400">
+                {wo.type === "TASK_ONLY"
+                  ? "No BOM progress for task-only WOs"
+                  : "No WI steps attached"}
+              </p>
+            </CardContent>
+          </Card>
+        )}
+        {wo.type !== "TASK_ONLY" && (
+          <Card>
+            <CardContent className="p-4">
+              <p className="text-xs text-slate-500">Standard cost (BOM roll-up)</p>
+              <p className="font-medium text-slate-200">
+                {formatCurrency(wo.standardCost || 0)}
+              </p>
+              {(wo.actualCost || 0) > 0 ? (
+                <p className="mt-1 text-xs text-slate-500">
+                  Actual labor/material {formatCurrency(wo.actualCost)}
+                </p>
+              ) : (
+                <p className="mt-1 text-[10px] text-slate-600">
+                  Actual cost updates as time &amp; materials post
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* Material readiness */}
@@ -380,6 +470,12 @@ export default async function WorkOrderDetailPage({
                         </span>
                         <span className="font-medium text-slate-200">{step.title}</span>
                         {step.isTestStep && <StatusBadge status="TEST" />}
+                        {step.requiredArea && (
+                          <StatusBadge status={step.requiredArea} />
+                        )}
+                        {step.routeLock && (
+                          <span className="text-[10px] text-amber-500">locked</span>
+                        )}
                         {comp && <StatusBadge status={comp.status} />}
                       </div>
                       <p className="mt-1 text-sm text-slate-400">{step.instructions}</p>
@@ -387,6 +483,46 @@ export default async function WorkOrderDetailPage({
                         <p className="mt-1 text-xs text-amber-400/80">
                           Criteria: {step.testCriteria} · Expected: {step.expectedValue}
                         </p>
+                      )}
+                      {comp && (
+                        <form
+                          action={actionReassignStepStation}
+                          className="mt-2 flex flex-wrap items-center gap-1"
+                        >
+                          <input type="hidden" name="workOrderId" value={wo.id} />
+                          <input type="hidden" name="stepId" value={step.id} />
+                          <span className="text-[10px] uppercase text-slate-600">
+                            Station
+                          </span>
+                          <select
+                            name="workCenterCode"
+                            className={selectClass}
+                            defaultValue={
+                              comp.assignedWorkCenter ||
+                              step.workCenter ||
+                              wo.workCenter ||
+                              ""
+                            }
+                            required
+                          >
+                            {workCenters.map((c) => (
+                              <option key={c.id} value={c.code}>
+                                {c.code} ({c.area})
+                              </option>
+                            ))}
+                          </select>
+                          <label className="flex items-center gap-1 text-[10px] text-slate-500">
+                            <input
+                              type="checkbox"
+                              name="force"
+                              className="rounded border-slate-600"
+                            />
+                            Force
+                          </label>
+                          <Button type="submit" size="sm" variant="ghost">
+                            Route step
+                          </Button>
+                        </form>
                       )}
                       {signed && (
                         <p className="mt-1 text-xs text-emerald-500/80">
@@ -396,43 +532,16 @@ export default async function WorkOrderDetailPage({
                       )}
 
                       {!signed && !failed && canSign && (
-                        <form
-                          action={actionSignOffStep}
-                          className="mt-3 flex flex-wrap items-end gap-2"
-                        >
-                          <input type="hidden" name="workOrderId" value={wo.id} />
-                          <input type="hidden" name="stepId" value={step.id} />
-                          {step.isTestStep && (
-                            <>
-                              <div>
-                                <label className="text-[10px] text-slate-500">Measured</label>
-                                <Input
-                                  name="measuredValue"
-                                  placeholder="Value"
-                                  className="h-8 w-28"
-                                  defaultValue={step.expectedValue || ""}
-                                />
-                              </div>
-                              <div>
-                                <label className="text-[10px] text-slate-500">Result</label>
-                                <select
-                                  name="result"
-                                  className="flex h-8 rounded-md border border-slate-700 bg-slate-950 px-2 text-sm"
-                                  defaultValue="PASS"
-                                >
-                                  <option value="PASS">PASS</option>
-                                  <option value="FAIL">FAIL</option>
-                                </select>
-                              </div>
-                            </>
-                          )}
-                          {!step.isTestStep && (
-                            <input type="hidden" name="result" value="PASS" />
-                          )}
-                          <Button type="submit" size="sm">
-                            Sign Off
-                          </Button>
-                        </form>
+                        <div className="mt-3 max-w-sm">
+                          <SignOffStepForm
+                            workOrderId={wo.id}
+                            stepId={step.id}
+                            isTestStep={step.isTestStep}
+                            passFailRequired={step.passFailRequired}
+                            measureUom={step.measureUom}
+                            expectedValue={step.expectedValue}
+                          />
+                        </div>
                       )}
                     </div>
                   </div>

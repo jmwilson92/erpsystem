@@ -180,3 +180,117 @@ export async function whereUsed(partId: string) {
     },
   });
 }
+
+/** Create or revise a BOM for an item (item card BOM tab). */
+export async function createOrLinkBom(params: {
+  partId: string;
+  revision: string;
+  description?: string;
+  asPrototype?: boolean;
+  copyFromBomId?: string;
+  userId?: string;
+}) {
+  return createBomRevision({
+    partId: params.partId,
+    revision: params.revision.trim().toUpperCase(),
+    description: params.description,
+    asPrototype: params.asPrototype,
+    fromBomId: params.copyFromBomId,
+    userId: params.userId,
+  });
+}
+
+export async function addBomLine(params: {
+  bomHeaderId: string;
+  componentPartId: string;
+  quantity: number;
+  findNumber?: string;
+  notes?: string;
+  userId?: string;
+}) {
+  const bom = await prisma.bomHeader.findUnique({
+    where: { id: params.bomHeaderId },
+    include: { lines: true },
+  });
+  if (!bom) throw new Error("BOM not found");
+  if (["CERTIFIED", "OBSOLETE"].includes(bom.status)) {
+    throw new Error("Cannot edit certified or obsolete BOMs — create a new revision");
+  }
+  if (params.componentPartId === bom.partId) {
+    throw new Error("BOM cannot include itself as a component");
+  }
+  if (!(params.quantity > 0)) throw new Error("Quantity must be > 0");
+
+  const maxSort = bom.lines.reduce((m, l) => Math.max(m, l.sortOrder), 0);
+  const line = await prisma.bomLine.create({
+    data: {
+      bomHeaderId: params.bomHeaderId,
+      componentPartId: params.componentPartId,
+      quantity: params.quantity,
+      findNumber: params.findNumber || null,
+      notes: params.notes || null,
+      sortOrder: maxSort + 1,
+    },
+    include: { componentPart: true },
+  });
+
+  await logAudit({
+    entityType: "BomHeader",
+    entityId: params.bomHeaderId,
+    action: "LINE_ADDED",
+    userId: params.userId,
+    metadata: {
+      componentPartId: params.componentPartId,
+      quantity: params.quantity,
+    },
+  });
+  return line;
+}
+
+export async function updateBomLine(params: {
+  bomLineId: string;
+  quantity?: number;
+  findNumber?: string | null;
+  notes?: string | null;
+  userId?: string;
+}) {
+  const line = await prisma.bomLine.findUnique({
+    where: { id: params.bomLineId },
+    include: { bomHeader: true },
+  });
+  if (!line) throw new Error("BOM line not found");
+  if (["CERTIFIED", "OBSOLETE"].includes(line.bomHeader.status)) {
+    throw new Error("Cannot edit certified or obsolete BOMs — create a new revision");
+  }
+
+  return prisma.bomLine.update({
+    where: { id: params.bomLineId },
+    data: {
+      ...(params.quantity !== undefined ? { quantity: params.quantity } : {}),
+      ...(params.findNumber !== undefined ? { findNumber: params.findNumber } : {}),
+      ...(params.notes !== undefined ? { notes: params.notes } : {}),
+    },
+  });
+}
+
+export async function removeBomLine(params: {
+  bomLineId: string;
+  userId?: string;
+}) {
+  const line = await prisma.bomLine.findUnique({
+    where: { id: params.bomLineId },
+    include: { bomHeader: true },
+  });
+  if (!line) throw new Error("BOM line not found");
+  if (["CERTIFIED", "OBSOLETE"].includes(line.bomHeader.status)) {
+    throw new Error("Cannot edit certified or obsolete BOMs — create a new revision");
+  }
+  await prisma.bomLine.delete({ where: { id: params.bomLineId } });
+  await logAudit({
+    entityType: "BomHeader",
+    entityId: line.bomHeaderId,
+    action: "LINE_REMOVED",
+    userId: params.userId,
+    metadata: { bomLineId: params.bomLineId },
+  });
+}

@@ -156,3 +156,12 @@ export function parseJsonArray<T = string>(value: string | null | undefined): T[
 export function slugify(s: string) {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 }
+
+/** True when a location is a GFP cage / government property area. */
+export function isGfpLocation(
+  loc: { type: string; code?: string } | null | undefined
+): boolean {
+  if (!loc) return false;
+  if (loc.type === "GFP") return true;
+  return (loc.code || "").toUpperCase().startsWith("GFP");
+}

@@ -2,7 +2,13 @@ import { PrismaClient } from "@prisma/client";
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import path from "path";
 
-const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
+// Bump when Prisma schema fields change so HMR does not keep a stale client.
+const PRISMA_CLIENT_EPOCH = "wi-cm-ship-kit-v1";
+
+const globalForPrisma = globalThis as unknown as {
+  prisma?: PrismaClient;
+  prismaEpoch?: string;
+};
 
 function createPrismaClient() {
   // Prefer DATABASE_URL; default matches prisma seed / .env
@@ -20,6 +26,23 @@ function createPrismaClient() {
   return new PrismaClient({ adapter });
 }
 
-export const prisma = globalForPrisma.prisma || createPrismaClient();
+function getPrisma() {
+  if (
+    globalForPrisma.prisma &&
+    globalForPrisma.prismaEpoch === PRISMA_CLIENT_EPOCH
+  ) {
+    return globalForPrisma.prisma;
+  }
+  // Drop stale client after schema regenerate (dev HMR / Turbopack)
+  if (globalForPrisma.prisma) {
+    void globalForPrisma.prisma.$disconnect().catch(() => undefined);
+  }
+  const client = createPrismaClient();
+  if (process.env.NODE_ENV !== "production") {
+    globalForPrisma.prisma = client;
+    globalForPrisma.prismaEpoch = PRISMA_CLIENT_EPOCH;
+  }
+  return client;
+}
 
-if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+export const prisma = getPrisma();
