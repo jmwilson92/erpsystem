@@ -192,16 +192,45 @@ docker-compose.yml
 
 ---
 
+## Order-to-ship fulfillment flow
+
+```
+Sales Order (required date)
+    → Stock check finished goods
+        → allocate if available
+        → else Work Order (BOM + WI digital traveler, due date schedule)
+            → BOM material check
+                → short? auto Purchase Request → Purchasing (approve/convert/receive)
+                → Receive: inspection + photos → putaway to stock
+            → Ready to kit → Kit order (travels with WO)
+            → Kit complete → Start production → step sign-offs
+            → Complete → FG to stock
+    → READY_TO_SHIP (respects allowEarlyShip / shipNotBefore)
+    → Shipping pull & ship (inventory + lot/serial trace)
+```
+
+| Route | Role in flow |
+|-------|----------------|
+| `/sales` | Create SO, plan fulfillment, ship gate |
+| `/purchasing` | PR→PO→Receive |
+| `/inventory` | Put away receiving (photos on file) |
+| `/kitting` | Create / complete kit for traveler |
+| `/work-orders/[id]` | Digital traveler, material, kit, sign-off, complete |
+| `/shipping` | Pull queue & confirm ship |
+
+Every step writes **TraceEvent** + material transactions for genealogy.
+
 ## Seed scenarios to click through
 
-1. **BOM** `ASM-1000` Rev C **PROTOTYPE** → create Prototype WO → **Certify** after FAI story  
-2. **WO-00001** traveler → sign remaining test steps on the floor  
-3. **PO-00003** → **Receive (Fail → MRB)** → dispose on **MRB** page → watch **supplier** score move  
-4. **Value Stream** — MRB stage shows **constraint** while holds open  
-5. **Projects** `PRJ-AERO-01` — SPI/CPI and linked WOs  
-6. **CM** `ECR-00001` — cast board votes  
-7. **Radiators** — full-screen plant board  
-8. **AI** — “Summarize open MRB cases”
+1. **Sales** `SO-00002` → **Plan fulfillment** → WO + shortage PR → approve/convert/receive → **Put away** on Inventory → **Kitting** → start production → complete → ship  
+2. **BOM** `ASM-1000` Rev C **PROTOTYPE** → create Prototype WO → **Certify** after FAI story  
+3. **WO-00001** traveler → sign remaining test steps on the floor  
+4. **PO-00003** → **Receive (Fail → MRB)** → dispose on **MRB** page → watch **supplier** score move  
+5. **Value Stream** — MRB stage shows **constraint** while holds open  
+6. **Projects** `PRJ-AERO-01` — SPI/CPI and linked WOs  
+7. **CM** `ECR-00001` — cast board votes  
+8. **Radiators** — full-screen plant board  
+9. **AI** — “Summarize open MRB cases”
 
 ---
 

@@ -28,10 +28,12 @@ async function main() {
     "TicketComment", "EngineeringTicket", "Sprint",
     "EmployeeGoal", "PerformanceReview", "ExpenseLine", "ExpenseReport", "PtoRequest", "TimeEntry",
     "ComplianceCheck", "GovernmentProperty",
+    "TraceEvent", "ReceivingPhoto", "KitOrderLine", "KitOrder",
     "ShipmentLine", "Shipment", "SalesOrderLine", "SalesOrder",
+    "QuoteLine", "Quote",
     "Budget", "ApPayment", "ApInvoice", "ArPayment", "ArInvoiceLine", "ArInvoice", "Customer",
     "JournalLine", "JournalEntry", "Account",
-    "Rfq", "ReceiptLine", "Receipt", "PurchaseOrderLine", "PurchaseOrder",
+    "Rfq", "ReceivingTraveler", "ReceiptLine", "Receipt", "PurchaseOrderLine", "PurchaseOrder",
     "PurchaseRequestLine", "PurchaseRequest",
     "SupplierScorecardHistory", "Supplier",
     "SerialNumber", "Lot", "MaterialTransaction", "InventoryItem", "Location", "Warehouse",
@@ -666,6 +668,8 @@ async function main() {
       acknowledgedAt: daysAgo(8),
       totalAmount: 400,
       buyerId: buyer.id,
+      shipToAddress:
+        "Forge Dynamics LLC\nReceiving Dock\n1200 Precision Way\nHuntsville, AL 35806",
       lines: {
         create: [
           { partId: part["SCR-M3-10"].id, description: "Screw M3x10 SS", quantity: 5000, unitCost: 0.08, lineNumber: 1 },
@@ -673,7 +677,29 @@ async function main() {
       },
     },
   });
-  console.log("  ✓ Purchasing flow (PR→PO→Receipt→MRB)");
+
+  // Receiving travelers for every PO (dock queue)
+  const allPosSeed = await prisma.purchaseOrder.findMany({ orderBy: { number: "asc" } });
+  let rcvTi = 0;
+  for (const p of allPosSeed) {
+    rcvTi += 1;
+    const tStatus =
+      p.status === "RECEIVED"
+        ? "COMPLETE"
+        : p.status === "PARTIAL_RECEIPT"
+          ? "PARTIAL"
+          : "WAITING";
+    await prisma.receivingTraveler.create({
+      data: {
+        number: `RCV-T-${String(rcvTi).padStart(5, "0")}`,
+        purchaseOrderId: p.id,
+        status: tStatus,
+        expectedDate: p.promisedDate,
+        notes: `Receiving traveler for ${p.number}`,
+      },
+    });
+  }
+  console.log("  ✓ Purchasing flow (PR→PO→Receipt→MRB) + receiving travelers");
 
   // ── Projects with EVM ──────────────────────────────────────
   const project = await prisma.project.create({
@@ -732,6 +758,18 @@ async function main() {
   });
 
   const wbsProd = project.wbsElements.find((w) => w.code === "4.0")!;
+
+  // Link open POs to program / CLIN for list view
+  await prisma.purchaseOrder.updateMany({
+    where: { number: { in: ["PO-00001", "PO-00002", "PO-00003", "PO-00004"] } },
+    data: {
+      projectId: project.id,
+      wbsElementId: wbsProd.id,
+      clin: "0001AA",
+      shipToAddress:
+        "Forge Dynamics LLC\nReceiving Dock\n1200 Precision Way\nHuntsville, AL 35806",
+    },
+  });
 
   await prisma.projectTask.createMany({
     data: [
@@ -978,7 +1016,11 @@ async function main() {
     data: {
       code: "CUST-PRIME",
       name: "NorthStar Defense Systems",
+      contactName: "Jamie Ortiz",
       contactEmail: "procurement@northstar.example",
+      contactPhone: "(256) 555-8800",
+      billToAddress: "Accounts Payable\nNorthStar Defense Systems\n400 Contract Way\nHuntsville, AL 35805",
+      shipToAddress: "NorthStar Defense, Building 4\nReceiving Dock B\nHuntsville, AL 35806",
       paymentTerms: "NET45",
       creditLimit: 2000000,
     },
@@ -991,10 +1033,122 @@ async function main() {
       status: "IN_PRODUCTION",
       orderDate: daysAgo(40),
       requiredDate: daysFromNow(60),
+      shipDate: daysFromNow(50),
+      allowEarlyShip: false,
+      shipNotBefore: daysFromNow(45),
+      customerPo: "NS-PO-88421",
+      paymentTerms: "NET45",
+      isFob: true,
+      fobPoint: "ORIGIN",
+      billToName: "NorthStar Defense Systems",
+      billToAddress: customer.billToAddress,
+      shipToName: "NorthStar Defense — Bldg 4",
+      shipToAddress: "NorthStar Defense, Building 4, Huntsville AL",
+      contactName: "Jamie Ortiz",
+      contactEmail: "procurement@northstar.example",
       totalAmount: 187500,
       lines: {
         create: [
-          { partId: part["ASM-1000"].id, description: "Avionics Control Module", quantity: 15, quantityShipped: 0, unitPrice: 12500, workOrderId: wo1.id },
+          {
+            partId: part["ASM-1000"].id,
+            description: "Avionics Control Module",
+            quantity: 15,
+            quantityShipped: 0,
+            quantityAllocated: 0,
+            unitPrice: 12500,
+            workOrderId: wo1.id,
+            fulfillmentStatus: "MAKE_ORDERED",
+          },
+        ],
+      },
+    },
+    include: { lines: true },
+  });
+
+  // Link primary production WO to SO / line for traveler continuity
+  await prisma.workOrder.update({
+    where: { id: wo1.id },
+    data: {
+      salesOrderId: so.id,
+      salesOrderLineId: so.lines[0].id,
+      salesOrderRef: so.number,
+      dueDate: so.requiredDate,
+      estimatedMinutes: 240,
+      kitStatus: "KITTED",
+      travelerNotes: [
+        "DIGITAL TRAVELER",
+        `Sales order: ${so.number}`,
+        `Customer PO: ${so.customerPo}`,
+        `Due: ${so.requiredDate?.toISOString().slice(0, 10)}`,
+        "Contains: BOM Rev B, WI-ASM-1000, kit list, sign-offs, material trace",
+      ].join("\n"),
+    },
+  });
+
+  // Demo SO that will need full make + buy path (no FG stock for large qty)
+  const so2 = await prisma.salesOrder.create({
+    data: {
+      number: "SO-00002",
+      customerId: customer.id,
+      status: "OPEN",
+      orderDate: daysAgo(1),
+      requiredDate: daysFromNow(21),
+      shipDate: daysFromNow(18),
+      allowEarlyShip: true,
+      customerPo: "NS-PO-90102",
+      paymentTerms: "NET45",
+      isFob: false,
+      billToName: "NorthStar Defense Systems",
+      billToAddress: customer.billToAddress,
+      shipToName: "NorthStar Defense — Bldg 4",
+      shipToAddress: "NorthStar Defense, Building 4, Huntsville AL",
+      totalAmount: 25000,
+      notes: "Demo: Plan fulfillment for stock-check → WO → shortage PRs",
+      lines: {
+        create: [
+          {
+            partId: part["ASM-1000"].id,
+            description: "Avionics Control Module",
+            quantity: 2,
+            unitPrice: 12500,
+            fulfillmentStatus: "OPEN",
+          },
+        ],
+      },
+    },
+  });
+
+  // Open quote ready to accept → SO
+  await prisma.quote.create({
+    data: {
+      number: "QT-00001",
+      customerId: customer.id,
+      status: "SENT",
+      quoteDate: daysAgo(3),
+      validUntil: daysFromNow(11),
+      requiredDate: daysFromNow(35),
+      shipDate: daysFromNow(28),
+      customerPo: "RFQ-NS-4410",
+      paymentTerms: "NET45",
+      isFob: true,
+      fobPoint: "ORIGIN",
+      billToName: "NorthStar Defense Systems",
+      billToAddress: customer.billToAddress,
+      shipToName: "NorthStar Defense — Bldg 4",
+      shipToAddress: customer.shipToAddress,
+      contactName: "Jamie Ortiz",
+      contactEmail: "procurement@northstar.example",
+      totalAmount: 12500,
+      notes: "Demo: Accept to convert into a sales order",
+      lines: {
+        create: [
+          {
+            partId: part["ASM-1000"].id,
+            description: "Avionics Control Module",
+            quantity: 1,
+            unitPrice: 12500,
+            lineNumber: 1,
+          },
         ],
       },
     },
@@ -1007,12 +1161,28 @@ async function main() {
       status: "DRAFT",
       shipToAddress: "NorthStar Defense, Building 4, Huntsville AL",
       carrier: "FedEx Priority",
+      notes: "Held — early ship not allowed until shipNotBefore",
       lines: {
         create: [
           { partId: part["ASM-1000"].id, description: "Avionics Control Module", quantity: 1 },
         ],
       },
     },
+  });
+
+  await prisma.traceEvent.createMany({
+    data: [
+      {
+        eventType: "SO_CREATED",
+        salesOrderId: so.id,
+        notes: `Seed SO ${so.number} linked to production traveler`,
+      },
+      {
+        eventType: "SO_CREATED",
+        salesOrderId: so2.id,
+        notes: `Seed SO ${so2.number} ready for plan fulfillment demo`,
+      },
+    ],
   });
 
   // AR Invoice

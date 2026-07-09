@@ -10,6 +10,9 @@ import {
   FileText,
   Boxes,
   ShoppingCart,
+  ShoppingBag,
+  Building2,
+  PackageCheck,
   Users2,
   Shield,
   FlaskConical,
@@ -52,9 +55,13 @@ const nav = [
   {
     label: "Supply Chain",
     items: [
+      { href: "/sales", label: "Sales Orders", icon: ShoppingBag },
+      { href: "/customers", label: "Customers", icon: Building2 },
       { href: "/purchasing", label: "Purchasing", icon: ShoppingCart },
+      { href: "/receiving", label: "Receiving", icon: PackageCheck },
       { href: "/suppliers", label: "Suppliers", icon: Award },
       { href: "/inventory", label: "Inventory", icon: Package },
+      { href: "/kitting", label: "Kitting", icon: Boxes },
       { href: "/shipping", label: "Shipping", icon: Truck },
     ],
   },

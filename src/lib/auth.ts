@@ -39,15 +39,33 @@ export type Role = (typeof ROLES)[number];
 export function canAccess(role: string, module: string): boolean {
   if (role === "ADMIN") return true;
   const matrix: Record<string, string[]> = {
-    ENGINEERING: ["bom", "work-instructions", "cm", "engineering", "projects", "dashboard"],
+    ENGINEERING: ["bom", "work-instructions", "cm", "engineering", "projects", "dashboard", "sales"],
     CM: ["bom", "work-instructions", "cm", "engineering", "dashboard"],
     QUALITY: ["quality", "mrb", "inventory", "suppliers", "dashboard", "work-orders"],
-    PURCHASING: ["purchasing", "suppliers", "inventory", "value-stream", "dashboard"],
-    PRODUCTION: ["work-orders", "work-instructions", "floor", "inventory", "dashboard", "shipping"],
+    PURCHASING: [
+      "purchasing",
+      "suppliers",
+      "inventory",
+      "value-stream",
+      "dashboard",
+      "sales",
+      "customers",
+    ],
+    PRODUCTION: [
+      "work-orders",
+      "work-instructions",
+      "floor",
+      "inventory",
+      "dashboard",
+      "shipping",
+      "kitting",
+      "sales",
+      "customers",
+    ],
     ACCOUNTING: ["accounting", "projects", "dashboard"],
     HR: ["hr", "dashboard"],
-    OPERATOR: ["work-orders", "floor", "dashboard"],
-    VIEWER: ["dashboard", "floor", "radiators", "value-stream"],
+    OPERATOR: ["work-orders", "floor", "dashboard", "kitting"],
+    VIEWER: ["dashboard", "floor", "radiators", "value-stream", "sales"],
   };
   return matrix[role]?.includes(module) ?? false;
 }

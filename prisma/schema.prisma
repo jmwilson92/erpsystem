@@ -107,6 +107,11 @@ model Part {
   ncrs            NonConformance[]
   serials         SerialNumber[]
   lots            Lot[]
+  salesOrderLines SalesOrderLine[]
+  quoteLines      QuoteLine[]
+  kitOrderLines   KitOrderLine[]
+  receivingPhotos ReceivingPhoto[]
+  traceEvents     TraceEvent[]
 }
 
 model BomHeader {
@@ -222,7 +227,8 @@ model WorkOrder {
   id              String   @id @default(cuid())
   number          String   @unique
   type            String   @default("PRODUCTION") // PRODUCTION, TASK_ONLY, REWORK, INSPECTION, PROTOTYPE
-  status          String   @default("PLANNED") // PLANNED, RELEASED, IN_PROGRESS, ON_HOLD, COMPLETED, CLOSED, CANCELLED
+  // PLANNED → WAITING_MATERIAL → READY_TO_KIT → KITTING → KITTED → RELEASED → IN_PROGRESS → COMPLETED
+  status          String   @default("PLANNED")
   priority        String   @default("NORMAL") // LOW, NORMAL, HIGH, CRITICAL
   partId          String?
   part            Part?    @relation(fields: [partId], references: [id])
@@ -234,21 +240,29 @@ model WorkOrder {
   project         Project? @relation(fields: [projectId], references: [id])
   wbsElementId    String?
   wbsElement      WbsElement? @relation(fields: [wbsElementId], references: [id])
-  salesOrderRef   String?
+  salesOrderId    String?
+  salesOrder      SalesOrder? @relation(fields: [salesOrderId], references: [id])
+  salesOrderLineId String?
+  salesOrderLine  SalesOrderLine? @relation(fields: [salesOrderLineId], references: [id])
+  salesOrderRef   String?  // free-text ref kept for legacy seed
   workCenter      String?
   department      String?
   assigneeId      String?
   assignee        User?    @relation("WOAssignee", fields: [assigneeId], references: [id])
   createdById     String?
   createdBy       User?    @relation("WOCreator", fields: [createdById], references: [id])
+  dueDate         DateTime? // customer / planning due date
   plannedStart    DateTime?
   plannedEnd      DateTime?
   actualStart     DateTime?
   actualEnd       DateTime?
+  estimatedMinutes Int?
+  kitStatus       String   @default("NOT_STARTED") // NOT_STARTED, WAITING_MATERIAL, READY_TO_KIT, KITTING, KITTED
   standardCost    Float    @default(0)
   actualCost      Float    @default(0)
   description     String?
   notes           String?
+  travelerNotes   String?  // digital traveler header notes
   requiresInspection Boolean @default(false)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -260,10 +274,15 @@ model WorkOrder {
   ncrs            NonConformance[]
   inspections     Inspection[]
   statusHistory   WorkOrderStatusHistory[]
+  kitOrders       KitOrder[]
+  purchaseRequests PurchaseRequest[]
+  traceEvents     TraceEvent[]
 
   @@index([status])
   @@index([workCenter])
   @@index([projectId])
+  @@index([salesOrderId])
+  @@index([dueDate])
 }
 
 model WorkOrderInstruction {
@@ -372,6 +391,7 @@ model Project {
   risks           ProjectRisk[]
   issues          ProjectIssue[]
   workOrders      WorkOrder[]
+  purchaseOrders  PurchaseOrder[]
   members         ProjectMember[]
   timeEntries     TimeEntry[]
 }
@@ -389,6 +409,7 @@ model WbsElement {
   sortOrder       Int     @default(0)
 
   workOrders      WorkOrder[]
+  purchaseOrders  PurchaseOrder[]
   tasks           ProjectTask[]
 }
 
@@ -613,13 +634,15 @@ model InventoryItem {
 
 model MaterialTransaction {
   id              String   @id @default(cuid())
-  type            String   // RECEIPT, ISSUE, TRANSFER, ADJUSTMENT, QUARANTINE, RELEASE, SCRAP, SHIP
+  type            String   // RECEIPT, PUTAWAY, ISSUE, KIT, TRANSFER, ADJUSTMENT, QUARANTINE, RELEASE, SCRAP, SHIP, WO_COMPLETE
   partId          String?
   inventoryItemId String?
   inventoryItem   InventoryItem? @relation(fields: [inventoryItemId], references: [id])
   workOrderId     String?
   workOrder       WorkOrder? @relation(fields: [workOrderId], references: [id])
   purchaseOrderId String?
+  salesOrderId    String?
+  kitOrderId      String?
   quantity        Float
   unitCost        Float    @default(0)
   fromLocation    String?
@@ -628,11 +651,13 @@ model MaterialTransaction {
   serialNumber    String?
   reference       String?
   notes           String?
+  photoUrls       String?  // JSON array of photo paths / mock URLs
   userId          String?
   createdAt       DateTime @default(now())
 
   @@index([type])
   @@index([workOrderId])
+  @@index([lotNumber])
 }
 
 model Lot {
@@ -718,6 +743,9 @@ model PurchaseRequest {
   totalEstimate   Float    @default(0)
   supplierId      String?
   supplier        Supplier? @relation(fields: [supplierId], references: [id])
+  workOrderId     String?
+  workOrder       WorkOrder? @relation(fields: [workOrderId], references: [id])
+  salesOrderId    String?
   approvedById    String?
   approvedAt      DateTime?
   createdAt       DateTime @default(now())
@@ -725,6 +753,8 @@ model PurchaseRequest {
 
   lines           PurchaseRequestLine[]
   purchaseOrders  PurchaseOrder[]
+
+  @@index([workOrderId])
 }
 
 model PurchaseRequestLine {
@@ -747,11 +777,17 @@ model PurchaseOrder {
   supplier        Supplier @relation(fields: [supplierId], references: [id])
   purchaseRequestId String?
   purchaseRequest PurchaseRequest? @relation(fields: [purchaseRequestId], references: [id])
+  projectId       String?
+  project         Project? @relation(fields: [projectId], references: [id])
+  wbsElementId    String?
+  wbsElement      WbsElement? @relation(fields: [wbsElementId], references: [id])
+  clin            String?  // Contract Line Item Number
   orderDate       DateTime @default(now())
-  promisedDate    DateTime?
+  promisedDate    DateTime? // EDD / expected delivery
   acknowledgedAt  DateTime?
   paymentTerms    String   @default("NET30")
   shippingMethod  String?
+  shipToAddress   String?
   totalAmount     Float    @default(0)
   currency        String   @default("USD")
   buyerId         String?
@@ -763,9 +799,27 @@ model PurchaseOrder {
   receipts        Receipt[]
   inspections     Inspection[]
   apInvoices      ApInvoice[]
+  receivingTravelers ReceivingTraveler[]
 
   @@index([status])
   @@index([supplierId])
+  @@index([projectId])
+}
+
+// Created when a PO is issued — dock waits here for material to arrive
+model ReceivingTraveler {
+  id              String   @id @default(cuid())
+  number          String   @unique
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  status          String   @default("WAITING") // WAITING, PARTIAL, COMPLETE, CLOSED
+  expectedDate    DateTime?
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([status])
+  @@index([purchaseOrderId])
 }
 
 model PurchaseOrderLine {
@@ -869,13 +923,18 @@ model Customer {
   id            String @id @default(cuid())
   code          String @unique
   name          String
+  contactName   String?
   contactEmail  String?
+  contactPhone  String?
+  billToAddress String?
+  shipToAddress String?
   paymentTerms  String @default("NET30")
   creditLimit   Float  @default(0)
   isActive      Boolean @default(true)
 
   invoices      ArInvoice[]
   salesOrders   SalesOrder[]
+  quotes        Quote[]
 }
 
 model ArInvoice {
@@ -965,14 +1024,80 @@ model SalesOrder {
   number        String   @unique
   customerId    String
   customer      Customer @relation(fields: [customerId], references: [id])
-  status        String   @default("OPEN") // OPEN, IN_PRODUCTION, READY_TO_SHIP, SHIPPED, CLOSED, CANCELLED
+  // OPEN → PLANNED → IN_PRODUCTION → READY_TO_SHIP → SHIPPED → CLOSED
+  status        String   @default("OPEN")
   orderDate     DateTime @default(now())
-  requiredDate  DateTime?
+  requiredDate  DateTime? // customer due date
+  shipDate      DateTime? // requested / planned ship date
+  allowEarlyShip Boolean @default(false)
+  shipNotBefore DateTime? // hard earliest ship date when early ship not allowed
+  customerPo    String?
+  paymentTerms  String   @default("NET30")
+  isFob         Boolean  @default(false)
+  fobPoint      String?  // e.g. ORIGIN, DESTINATION, plant name
+  billToName    String?
+  billToAddress String?
+  shipToName    String?
+  shipToAddress String?
+  contactName   String?
+  contactEmail  String?
   totalAmount   Float    @default(0)
   notes         String?
+  quoteId       String?  @unique
+  quote         Quote?   @relation(fields: [quoteId], references: [id])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   lines         SalesOrderLine[]
   shipments     Shipment[]
+  workOrders    WorkOrder[]
+  traceEvents   TraceEvent[]
+}
+
+// ═══════════════════════════════════════════════════════════════
+// QUOTES (convert → Sales Order on accept)
+// ═══════════════════════════════════════════════════════════════
+
+model Quote {
+  id            String   @id @default(cuid())
+  number        String   @unique
+  customerId    String
+  customer      Customer @relation(fields: [customerId], references: [id])
+  // DRAFT → SENT → ACCEPTED | REJECTED | EXPIRED | CONVERTED
+  status        String   @default("DRAFT")
+  quoteDate     DateTime @default(now())
+  validUntil    DateTime?
+  requiredDate  DateTime?
+  shipDate      DateTime?
+  customerPo    String?
+  paymentTerms  String   @default("NET30")
+  isFob         Boolean  @default(false)
+  fobPoint      String?
+  billToName    String?
+  billToAddress String?
+  shipToName    String?
+  shipToAddress String?
+  contactName   String?
+  contactEmail  String?
+  totalAmount   Float    @default(0)
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  lines         QuoteLine[]
+  salesOrder    SalesOrder?
+}
+
+model QuoteLine {
+  id          String @id @default(cuid())
+  quoteId     String
+  quote       Quote  @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  partId      String?
+  part        Part?  @relation(fields: [partId], references: [id])
+  description String
+  quantity    Float
+  unitPrice   Float  @default(0)
+  lineNumber  Int    @default(1)
 }
 
 model SalesOrderLine {
@@ -980,11 +1105,16 @@ model SalesOrderLine {
   salesOrderId  String
   salesOrder    SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
   partId        String?
+  part          Part?  @relation(fields: [partId], references: [id])
   description   String
   quantity      Float
   quantityShipped Float @default(0)
+  quantityAllocated Float @default(0) // FG stock reserved for this line
   unitPrice     Float  @default(0)
+  // OPEN, STOCK_CHECK, ALLOCATED, MAKE_ORDERED, READY, SHIPPED
+  fulfillmentStatus String @default("OPEN")
   workOrderId   String?
+  workOrders    WorkOrder[]
 }
 
 model Shipment {
@@ -1003,6 +1133,104 @@ model Shipment {
   updatedAt     DateTime @updatedAt
 
   lines         ShipmentLine[]
+  traceEvents   TraceEvent[]
+}
+
+// ═══════════════════════════════════════════════════════════════
+// KITTING / TRAVELER SUPPORT
+// ═══════════════════════════════════════════════════════════════
+
+model KitOrder {
+  id              String   @id @default(cuid())
+  number          String   @unique
+  workOrderId     String
+  workOrder       WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  status          String   @default("OPEN") // OPEN, PICKING, COMPLETE, SHORT, CANCELLED
+  pickedById      String?
+  notes           String?
+  startedAt       DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  lines           KitOrderLine[]
+  traceEvents     TraceEvent[]
+
+  @@index([workOrderId])
+  @@index([status])
+}
+
+model KitOrderLine {
+  id              String  @id @default(cuid())
+  kitOrderId      String
+  kitOrder        KitOrder @relation(fields: [kitOrderId], references: [id], onDelete: Cascade)
+  partId          String
+  part            Part    @relation(fields: [partId], references: [id])
+  bomLineId       String?
+  quantityRequired Float
+  quantityPicked  Float   @default(0)
+  inventoryItemId String?
+  lotNumber       String?
+  serialNumber    String?
+  status          String  @default("OPEN") // OPEN, PICKED, SHORT
+  notes           String?
+}
+
+// Photos captured at receiving / putaway (mock paths OK for demo)
+model ReceivingPhoto {
+  id              String   @id @default(cuid())
+  partId          String?
+  part            Part?    @relation(fields: [partId], references: [id])
+  receiptId       String?
+  receiptLineId   String?
+  inventoryItemId String?
+  purchaseOrderId String?
+  lotNumber       String?
+  serialNumber    String?
+  url             String   // path or mock data URL
+  caption         String?
+  takenById       String?
+  takenAt         DateTime @default(now())
+  createdAt       DateTime @default(now())
+
+  @@index([partId])
+  @@index([lotNumber])
+  @@index([receiptId])
+}
+
+// End-to-end part genealogy / process history
+model TraceEvent {
+  id              String   @id @default(cuid())
+  eventType       String   // SO_CREATED, STOCK_CHECK, WO_CREATED, PR_CREATED, RECEIPT, PHOTO, INSPECTION, PUTAWAY, KIT, ISSUE, SIGN_OFF, WO_COMPLETE, SHIP, etc.
+  partId          String?
+  part            Part?    @relation(fields: [partId], references: [id])
+  lotNumber       String?
+  serialNumber    String?
+  quantity        Float?
+  fromLocation    String?
+  toLocation      String?
+  workOrderId     String?
+  workOrder       WorkOrder? @relation(fields: [workOrderId], references: [id])
+  salesOrderId    String?
+  salesOrder      SalesOrder? @relation(fields: [salesOrderId], references: [id])
+  purchaseOrderId String?
+  kitOrderId      String?
+  kitOrder        KitOrder? @relation(fields: [kitOrderId], references: [id])
+  shipmentId      String?
+  shipment        Shipment? @relation(fields: [shipmentId], references: [id])
+  inspectionId    String?
+  photoUrls       String?  // JSON
+  notes           String?
+  metadata        String?  // JSON
+  userId          String?
+  createdAt       DateTime @default(now())
+
+  @@index([partId])
+  @@index([lotNumber])
+  @@index([workOrderId])
+  @@index([salesOrderId])
+  @@index([eventType])
+  @@index([createdAt])
 }
 
 model ShipmentLine {

@@ -3,8 +3,10 @@ import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { StatCard } from "@/components/shared/stat-card";
 import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
 import { Package, AlertTriangle, Shield, Archive } from "lucide-react";
+import { actionPutAwayAllReceiving, actionPutAwayItem } from "@/app/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -21,22 +23,66 @@ export default async function InventoryPage() {
   const totalOnHand = items.reduce((s, i) => s + i.quantityOnHand, 0);
   const totalValue = items.reduce((s, i) => s + i.quantityOnHand * i.unitCost, 0);
   const quarantine = items.filter((i) => i.quantityQuarantine > 0);
-  const gov = items.filter((i) => i.ownership === "GOVERNMENT");
   const low = items.filter((i) => i.quantityAvailable > 0 && i.quantityAvailable <= 5);
+  const awaitingPutaway = items.filter(
+    (i) =>
+      i.location.type === "RECEIVING" &&
+      i.quantityOnHand > 0 &&
+      i.quantityQuarantine === 0 &&
+      !i.mrbCaseId
+  );
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Inventory"
-        description="Multi-warehouse visibility · ownership · lot/serial · quarantine holds"
+        description="Receive → inspect + photo → putaway to stock · lot/serial trace · quarantine"
+        actions={
+          awaitingPutaway.length > 0 ? (
+            <form action={actionPutAwayAllReceiving}>
+              <Button type="submit" size="sm">
+                Put away all receiving ({awaitingPutaway.length})
+              </Button>
+            </form>
+          ) : undefined
+        }
       />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard title="SKU Locations" value={items.length} icon={Package} accent="teal" />
         <StatCard title="Inventory Value" value={formatCurrency(totalValue)} icon={Archive} accent="sky" />
         <StatCard title="Quarantine Lines" value={quarantine.length} icon={AlertTriangle} accent="amber" />
-        <StatCard title="Gov / GFP Lines" value={gov.length} icon={Shield} accent="violet" />
+        <StatCard title="Awaiting Putaway" value={awaitingPutaway.length} icon={Shield} accent="violet" />
       </div>
+
+      {awaitingPutaway.length > 0 && (
+        <Card>
+          <CardContent className="space-y-2 p-4">
+            <p className="text-sm font-medium text-sky-400">
+              Receiving dock — inspected material needs putaway (photos on file)
+            </p>
+            {awaitingPutaway.map((item) => (
+              <div
+                key={item.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded border border-slate-800 px-3 py-2"
+              >
+                <div>
+                  <span className="font-mono text-teal-400">{item.part.partNumber}</span>
+                  <span className="ml-2 text-xs text-slate-500">
+                    {item.quantityOnHand} @ {item.location.code} · Lot {item.lotNumber || "—"}
+                  </span>
+                </div>
+                <form action={actionPutAwayItem}>
+                  <input type="hidden" name="inventoryItemId" value={item.id} />
+                  <Button type="submit" size="sm" variant="secondary">
+                    Put away + photo
+                  </Button>
+                </form>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       <div className="overflow-hidden rounded-xl border border-slate-800">
         <table className="w-full text-sm">
@@ -59,7 +105,9 @@ export default async function InventoryPage() {
                 key={item.id}
                 className={`border-t border-slate-800/60 ${
                   item.quantityQuarantine > 0 ? "bg-orange-500/5" : ""
-                } ${item.ownership === "GOVERNMENT" ? "bg-violet-500/5" : ""}`}
+                } ${item.ownership === "GOVERNMENT" ? "bg-violet-500/5" : ""} ${
+                  item.location.type === "RECEIVING" ? "bg-sky-500/5" : ""
+                }`}
               >
                 <td className="px-3 py-2">
                   <span className="font-mono text-teal-400">{item.part.partNumber}</span>
@@ -67,6 +115,7 @@ export default async function InventoryPage() {
                 </td>
                 <td className="px-3 py-2 text-slate-400">
                   {item.location.warehouse.code}/{item.location.code}
+                  <span className="ml-1 text-[10px] text-slate-600">{item.location.type}</span>
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums">{item.quantityOnHand}</td>
                 <td className="px-3 py-2 text-right tabular-nums text-emerald-400">

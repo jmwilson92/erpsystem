@@ -19,11 +19,16 @@ export async function createWorkOrder(params: {
   assigneeId?: string;
   createdById?: string;
   description?: string;
+  dueDate?: Date;
   plannedStart?: Date;
   plannedEnd?: Date;
   workInstructionIds?: string[];
   requiresInspection?: boolean;
   priority?: string;
+  salesOrderId?: string;
+  salesOrderLineId?: string;
+  salesOrderRef?: string;
+  travelerNotes?: string;
 }) {
   const type = params.type || (params.bomHeaderId || params.partId ? "PRODUCTION" : "TASK_ONLY");
 
@@ -55,8 +60,49 @@ export async function createWorkOrder(params: {
       ) * (params.quantity || 1);
   }
 
+  // Attach work instructions (needed for schedule estimate)
+  let wiIds = params.workInstructionIds || [];
+  if (wiIds.length === 0 && partId) {
+    const linked = await prisma.workInstruction.findMany({
+      where: { partId, status: "RELEASED" },
+      orderBy: { revision: "desc" },
+      take: 1,
+    });
+    wiIds = linked.map((w) => w.id);
+  }
+
+  let estimatedMinutes = 0;
+  if (wiIds.length) {
+    const steps = await prisma.workInstructionStep.findMany({
+      where: { workInstructionId: { in: wiIds } },
+    });
+    estimatedMinutes = steps.reduce((s, st) => s + (st.estimatedMinutes || 30), 0);
+  }
+  // kit + buffer
+  estimatedMinutes = Math.round(estimatedMinutes * (params.quantity || 1) + 60);
+
+  const dueDate = params.dueDate;
+  let plannedEnd = params.plannedEnd;
+  let plannedStart = params.plannedStart;
+  if (dueDate && !plannedEnd) plannedEnd = dueDate;
+  if (plannedEnd && !plannedStart) {
+    plannedStart = new Date(plannedEnd.getTime() - estimatedMinutes * 60 * 1000);
+  }
+
   const count = await prisma.workOrder.count();
   const number = `WO-${String(count + 1).padStart(5, "0")}`;
+
+  const travelerNotes =
+    params.travelerNotes ||
+    [
+      "DIGITAL TRAVELER",
+      params.salesOrderRef ? `Sales order: ${params.salesOrderRef}` : null,
+      dueDate ? `Due: ${dueDate.toISOString().slice(0, 10)}` : null,
+      `Est. process: ${estimatedMinutes} min`,
+      "Contains: BOM, Work Instructions, Kit list, sign-offs, material trace",
+    ]
+      .filter(Boolean)
+      .join("\n");
 
   const wo = await prisma.workOrder.create({
     data: {
@@ -69,35 +115,33 @@ export async function createWorkOrder(params: {
       quantity: params.quantity || 1,
       projectId: params.projectId,
       wbsElementId: params.wbsElementId,
+      salesOrderId: params.salesOrderId,
+      salesOrderLineId: params.salesOrderLineId,
+      salesOrderRef: params.salesOrderRef,
       workCenter: params.workCenter,
       department: params.department,
       assigneeId: params.assigneeId,
       createdById: params.createdById,
       description: params.description,
-      plannedStart: params.plannedStart,
-      plannedEnd: params.plannedEnd,
+      dueDate,
+      plannedStart,
+      plannedEnd,
+      estimatedMinutes,
+      kitStatus: "NOT_STARTED",
       standardCost,
+      travelerNotes,
       requiresInspection: params.requiresInspection || false,
       statusHistory: {
         create: {
           toStatus: "PLANNED",
           userId: params.createdById,
-          notes: "Work order created",
+          notes: dueDate
+            ? `Work order created — due ${dueDate.toISOString().slice(0, 10)}, est ${estimatedMinutes} min`
+            : "Work order created",
         },
       },
     },
   });
-
-  // Attach work instructions
-  let wiIds = params.workInstructionIds || [];
-  if (wiIds.length === 0 && partId) {
-    const linked = await prisma.workInstruction.findMany({
-      where: { partId, status: "RELEASED" },
-      orderBy: { revision: "desc" },
-      take: 1,
-    });
-    wiIds = linked.map((w) => w.id);
-  }
 
   for (let i = 0; i < wiIds.length; i++) {
     await prisma.workOrderInstruction.create({
@@ -108,7 +152,6 @@ export async function createWorkOrder(params: {
       },
     });
 
-    // Seed step completions
     const steps = await prisma.workInstructionStep.findMany({
       where: { workInstructionId: wiIds[i] },
       orderBy: { stepNumber: "asc" },
@@ -129,7 +172,15 @@ export async function createWorkOrder(params: {
     entityId: wo.id,
     action: "CREATED",
     userId: params.createdById,
-    metadata: { number, type, bomHeaderId, partId },
+    metadata: {
+      number,
+      type,
+      bomHeaderId,
+      partId,
+      dueDate,
+      estimatedMinutes,
+      salesOrderId: params.salesOrderId,
+    },
   });
 
   return wo;
@@ -297,7 +348,18 @@ export async function signOffStep(params: {
 export async function getFloorBoardData() {
   const workOrders = await prisma.workOrder.findMany({
     where: {
-      status: { in: ["PLANNED", "RELEASED", "IN_PROGRESS", "ON_HOLD"] },
+      status: {
+        in: [
+          "PLANNED",
+          "WAITING_MATERIAL",
+          "READY_TO_KIT",
+          "KITTING",
+          "KITTED",
+          "RELEASED",
+          "IN_PROGRESS",
+          "ON_HOLD",
+        ],
+      },
     },
     include: {
       part: true,

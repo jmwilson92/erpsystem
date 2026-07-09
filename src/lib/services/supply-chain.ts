@@ -2,10 +2,17 @@
 
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
+import {
+  captureReceivingPhotos,
+  recordTrace,
+  refreshAllWaitingMaterial,
+} from "@/lib/services/order-fulfillment";
 
 /**
  * Core integrated flow:
- * PO Receipt → Inventory + Incoming Inspection → NCR/MRB if fail → Quarantine → Scorecard update
+ * PO Receipt → Inventory + Incoming Inspection → photos →
+ *   PASS: hold in RECEIVING until putaway
+ *   FAIL: NCR/MRB + Quarantine → Scorecard update
  */
 
 export async function receivePurchaseOrder(params: {
@@ -101,12 +108,16 @@ export async function receivePurchaseOrder(params: {
     });
 
     let invItem;
+    // On pass: stock sits in RECEIVING with qty available = 0 until putaway.
+    // On fail: quarantine path zeros availability.
+    const fail = params.failInspection === true;
+
     if (existing) {
       invItem = await prisma.inventoryItem.update({
         where: { id: existing.id },
         data: {
           quantityOnHand: existing.quantityOnHand + line.quantityReceived,
-          quantityAvailable: existing.quantityAvailable + line.quantityReceived,
+          quantityAvailable: fail ? 0 : existing.quantityAvailable,
           unitCost: line.unitCost,
         },
       });
@@ -116,13 +127,24 @@ export async function receivePurchaseOrder(params: {
           partId: line.partId,
           locationId: receivingLoc.id,
           quantityOnHand: line.quantityReceived,
-          quantityAvailable: line.quantityReceived,
+          quantityAvailable: 0, // available only after putaway to STORAGE
           lotNumber: line.lotNumber,
           unitCost: line.unitCost,
           ownership: "COMPANY",
         },
       });
     }
+
+    // Capture receiving photos (mock paths for demo)
+    const photos = await captureReceivingPhotos({
+      partId: line.partId,
+      receiptId: receipt.id,
+      receiptLineId: line.id,
+      inventoryItemId: invItem.id,
+      purchaseOrderId: po.id,
+      lotNumber: line.lotNumber || undefined,
+      userId: params.receivedById,
+    });
 
     await prisma.materialTransaction.create({
       data: {
@@ -135,14 +157,27 @@ export async function receivePurchaseOrder(params: {
         toLocation: receivingLoc.code,
         lotNumber: line.lotNumber,
         reference: receipt.number,
+        photoUrls: JSON.stringify(photos.map((p) => p.url)),
+        notes: "Received — pending inspection / putaway",
         userId: params.receivedById,
       },
     });
 
-    // Create incoming inspection
+    await recordTrace({
+      eventType: "RECEIPT",
+      partId: line.partId,
+      lotNumber: line.lotNumber,
+      quantity: line.quantityReceived,
+      toLocation: receivingLoc.code,
+      purchaseOrderId: po.id,
+      photoUrls: photos.map((p) => p.url),
+      notes: `Receipt ${receipt.number}`,
+      userId: params.receivedById,
+    });
+
+    // Create incoming inspection (visual + dimensional + docs; extensible for extra tests)
     const inspCount = await prisma.inspection.count();
     const inspNumber = `INSP-${String(inspCount + 1).padStart(5, "0")}`;
-    const fail = params.failInspection === true;
 
     const inspection = await prisma.inspection.create({
       data: {
@@ -158,13 +193,15 @@ export async function receivePurchaseOrder(params: {
         quantityFailed: fail ? line.quantityReceived : 0,
         inspectorId: params.receivedById,
         completedAt: new Date(),
-        notes: fail ? "Dimensional non-conformance detected on receipt" : "Incoming inspection passed",
+        notes: fail
+          ? "Dimensional non-conformance detected on receipt"
+          : "Incoming inspection passed — ready for putaway",
         results: {
           create: [
             {
               characteristic: "Visual",
-              specification: "No damage, correct P/N",
-              measuredValue: fail ? "Surface defect" : "OK",
+              specification: "No damage, correct P/N, photo on file",
+              measuredValue: fail ? "Surface defect" : "OK — photographed",
               result: fail ? "FAIL" : "PASS",
             },
             {
@@ -179,16 +216,32 @@ export async function receivePurchaseOrder(params: {
               measuredValue: "Present",
               result: "PASS",
             },
+            {
+              characteristic: "Photo documentation",
+              specification: "Receiving photos required",
+              measuredValue: `${photos.length} photo(s)`,
+              result: "PASS",
+            },
           ],
         },
       },
+    });
+
+    await recordTrace({
+      eventType: "INSPECTION",
+      partId: line.partId,
+      lotNumber: line.lotNumber,
+      quantity: line.quantityReceived,
+      purchaseOrderId: po.id,
+      inspectionId: inspection.id,
+      notes: `Receiving inspection ${inspection.number}: ${inspection.status}`,
+      userId: params.receivedById,
     });
 
     let ncrId: string | undefined;
     let mrbId: string | undefined;
 
     if (fail) {
-      // Create NCR → MRB → Quarantine inventory → Update scorecard
       const result = await createNcrAndMrbFromInspection({
         inspectionId: inspection.id,
         partId: line.partId,
@@ -211,6 +264,14 @@ export async function receivePurchaseOrder(params: {
   }
 
   await updateSupplierScorecard(po.supplierId);
+
+  // If any WO was waiting on this PO's material (via PR link), re-check after pass
+  // (putaway will also refresh; keep for auto-pass demos that putaway next)
+  if (!params.failInspection) {
+    // leave readiness until putaway — stock not yet in STORAGE
+  } else {
+    await refreshAllWaitingMaterial(params.receivedById);
+  }
 
   await logAudit({
     entityType: "PurchaseOrder",
