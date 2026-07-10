@@ -23,6 +23,7 @@ import {
   Gauge,
   Monitor,
   Package,
+  Package2,
   Award,
   Network,
   Briefcase,
@@ -32,6 +33,8 @@ import {
   AlertTriangle,
   FileWarning,
   LineChart,
+  Crown,
+  KeyRound,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -58,7 +61,6 @@ const nav = [
       { href: "/items", label: "Items", icon: Package },
       { href: "/bom", label: "BOMs", icon: Boxes },
       { href: "/uom", label: "UOM Master", icon: Gauge },
-      { href: "/cm", label: "Config Mgmt", icon: GitBranch },
     ],
   },
   {
@@ -72,6 +74,7 @@ const nav = [
       { href: "/inventory", label: "Inventory", icon: Package },
       { href: "/kitting", label: "Kitting", icon: Boxes },
       { href: "/shipping", label: "Shipping", icon: Truck },
+      { href: "/virtual-assets", label: "Virtual Assets", icon: Package2 },
     ],
   },
   {
@@ -80,16 +83,22 @@ const nav = [
       { href: "/quality", label: "NCR / Quality", icon: FlaskConical },
       { href: "/mrb", label: "MRB", icon: AlertTriangle },
       { href: "/mrb?view=cars", label: "CAR", icon: FileWarning },
+      { href: "/cm", label: "Config Mgmt", icon: GitBranch },
       { href: "/government-property", label: "Gov Property", icon: Shield },
     ],
   },
   {
     label: "Business",
     items: [
-      { href: "/projects", label: "Projects", icon: FolderKanban },
+      { href: "/leadership", label: "Leadership", icon: Crown },
+      { href: "/pmo", label: "PMO", icon: FolderKanban },
+      { href: "/pmo/pi", label: "PI Planning", icon: LineChart },
+      { href: "/pmo/alerts", label: "PM Alerts", icon: AlertTriangle },
       { href: "/accounting", label: "Accounting", icon: Landmark },
       { href: "/engineering", label: "Engineering", icon: Briefcase },
+      { href: "/products", label: "Products", icon: Package2 },
       { href: "/hr", label: "HR / Workforce", icon: Users2 },
+      { href: "/admin/permissions", label: "Permissions", icon: KeyRound },
     ],
   },
 ];

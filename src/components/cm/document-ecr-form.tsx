@@ -34,6 +34,16 @@ type DocHit = {
   } | null;
 };
 
+/** Assigned numbers from CM master list (RESERVED / ACTIVE) for new ECRs */
+type AssignedNumber = {
+  id: string;
+  number: string;
+  title: string;
+  category: string;
+  status: string;
+  productName: string | null;
+};
+
 const selectClass =
   "flex h-9 w-full rounded-md border border-slate-700 bg-slate-950 px-2 text-sm text-slate-200";
 
@@ -41,11 +51,14 @@ export function DocumentEcrForm({
   productFolders,
   adminFolderId,
   libraryDocs,
+  assignedNumbers = [],
 }: {
   productFolders: ProductFolder[];
   adminFolderId: string | null;
   /** Preloaded released docs for client-side typeahead */
   libraryDocs: DocHit[];
+  /** Controlled numbers from master list available for new ECRs */
+  assignedNumbers?: AssignedNumber[];
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -71,6 +84,37 @@ export function DocumentEcrForm({
       .filter((d) => d.number.includes(q))
       .slice(0, 8);
   }, [docNumber, libraryDocs]);
+
+  const reservedMatches = useMemo(() => {
+    const q = docNumber.trim().toUpperCase();
+    // Only suggest after the user starts typing — never pin a permanent list open
+    if (q.length < 1) return [];
+    return assignedNumbers
+      .filter(
+        (n) =>
+          n.number.includes(q) || n.title.toUpperCase().includes(q)
+      )
+      .slice(0, 8);
+  }, [docNumber, assignedNumbers]);
+
+  function pickAssigned(n: AssignedNumber) {
+    setSourceId("");
+    setDocNumber(n.number);
+    setTitle(n.title);
+    setRevision("A");
+    // Map category → document type
+    const cat = n.category.toUpperCase();
+    if (cat === "DRAWING") setDocType("DRAWING");
+    else if (cat === "POLICY" || cat === "PROCEDURE") setDocType("PROCEDURE");
+    else if (cat === "FORM") setDocType("FORM");
+    else if (cat === "TEST") setDocType("TP");
+    else if (cat === "SPEC") setDocType("SPEC");
+    else setDocType("OTHER");
+    if (n.productName?.toLowerCase().includes("admin")) {
+      setCompanyInternal(true);
+      if (adminFolderId) setProductFolderId(adminFolderId);
+    }
+  }
 
   function pickSource(d: DocHit) {
     setSourceId(d.id);
@@ -229,11 +273,11 @@ export function DocumentEcrForm({
             </>
           )}
 
-          <div className="relative sm:col-span-2">
+          <div className="relative z-10 sm:col-span-2">
             <label className="text-[10px] uppercase text-slate-500">
               Document number *{" "}
               <span className="normal-case text-slate-600">
-                (type to pull existing CM revision)
+                (type to find reserved / master-list or existing library numbers)
               </span>
             </label>
             <Input
@@ -245,36 +289,82 @@ export function DocumentEcrForm({
                 setDocNumber(e.target.value.toUpperCase());
                 setSourceId("");
               }}
-              placeholder="DWG-1000"
+              placeholder="Start typing e.g. DWG…"
               autoComplete="off"
             />
-            {matches.length > 0 && !sourceId && (
-              <div className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-md border border-slate-700 bg-slate-950 shadow-lg">
-                {matches.map((d) => (
-                  <button
-                    key={d.id}
-                    type="button"
-                    className="flex w-full flex-col items-start border-b border-slate-800 px-3 py-2 text-left text-xs hover:bg-slate-900"
-                    onClick={() => pickSource(d)}
-                  >
-                    <span className="font-mono text-teal-400">
-                      {d.number} Rev {d.revision}
-                    </span>
-                    <span className="text-slate-300">{d.title}</span>
-                    <span className="text-[10px] text-slate-500">
-                      {d.folder?.productName ||
-                        d.folder?.name ||
-                        d.folder?.kind ||
-                        "CM library"}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
+            {!sourceId &&
+              docNumber.trim().length >= 1 &&
+              (reservedMatches.length > 0 || matches.length > 0) && (
+                <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-48 overflow-y-auto rounded-md border border-slate-700 bg-slate-950 shadow-lg">
+                  {reservedMatches.length > 0 && (
+                    <>
+                      <p className="border-b border-slate-800 px-3 py-1 text-[10px] uppercase text-violet-400/80">
+                        Reserved / master list
+                      </p>
+                      {reservedMatches.map((n) => (
+                        <button
+                          key={n.id}
+                          type="button"
+                          className="flex w-full flex-col items-start border-b border-slate-800 px-3 py-2 text-left text-xs hover:bg-slate-900"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => pickAssigned(n)}
+                        >
+                          <span className="font-mono text-violet-300">
+                            {n.number}{" "}
+                            <span className="text-[10px] text-slate-500">
+                              {n.status}
+                            </span>
+                          </span>
+                          <span className="text-slate-300">{n.title}</span>
+                        </button>
+                      ))}
+                    </>
+                  )}
+                  {matches.length > 0 && (
+                    <>
+                      <p className="border-b border-slate-800 px-3 py-1 text-[10px] uppercase text-teal-500/80">
+                        Existing CM library (revise)
+                      </p>
+                      {matches.map((d) => (
+                        <button
+                          key={d.id}
+                          type="button"
+                          className="flex w-full flex-col items-start border-b border-slate-800 px-3 py-2 text-left text-xs hover:bg-slate-900"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => pickSource(d)}
+                        >
+                          <span className="font-mono text-teal-400">
+                            {d.number} Rev {d.revision}
+                          </span>
+                          <span className="text-slate-300">{d.title}</span>
+                          <span className="text-[10px] text-slate-500">
+                            {d.folder?.productName ||
+                              d.folder?.name ||
+                              d.folder?.kind ||
+                              "CM library"}
+                          </span>
+                        </button>
+                      ))}
+                    </>
+                  )}
+                </div>
+              )}
             {sourceId && (
               <p className="mt-1 text-[11px] text-sky-400">
                 Updating existing CM document — working copy loaded. New rev:{" "}
                 {revision}
+              </p>
+            )}
+            {!sourceId && (
+              <p className="mt-1 text-[11px] text-slate-500">
+                Need a new number?{" "}
+                <a
+                  href="/cm?tab=numbers&panel=request"
+                  className="text-violet-400 underline hover:text-violet-300"
+                >
+                  Request one from CM
+                </a>{" "}
+                first — then type it here after assignment.
               </p>
             )}
             <input type="hidden" name="sourceDocumentId" value={sourceId} />

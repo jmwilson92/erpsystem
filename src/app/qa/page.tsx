@@ -6,10 +6,10 @@ import { Button } from "@/components/ui/button";
 import { CompleteInspectionForm } from "@/components/quality/complete-inspection-form";
 import { WorkcenterPanel } from "@/components/workcenters/workcenter-panel";
 import { getQaInspectionQueue } from "@/lib/services/test-center";
-import { actionSignOffStep } from "@/app/actions";
 import { formatDate, cn } from "@/lib/utils";
 import Link from "next/link";
 import { ClipboardCheck, Factory, Ruler } from "lucide-react";
+import { SignOffStepForm } from "@/components/work-orders/sign-off-form";
 
 export const dynamic = "force-dynamic";
 
@@ -258,34 +258,18 @@ export default async function QaModulePage({
                       : ""}
                   </p>
                 </div>
-                <div className="flex gap-1">
+                <div className="min-w-[12rem]">
                   {ready ? (
-                    <>
-                      <form action={actionSignOffStep}>
-                        <input
-                          type="hidden"
-                          name="workOrderId"
-                          value={sc.workOrderId}
-                        />
-                        <input type="hidden" name="stepId" value={sc.stepId} />
-                        <input type="hidden" name="result" value="PASS" />
-                        <Button type="submit" size="sm">
-                          Pass
-                        </Button>
-                      </form>
-                      <form action={actionSignOffStep}>
-                        <input
-                          type="hidden"
-                          name="workOrderId"
-                          value={sc.workOrderId}
-                        />
-                        <input type="hidden" name="stepId" value={sc.stepId} />
-                        <input type="hidden" name="result" value="FAIL" />
-                        <Button type="submit" size="sm" variant="outline">
-                          Fail
-                        </Button>
-                      </form>
-                    </>
+                    <SignOffStepForm
+                      workOrderId={sc.workOrderId}
+                      stepId={sc.stepId}
+                      isTestStep={!!sc.step.isTestStep}
+                      passFailRequired={
+                        !!sc.step.passFailRequired || !!sc.step.isTestStep
+                      }
+                      measureUom={sc.step.measureUom}
+                      expectedValue={sc.step.expectedValue}
+                    />
                   ) : (
                     <Link href={`/work-orders/${sc.workOrder.id}`}>
                       <Button size="sm" variant="outline">

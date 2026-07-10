@@ -51,52 +51,47 @@ export default async function MrbPage({
     },
   });
 
+  // Open = needs board attention; Closed = fully closed only.
+  // DISPOSITIONED is intermediate and appears under All (not Closed).
   const openCases = cases.filter((c) =>
     ["OPEN", "IN_REVIEW"].includes(c.status)
   );
-  const closedCases = cases.filter((c) =>
-    ["DISPOSITIONED", "CLOSED"].includes(c.status)
-  );
+  const closedCases = cases.filter((c) => c.status === "CLOSED");
 
   const cars = cases.flatMap((c) =>
     c.dispositions
       .filter((d) => d.carNumber)
       .map((d) => ({ disposition: d, mrb: c }))
   );
-  const openCars = cars.filter(
-    (c) => !["CLOSED", "VERIFIED"].includes(c.disposition.carStatus || "")
-  );
-  const closedCars = cars.filter((c) =>
-    ["CLOSED", "VERIFIED"].includes(c.disposition.carStatus || "")
-  );
+  // Treat null/empty status as open so newly created CARs always appear
+  const openCars = cars.filter((c) => {
+    const s = (c.disposition.carStatus || "OPEN").toUpperCase();
+    return !["CLOSED", "VERIFIED"].includes(s);
+  });
+  const closedCars = cars.filter((c) => {
+    const s = (c.disposition.carStatus || "").toUpperCase();
+    return ["CLOSED", "VERIFIED"].includes(s);
+  });
 
+  // Never fall back to mixed statuses — empty filter shows empty state
   const mrbShown =
     filter === "all"
       ? cases
       : filter === "closed"
         ? closedCases
-        : openCases.length
-          ? openCases
-          : cases.slice(0, 5);
+        : openCases;
 
   const carShown =
     filter === "all"
       ? cars
       : filter === "closed"
         ? closedCars
-        : openCars.length
-          ? openCars
-          : cars.slice(0, 5);
+        : openCars;
 
   return (
     <div className="space-y-6">
       <PageHeader
         title={view === "cars" ? "Corrective Actions (CAR)" : "Material Review Board"}
-        description={
-          view === "cars"
-            ? "Track supplier / process corrective actions from open through verified close"
-            : "Disposition non-conforming material — release, scrap, rework, return"
-        }
         actions={
           <Link href="/quality">
             <Button size="sm" variant="outline">
@@ -261,11 +256,23 @@ export default async function MrbPage({
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <CardTitle className="font-mono text-lg text-sky-400">
-                        {d.carNumber}
-                      </CardTitle>
+                      <Link href={`/mrb/cars/${d.id}`}>
+                        <CardTitle className="font-mono text-lg text-sky-400 hover:underline">
+                          {d.carNumber}
+                        </CardTitle>
+                      </Link>
                       <StatusBadge status={d.carStatus || "OPEN"} />
                       <StatusBadge status={d.disposition} />
+                      <Link href={`/mrb/cars/${d.id}`}>
+                        <Button size="sm" variant="outline">
+                          Open detail
+                        </Button>
+                      </Link>
+                      <Link href={`/mrb/cars/${d.id}#activity-log`}>
+                        <Button size="sm" variant="ghost">
+                          Activity log
+                        </Button>
+                      </Link>
                     </div>
                     <p className="mt-1 text-sm text-slate-300">
                       {d.carTitle || mrb.ncr.title}

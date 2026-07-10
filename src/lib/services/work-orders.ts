@@ -82,6 +82,9 @@ export async function createWorkOrder(params: {
   materialRequisitionId?: string;
   sourceType?: WorkOrderSourceType;
   travelerNotes?: string;
+  /** BACKLOG | PLANNED | RELEASED (default PLANNED) */
+  status?: string;
+  businessPriorityId?: string;
 }) {
   const type = params.type || (params.bomHeaderId || params.partId ? "PRODUCTION" : "TASK_ONLY");
   const sourceType = resolveWorkOrderSource({
@@ -193,12 +196,18 @@ export async function createWorkOrder(params: {
       .filter(Boolean)
       .join("\n");
 
+  const initialStatus = ["BACKLOG", "PLANNED", "RELEASED"].includes(
+    (params.status || "").toUpperCase()
+  )
+    ? (params.status || "PLANNED").toUpperCase()
+    : "PLANNED";
+
   const wo = await prisma.workOrder.create({
     data: {
       number,
       type,
       sourceType,
-      status: "PLANNED",
+      status: initialStatus,
       priority: params.priority || "NORMAL",
       partId,
       bomHeaderId,
@@ -209,6 +218,7 @@ export async function createWorkOrder(params: {
       salesOrderLineId: params.salesOrderLineId,
       salesOrderRef: params.salesOrderRef,
       materialRequisitionId: params.materialRequisitionId || null,
+      businessPriorityId: params.businessPriorityId || null,
       workCenter: params.workCenter,
       department: params.department,
       assigneeId: params.assigneeId,
@@ -224,7 +234,7 @@ export async function createWorkOrder(params: {
       requiresInspection: params.requiresInspection || false,
       statusHistory: {
         create: {
-          toStatus: "PLANNED",
+          toStatus: initialStatus,
           userId: params.createdById,
           notes: [
             `${number} created (${sourceType})`,

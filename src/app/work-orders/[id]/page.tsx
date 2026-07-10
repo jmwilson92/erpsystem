@@ -14,14 +14,22 @@ import {
   actionCompleteKit,
   actionStartProduction,
   actionCompleteWoToStock,
-  actionReassignWoStation,
   actionReassignStepStation,
+  actionCreateProductionEngIssue,
+  actionAlignBusinessPriority,
 } from "@/app/actions";
 import { checkBomMaterialAvailability } from "@/lib/services/order-fulfillment";
 import { listWorkCenters } from "@/lib/services/workcenters";
 import { SignOffStepForm } from "@/components/work-orders/sign-off-form";
+import { WorkOrderQrLabel } from "@/components/work-orders/qr-label";
+import {
+  StationReassignForm,
+  MoveMaterialFromQuery,
+} from "@/components/work-orders/station-reassign-form";
+import { generateQrDataUrl, workOrderQrPayload } from "@/lib/qr";
 import { CheckCircle2, Circle, FlaskConical } from "lucide-react";
 import Link from "next/link";
+import { Textarea } from "@/components/ui/textarea";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +39,7 @@ export default async function WorkOrderDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [wo, workCenters] = await Promise.all([
+  const [wo, workCenters, priorities] = await Promise.all([
     prisma.workOrder.findUnique({
       where: { id },
       include: {
@@ -42,6 +50,7 @@ export default async function WorkOrderDetailPage({
         project: true,
         salesOrder: true,
         materialRequisition: true,
+        businessPriority: true,
         instructions: {
           include: {
             workInstruction: {
@@ -65,8 +74,15 @@ export default async function WorkOrderDetailPage({
       },
     }),
     listWorkCenters({ activeOnly: true }),
+    prisma.businessPriority.findMany({
+      where: { status: "PUBLISHED" },
+      orderBy: { priority: "asc" },
+    }),
   ]);
   if (!wo) notFound();
+
+  const qrPayload = workOrderQrPayload(wo.id, wo.number);
+  const qrDataUrl = await generateQrDataUrl(qrPayload);
 
   const selectClass =
     "flex h-8 w-full min-w-0 max-w-full rounded-md border border-slate-700 bg-slate-950 px-2 text-xs text-slate-200";
@@ -94,6 +110,20 @@ export default async function WorkOrderDetailPage({
         description={wo.description || wo.part?.description || "Digital traveler"}
         actions={
           <div className="flex flex-wrap gap-2">
+            <WorkOrderQrLabel
+              workOrderId={wo.id}
+              number={wo.number}
+              description={wo.description || wo.part?.description}
+              partNumber={wo.part?.partNumber}
+              lotHint={
+                wo.salesOrder?.number ||
+                wo.materialRequisition?.number ||
+                wo.project?.number ||
+                null
+              }
+              qrDataUrl={qrDataUrl}
+              qrPayload={qrPayload}
+            />
             {wo.bomHeader && (
               <form
                 action={actionPlanWoMaterials}
@@ -140,7 +170,16 @@ export default async function WorkOrderDetailPage({
                   </Button>
                 </form>
               )}
-            {wo.status === "PLANNED" && (
+            {wo.status === "BACKLOG" && (
+              <form action={actionUpdateWoStatus}>
+                <input type="hidden" name="workOrderId" value={wo.id} />
+                <input type="hidden" name="toStatus" value="PLANNED" />
+                <Button type="submit" size="sm" variant="outline">
+                  Move to Planned
+                </Button>
+              </form>
+            )}
+            {(wo.status === "PLANNED" || wo.status === "BACKLOG") && (
               <form action={actionUpdateWoStatus}>
                 <input type="hidden" name="workOrderId" value={wo.id} />
                 <input type="hidden" name="toStatus" value="RELEASED" />
@@ -188,12 +227,29 @@ export default async function WorkOrderDetailPage({
         }
       />
 
+      <MoveMaterialFromQuery
+        workOrderNumber={wo.number}
+        currentWorkCenter={wo.workCenter}
+        stations={workCenters.map((c) => ({
+          code: c.code,
+          name: c.name,
+          area: c.area,
+        }))}
+      />
+
       <div className="flex flex-wrap gap-2">
         <StatusBadge status={wo.status} />
         <StatusBadge status={wo.kitStatus} />
         <StatusBadge status={wo.type} />
         <StatusBadge status={wo.sourceType || "OTHER"} />
         <StatusBadge status={wo.priority} />
+        <StatusBadge
+          status={
+            wo.businessPriority
+              ? wo.businessPriority.number
+              : "UNRATED"
+          }
+        />
         {wo.bomHeader?.isPrototype && <StatusBadge status="PROTOTYPE" />}
         {wo.salesOrder && (
           <Link
@@ -212,6 +268,46 @@ export default async function WorkOrderDetailPage({
           </Link>
         )}
       </div>
+
+      <Card className="border-slate-800">
+        <CardContent className="flex flex-wrap items-end gap-3 p-4">
+          <form
+            action={actionAlignBusinessPriority}
+            className="flex flex-wrap items-end gap-2"
+          >
+            <input type="hidden" name="entityType" value="WorkOrder" />
+            <input type="hidden" name="entityId" value={wo.id} />
+            <div>
+              <label className="text-[10px] uppercase text-slate-500">
+                Business priority
+              </label>
+              <select
+                name="businessPriorityId"
+                defaultValue={wo.businessPriorityId || "UNRATED"}
+                className={`${selectClass} mt-1 min-w-[14rem]`}
+              >
+                <option value="UNRATED">Unrated</option>
+                {priorities.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    P{p.priority} · {p.number} — {p.title}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <Button type="submit" size="sm" variant="outline">
+              Align priority
+            </Button>
+          </form>
+          {wo.businessPriority && (
+            <p className="text-xs text-slate-400">
+              Aligned to{" "}
+              <span className="text-slate-200">
+                {wo.businessPriority.number}: {wo.businessPriority.title}
+              </span>
+            </p>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Origin banner — SO vs MRS vs project */}
       {wo.salesOrder && !wo.projectId && (
@@ -297,47 +393,17 @@ export default async function WorkOrderDetailPage({
             <p className="truncate text-xs text-slate-500">
               {wo.assignee?.name || "Unassigned"}
             </p>
-            <form
-              action={actionReassignWoStation}
-              className="flex min-w-0 flex-col gap-2"
-            >
-              <input type="hidden" name="workOrderId" value={wo.id} />
-              <select
-                name="workCenterCode"
-                className={selectClass}
-                defaultValue={wo.workCenter || ""}
-                required
-              >
-                <option value="" disabled>
-                  Route to…
-                </option>
-                {["MANUFACTURING", "QA", "TEST"].map((area) => (
-                  <optgroup key={area} label={area}>
-                    {workCenters
-                      .filter((c) => c.area === area)
-                      .map((c) => (
-                        <option key={c.id} value={c.code}>
-                          {c.code}
-                          {c.isDefault ? " ★" : ""}
-                        </option>
-                      ))}
-                  </optgroup>
-                ))}
-              </select>
-              <div className="flex items-center justify-between gap-2">
-                <label className="flex shrink-0 items-center gap-1 text-[10px] text-slate-500">
-                  <input
-                    type="checkbox"
-                    name="force"
-                    className="rounded border-slate-600"
-                  />
-                  Force
-                </label>
-                <Button type="submit" size="sm" variant="secondary" className="shrink-0">
-                  Move
-                </Button>
-              </div>
-            </form>
+            <StationReassignForm
+              workOrderId={wo.id}
+              workOrderNumber={wo.number}
+              currentWorkCenter={wo.workCenter}
+              selectClass={selectClass}
+              stations={workCenters.map((c) => ({
+                code: c.code,
+                name: c.name,
+                area: c.area,
+              }))}
+            />
           </CardContent>
         </Card>
         <Card>
@@ -740,6 +806,80 @@ export default async function WorkOrderDetailPage({
                 ))}
               </div>
             )}
+
+            <div className="mt-4 border-t border-slate-800 pt-4">
+              <p className="mb-2 text-xs font-medium text-orange-400">
+                Request Manufacturing Engineering help
+              </p>
+              <p className="mb-2 text-[11px] text-slate-500">
+                Hardware, process, or document issue? ME picks this up on the{" "}
+                <Link
+                  href="/engineering/mfg_eng?tab=prod"
+                  className="text-teal-400 underline"
+                >
+                  MFG_ENG board
+                </Link>
+                .
+              </p>
+              <form
+                action={actionCreateProductionEngIssue}
+                className="space-y-2"
+              >
+                <input type="hidden" name="workOrderId" value={wo.id} />
+                {wo.partId && (
+                  <input type="hidden" name="partId" value={wo.partId} />
+                )}
+                {wo.projectId && (
+                  <input type="hidden" name="projectId" value={wo.projectId} />
+                )}
+                {wo.workCenter && (
+                  <input type="hidden" name="workCenter" value={wo.workCenter} />
+                )}
+                <input type="hidden" name="sourceArea" value="STATION" />
+                <input
+                  type="hidden"
+                  name="returnTo"
+                  value={`/work-orders/${wo.id}`}
+                />
+                <Input
+                  name="title"
+                  required
+                  placeholder="Short description of the problem"
+                  className="text-sm"
+                />
+                <Textarea
+                  name="description"
+                  rows={2}
+                  placeholder="What you need ME to clarify or fix…"
+                  className="text-sm"
+                />
+                <select
+                  name="category"
+                  className="flex h-9 w-full rounded-md border border-slate-700 bg-slate-950 px-2 text-sm text-slate-200"
+                  defaultValue="PROCESS"
+                >
+                  <option value="HARDWARE">Hardware</option>
+                  <option value="PROCESS">Process</option>
+                  <option value="DOCUMENT">Document / drawing</option>
+                  <option value="BOM">BOM</option>
+                  <option value="TOOLING">Tooling</option>
+                  <option value="OTHER">Other</option>
+                </select>
+                <select
+                  name="priority"
+                  className="flex h-9 w-full rounded-md border border-slate-700 bg-slate-950 px-2 text-sm text-slate-200"
+                  defaultValue="NORMAL"
+                >
+                  <option value="LOW">Low</option>
+                  <option value="NORMAL">Normal</option>
+                  <option value="HIGH">High</option>
+                  <option value="CRITICAL">Critical</option>
+                </select>
+                <Button type="submit" size="sm" variant="outline">
+                  Send to MFG_ENG
+                </Button>
+              </form>
+            </div>
           </CardContent>
         </Card>
       </div>

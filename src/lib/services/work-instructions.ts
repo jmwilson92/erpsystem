@@ -452,7 +452,7 @@ export async function releaseWorkInstructionFromCm(params: {
   if (!wi) throw new Error("Work instruction not found");
 
   let bomRevision = wi.bomRevision;
-  let bomHeaderId = params.bomHeaderId ?? wi.bomHeaderId;
+  const bomHeaderId = params.bomHeaderId ?? wi.bomHeaderId;
   if (bomHeaderId) {
     const bom = await prisma.bomHeader.findUnique({ where: { id: bomHeaderId } });
     if (bom) bomRevision = bom.revision;

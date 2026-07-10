@@ -335,19 +335,24 @@ function CardBody({
           colId === "IN_REVIEW" && (
             <div className="space-y-1 border-t border-slate-800 pt-2">
               <p className="text-[10px] uppercase text-slate-600">Approvers</p>
-              {card.boardMembers.map((m) => (
-                <div
-                  key={m.id}
-                  className="flex items-center justify-between gap-1 text-[11px]"
-                >
-                  <span className="truncate text-slate-400">
-                    {userMap[m.userId]?.name || m.role}
-                    <span className="text-slate-600"> · {m.role}</span>
-                  </span>
-                  {m.vote ? (
-                    <StatusBadge status={m.vote} />
-                  ) : (
-                    <div className="flex gap-0.5">
+              {card.boardMembers
+                // Voting seats only — same Approve/Reject UI for every person
+                .filter((m) =>
+                  card.isDocumentEcr
+                    ? ["APPROVER", "ENGINEERING", "QUALITY"].includes(m.role)
+                    : m.role !== "CHAIR"
+                )
+                .map((m) => (
+                  <div
+                    key={m.id}
+                    className="flex items-center justify-between gap-1 text-[11px]"
+                  >
+                    <span className="min-w-0 truncate text-slate-400">
+                      {userMap[m.userId]?.name || m.role}
+                      <span className="text-slate-600"> · {m.role}</span>
+                    </span>
+                    {/* Same Approve/Reject pair for every approver (re-vote allowed) */}
+                    <div className="flex shrink-0 gap-0.5">
                       <form action={actionVoteCm}>
                         <input type="hidden" name="memberId" value={m.id} />
                         <input type="hidden" name="vote" value="APPROVE" />
@@ -359,6 +364,9 @@ function CardBody({
                         <Button
                           type="submit"
                           size="sm"
+                          variant={
+                            m.vote === "APPROVE" ? "default" : "outline"
+                          }
                           className="h-6 px-1.5 text-[10px]"
                         >
                           Approve
@@ -375,16 +383,17 @@ function CardBody({
                         <Button
                           type="submit"
                           size="sm"
-                          variant="destructive"
+                          variant={
+                            m.vote === "REJECT" ? "destructive" : "outline"
+                          }
                           className="h-6 px-1.5 text-[10px]"
                         >
                           Reject
                         </Button>
                       </form>
                     </div>
-                  )}
-                </div>
-              ))}
+                  </div>
+                ))}
             </div>
           )}
 
@@ -565,6 +574,13 @@ export function CmSubmissionsBoard({
     if (card.isDocumentEcr && targetColumn === "RELEASED") {
       setError(
         "Document ECRs: drop into Approved, then use CM release (folder pick) — not Released"
+      );
+      return;
+    }
+    // Document ECRs enter at Submitted — In work is for WI/BOM drafts only
+    if (card.isDocumentEcr && targetColumn === "IN_WORK") {
+      setError(
+        "Document ECRs start in Submitted (not In work). Move to In review after CM assigns approvers."
       );
       return;
     }

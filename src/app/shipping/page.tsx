@@ -28,10 +28,7 @@ export default async function ShippingPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Shipping"
-        description="Queue → verify packing list → pack with photos → ship (deposit must be clear)"
-      />
+      <PageHeader title="Shipping" />
 
       {readyOrders.length > 0 && (
         <Card>
@@ -111,11 +108,25 @@ export default async function ShippingPage() {
           Shipments
         </h2>
         {shipments.map((s) => (
-          <Card key={s.id}>
+          <Card
+            key={s.id}
+            className="transition-colors hover:border-teal-500/30"
+          >
             <CardHeader className="pb-2">
-              <div className="flex items-center gap-2">
-                <CardTitle className="font-mono text-teal-400">{s.number}</CardTitle>
-                <StatusBadge status={s.status} />
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Link href={`/shipping/${s.id}`}>
+                    <CardTitle className="font-mono text-teal-400 hover:underline">
+                      {s.number}
+                    </CardTitle>
+                  </Link>
+                  <StatusBadge status={s.status} />
+                </div>
+                <Link href={`/shipping/${s.id}`}>
+                  <Button size="sm" variant="outline">
+                    Open packing list
+                  </Button>
+                </Link>
               </div>
             </CardHeader>
             <CardContent className="text-sm">
@@ -147,33 +158,35 @@ export default async function ShippingPage() {
                 </p>
               )}
               {s.salesOrder && !["SHIPPED", "DELIVERED"].includes(s.status) && (
-                <PackShipPanel
-                  shipmentId={s.id}
-                  salesOrderId={s.salesOrder.id}
-                  packingListVerified={s.packingListVerified}
-                  status={s.status}
-                  shipToAddress={s.shipToAddress}
-                  depositBlocked={
-                    s.salesOrder.depositRequired &&
-                    !["RECEIVED", "WAIVED"].includes(
-                      (s.salesOrder.depositStatus || "").toUpperCase()
-                    )
-                  }
-                  depositMessage={
-                    s.salesOrder.depositRequired &&
-                    !["RECEIVED", "WAIVED"].includes(
-                      (s.salesOrder.depositStatus || "").toUpperCase()
-                    )
-                      ? `Deposit ${formatCurrency(s.salesOrder.depositAmount)} required (${s.salesOrder.depositStatus || "PENDING"}) — mark received or waive on SO ${s.salesOrder.number} before shipping.`
-                      : null
-                  }
-                  lineSummary={s.lines.map(
-                    (l) =>
-                      `${l.description} × ${l.quantity}${
-                        l.lotNumber ? ` · Lot ${l.lotNumber}` : ""
-                      }`
-                  )}
-                />
+                <div className="mt-3">
+                  <PackShipPanel
+                    shipmentId={s.id}
+                    salesOrderId={s.salesOrder.id}
+                    packingListVerified={s.packingListVerified}
+                    status={s.status}
+                    shipToAddress={s.shipToAddress}
+                    depositBlocked={
+                      s.salesOrder.depositRequired &&
+                      !["RECEIVED", "WAIVED"].includes(
+                        (s.salesOrder.depositStatus || "").toUpperCase()
+                      )
+                    }
+                    depositMessage={
+                      s.salesOrder.depositRequired &&
+                      !["RECEIVED", "WAIVED"].includes(
+                        (s.salesOrder.depositStatus || "").toUpperCase()
+                      )
+                        ? `Deposit ${formatCurrency(s.salesOrder.depositAmount)} required (${s.salesOrder.depositStatus || "PENDING"}) — mark received or waive on SO ${s.salesOrder.number} before shipping.`
+                        : null
+                    }
+                    lineSummary={s.lines.map(
+                      (l) =>
+                        `${l.description} × ${l.quantity}${
+                          l.lotNumber ? ` · Lot ${l.lotNumber}` : ""
+                        }`
+                    )}
+                  />
+                </div>
               )}
             </CardContent>
           </Card>

@@ -27,7 +27,11 @@ async function main() {
   const tables = [
     "TicketComment", "EngineeringTicket", "Sprint",
     "EmployeeGoal", "PerformanceReview", "ExpenseLine", "ExpenseReport", "PtoRequest", "TimeEntry",
+    "GfpConsumption", "GfpCheckout", "GfpAuditRecord", "GfpDocument",
     "ComplianceCheck", "GovernmentProperty",
+    "VirtualAssetAssignment", "VirtualAsset",
+    "JournalAttachment",
+    "WorkCenterStaff",
     "TraceEvent", "ReceivingDocument", "ReceivingPhoto", "KitOrderLine", "KitOrder",
     "ShipmentLine", "Shipment", "SalesOrderLine", "SalesOrder",
     "QuoteLine", "Quote",
@@ -36,11 +40,19 @@ async function main() {
     "Customer",
     "JournalLine", "JournalEntry", "Account",
     "PurchaseRequestLine", "PurchaseRequest",
-    "SupplierScorecardHistory", "Supplier",
+    "SupplierScorecardHistory", "SupplierCertification", "AslPolicy", "Supplier",
     "SerialNumber", "Lot", "MaterialTransaction", "InventoryItem", "Location", "Warehouse",
-    "MrbDisposition", "MrbCase", "NonConformance", "InspectionResult", "Inspection",
+    "CarActivityLog", "MrbDisposition", "MrbCase", "NonConformance", "InspectionResult", "Inspection",
+    "EngAlert", "EngDependency", "WorkTimeScan", "EngTask", "ProductionEngIssue", "Saga", "EngSprint", "PlanningQuarter", "EngSwimLane", "Campaign",
+    "BusinessPriority", "UserPermission", "UserPermissionGroup", "PermissionGroupMember", "PermissionGroup", "Permission",
+    "ProjectCostEntry", "PiFeature", "PiIncrement", "ProjectWikiPage",
+    "ProjectCommunication", "ProjectRaciEntry", "ProjectRequirement", "ProjectProduct",
     "ProjectMember", "ProjectIssue", "ProjectRisk", "Milestone", "ProjectTask", "WbsElement", "Project",
-    "CmBoardMember", "ChangeRequest",
+    "Program",
+    "ProductMilestone", "ProductRequirement", "ProductVariant", "ProductDocument",
+    "ProductPart", "ProductMember", "ProductLifecycleEvent", "Product",
+    "CmNumberRegistry", "CmNumberRequest", "CmNumberScheme",
+    "CmDocument", "CmFolder", "CmBoardMember", "ChangeRequestComment", "ChangeRequest",
     "WorkOrderStatusHistory", "WorkOrderStepCompletion", "WorkOrderInstruction", "WorkOrder",
     "WorkInstructionSignOff", "WorkInstructionStep", "WorkInstruction",
     "PartVendor", "BomLine", "BomHeader", "Part",
@@ -71,7 +83,9 @@ async function main() {
       { email: "tech1@forge.erp", name: "Chris Walsh", role: "OPERATOR", department: "Assembly", title: "Assembler II", skills: JSON.stringify(["Torque", "IPC-A-610", "First Article"]) },
       { email: "tech2@forge.erp", name: "Dana Kim", role: "OPERATOR", department: "Machining", title: "Machinist", skills: JSON.stringify(["CNC", "CMM", "GD&T"]) },
       { email: "insp@forge.erp", name: "Pat Okonkwo", role: "QUALITY", department: "Quality", title: "Inspector" },
-      { email: "pm@forge.erp", name: "Quinn Foster", role: "ENGINEERING", department: "Programs", title: "Program Manager" },
+      { email: "pm@forge.erp", name: "Quinn Foster", role: "PM", department: "Programs", title: "Program Manager" },
+      { email: "ceo@forge.erp", name: "Morgan Blake", role: "EXECUTIVE", department: "Executive", title: "CEO" },
+      { email: "cfo@forge.erp", name: "Harper Quinn", role: "EXECUTIVE", department: "Finance", title: "CFO" },
     ].map((u, idx) =>
       prisma.user.create({
         data: {
@@ -93,8 +107,127 @@ async function main() {
       })
     )
   );
-  const [admin, engLead, cmMgr, qualityMgr, buyer, prodSup, controller, hrMgr, tech1, tech2, inspector, pm] = users;
+  const [admin, engLead, cmMgr, qualityMgr, buyer, prodSup, controller, hrMgr, tech1, tech2, inspector, pm, ceo, cfo] = users;
   console.log(`  ✓ ${users.length} users`);
+
+  // ── Permission catalog + default groups ────────────────────
+  const permDefs = [
+    { code: "engineering.lane.manage", name: "Manage swim lanes", module: "engineering" },
+    { code: "engineering.task.create", name: "Create eng tasks", module: "engineering" },
+    { code: "engineering.task.scan", name: "Scan into tasks", module: "engineering" },
+    { code: "pmo.quarter.manage", name: "Manage PI quarters/sprints", module: "pmo" },
+    { code: "pmo.project.manage", name: "Manage projects", module: "pmo" },
+    { code: "pmo.alerts.read", name: "Read PM dependency alerts", module: "pmo" },
+    { code: "leadership.priority.manage", name: "Publish business priorities", module: "leadership" },
+    { code: "leadership.priority.read", name: "Read business priorities", module: "leadership" },
+    { code: "accounting.journal.post", name: "Post journal entries", module: "accounting" },
+    { code: "accounting.reports.read", name: "View GAAP reports", module: "accounting" },
+    { code: "cm.ecr.manage", name: "Manage ECRs", module: "cm" },
+    { code: "admin.permissions", name: "Assign permissions", module: "admin" },
+  ];
+  const permRows = [];
+  for (const p of permDefs) {
+    permRows.push(
+      await prisma.permission.create({
+        data: { code: p.code, name: p.name, module: p.module },
+      })
+    );
+  }
+  const permByCode = Object.fromEntries(permRows.map((p) => [p.code, p]));
+  const grpPm = await prisma.permissionGroup.create({
+    data: {
+      code: "GRP_PM",
+      name: "Project Managers",
+      baseRole: "PM",
+      description: "PMO + dependency alerts",
+    },
+  });
+  const grpExec = await prisma.permissionGroup.create({
+    data: {
+      code: "GRP_EXEC",
+      name: "Senior Leadership",
+      baseRole: "EXECUTIVE",
+      description: "CEO/CFO/VP priorities",
+    },
+  });
+  const grpAcct = await prisma.permissionGroup.create({
+    data: {
+      code: "GRP_ACCT",
+      name: "Accounting",
+      baseRole: "ACCOUNTING",
+    },
+  });
+  async function linkGroup(groupId: string, codes: string[]) {
+    for (const code of codes) {
+      const perm = permByCode[code];
+      if (!perm) continue;
+      await prisma.permissionGroupMember.create({
+        data: { groupId, permissionId: perm.id },
+      });
+    }
+  }
+  await linkGroup(grpPm.id, [
+    "pmo.alerts.read",
+    "pmo.project.manage",
+    "pmo.quarter.manage",
+    "leadership.priority.read",
+    "engineering.task.create",
+  ]);
+  await linkGroup(grpExec.id, [
+    "leadership.priority.manage",
+    "leadership.priority.read",
+    "accounting.reports.read",
+    "pmo.alerts.read",
+  ]);
+  await linkGroup(grpAcct.id, [
+    "accounting.journal.post",
+    "accounting.reports.read",
+  ]);
+  await prisma.userPermissionGroup.createMany({
+    data: [
+      { userId: pm.id, groupId: grpPm.id },
+      { userId: ceo.id, groupId: grpExec.id },
+      { userId: cfo.id, groupId: grpExec.id },
+      { userId: controller.id, groupId: grpAcct.id },
+    ],
+  });
+  await prisma.businessPriority.createMany({
+    data: [
+      {
+        number: "BP-001",
+        title: "On-time delivery > 95%",
+        description: "Improve schedule adherence across production and supply chain.",
+        category: "OPERATIONAL",
+        status: "PUBLISHED",
+        priority: 1,
+        ownerRole: "COO",
+        publishedAt: new Date(),
+        createdById: ceo.id,
+      },
+      {
+        number: "BP-002",
+        title: "Gross margin expansion",
+        description: "Reduce scrap and rework; hit target gross margin for radiator product line.",
+        category: "FINANCIAL",
+        status: "PUBLISHED",
+        priority: 2,
+        ownerRole: "CFO",
+        publishedAt: new Date(),
+        createdById: cfo.id,
+      },
+      {
+        number: "BP-003",
+        title: "Digital engineering throughput",
+        description: "Draft — increase campaign/saga velocity via PI planning discipline.",
+        category: "STRATEGIC",
+        status: "DRAFT",
+        priority: 3,
+        ownerRole: "VP_ENG",
+        createdById: ceo.id,
+      },
+    ],
+  });
+  console.log("  ✓ permissions, groups, leadership priorities");
 
   // ── PR approval policy (threshold multi-step) ──────────────
   await prisma.approvalPolicy.create({
@@ -102,7 +235,7 @@ async function main() {
       name: "Standard PR approval",
       entityType: "PurchaseRequest",
       description:
-        "Buyer reviews all PRs; controller above $5k; ops admin above $25k. Customize under Purchasing → Approval rules.",
+        "Project/Program owner steps are injected per PR. Buyer reviews; CFO above $5k; ops admin above $25k.",
       isActive: true,
       isDefault: true,
       steps: {
@@ -115,9 +248,10 @@ async function main() {
           },
           {
             stepOrder: 2,
-            name: "Finance / controller",
+            name: "CFO / Accounting",
             minAmount: 5000,
             approverRole: "ACCOUNTING",
+            approverUserId: cfo.id,
           },
           {
             stepOrder: 3,
@@ -129,7 +263,7 @@ async function main() {
       },
     },
   });
-  console.log("  ✓ PR approval policy (buyer / finance $5k / admin $25k)");
+  console.log("  ✓ PR approval policy (owner + buyer + CFO + admin)");
 
   // ── Work Centers ───────────────────────────────────────────
   const workCenters = await Promise.all(
@@ -139,10 +273,23 @@ async function main() {
       { code: "MCH-01", name: "CNC Mill", area: "MANUFACTURING", department: "Machining", capacityHoursPerDay: 20, sortOrder: 3 },
       { code: "QA-01", name: "QA Lab (visual / GD&T / continuity)", area: "QA", department: "Quality", capacityHoursPerDay: 16, isDefault: true, sortOrder: 1 },
       { code: "TEST-01", name: "Functional / Power Test", area: "TEST", department: "Test", capacityHoursPerDay: 8, isDefault: true, sortOrder: 1 },
-      { code: "SHIP-01", name: "Shipping Dock", area: "MANUFACTURING", department: "Logistics", capacityHoursPerDay: 16, sortOrder: 10 },
+      { code: "SHIP-01", name: "Shipping Dock", area: "SHIPPING", department: "Logistics", capacityHoursPerDay: 16, isDefault: true, sortOrder: 1 },
+      { code: "RCV-01", name: "Receiving Dock", area: "RECEIVING", department: "Logistics", capacityHoursPerDay: 16, isDefault: true, sortOrder: 1 },
     ].map((w) => prisma.workCenter.create({ data: w }))
   );
-  console.log(`  ✓ ${workCenters.length} work centers (Manufacturing / QA / Test)`);
+  console.log(`  ✓ ${workCenters.length} work centers (Mfg / QA / Test / Shipping / Receiving)`);
+
+  // Staff assignments for capacity planning
+  const asm01 = workCenters.find((w) => w.code === "ASM-01")!;
+  const qa01 = workCenters.find((w) => w.code === "QA-01")!;
+  await prisma.workCenterStaff.createMany({
+    data: [
+      { workCenterId: asm01.id, userId: tech1.id, hoursPerDay: 8 },
+      { workCenterId: asm01.id, userId: tech2.id, hoursPerDay: 8 },
+      { workCenterId: qa01.id, userId: inspector.id, hoursPerDay: 8 },
+    ],
+  });
+  console.log("  ✓ Work center staff for capacity planning");
 
   // ── Chart of Accounts ──────────────────────────────────────
   const accounts = await Promise.all(
@@ -1128,56 +1275,175 @@ async function main() {
   }
   console.log("  ✓ Purchasing flow (PR→PO→Receipt→MRB) + receiving travelers");
 
-  // ── Projects with EVM ──────────────────────────────────────
+  // ── PMO: Programs + Projects ───────────────────────────────
+  const programAero = await prisma.program.create({
+    data: {
+      code: "PRG-AERO",
+      name: "Avionics Portfolio",
+      description: "Airborne electronics programs — control modules and interfaces",
+      status: "ACTIVE",
+      portfolio: "Defense",
+      ownerId: pm.id,
+      budgetCost: 5000000,
+      startDate: daysAgo(200),
+      endDate: daysFromNow(400),
+    },
+  });
+
   const project = await prisma.project.create({
     data: {
       number: "PRJ-AERO-01",
       name: "Block 5 Avionics Upgrade",
       description: "Design and produce next-gen avionics control modules for Block 5 platforms",
       status: "ACTIVE",
+      methodology: "HYBRID",
+      phase: "EXECUTION",
+      programId: programAero.id,
       customerName: "DoD / Prime Contractor",
       contractValue: 4500000,
       budgetCost: 3200000,
       actualCost: 1450000,
       plannedValue: 1600000,
       earnedValue: 1520000,
+      developmentBudget: 900000,
+      developmentActual: 620000,
       startDate: daysAgo(120),
       endDate: daysFromNow(180),
       percentComplete: 48,
+      charterStatus: "APPROVED",
+      charterApprovedAt: daysAgo(110),
+      businessCase: "Replace legacy controllers with CM-1000 family for Block 5 platforms under firm-fixed CLIN.",
+      objectives: "Complete qualification, FAI, and LRIP of 10 units; establish production rate.",
+      scopeIn: "Design, qualification, LRIP, tech data package, training.",
+      scopeOut: "Platform integration flight test (customer-owned).",
+      successCriteria: "FAI accepted; SPI/CPI ≥ 0.95; zero escape NCRs on LRIP.",
+      sponsorId: pm.id,
+      projectManagerId: pm.id,
       members: {
         create: [
           { userId: pm.id, role: "PM" },
-          { userId: engLead.id, role: "MEMBER" },
+          { userId: engLead.id, role: "TECH_LEAD" },
           { userId: prodSup.id, role: "MEMBER" },
           { userId: qualityMgr.id, role: "STAKEHOLDER" },
         ],
       },
       wbsElements: {
         create: [
-          { code: "1.0", name: "Program Management", budgetCost: 200000, actualCost: 95000, percentComplete: 50, sortOrder: 1 },
-          { code: "2.0", name: "Engineering Design", budgetCost: 800000, actualCost: 720000, percentComplete: 90, sortOrder: 2 },
-          { code: "3.0", name: "Procurement", budgetCost: 600000, actualCost: 280000, percentComplete: 45, sortOrder: 3 },
-          { code: "4.0", name: "Production", budgetCost: 1200000, actualCost: 280000, percentComplete: 25, sortOrder: 4 },
-          { code: "5.0", name: "Test & Qualification", budgetCost: 400000, actualCost: 75000, percentComplete: 15, sortOrder: 5 },
+          { code: "1.0", name: "Program Management", kind: "CONTROL_ACCOUNT", level: 0, budgetCost: 200000, actualCost: 95000, percentComplete: 50, sortOrder: 1, description: "PM, EVMS, reporting, customer interface", deliverables: "Monthly status, risk register updates" },
+          { code: "2.0", name: "Engineering Design", kind: "CONTROL_ACCOUNT", level: 0, budgetCost: 800000, actualCost: 720000, percentComplete: 90, sortOrder: 2, description: "Systems, mechanical, electrical design through CDR", deliverables: "ICD, drawings, analysis packages" },
+          { code: "3.0", name: "Procurement", kind: "CONTROL_ACCOUNT", level: 0, budgetCost: 600000, actualCost: 280000, percentComplete: 45, sortOrder: 3 },
+          { code: "4.0", name: "Production", kind: "CONTROL_ACCOUNT", level: 0, budgetCost: 1200000, actualCost: 280000, percentComplete: 25, sortOrder: 4 },
+          { code: "5.0", name: "Test & Qualification", kind: "CONTROL_ACCOUNT", level: 0, budgetCost: 400000, actualCost: 75000, percentComplete: 15, sortOrder: 5 },
         ],
       },
       milestones: {
         create: [
-          { name: "PDR Complete", dueDate: daysAgo(60), status: "ACHIEVED" },
-          { name: "CDR Complete", dueDate: daysAgo(20), status: "ACHIEVED" },
-          { name: "First Article Complete", dueDate: daysFromNow(30), status: "PENDING" },
-          { name: "LRIP Delivery", dueDate: daysFromNow(120), status: "PENDING" },
+          { name: "PDR Complete", kind: "PDR", dueDate: daysAgo(60), actualDate: daysAgo(60), status: "ACHIEVED" },
+          { name: "CDR Complete", kind: "CDR", dueDate: daysAgo(20), actualDate: daysAgo(20), status: "ACHIEVED" },
+          { name: "First Article Complete", kind: "FAI", dueDate: daysFromNow(30), status: "PENDING" },
+          { name: "LRIP Delivery", kind: "RELEASE", dueDate: daysFromNow(120), status: "PENDING" },
         ],
       },
       risks: {
         create: [
-          { title: "Connector long lead", description: "CON-4400 lead time stretch risk", probability: "MEDIUM", impact: "HIGH", status: "MITIGATING", mitigation: "Dual-source evaluation + safety stock" },
-          { title: "Firmware certification delay", probability: "LOW", impact: "HIGH", status: "OPEN" },
+          {
+            number: "RSK-001",
+            title: "Connector long lead",
+            description: "CON-4400 lead time stretch risk",
+            category: "SUPPLY",
+            probability: "MEDIUM",
+            impact: "HIGH",
+            score: 6,
+            status: "MITIGATING",
+            mitigation: "Dual-source evaluation + safety stock",
+            contingency: "Use interim connector with EC waiver",
+          },
+          {
+            number: "RSK-002",
+            title: "Firmware certification delay",
+            category: "TECHNICAL",
+            probability: "LOW",
+            impact: "HIGH",
+            score: 3,
+            status: "OPEN",
+            mitigation: "Parallel lab path",
+          },
         ],
       },
       issues: {
         create: [
-          { title: "PrecisionMetals quality trend", description: "Rising NCR rate on housings", status: "IN_PROGRESS", priority: "HIGH" },
+          {
+            number: "ISS-001",
+            title: "PrecisionMetals quality trend",
+            description: "Rising NCR rate on housings",
+            status: "IN_PROGRESS",
+            priority: "HIGH",
+            category: "QUALITY",
+          },
+        ],
+      },
+      raciEntries: {
+        create: [
+          { activity: "Design freeze", responsible: "Jordan Lee", accountable: "Quinn Foster", consulted: "Quality", informed: "Production", sortOrder: 0 },
+          { activity: "FAI package", responsible: "Casey Nguyen", accountable: "Quinn Foster", consulted: "Engineering", informed: "Customer", sortOrder: 1 },
+          { activity: "Supplier selection", responsible: "Taylor Brooks", accountable: "Quinn Foster", consulted: "Quality, Engineering", informed: "Program", sortOrder: 2 },
+        ],
+      },
+      communications: {
+        create: [
+          { audience: "Core team", purpose: "Standup / blockers", frequency: "DAILY", channel: "MEETING", ownerName: "Quinn Foster", sortOrder: 0 },
+          { audience: "Customer PM", purpose: "Status & risks", frequency: "WEEKLY", channel: "REPORT", ownerName: "Quinn Foster", sortOrder: 1 },
+          { audience: "Steering committee", purpose: "Gate decisions", frequency: "MILESTONE", channel: "MEETING", ownerName: "Alex Morgan", sortOrder: 2 },
+        ],
+      },
+      requirements: {
+        create: [
+          { number: "PREQ-001", title: "Block 5 interface compatibility", category: "INTERFACE", status: "APPROVED", priority: "CRITICAL", source: "Customer SOW" },
+          { number: "PREQ-002", title: "Thermal envelope for sealed housing", category: "PERFORMANCE", status: "APPROVED", priority: "HIGH" },
+        ],
+      },
+      wikiPages: {
+        create: [
+          {
+            slug: "home",
+            title: "Home",
+            body: "# Block 5 Avionics Upgrade\n\nPMO wiki home for PRJ-AERO-01.\n\n- [Decision log](decisions)\n- CDR package locked Rev B\n",
+            sortOrder: 0,
+          },
+          {
+            slug: "decisions",
+            title: "Decision log",
+            body: "# Decision log\n\n| Date | Decision | Owner |\n|------|----------|-------|\n| 2025-Q4 | Select CM-1000 as TLA | Eng |\n| 2026-Q1 | Dual-source connector | Supply |\n",
+            sortOrder: 1,
+          },
+        ],
+      },
+      piIncrements: {
+        create: [
+          {
+            name: "PI-2 Production ramp",
+            number: 2,
+            goals: "Complete FAI prep; lock supplier capacity for LRIP.",
+            status: "ACTIVE",
+            startDate: daysAgo(20),
+            endDate: daysFromNow(40),
+            capacityPoints: 80,
+            committedPoints: 65,
+            features: {
+              create: [
+                { name: "FAI traveler automation", status: "IN_PROGRESS", storyPoints: 13, sortOrder: 0 },
+                { name: "Supplier scorecard dashboard", status: "COMMITTED", storyPoints: 8, sortOrder: 1 },
+              ],
+            },
+          },
+        ],
+      },
+      costEntries: {
+        create: [
+          { category: "LABOR", description: "Engineering design hours Q1", amount: 280000, hours: 2200, entryDate: daysAgo(90), source: "TIMESHEET" },
+          { category: "NRE", description: "Tooling for housing", amount: 120000, entryDate: daysAgo(70), source: "PO" },
+          { category: "TEST", description: "EMI chamber rental", amount: 45000, entryDate: daysAgo(40), source: "MANUAL" },
+          { category: "LABOR", description: "Proto build labor", amount: 175000, hours: 1400, entryDate: daysAgo(15), source: "TIMESHEET" },
         ],
       },
     },
@@ -1185,6 +1451,290 @@ async function main() {
   });
 
   const wbsProd = project.wbsElements.find((w) => w.code === "4.0")!;
+  const wbsEng = project.wbsElements.find((w) => w.code === "2.0")!;
+
+  // Sub-WBS under Engineering Design
+  const wbsMech = await prisma.wbsElement.create({
+    data: {
+      projectId: project.id,
+      parentId: wbsEng.id,
+      code: "2.1",
+      name: "Mechanical design",
+      kind: "WORK_PACKAGE",
+      level: 1,
+      budgetCost: 250000,
+      actualCost: 210000,
+      percentComplete: 85,
+      description: "Housing, gasket, thermal path",
+      deliverables: "Housing drawings, thermal analysis",
+      acceptanceCriteria: "CDR package approved; drawing rev released via CM",
+      sortOrder: 0,
+    },
+  });
+  await prisma.wbsElement.create({
+    data: {
+      projectId: project.id,
+      parentId: wbsEng.id,
+      code: "2.2",
+      name: "Electronics / firmware",
+      kind: "WORK_PACKAGE",
+      level: 1,
+      budgetCost: 350000,
+      actualCost: 300000,
+      percentComplete: 90,
+      deliverables: "PCB Gerbers, FW build",
+      sortOrder: 1,
+    },
+  });
+  await prisma.wbsElement.create({
+    data: {
+      projectId: project.id,
+      parentId: wbsEng.id,
+      code: "2.3",
+      name: "Systems integration",
+      kind: "WORK_PACKAGE",
+      level: 1,
+      budgetCost: 200000,
+      actualCost: 210000,
+      percentComplete: 95,
+      sortOrder: 2,
+    },
+  });
+
+  // Campaign → sagas → tasks
+  const camp1 = await prisma.campaign.create({
+    data: {
+      projectId: project.id,
+      wbsElementId: wbsMech.id,
+      number: "CMP-001",
+      name: "Housing & thermal package",
+      description: "Complete mechanical design through production release",
+      definitionOfDone: "Drawings released in CM; thermal report signed; DFM review complete",
+      status: "IN_PROGRESS",
+      priority: "HIGH",
+      ownerId: pm.id,
+      startDate: daysAgo(90),
+      endDate: daysFromNow(30),
+      dueDate: daysFromNow(30),
+      estimatedHours: 800,
+      actualHours: 620,
+      storyPoints: 40,
+      percentComplete: 70,
+    },
+  });
+  const sagaMech = await prisma.saga.create({
+    data: {
+      projectId: project.id,
+      campaignId: camp1.id,
+      number: "SAG-001",
+      name: "Housing CAD & detailing",
+      discipline: "MECHANICAL",
+      definitionOfDone: "All housing models in PLM; GD&T applied; peer review done",
+      status: "IN_PROGRESS",
+      priority: "HIGH",
+      ownerId: engLead.id,
+      startDate: daysAgo(80),
+      dueDate: daysFromNow(14),
+      estimatedHours: 320,
+      actualHours: 280,
+      storyPoints: 21,
+      percentComplete: 75,
+    },
+  });
+  const sagaSys = await prisma.saga.create({
+    data: {
+      projectId: project.id,
+      campaignId: camp1.id,
+      number: "SAG-002",
+      name: "Thermal / systems analysis",
+      discipline: "SYSTEMS",
+      definitionOfDone: "Thermal model correlates to test; report baselined",
+      status: "IN_REVIEW",
+      priority: "HIGH",
+      ownerId: engLead.id,
+      estimatedHours: 160,
+      actualHours: 150,
+      storyPoints: 13,
+      percentComplete: 90,
+    },
+  });
+  await prisma.engTask.createMany({
+    data: [
+      {
+        projectId: project.id,
+        campaignId: camp1.id,
+        sagaId: sagaMech.id,
+        number: "TSK-0001",
+        name: "Update housing model for gasket groove",
+        status: "DONE",
+        discipline: "MECHANICAL",
+        assigneeId: engLead.id,
+        estimatedHours: 40,
+        actualHours: 38,
+        storyPoints: 5,
+        percentComplete: 100,
+        startDate: daysAgo(40),
+        endDate: daysAgo(20),
+      },
+      {
+        projectId: project.id,
+        campaignId: camp1.id,
+        sagaId: sagaMech.id,
+        number: "TSK-0002",
+        name: "Detail machining drawings Rev B",
+        status: "IN_PROGRESS",
+        discipline: "MECHANICAL",
+        assigneeId: engLead.id,
+        estimatedHours: 60,
+        actualHours: 42,
+        storyPoints: 8,
+        percentComplete: 60,
+        dueDate: daysFromNow(7),
+      },
+      {
+        projectId: project.id,
+        campaignId: camp1.id,
+        sagaId: sagaSys.id,
+        number: "TSK-0003",
+        name: "Run thermal FEA load cases",
+        status: "DONE",
+        discipline: "SYSTEMS",
+        estimatedHours: 24,
+        actualHours: 28,
+        storyPoints: 5,
+        percentComplete: 100,
+      },
+      {
+        projectId: project.id,
+        campaignId: camp1.id,
+        sagaId: sagaSys.id,
+        number: "TSK-0004",
+        name: "Write thermal correlation report",
+        status: "IN_REVIEW",
+        discipline: "SYSTEMS",
+        estimatedHours: 16,
+        actualHours: 12,
+        storyPoints: 3,
+        percentComplete: 80,
+        dueDate: daysFromNow(3),
+      },
+    ],
+  });
+
+  const camp2 = await prisma.campaign.create({
+    data: {
+      projectId: project.id,
+      wbsElementId: wbsProd.id,
+      number: "CMP-002",
+      name: "LRIP readiness",
+      definitionOfDone: "FAI package complete; line capable of 10 units",
+      status: "PLANNED",
+      priority: "HIGH",
+      ownerId: pm.id,
+      startDate: daysAgo(7),
+      dueDate: daysFromNow(45),
+      estimatedHours: 400,
+      storyPoints: 34,
+    },
+  });
+  await prisma.saga.create({
+    data: {
+      projectId: project.id,
+      campaignId: camp2.id,
+      number: "SAG-001",
+      name: "Cyber / secure boot checklist",
+      discipline: "CYBER",
+      status: "BACKLOG",
+      definitionOfDone: "Secure boot verified on 3 units; checklist signed",
+      estimatedHours: 80,
+      storyPoints: 8,
+    },
+  });
+  await prisma.saga.create({
+    data: {
+      projectId: project.id,
+      campaignId: camp2.id,
+      number: "SAG-002",
+      name: "Network interface bring-up",
+      discipline: "NETWORK",
+      status: "TODO",
+      estimatedHours: 60,
+      storyPoints: 5,
+    },
+  });
+  const sagaSw = await prisma.saga.create({
+    data: {
+      projectId: project.id,
+      campaignId: camp2.id,
+      number: "SAG-003",
+      name: "Production firmware branch",
+      discipline: "SOFTWARE",
+      status: "BACKLOG",
+      estimatedHours: 100,
+      storyPoints: 13,
+    },
+  });
+
+  // PI quarter + PMO sprints (lanes pull work into these)
+  const piQuarter = await prisma.planningQuarter.create({
+    data: {
+      code: "2026-Q3",
+      name: "FY2026 Q3 PI",
+      year: 2026,
+      quarter: 3,
+      startDate: daysAgo(14),
+      endDate: daysFromNow(75),
+      status: "ACTIVE",
+      goals: "Ship radiator Gen2 · close mechanical drawings · firmware branch readiness",
+    },
+  });
+  const engSprint = await prisma.engSprint.create({
+    data: {
+      name: "Sprint 25 — mech closeout",
+      goal: "Finish housing drawings; unblock firmware",
+      discipline: "MECHANICAL",
+      projectId: project.id,
+      quarterId: piQuarter.id,
+      status: "ACTIVE",
+      createdByPmo: true,
+      startDate: daysAgo(7),
+      endDate: daysFromNow(7),
+    },
+  });
+  await prisma.engSprint.create({
+    data: {
+      name: "Sprint 26 — multi-lane",
+      goal: "Cross-discipline PI sprint",
+      projectId: project.id,
+      quarterId: piQuarter.id,
+      status: "PLANNED",
+      createdByPmo: true,
+      startDate: daysFromNow(8),
+      endDate: daysFromNow(21),
+    },
+  });
+  await prisma.engTask.updateMany({
+    where: { number: { in: ["TSK-0002"] } },
+    data: { engSprintId: engSprint.id },
+  });
+  await prisma.saga.update({
+    where: { id: sagaMech.id },
+    data: { engSprintId: engSprint.id },
+  });
+
+  const mechDrawing = await prisma.engTask.findFirst({
+    where: { number: "TSK-0002" },
+  });
+  if (mechDrawing) {
+    await prisma.engDependency.create({
+      data: {
+        type: "FINISH_TO_START",
+        notes: "Firmware needs released housing envelope",
+        sourceTaskId: mechDrawing.id,
+        targetSagaId: sagaSw.id,
+      },
+    });
+  }
 
   // Link open POs to program / CLIN for list view
   await prisma.purchaseOrder.updateMany({
@@ -1200,9 +1750,9 @@ async function main() {
 
   await prisma.projectTask.createMany({
     data: [
-      { projectId: project.id, wbsElementId: wbsProd.id, name: "Build LRIP lot 1 (qty 10)", status: "IN_PROGRESS", priority: "HIGH", assigneeId: prodSup.id, startDate: daysAgo(14), endDate: daysFromNow(21), estimatedHours: 400, actualHours: 180, percentComplete: 40 },
-      { projectId: project.id, wbsElementId: wbsProd.id, name: "First article inspection package", status: "TODO", priority: "HIGH", assigneeId: qualityMgr.id, startDate: daysFromNow(7), endDate: daysFromNow(30), estimatedHours: 80, percentComplete: 0 },
-      { projectId: project.id, name: "Supplier scorecard review", status: "DONE", priority: "NORMAL", assigneeId: buyer.id, estimatedHours: 8, actualHours: 6, percentComplete: 100 },
+      { projectId: project.id, wbsElementId: wbsProd.id, name: "Build LRIP lot 1 (qty 10)", status: "IN_PROGRESS", priority: "HIGH", kind: "TASK", assigneeId: prodSup.id, startDate: daysAgo(14), endDate: daysFromNow(21), estimatedHours: 400, actualHours: 180, percentComplete: 40 },
+      { projectId: project.id, wbsElementId: wbsProd.id, name: "First article inspection package", status: "TODO", priority: "HIGH", kind: "TASK", assigneeId: qualityMgr.id, startDate: daysFromNow(7), endDate: daysFromNow(30), estimatedHours: 80, percentComplete: 0 },
+      { projectId: project.id, name: "Supplier scorecard review", status: "DONE", priority: "NORMAL", kind: "STORY", storyPoints: 5, sprintLabel: "Sprint 24", assigneeId: buyer.id, estimatedHours: 8, actualHours: 6, percentComplete: 100 },
     ],
   });
 
@@ -1211,16 +1761,30 @@ async function main() {
       number: "PRJ-INT-02",
       name: "Internal Tooling Upgrade",
       status: "ACTIVE",
+      methodology: "WATERFALL",
+      phase: "EXECUTION",
+      programId: programAero.id,
       budgetCost: 150000,
       actualCost: 45000,
       plannedValue: 60000,
       earnedValue: 52000,
+      developmentBudget: 80000,
+      developmentActual: 32000,
       percentComplete: 35,
       startDate: daysAgo(40),
       endDate: daysFromNow(50),
+      projectManagerId: engLead.id,
+      charterStatus: "APPROVED",
+      wikiPages: {
+        create: {
+          slug: "home",
+          title: "Home",
+          body: "# Internal Tooling Upgrade\n\nShop floor tooling modernization.",
+        },
+      },
     },
   });
-  console.log("  ✓ Projects + EVM data");
+  console.log("  ✓ PMO programs + projects");
 
   // ── Work Orders ────────────────────────────────────────────
   const wo1 = await prisma.workOrder.create({
@@ -1665,7 +2229,7 @@ async function main() {
 
   // ── Government Property ────────────────────────────────────
   const gfpInv = invItems[invItems.length - 1];
-  await prisma.governmentProperty.create({
+  const gfp1 = await prisma.governmentProperty.create({
     data: {
       assetTag: "GFP-2024-0042",
       uid: "D1234ABCDE1234567890",
@@ -1682,6 +2246,8 @@ async function main() {
       location: "GFP-01",
       inventoryItemId: gfpInv.id,
       lastInventoryDate: daysAgo(15),
+      auditIntervalDays: 90,
+      nextAuditDue: daysFromNow(75),
       condition: "SERVICEABLE",
       dfarsCompliant: true,
       complianceChecks: {
@@ -1689,6 +2255,28 @@ async function main() {
           { checkType: "PHYSICAL_INVENTORY", status: "PASS", checkedById: qualityMgr.id, checkedAt: daysAgo(15), notes: "Count verified" },
           { checkType: "UID_VERIFY", status: "PASS", checkedById: qualityMgr.id, checkedAt: daysAgo(15) },
           { checkType: "DOCUMENTATION", status: "PASS", checkedById: qualityMgr.id, notes: "DD Form 1149 on file" },
+        ],
+      },
+      documents: {
+        create: [
+          {
+            docType: "DD1149",
+            formNumber: "DD1149-2024-0042",
+            fileName: "DD1149_GFP-CON-001.pdf",
+            url: "https://example.com/forms/dd1149-gfp-con-001.pdf",
+            caption: "Original GFP transfer",
+            contractNumber: "FA8621-24-C-0001",
+            formDate: daysAgo(200),
+            uploadedById: qualityMgr.id,
+          },
+        ],
+      },
+      auditRecords: {
+        create: [
+          {
+            scheduledFor: daysFromNow(75),
+            status: "SCHEDULED",
+          },
         ],
       },
     },
@@ -1707,11 +2295,78 @@ async function main() {
       acquisitionCost: 45000,
       acquisitionDate: daysAgo(90),
       location: "QA-01",
+      auditIntervalDays: 180,
+      nextAuditDue: daysFromNow(90),
       condition: "SERVICEABLE",
       dfarsCompliant: true,
+      documents: {
+        create: [
+          {
+            docType: "DD1149",
+            formNumber: "DD1149-CAP-0011",
+            fileName: "DD1149_CMM_probe.pdf",
+            url: "https://example.com/forms/dd1149-cap-0011.pdf",
+            contractNumber: "FA8621-24-C-0001",
+            formDate: daysAgo(90),
+            uploadedById: qualityMgr.id,
+          },
+        ],
+      },
     },
   });
-  console.log("  ✓ Government property");
+
+  await prisma.gfpDocument.create({
+    data: {
+      docType: "DD1149",
+      formNumber: "DD1149-MASTER-0001",
+      fileName: "Contract_FA8621_master_DD1149.pdf",
+      url: "https://example.com/forms/dd1149-master-0001.pdf",
+      caption: "Contract-level master DD1149",
+      contractNumber: "FA8621-24-C-0001",
+      formDate: daysAgo(210),
+      uploadedById: qualityMgr.id,
+    },
+  });
+
+  await prisma.virtualAsset.createMany({
+    data: [
+      {
+        assetTag: "VA-00001",
+        name: "SolidWorks Professional",
+        description: "CAD seat pool",
+        assetType: "LICENSE",
+        status: "AVAILABLE",
+        vendor: "Dassault",
+        seats: 10,
+        seatsUsed: 0,
+        cost: 4500,
+        expiresAt: daysFromNow(200),
+      },
+      {
+        assetTag: "VA-00002",
+        name: "Altium Designer",
+        description: "ECAD license",
+        assetType: "LICENSE",
+        status: "AVAILABLE",
+        vendor: "Altium",
+        seats: 5,
+        seatsUsed: 0,
+        cost: 7200,
+        expiresAt: daysFromNow(120),
+      },
+      {
+        assetTag: "VA-00003",
+        name: "IPC-A-610 Training Package",
+        description: "Digital training download",
+        assetType: "DOWNLOAD",
+        status: "AVAILABLE",
+        vendor: "IPC",
+        cost: 890,
+      },
+    ],
+  });
+  console.log("  ✓ Government property + DD1149 + virtual assets");
+  void gfp1;
 
   // ── CM Change Requests ─────────────────────────────────────
   await prisma.changeRequest.create({
@@ -1731,7 +2386,8 @@ async function main() {
       boardMembers: {
         create: [
           { userId: cmMgr.id, role: "CHAIR" },
-          { userId: engLead.id, role: "ENGINEERING", vote: "APPROVE", comments: "Vibration data supports change", votedAt: daysAgo(1) },
+          // No pre-cast votes — every approver gets the same Approve/Reject controls
+          { userId: engLead.id, role: "ENGINEERING" },
           { userId: qualityMgr.id, role: "QUALITY" },
           { userId: prodSup.id, role: "PRODUCTION" },
           { userId: buyer.id, role: "PURCHASING" },
@@ -1755,6 +2411,386 @@ async function main() {
     },
   });
   console.log("  ✓ CM change requests");
+
+  // ── CM number schemes + master registry ────────────────────
+  const schemeDefs = [
+    { code: "PART", name: "Part number", appliesTo: "PART", prefix: "PN", padLength: 5, nextSequence: 10001, sortOrder: 0 },
+    { code: "DRAWING", name: "Drawing", appliesTo: "DOCUMENT", prefix: "DWG", padLength: 4, nextSequence: 1001, sortOrder: 1 },
+    { code: "POLICY", name: "Company policy", appliesTo: "DOCUMENT", prefix: "POL", padLength: 3, nextSequence: 10, sortOrder: 2 },
+    { code: "FORM", name: "Form", appliesTo: "DOCUMENT", prefix: "FORM", padLength: 4, nextSequence: 100, sortOrder: 3 },
+    { code: "TEST", name: "Test / ATP / FAT", appliesTo: "DOCUMENT", prefix: "TP", padLength: 4, nextSequence: 50, sortOrder: 4 },
+    { code: "SPEC", name: "Specification", appliesTo: "DOCUMENT", prefix: "SPEC", padLength: 4, nextSequence: 20, sortOrder: 5 },
+    { code: "PROCEDURE", name: "Procedure", appliesTo: "DOCUMENT", prefix: "PROC", padLength: 4, nextSequence: 15, sortOrder: 6 },
+    { code: "WI", name: "Work instruction", appliesTo: "DOCUMENT", prefix: "WI", padLength: 4, nextSequence: 100, sortOrder: 7 },
+    { code: "OTHER", name: "Other document", appliesTo: "DOCUMENT", prefix: "DOC", padLength: 4, nextSequence: 1, sortOrder: 8 },
+  ];
+  const schemes = await Promise.all(
+    schemeDefs.map((s) =>
+      prisma.cmNumberScheme.create({
+        data: {
+          ...s,
+          separator: "-",
+          example: `${s.prefix}-${String(s.nextSequence).padStart(s.padLength, "0")}`,
+          description: `Default ${s.name.toLowerCase()} scheme — edit on CM → Numbers → schemes.`,
+          isActive: true,
+        },
+      })
+    )
+  );
+  const schemeByCode = Object.fromEntries(schemes.map((s) => [s.code, s]));
+
+  // Sample pending request
+  await prisma.cmNumberRequest.create({
+    data: {
+      requestNumber: "NREQ-00001",
+      status: "PENDING",
+      category: "DRAWING",
+      schemeId: schemeByCode["DRAWING"].id,
+      title: "EMI gasket install drawing",
+      description: "New drawing for GASK-5500 install on housing assembly",
+      productName: "Control Module",
+      requestedById: engLead.id,
+      requestedByName: engLead.name,
+    },
+  });
+
+  // Assigned request + registry entry
+  const assignedReq = await prisma.cmNumberRequest.create({
+    data: {
+      requestNumber: "NREQ-00002",
+      status: "ASSIGNED",
+      category: "DRAWING",
+      schemeId: schemeByCode["DRAWING"].id,
+      title: "Housing machining drawing",
+      description: "HSG-3100 machine finish drawing",
+      productName: "Control Module",
+      assignedNumber: "DWG-1000",
+      assignedAt: daysAgo(5),
+      assignedById: cmMgr.id,
+      requestedById: engLead.id,
+      requestedByName: engLead.name,
+    },
+  });
+  await prisma.cmNumberRegistry.create({
+    data: {
+      number: "DWG-1000",
+      category: "DRAWING",
+      schemeId: schemeByCode["DRAWING"].id,
+      title: "Housing machining drawing",
+      description: "HSG-3100 machine finish drawing",
+      status: "RESERVED",
+      productName: "Control Module",
+      sequenceValue: 1000,
+      requestId: assignedReq.id,
+      requestedById: engLead.id,
+      assignedById: cmMgr.id,
+      assignedAt: daysAgo(5),
+    },
+  });
+
+  // Legacy / active part numbers on master list (bootstrap)
+  for (const [pn, title] of [
+    ["ASM-1000", "Control module top assembly"],
+    ["PCB-2200", "Main control PCB"],
+    ["HSG-3100", "Aluminum housing"],
+  ] as const) {
+    await prisma.cmNumberRegistry.create({
+      data: {
+        number: pn,
+        category: "PART",
+        schemeId: schemeByCode["PART"].id,
+        title,
+        status: "ACTIVE",
+        partId: part[pn]?.id,
+        assignedById: cmMgr.id,
+        assignedAt: daysAgo(200),
+        notes: "Legacy part registered on master list",
+      },
+    });
+  }
+
+  await prisma.cmNumberRegistry.create({
+    data: {
+      number: "POL-001",
+      category: "POLICY",
+      schemeId: schemeByCode["POLICY"].id,
+      title: "Document control policy",
+      status: "RELEASED",
+      assignedById: cmMgr.id,
+      assignedAt: daysAgo(120),
+      notes: "QMS document control",
+    },
+  });
+
+  console.log("  ✓ CM number schemes + master registry");
+
+  // ── PLM Products ───────────────────────────────────────────
+  const cmFolderControl = await prisma.cmFolder.create({
+    data: {
+      name: "Control Module",
+      kind: "PRODUCT",
+      productName: "Control Module",
+      productTag: "PRD-0001",
+      description: "CM library for Control Module product family",
+      sortOrder: 0,
+      createdById: cmMgr.id,
+    },
+  });
+
+  const productControl = await prisma.product.create({
+    data: {
+      code: "PRD-0001",
+      name: "Control Module",
+      description: "Ruggedized avionics control module for flight systems",
+      overview:
+        "The Control Module (ASM-1000 family) is a sealed electronics assembly providing digital I/O, power conditioning, and environmental protection for airborne platforms. Designed for AS9100 production with full configuration control through CM.",
+      productFamily: "Avionics",
+      productLine: "Control Modules",
+      modelNumber: "CM-1000",
+      revision: "B",
+      lifecyclePhase: "PRODUCTION",
+      phaseEnteredAt: daysAgo(60),
+      status: "ACTIVE",
+      marketSegment: "Defense / Aerospace",
+      customerName: "Prime Aerospace",
+      productOwnerId: pm.id,
+      engineeringLeadId: engLead.id,
+      cmOwnerId: cmMgr.id,
+      topLevelPartId: part["ASM-1000"].id,
+      cmFolderId: cmFolderControl.id,
+      targetCost: 12500,
+      standardCost: 11800,
+      estimatedWeight: 4.2,
+      weightUom: "LB",
+      targetLeadDays: 45,
+      itarControlled: true,
+      exportControl: "ITAR",
+      qualityStandard: "AS9100",
+      conceptDate: daysAgo(400),
+      designStartDate: daysAgo(350),
+      developmentStartDate: daysAgo(280),
+      qualificationStartDate: daysAgo(120),
+      firstArticleDate: daysAgo(90),
+      productionReleaseDate: daysAgo(60),
+      createdById: engLead.id,
+      notes: "Primary production product — linked to BOM Rev B certified.",
+      lifecycleEvents: {
+        create: [
+          { fromPhase: null, toPhase: "CONCEPT", notes: "Product initiated", userId: engLead.id, createdAt: daysAgo(400) },
+          { fromPhase: "CONCEPT", toPhase: "DESIGN", notes: "PDR complete", userId: engLead.id, createdAt: daysAgo(350) },
+          { fromPhase: "DESIGN", toPhase: "DEVELOPMENT", notes: "CDR complete", userId: engLead.id, createdAt: daysAgo(280) },
+          { fromPhase: "DEVELOPMENT", toPhase: "QUALIFICATION", notes: "Prototype build complete", userId: qualityMgr.id, createdAt: daysAgo(120) },
+          { fromPhase: "QUALIFICATION", toPhase: "PRODUCTION", notes: "FAI accepted; production release", userId: cmMgr.id, createdAt: daysAgo(60) },
+        ],
+      },
+      partLinks: {
+        create: [
+          { partId: part["ASM-1000"].id, role: "TOP_LEVEL", sortOrder: 0 },
+          { partId: part["PCB-2200"].id, role: "MAJOR_ASSEMBLY", sortOrder: 1 },
+          { partId: part["HSG-3100"].id, role: "MAJOR_ASSEMBLY", sortOrder: 2 },
+          { partId: part["GASK-5500"].id, role: "RELATED", sortOrder: 3 },
+        ],
+      },
+      requirements: {
+        create: [
+          {
+            number: "REQ-001",
+            title: "Operating temperature range",
+            description: "Operate continuously from -40°C to +85°C ambient",
+            category: "ENVIRONMENTAL",
+            status: "VERIFIED",
+            priority: "CRITICAL",
+            source: "Customer SOW §3.2",
+            verificationMethod: "TEST",
+          },
+          {
+            number: "REQ-002",
+            title: "EMI sealing",
+            description: "Maintain EMI containment with gasketed housing interface",
+            category: "PERFORMANCE",
+            status: "APPROVED",
+            priority: "HIGH",
+            source: "MIL-STD-461",
+            verificationMethod: "TEST",
+          },
+          {
+            number: "REQ-003",
+            title: "Configuration control",
+            description: "All design artifacts under CM with ECR for changes",
+            category: "REGULATORY",
+            status: "VERIFIED",
+            priority: "HIGH",
+            source: "QMS / AS9100",
+            verificationMethod: "INSPECTION",
+          },
+        ],
+      },
+      variants: {
+        create: [
+          {
+            code: "STD",
+            name: "Standard production",
+            description: "Baseline certified configuration (BOM Rev B)",
+            isDefault: true,
+            topLevelPartId: part["ASM-1000"].id,
+          },
+          {
+            code: "PROTO",
+            name: "Prototype / development",
+            description: "Development builds (BOM Rev C prototype)",
+            isDefault: false,
+            topLevelPartId: part["ASM-1000"].id,
+          },
+        ],
+      },
+      milestones: {
+        create: [
+          { name: "PDR", kind: "REVIEW", status: "COMPLETE", targetDate: daysAgo(360), actualDate: daysAgo(350), sortOrder: 0 },
+          { name: "CDR", kind: "REVIEW", status: "COMPLETE", targetDate: daysAgo(290), actualDate: daysAgo(280), sortOrder: 1 },
+          { name: "FAI", kind: "GATE", status: "COMPLETE", targetDate: daysAgo(95), actualDate: daysAgo(90), sortOrder: 2 },
+          { name: "Production release", kind: "RELEASE", status: "COMPLETE", targetDate: daysAgo(60), actualDate: daysAgo(60), sortOrder: 3 },
+        ],
+      },
+      documentLinks: {
+        create: [
+          { docType: "DRAWING", number: "DWG-1000", title: "Housing machining drawing", revision: "A", status: "RESERVED" },
+          { docType: "BOM", number: "ASM-1000", title: "Control module BOM", revision: "B", status: "CERTIFIED" },
+          { docType: "WI", number: "WI-ASM-1000", title: "Assembly work instruction", revision: "B", status: "RELEASED" },
+        ],
+      },
+      members: {
+        create: [
+          { userId: qualityMgr.id, role: "QUALITY" },
+          { userId: prodSup.id, role: "MANUFACTURING" },
+          { userId: buyer.id, role: "SUPPLY_CHAIN" },
+        ],
+      },
+    },
+  });
+
+  // Concept-stage product for demo pipeline
+  await prisma.product.create({
+    data: {
+      code: "PRD-0002",
+      name: "Next-gen power interface",
+      description: "Concept study for modular power interface option",
+      overview: "Early concept for a field-replaceable power interface module compatible with CM-1000 envelope.",
+      productFamily: "Avionics",
+      productLine: "Control Modules",
+      modelNumber: "CM-PI-200",
+      lifecyclePhase: "CONCEPT",
+      status: "ACTIVE",
+      productOwnerId: engLead.id,
+      engineeringLeadId: engLead.id,
+      cmOwnerId: cmMgr.id,
+      conceptDate: daysAgo(14),
+      itarControlled: true,
+      exportControl: "ITAR",
+      createdById: engLead.id,
+      lifecycleEvents: {
+        create: {
+          fromPhase: null,
+          toPhase: "CONCEPT",
+          notes: "Concept kickoff",
+          userId: engLead.id,
+        },
+      },
+      requirements: {
+        create: {
+          number: "REQ-001",
+          title: "Drop-in envelope compatibility",
+          description: "Fit within existing CM-1000 connector bay without chassis redesign",
+          category: "INTERFACE",
+          status: "DRAFT",
+          priority: "HIGH",
+        },
+      },
+    },
+  });
+
+  // Tie primary project to product + roll NRE
+  await prisma.project.update({
+    where: { id: project.id },
+    data: { productId: productControl.id },
+  });
+  await prisma.projectProduct.create({
+    data: {
+      projectId: project.id,
+      productId: productControl.id,
+      role: "PRIMARY",
+      syncRequirements: true,
+      syncMilestones: true,
+      syncCosts: true,
+    },
+  });
+  await prisma.projectCostEntry.updateMany({
+    where: { projectId: project.id },
+    data: { productId: productControl.id },
+  });
+  await prisma.product.update({
+    where: { id: productControl.id },
+    data: {
+      developmentBudget: 900000,
+      developmentActual: 620000,
+    },
+  });
+  // Sync sample project reqs into product (those not already there)
+  for (const preq of [
+    {
+      number: "PREQ-001",
+      title: "Block 5 interface compatibility",
+      category: "INTERFACE",
+      status: "APPROVED",
+      priority: "CRITICAL",
+      source: "Project PRJ-AERO-01",
+    },
+  ]) {
+    const exists = await prisma.productRequirement.findUnique({
+      where: {
+        productId_number: { productId: productControl.id, number: preq.number },
+      },
+    });
+    if (!exists) {
+      await prisma.productRequirement.create({
+        data: { productId: productControl.id, ...preq },
+      });
+    }
+  }
+
+  // Product sustainment + production→ME issue (MFG_ENG lane)
+  await prisma.engTask.create({
+    data: {
+      productId: productControl.id,
+      projectId: null,
+      number: "TSK-SUS-001",
+      name: "Update BOM spare kit for field support",
+      description: "Sustainment: add recommended spares list to BOM notes / kit option",
+      kind: "SUSTAINMENT",
+      discipline: "MFG_ENG",
+      status: "TODO",
+      priority: "NORMAL",
+      estimatedHours: 8,
+      dueDate: daysFromNow(21),
+    },
+  });
+  const pei = await prisma.productionEngIssue.create({
+    data: {
+      number: "PEI-00001",
+      title: "Torque callout unclear on connector install step",
+      description:
+        "Assemblers asking whether 0.6 N·m is wet or dry torque. WI and drawing appear inconsistent.",
+      category: "DOCUMENT",
+      status: "OPEN",
+      priority: "HIGH",
+      reportedByName: "Production floor",
+      productId: productControl.id,
+      projectId: project.id,
+      sourceArea: "STATION",
+      workCenter: "ASM-01",
+    },
+  });
+  void pei;
+  console.log(`  ✓ PLM products (${productControl.code} + concept) linked to PMO + MFG_ENG`);
 
   // ── Engineering tickets ────────────────────────────────────
   const sprint = await prisma.sprint.create({

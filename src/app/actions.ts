@@ -791,6 +791,7 @@ export async function actionCreateWoFromBom(formData: FormData): Promise<void> {
   const quantity = Number(formData.get("quantity") || 1);
   const type = (formData.get("type") as string) || "PRODUCTION";
   const projectId = ((formData.get("projectId") as string) || "").trim() || undefined;
+  const status = ((formData.get("status") as string) || "PLANNED").trim();
   const user = await getCurrentUser();
 
   const wo = await createWorkOrder({
@@ -802,6 +803,7 @@ export async function actionCreateWoFromBom(formData: FormData): Promise<void> {
     projectId,
     createdById: user?.id,
     workCenter: "ASM-01",
+    status,
   });
 
   revalidatePath("/work-orders");
@@ -887,6 +889,7 @@ export async function actionReleaseMaterialRequisition(
 
 export async function actionCreateTaskWo(formData: FormData): Promise<void> {
   const description = formData.get("description") as string;
+  const status = ((formData.get("status") as string) || "BACKLOG").trim();
   const user = await getCurrentUser();
 
   const wi = await prisma.workInstruction.findFirst({
@@ -899,6 +902,7 @@ export async function actionCreateTaskWo(formData: FormData): Promise<void> {
     createdById: user?.id,
     workCenter: "ASM-01",
     workInstructionIds: wi ? [wi.id] : [],
+    status,
   });
 
   revalidatePath("/work-orders");
@@ -990,17 +994,39 @@ export async function actionSaveApprovalPolicy(formData: FormData): Promise<void
 }
 
 export async function actionConvertPrToPo(formData: FormData): Promise<void> {
-  const id = formData.get("id") as string;
+  const id = ((formData.get("id") as string) || "").trim();
+  if (!id) throw new Error("Purchase request id required");
+
   const user = await getCurrentUser("PURCHASING");
   const pr = await prisma.purchaseRequest.findUnique({
     where: { id },
     include: {
       lines: true,
       supplier: true,
-      workOrder: { include: { project: true, wbsElement: true } },
+      project: { select: { id: true, projectManagerId: true } },
+      workOrder: {
+        include: {
+          project: { select: { id: true, projectManagerId: true } },
+          wbsElement: true,
+        },
+      },
     },
   });
-  if (!pr || pr.status !== "APPROVED") throw new Error("PR must be approved");
+  if (!pr) throw new Error("Purchase request not found");
+  if (pr.status === "CONVERTED") {
+    const existing = await prisma.purchaseOrder.findFirst({
+      where: { purchaseRequestId: pr.id },
+      orderBy: { createdAt: "desc" },
+    });
+    if (existing) {
+      revalidatePath("/purchasing");
+      redirect(`/purchasing/po/${existing.id}`);
+    }
+    throw new Error("PR already converted but PO not found");
+  }
+  if (pr.status !== "APPROVED") {
+    throw new Error(`PR must be approved (current status: ${pr.status})`);
+  }
   if (!pr.supplierId || !pr.supplier) throw new Error("PR needs a supplier");
   if (!isSupplierApprovedForPo(pr.supplier)) {
     throw new Error(
@@ -1008,55 +1034,74 @@ export async function actionConvertPrToPo(formData: FormData): Promise<void> {
         "Only ASL vendors (isApprovedVendor + APPROVED/CONDITIONAL) can be used on POs."
     );
   }
+  if (!pr.lines.length) {
+    throw new Error("PR has no lines — add line items before converting to PO");
+  }
 
-  // PO-level GFP only if explicitly marked on the PR justification/notes for now
-  // (material becomes GFP when put away to a GFP area or via GFP traveler)
   const isGovernmentProperty =
     formData.get("isGovernmentProperty") === "true" ||
     formData.get("isGovernmentProperty") === "on" ||
     /government property|gfp|gfe/i.test(pr.justification || "");
 
+  // Stable unique PO number (avoid race on count)
   const count = await prisma.purchaseOrder.count();
-  const po = await prisma.purchaseOrder.create({
-    data: {
-      number: `PO-${String(count + 1).padStart(5, "0")}`,
-      status: "ISSUED",
-      supplierId: pr.supplierId,
-      purchaseRequestId: pr.id,
-      totalAmount: pr.totalEstimate,
-      buyerId: user?.id,
-      promisedDate: pr.neededBy,
-      projectId: pr.workOrder?.projectId || undefined,
-      wbsElementId: pr.workOrder?.wbsElementId || undefined,
-      shipToAddress: "Forge Dynamics LLC\nReceiving Dock\n1200 Precision Way\nHuntsville, AL 35806",
-      notes: [
-        pr.justification || "",
-        isGovernmentProperty
-          ? "PO procures government property — DD1149 + putaway to GFP area at receive"
-          : "",
-      ]
-        .filter(Boolean)
-        .join("\n"),
-      isGovernmentProperty,
-      lines: {
-        create: pr.lines.map((l, i) => ({
-          partId: l.partId,
-          description: l.description,
-          quantity: l.quantity,
-          unitCost: l.estimatedUnitCost,
-          lineNumber: i + 1,
-          promisedDate: pr.neededBy,
-        })),
+  let number = `PO-${String(count + 1).padStart(5, "0")}`;
+  const clash = await prisma.purchaseOrder.findUnique({ where: { number } });
+  if (clash) {
+    number = `PO-${String(count + 1).padStart(5, "0")}-${Date.now().toString(36).slice(-4)}`;
+  }
+
+  const projectId =
+    pr.projectId || pr.workOrder?.projectId || pr.project?.id || undefined;
+  const wbsElementId = pr.workOrder?.wbsElementId || undefined;
+
+  let po;
+  try {
+    po = await prisma.purchaseOrder.create({
+      data: {
+        number,
+        status: "ISSUED",
+        supplierId: pr.supplierId,
+        purchaseRequestId: pr.id,
+        totalAmount: pr.totalEstimate,
+        buyerId: user?.id,
+        promisedDate: pr.neededBy || undefined,
+        projectId,
+        wbsElementId,
+        shipToAddress:
+          "Forge Dynamics LLC\nReceiving Dock\n1200 Precision Way\nHuntsville, AL 35806",
+        notes: [
+          pr.justification || "",
+          isGovernmentProperty
+            ? "PO procures government property — DD1149 + putaway to GFP area at receive"
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        isGovernmentProperty,
+        lines: {
+          create: pr.lines.map((l, i) => ({
+            partId: l.partId || undefined,
+            description: l.description || "Line item",
+            quantity: l.quantity || 1,
+            unitCost: l.estimatedUnitCost || 0,
+            uom: l.uom || "EA",
+            lineNumber: i + 1,
+            promisedDate: pr.neededBy || undefined,
+          })),
+        },
       },
-    },
-  });
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Failed to create PO";
+    throw new Error(`Convert to PO failed: ${msg}`);
+  }
 
   await prisma.purchaseRequest.update({
     where: { id },
     data: { status: "CONVERTED" },
   });
 
-  // Count trial ASL usage toward the vendor's trial order limit
   if (pr.supplier.isTrialVendor) {
     await prisma.supplier.update({
       where: { id: pr.supplierId },
@@ -1064,11 +1109,15 @@ export async function actionConvertPrToPo(formData: FormData): Promise<void> {
     });
   }
 
-  // Dock traveler waits for material against this PO
-  await createReceivingTravelerForPo({
-    purchaseOrderId: po.id,
-    userId: user?.id,
-  });
+  try {
+    await createReceivingTravelerForPo({
+      purchaseOrderId: po.id,
+      userId: user?.id,
+    });
+  } catch (e) {
+    // PO still created — do not fail conversion if traveler fails
+    console.error("Receiving traveler creation failed", e);
+  }
 
   await logAudit({
     entityType: "PurchaseOrder",
@@ -1361,7 +1410,7 @@ export async function actionVoteCm(formData: FormData) {
   const memberId = formData.get("memberId") as string;
   const vote = formData.get("vote") as string;
   const comments = (formData.get("comments") as string) || undefined;
-  // Approvers may vote; CM can also vote if on board
+  // Approvers may vote; CM can also vote if on board. Same controls for every seat.
   const user = await getCurrentUser();
 
   await prisma.cmBoardMember.update({
@@ -1381,25 +1430,32 @@ export async function actionVoteCm(formData: FormData) {
   if (member) {
     const cr = member.changeRequest;
     // Document ECRs: only APPROVER seats count (need both)
+    // Non-doc boards: all members vote except pure CHAIR (optional facilitator)
     const isDocEcr = Boolean(cr.documentNumber);
     const voters = isDocEcr
       ? cr.boardMembers.filter((v) =>
           ["APPROVER", "ENGINEERING", "QUALITY"].includes(v.role)
         )
-      : cr.boardMembers;
-    const allVoted = voters.length > 0 && voters.every((v) => v.vote);
+      : cr.boardMembers.filter((v) => v.role !== "CHAIR");
+    // If filtering left nobody (legacy CHAIR-only), fall back to everyone
+    const effectiveVoters = voters.length > 0 ? voters : cr.boardMembers;
+    const allVoted =
+      effectiveVoters.length > 0 && effectiveVoters.every((v) => v.vote);
     if (allVoted) {
-      const approved = voters.filter((v) => v.vote === "APPROVE").length;
-      const rejected = voters.filter((v) => v.vote === "REJECT").length;
+      const approved = effectiveVoters.filter(
+        (v) => v.vote === "APPROVE"
+      ).length;
+      const rejected = effectiveVoters.filter(
+        (v) => v.vote === "REJECT"
+      ).length;
       // Document ECRs require both approvers to APPROVE
-      const status =
-        isDocEcr
-          ? approved === voters.length && rejected === 0
-            ? "APPROVED"
-            : "REJECTED"
-          : approved > rejected
-            ? "APPROVED"
-            : "REJECTED";
+      const status = isDocEcr
+        ? approved === effectiveVoters.length && rejected === 0
+          ? "APPROVED"
+          : "REJECTED"
+        : approved > rejected
+          ? "APPROVED"
+          : "REJECTED";
       await prisma.changeRequest.update({
         where: { id: member.changeRequestId },
         data: {
@@ -1423,7 +1479,7 @@ export async function actionVoteCm(formData: FormData) {
           workInstructionId: member.changeRequest.workInstructionId,
           bomHeaderId: member.changeRequest.bomHeaderId,
           userId: user?.id,
-          decisionNotes: `Released by CM board (${approved}/${voters.length})`,
+          decisionNotes: `Released by CM board (${approved}/${effectiveVoters.length})`,
         });
         revalidatePath(
           `/work-instructions/${member.changeRequest.workInstructionId}`
@@ -1613,8 +1669,16 @@ export async function actionReleaseDocumentEcr(
 
 export async function actionMoveCmSubmission(formData: FormData): Promise<void> {
   const changeRequestId = formData.get("changeRequestId") as string;
-  const column = ((formData.get("column") as string) || "IN_WORK").toUpperCase();
+  let column = ((formData.get("column") as string) || "SUBMITTED").toUpperCase();
   const user = await getCurrentUser("CM");
+  const cr = await prisma.changeRequest.findUnique({
+    where: { id: changeRequestId },
+    select: { documentNumber: true },
+  });
+  // Document ECRs never sit in In work
+  if (cr?.documentNumber && column === "IN_WORK") {
+    column = "SUBMITTED";
+  }
   const { moveChangeRequestColumn } = await import("@/lib/services/cm-library");
   await moveChangeRequestColumn({
     changeRequestId,
@@ -1661,6 +1725,13 @@ export async function actionMoveCmBoardCard(params: {
         ok: false,
         error:
           "Document ECRs must use CM release (pick library folder) from Approved — cannot drop into Released",
+      };
+    }
+    if (params.isDocumentEcr && column === "IN_WORK") {
+      return {
+        ok: false,
+        error:
+          "Document ECRs land in Submitted when filed — not In work",
       };
     }
     const { moveChangeRequestColumn } = await import("@/lib/services/cm-library");
@@ -2499,8 +2570,16 @@ export async function actionRunKanbanReplenishment(): Promise<void> {
 export async function actionQueueShipment(formData: FormData): Promise<void> {
   const salesOrderId = formData.get("salesOrderId") as string;
   const user = await getCurrentUser();
-  await ensureShipmentForSalesOrder({ salesOrderId, userId: user?.id });
+  const result = await ensureShipmentForSalesOrder({
+    salesOrderId,
+    userId: user?.id,
+  });
   revalidateFulfillmentPaths([`/sales/${salesOrderId}`, "/shipping"]);
+  // Always land on the shipment detail so "Queue packing list" is not a no-op
+  if (result.shipment?.id) {
+    redirect(`/shipping/${result.shipment.id}`);
+  }
+  redirect(`/shipping?error=${encodeURIComponent(result.reason || "Could not queue shipment")}`);
 }
 
 export async function actionVerifyPackingList(formData: FormData): Promise<void> {
@@ -2540,4 +2619,1863 @@ export async function actionPackShipment(formData: FormData): Promise<void> {
   });
   revalidatePath("/shipping");
   revalidatePath("/sales");
+}
+
+// ─── CM number control (request → assign → master list) ─────────
+
+export async function actionRequestCmNumber(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  const { createNumberRequest } = await import("@/lib/services/cm-numbers");
+  await createNumberRequest({
+    category: ((formData.get("category") as string) || "").trim(),
+    title: ((formData.get("title") as string) || "").trim(),
+    description: ((formData.get("description") as string) || "").trim() || null,
+    preferredNumber:
+      ((formData.get("preferredNumber") as string) || "").trim() || null,
+    productName: ((formData.get("productName") as string) || "").trim() || null,
+    productFolderId:
+      ((formData.get("productFolderId") as string) || "").trim() || null,
+    schemeId: ((formData.get("schemeId") as string) || "").trim() || null,
+    requestedById: user?.id,
+    requestedByName: user?.name || null,
+  });
+  revalidatePath("/cm");
+  redirect("/cm?tab=numbers&panel=requests");
+}
+
+export async function actionAssignCmNumber(formData: FormData): Promise<void> {
+  const user = await getCurrentUser("CM");
+  const { assignNumberToRequest } = await import("@/lib/services/cm-numbers");
+  await assignNumberToRequest({
+    requestId: formData.get("requestId") as string,
+    overrideNumber:
+      ((formData.get("overrideNumber") as string) || "").trim() || null,
+    cmNotes: ((formData.get("cmNotes") as string) || "").trim() || null,
+    assignedById: user?.id,
+  });
+  revalidatePath("/cm");
+  redirect("/cm?tab=numbers&panel=requests");
+}
+
+export async function actionRejectCmNumberRequest(
+  formData: FormData
+): Promise<void> {
+  const user = await getCurrentUser("CM");
+  const { rejectNumberRequest } = await import("@/lib/services/cm-numbers");
+  await rejectNumberRequest({
+    requestId: formData.get("requestId") as string,
+    reason: ((formData.get("reason") as string) || "").trim(),
+    assignedById: user?.id,
+  });
+  revalidatePath("/cm");
+  redirect("/cm?tab=numbers&panel=requests");
+}
+
+export async function actionCancelCmNumberRequest(
+  formData: FormData
+): Promise<void> {
+  const user = await getCurrentUser();
+  const { cancelNumberRequest } = await import("@/lib/services/cm-numbers");
+  await cancelNumberRequest({
+    requestId: formData.get("requestId") as string,
+    userId: user?.id,
+  });
+  revalidatePath("/cm");
+  redirect("/cm?tab=numbers&panel=requests");
+}
+
+export async function actionRegisterCmNumber(formData: FormData): Promise<void> {
+  const user = await getCurrentUser("CM");
+  const { registerNumberManually } = await import("@/lib/services/cm-numbers");
+  await registerNumberManually({
+    number: ((formData.get("number") as string) || "").trim(),
+    category: ((formData.get("category") as string) || "").trim(),
+    title: ((formData.get("title") as string) || "").trim(),
+    description: ((formData.get("description") as string) || "").trim() || null,
+    productName: ((formData.get("productName") as string) || "").trim() || null,
+    notes: ((formData.get("notes") as string) || "").trim() || null,
+    status: ((formData.get("status") as string) || "ACTIVE").trim(),
+    assignedById: user?.id,
+    schemeId: ((formData.get("schemeId") as string) || "").trim() || null,
+  });
+  revalidatePath("/cm");
+  redirect("/cm?tab=numbers&panel=master");
+}
+
+export async function actionUpdateCmNumberScheme(
+  formData: FormData
+): Promise<void> {
+  const user = await getCurrentUser("CM");
+  const { updateNumberScheme } = await import("@/lib/services/cm-numbers");
+  const padRaw = ((formData.get("padLength") as string) || "").trim();
+  const nextRaw = ((formData.get("nextSequence") as string) || "").trim();
+  await updateNumberScheme({
+    id: formData.get("id") as string,
+    name: ((formData.get("name") as string) || "").trim() || undefined,
+    description:
+      ((formData.get("description") as string) || "").trim() || null,
+    prefix: ((formData.get("prefix") as string) || "").trim() || undefined,
+    separator:
+      formData.get("separator") !== null
+        ? String(formData.get("separator"))
+        : undefined,
+    padLength: padRaw ? Number(padRaw) : undefined,
+    suffix: ((formData.get("suffix") as string) || "").trim() || null,
+    nextSequence: nextRaw ? Number(nextRaw) : undefined,
+    // Checkbox present → active; absent → inactive (form always includes the field intent)
+    isActive:
+      formData.get("isActiveOn") === "on" ||
+      formData.get("isActiveOn") === "true",
+    userId: user?.id,
+  });
+  revalidatePath("/cm");
+  redirect("/cm?tab=numbers&panel=schemes");
+}
+
+export async function actionUpdateRegistryStatus(
+  formData: FormData
+): Promise<void> {
+  const user = await getCurrentUser("CM");
+  const { updateRegistryStatus } = await import("@/lib/services/cm-numbers");
+  await updateRegistryStatus({
+    id: formData.get("id") as string,
+    status: ((formData.get("status") as string) || "").trim(),
+    notes: ((formData.get("notes") as string) || "").trim() || null,
+    userId: user?.id,
+  });
+  revalidatePath("/cm");
+  redirect("/cm?tab=numbers&panel=master");
+}
+
+// ─── Products (PLM) ─────────────────────────────────────────────
+
+export async function actionCreateProduct(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  const {
+    createProduct,
+    productFieldsFromForm,
+  } = await import("@/lib/services/products");
+  const fields = productFieldsFromForm(formData);
+  const product = await createProduct({
+    ...fields,
+    createCmFolder:
+      formData.get("createCmFolder") === "on" ||
+      formData.get("createCmFolder") === "true",
+    userId: user?.id,
+  });
+  revalidatePath("/products");
+  revalidatePath("/cm");
+  redirect(`/products/${product.id}`);
+}
+
+export async function actionUpdateProduct(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  const {
+    updateProduct,
+    productFieldsFromForm,
+  } = await import("@/lib/services/products");
+  const id = formData.get("id") as string;
+  const fields = productFieldsFromForm(formData);
+  await updateProduct({
+    id,
+    ...fields,
+    userId: user?.id,
+  });
+  revalidatePath("/products");
+  revalidatePath(`/products/${id}`);
+  redirect(`/products/${id}`);
+}
+
+export async function actionAdvanceProductLifecycle(
+  formData: FormData
+): Promise<void> {
+  const user = await getCurrentUser();
+  const { advanceProductLifecycle } = await import("@/lib/services/products");
+  const productId = formData.get("productId") as string;
+  await advanceProductLifecycle({
+    productId,
+    toPhase: ((formData.get("toPhase") as string) || "").trim(),
+    notes: ((formData.get("notes") as string) || "").trim() || null,
+    userId: user?.id,
+  });
+  revalidatePath("/products");
+  revalidatePath(`/products/${productId}`);
+  redirect(`/products/${productId}?tab=lifecycle`);
+}
+
+export async function actionAddProductPart(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  const { addProductPart } = await import("@/lib/services/products");
+  const productId = formData.get("productId") as string;
+  await addProductPart({
+    productId,
+    partId: formData.get("partId") as string,
+    role: ((formData.get("role") as string) || "RELATED").trim(),
+    notes: ((formData.get("notes") as string) || "").trim() || null,
+    userId: user?.id,
+  });
+  revalidatePath(`/products/${productId}`);
+  redirect(`/products/${productId}?tab=structure`);
+}
+
+export async function actionRemoveProductPart(
+  formData: FormData
+): Promise<void> {
+  const { removeProductPart } = await import("@/lib/services/products");
+  const productId = formData.get("productId") as string;
+  await removeProductPart({ id: formData.get("id") as string });
+  revalidatePath(`/products/${productId}`);
+  redirect(`/products/${productId}?tab=structure`);
+}
+
+export async function actionAddProductDocument(
+  formData: FormData
+): Promise<void> {
+  const user = await getCurrentUser();
+  const { addProductDocument } = await import("@/lib/services/products");
+  const productId = formData.get("productId") as string;
+  await addProductDocument({
+    productId,
+    title: ((formData.get("title") as string) || "").trim(),
+    docType: ((formData.get("docType") as string) || "OTHER").trim(),
+    number: ((formData.get("number") as string) || "").trim() || null,
+    revision: ((formData.get("revision") as string) || "").trim() || null,
+    status: ((formData.get("status") as string) || "").trim() || null,
+    url: ((formData.get("url") as string) || "").trim() || null,
+    notes: ((formData.get("notes") as string) || "").trim() || null,
+    userId: user?.id,
+  });
+  revalidatePath(`/products/${productId}`);
+  redirect(`/products/${productId}?tab=documents`);
+}
+
+export async function actionRemoveProductDocument(
+  formData: FormData
+): Promise<void> {
+  const { removeProductDocument } = await import("@/lib/services/products");
+  const productId = formData.get("productId") as string;
+  await removeProductDocument({ id: formData.get("id") as string });
+  revalidatePath(`/products/${productId}`);
+  redirect(`/products/${productId}?tab=documents`);
+}
+
+export async function actionAddProductRequirement(
+  formData: FormData
+): Promise<void> {
+  const { addProductRequirement } = await import("@/lib/services/products");
+  const productId = formData.get("productId") as string;
+  await addProductRequirement({
+    productId,
+    number: ((formData.get("number") as string) || "").trim() || null,
+    title: ((formData.get("title") as string) || "").trim(),
+    description:
+      ((formData.get("description") as string) || "").trim() || null,
+    category: ((formData.get("category") as string) || "FUNCTIONAL").trim(),
+    status: ((formData.get("status") as string) || "DRAFT").trim(),
+    priority: ((formData.get("priority") as string) || "NORMAL").trim(),
+    source: ((formData.get("source") as string) || "").trim() || null,
+    verificationMethod:
+      ((formData.get("verificationMethod") as string) || "").trim() || null,
+  });
+  revalidatePath(`/products/${productId}`);
+  redirect(`/products/${productId}?tab=requirements`);
+}
+
+export async function actionUpdateProductRequirement(
+  formData: FormData
+): Promise<void> {
+  const { updateProductRequirement } = await import("@/lib/services/products");
+  const productId = formData.get("productId") as string;
+  await updateProductRequirement({
+    id: formData.get("id") as string,
+    title: ((formData.get("title") as string) || "").trim() || undefined,
+    status: ((formData.get("status") as string) || "").trim() || undefined,
+    priority: ((formData.get("priority") as string) || "").trim() || undefined,
+    category: ((formData.get("category") as string) || "").trim() || undefined,
+  });
+  revalidatePath(`/products/${productId}`);
+  redirect(`/products/${productId}?tab=requirements`);
+}
+
+export async function actionRemoveProductRequirement(
+  formData: FormData
+): Promise<void> {
+  const { removeProductRequirement } = await import("@/lib/services/products");
+  const productId = formData.get("productId") as string;
+  await removeProductRequirement({ id: formData.get("id") as string });
+  revalidatePath(`/products/${productId}`);
+  redirect(`/products/${productId}?tab=requirements`);
+}
+
+export async function actionAddProductVariant(
+  formData: FormData
+): Promise<void> {
+  const { addProductVariant } = await import("@/lib/services/products");
+  const productId = formData.get("productId") as string;
+  await addProductVariant({
+    productId,
+    code: ((formData.get("code") as string) || "").trim(),
+    name: ((formData.get("name") as string) || "").trim(),
+    description:
+      ((formData.get("description") as string) || "").trim() || null,
+    isDefault:
+      formData.get("isDefault") === "on" ||
+      formData.get("isDefault") === "true",
+    topLevelPartId:
+      ((formData.get("topLevelPartId") as string) || "").trim() || null,
+  });
+  revalidatePath(`/products/${productId}`);
+  redirect(`/products/${productId}?tab=variants`);
+}
+
+export async function actionRemoveProductVariant(
+  formData: FormData
+): Promise<void> {
+  const { removeProductVariant } = await import("@/lib/services/products");
+  const productId = formData.get("productId") as string;
+  await removeProductVariant({ id: formData.get("id") as string });
+  revalidatePath(`/products/${productId}`);
+  redirect(`/products/${productId}?tab=variants`);
+}
+
+export async function actionAddProductMilestone(
+  formData: FormData
+): Promise<void> {
+  const { addProductMilestone } = await import("@/lib/services/products");
+  const productId = formData.get("productId") as string;
+  const targetRaw = ((formData.get("targetDate") as string) || "").trim();
+  await addProductMilestone({
+    productId,
+    name: ((formData.get("name") as string) || "").trim(),
+    kind: ((formData.get("kind") as string) || "GATE").trim(),
+    targetDate: targetRaw ? new Date(targetRaw) : null,
+    status: ((formData.get("status") as string) || "PLANNED").trim(),
+    notes: ((formData.get("notes") as string) || "").trim() || null,
+  });
+  revalidatePath(`/products/${productId}`);
+  redirect(`/products/${productId}?tab=lifecycle`);
+}
+
+export async function actionUpdateProductMilestone(
+  formData: FormData
+): Promise<void> {
+  const { updateProductMilestone } = await import("@/lib/services/products");
+  const productId = formData.get("productId") as string;
+  const targetRaw = ((formData.get("targetDate") as string) || "").trim();
+  const actualRaw = ((formData.get("actualDate") as string) || "").trim();
+  await updateProductMilestone({
+    id: formData.get("id") as string,
+    name: ((formData.get("name") as string) || "").trim() || undefined,
+    status: ((formData.get("status") as string) || "").trim() || undefined,
+    targetDate: targetRaw ? new Date(targetRaw) : undefined,
+    actualDate: actualRaw ? new Date(actualRaw) : undefined,
+  });
+  revalidatePath(`/products/${productId}`);
+  redirect(`/products/${productId}?tab=lifecycle`);
+}
+
+export async function actionRemoveProductMilestone(
+  formData: FormData
+): Promise<void> {
+  const { removeProductMilestone } = await import("@/lib/services/products");
+  const productId = formData.get("productId") as string;
+  await removeProductMilestone({ id: formData.get("id") as string });
+  revalidatePath(`/products/${productId}`);
+  redirect(`/products/${productId}?tab=lifecycle`);
+}
+
+export async function actionAddProductMember(formData: FormData): Promise<void> {
+  const { addProductMember } = await import("@/lib/services/products");
+  const productId = formData.get("productId") as string;
+  await addProductMember({
+    productId,
+    userId: formData.get("userId") as string,
+    role: ((formData.get("role") as string) || "OTHER").trim(),
+    notes: ((formData.get("notes") as string) || "").trim() || null,
+  });
+  revalidatePath(`/products/${productId}`);
+  redirect(`/products/${productId}?tab=team`);
+}
+
+export async function actionRemoveProductMember(
+  formData: FormData
+): Promise<void> {
+  const { removeProductMember } = await import("@/lib/services/products");
+  const productId = formData.get("productId") as string;
+  await removeProductMember({ id: formData.get("id") as string });
+  revalidatePath(`/products/${productId}`);
+  redirect(`/products/${productId}?tab=team`);
+}
+
+// ─── PMO (Program / Project Management) ─────────────────────────
+
+function optDate(formData: FormData, key: string): Date | null {
+  const raw = ((formData.get(key) as string) || "").trim();
+  if (!raw) return null;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+function optNum(formData: FormData, key: string): number | undefined {
+  const raw = ((formData.get(key) as string) || "").trim();
+  if (!raw) return undefined;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+export async function actionCreateProgram(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  const { createProgram } = await import("@/lib/services/pmo");
+  const program = await createProgram({
+    code: ((formData.get("code") as string) || "").trim() || null,
+    name: ((formData.get("name") as string) || "").trim(),
+    description: ((formData.get("description") as string) || "").trim() || null,
+    portfolio: ((formData.get("portfolio") as string) || "").trim() || null,
+    ownerId: ((formData.get("ownerId") as string) || "").trim() || null,
+    budgetCost: optNum(formData, "budgetCost"),
+    startDate: optDate(formData, "startDate"),
+    endDate: optDate(formData, "endDate"),
+    notes: ((formData.get("notes") as string) || "").trim() || null,
+    userId: user?.id,
+  });
+  revalidatePath("/pmo");
+  redirect(`/pmo/programs/${program.id}`);
+}
+
+export async function actionCreatePmoProject(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  const { createProject } = await import("@/lib/services/pmo");
+  const project = await createProject({
+    number: ((formData.get("number") as string) || "").trim() || null,
+    name: ((formData.get("name") as string) || "").trim(),
+    description: ((formData.get("description") as string) || "").trim() || null,
+    programId: ((formData.get("programId") as string) || "").trim() || null,
+    productId: ((formData.get("productId") as string) || "").trim() || null,
+    methodology: ((formData.get("methodology") as string) || "HYBRID").trim(),
+    phase: ((formData.get("phase") as string) || "INITIATION").trim(),
+    status: ((formData.get("status") as string) || "PLANNING").trim(),
+    customerName: ((formData.get("customerName") as string) || "").trim() || null,
+    contractValue: optNum(formData, "contractValue"),
+    budgetCost: optNum(formData, "budgetCost"),
+    developmentBudget: optNum(formData, "developmentBudget"),
+    startDate: optDate(formData, "startDate"),
+    endDate: optDate(formData, "endDate"),
+    sponsorId: ((formData.get("sponsorId") as string) || "").trim() || null,
+    projectManagerId:
+      ((formData.get("projectManagerId") as string) || "").trim() || null,
+    businessCase: ((formData.get("businessCase") as string) || "").trim() || null,
+    objectives: ((formData.get("objectives") as string) || "").trim() || null,
+    scopeIn: ((formData.get("scopeIn") as string) || "").trim() || null,
+    scopeOut: ((formData.get("scopeOut") as string) || "").trim() || null,
+    userId: user?.id,
+  });
+  revalidatePath("/pmo");
+  revalidatePath("/products");
+  redirect(`/pmo/projects/${project.id}`);
+}
+
+export async function actionUpdateProjectCharter(
+  formData: FormData
+): Promise<void> {
+  const user = await getCurrentUser();
+  const { updateProjectCharter } = await import("@/lib/services/pmo");
+  const id = formData.get("id") as string;
+  await updateProjectCharter({
+    id,
+    name: ((formData.get("name") as string) || "").trim() || undefined,
+    description: ((formData.get("description") as string) || "").trim() || null,
+    businessCase: ((formData.get("businessCase") as string) || "").trim() || null,
+    objectives: ((formData.get("objectives") as string) || "").trim() || null,
+    scopeIn: ((formData.get("scopeIn") as string) || "").trim() || null,
+    scopeOut: ((formData.get("scopeOut") as string) || "").trim() || null,
+    successCriteria:
+      ((formData.get("successCriteria") as string) || "").trim() || null,
+    assumptions: ((formData.get("assumptions") as string) || "").trim() || null,
+    constraints: ((formData.get("constraints") as string) || "").trim() || null,
+    deliverables: ((formData.get("deliverables") as string) || "").trim() || null,
+    stakeholdersSummary:
+      ((formData.get("stakeholdersSummary") as string) || "").trim() || null,
+    sponsorId: ((formData.get("sponsorId") as string) || "").trim() || null,
+    projectManagerId:
+      ((formData.get("projectManagerId") as string) || "").trim() || null,
+    methodology: ((formData.get("methodology") as string) || "").trim() || undefined,
+    phase: ((formData.get("phase") as string) || "").trim() || undefined,
+    status: ((formData.get("status") as string) || "").trim() || undefined,
+    charterStatus:
+      ((formData.get("charterStatus") as string) || "").trim() || undefined,
+    contractValue: optNum(formData, "contractValue"),
+    budgetCost: optNum(formData, "budgetCost"),
+    developmentBudget: optNum(formData, "developmentBudget"),
+    customerName:
+      ((formData.get("customerName") as string) || "").trim() || null,
+    startDate: optDate(formData, "startDate"),
+    endDate: optDate(formData, "endDate"),
+    productId: ((formData.get("productId") as string) || "").trim() || null,
+    programId: ((formData.get("programId") as string) || "").trim() || null,
+    userId: user?.id,
+  });
+  revalidatePath("/pmo");
+  revalidatePath(`/pmo/projects/${id}`);
+  redirect(`/pmo/projects/${id}?tab=charter`);
+}
+
+export async function actionAddProjectRisk(formData: FormData): Promise<void> {
+  const { addProjectRisk } = await import("@/lib/services/pmo");
+  const projectId = formData.get("projectId") as string;
+  await addProjectRisk({
+    projectId,
+    title: ((formData.get("title") as string) || "").trim(),
+    description: ((formData.get("description") as string) || "").trim() || null,
+    category: ((formData.get("category") as string) || "").trim() || null,
+    probability: ((formData.get("probability") as string) || "MEDIUM").trim(),
+    impact: ((formData.get("impact") as string) || "MEDIUM").trim(),
+    mitigation: ((formData.get("mitigation") as string) || "").trim() || null,
+    contingency: ((formData.get("contingency") as string) || "").trim() || null,
+    residualRisk:
+      ((formData.get("residualRisk") as string) || "").trim() || null,
+    targetDate: optDate(formData, "targetDate"),
+  });
+  revalidatePath(`/pmo/projects/${projectId}`);
+  redirect(`/pmo/projects/${projectId}?tab=risks`);
+}
+
+export async function actionUpdateProjectRisk(
+  formData: FormData
+): Promise<void> {
+  const { updateProjectRisk } = await import("@/lib/services/pmo");
+  const projectId = formData.get("projectId") as string;
+  await updateProjectRisk({
+    id: formData.get("id") as string,
+    status: ((formData.get("status") as string) || "").trim() || undefined,
+    mitigation: ((formData.get("mitigation") as string) || "").trim() || null,
+  });
+  revalidatePath(`/pmo/projects/${projectId}`);
+  redirect(`/pmo/projects/${projectId}?tab=risks`);
+}
+
+export async function actionAddProjectIssue(formData: FormData): Promise<void> {
+  const { addProjectIssue } = await import("@/lib/services/pmo");
+  const projectId = formData.get("projectId") as string;
+  await addProjectIssue({
+    projectId,
+    title: ((formData.get("title") as string) || "").trim(),
+    description: ((formData.get("description") as string) || "").trim() || null,
+    category: ((formData.get("category") as string) || "").trim() || null,
+    priority: ((formData.get("priority") as string) || "NORMAL").trim(),
+  });
+  revalidatePath(`/pmo/projects/${projectId}`);
+  redirect(`/pmo/projects/${projectId}?tab=issues`);
+}
+
+export async function actionUpdateProjectIssue(
+  formData: FormData
+): Promise<void> {
+  const { updateProjectIssue } = await import("@/lib/services/pmo");
+  const projectId = formData.get("projectId") as string;
+  await updateProjectIssue({
+    id: formData.get("id") as string,
+    status: ((formData.get("status") as string) || "").trim() || undefined,
+    resolution: ((formData.get("resolution") as string) || "").trim() || null,
+  });
+  revalidatePath(`/pmo/projects/${projectId}`);
+  redirect(`/pmo/projects/${projectId}?tab=issues`);
+}
+
+export async function actionUpsertRaci(formData: FormData): Promise<void> {
+  const { upsertRaciEntry } = await import("@/lib/services/pmo");
+  const projectId = formData.get("projectId") as string;
+  await upsertRaciEntry({
+    id: ((formData.get("id") as string) || "").trim() || undefined,
+    projectId,
+    activity: ((formData.get("activity") as string) || "").trim(),
+    responsible: ((formData.get("responsible") as string) || "").trim() || null,
+    accountable: ((formData.get("accountable") as string) || "").trim() || null,
+    consulted: ((formData.get("consulted") as string) || "").trim() || null,
+    informed: ((formData.get("informed") as string) || "").trim() || null,
+    notes: ((formData.get("notes") as string) || "").trim() || null,
+  });
+  revalidatePath(`/pmo/projects/${projectId}`);
+  redirect(`/pmo/projects/${projectId}?tab=raci`);
+}
+
+export async function actionDeleteRaci(formData: FormData): Promise<void> {
+  const { deleteRaciEntry } = await import("@/lib/services/pmo");
+  const projectId = formData.get("projectId") as string;
+  await deleteRaciEntry(formData.get("id") as string);
+  revalidatePath(`/pmo/projects/${projectId}`);
+  redirect(`/pmo/projects/${projectId}?tab=raci`);
+}
+
+export async function actionAddCommunication(
+  formData: FormData
+): Promise<void> {
+  const { addCommunication } = await import("@/lib/services/pmo");
+  const projectId = formData.get("projectId") as string;
+  await addCommunication({
+    projectId,
+    audience: ((formData.get("audience") as string) || "").trim(),
+    purpose: ((formData.get("purpose") as string) || "").trim() || null,
+    frequency: ((formData.get("frequency") as string) || "").trim() || null,
+    channel: ((formData.get("channel") as string) || "").trim() || null,
+    ownerName: ((formData.get("ownerName") as string) || "").trim() || null,
+    notes: ((formData.get("notes") as string) || "").trim() || null,
+  });
+  revalidatePath(`/pmo/projects/${projectId}`);
+  redirect(`/pmo/projects/${projectId}?tab=comms`);
+}
+
+export async function actionDeleteCommunication(
+  formData: FormData
+): Promise<void> {
+  const { deleteCommunication } = await import("@/lib/services/pmo");
+  const projectId = formData.get("projectId") as string;
+  await deleteCommunication(formData.get("id") as string);
+  revalidatePath(`/pmo/projects/${projectId}`);
+  redirect(`/pmo/projects/${projectId}?tab=comms`);
+}
+
+export async function actionAddPmoTask(formData: FormData): Promise<void> {
+  const { addProjectTask } = await import("@/lib/services/pmo");
+  const projectId = formData.get("projectId") as string;
+  await addProjectTask({
+    projectId,
+    name: ((formData.get("name") as string) || "").trim(),
+    description: ((formData.get("description") as string) || "").trim() || null,
+    status: ((formData.get("status") as string) || "TODO").trim(),
+    priority: ((formData.get("priority") as string) || "NORMAL").trim(),
+    kind: ((formData.get("kind") as string) || "TASK").trim(),
+    storyPoints: optNum(formData, "storyPoints") ?? null,
+    sprintLabel: ((formData.get("sprintLabel") as string) || "").trim() || null,
+    piIncrementId:
+      ((formData.get("piIncrementId") as string) || "").trim() || null,
+    startDate: optDate(formData, "startDate"),
+    endDate: optDate(formData, "endDate"),
+    estimatedHours: optNum(formData, "estimatedHours") ?? null,
+  });
+  revalidatePath(`/pmo/projects/${projectId}`);
+  redirect(`/pmo/projects/${projectId}?tab=schedule`);
+}
+
+export async function actionUpdatePmoTask(formData: FormData): Promise<void> {
+  const { updateProjectTask } = await import("@/lib/services/pmo");
+  const projectId = formData.get("projectId") as string;
+  await updateProjectTask({
+    id: formData.get("id") as string,
+    status: ((formData.get("status") as string) || "").trim() || undefined,
+    percentComplete: optNum(formData, "percentComplete"),
+  });
+  revalidatePath(`/pmo/projects/${projectId}`);
+  redirect(`/pmo/projects/${projectId}?tab=schedule`);
+}
+
+export async function actionAddPmoMilestone(formData: FormData): Promise<void> {
+  const { addProjectMilestone } = await import("@/lib/services/pmo");
+  const projectId = formData.get("projectId") as string;
+  await addProjectMilestone({
+    projectId,
+    name: ((formData.get("name") as string) || "").trim(),
+    kind: ((formData.get("kind") as string) || "GATE").trim(),
+    dueDate: optDate(formData, "dueDate"),
+    description: ((formData.get("description") as string) || "").trim() || null,
+  });
+  revalidatePath(`/pmo/projects/${projectId}`);
+  redirect(`/pmo/projects/${projectId}?tab=schedule`);
+}
+
+export async function actionUpdatePmoMilestone(
+  formData: FormData
+): Promise<void> {
+  const { updateProjectMilestone } = await import("@/lib/services/pmo");
+  const projectId = formData.get("projectId") as string;
+  await updateProjectMilestone({
+    id: formData.get("id") as string,
+    status: ((formData.get("status") as string) || "").trim() || undefined,
+  });
+  revalidatePath(`/pmo/projects/${projectId}`);
+  redirect(`/pmo/projects/${projectId}?tab=schedule`);
+}
+
+export async function actionSaveWikiPage(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  const { saveWikiPage } = await import("@/lib/services/pmo");
+  const projectId = formData.get("projectId") as string;
+  const page = await saveWikiPage({
+    id: ((formData.get("id") as string) || "").trim() || undefined,
+    projectId,
+    slug: ((formData.get("slug") as string) || "").trim() || undefined,
+    title: ((formData.get("title") as string) || "").trim(),
+    body: ((formData.get("body") as string) || "") || "",
+    userId: user?.id,
+  });
+  revalidatePath(`/pmo/projects/${projectId}`);
+  redirect(`/pmo/projects/${projectId}?tab=wiki&page=${page.slug}`);
+}
+
+export async function actionCreatePi(formData: FormData): Promise<void> {
+  const { createPiIncrement } = await import("@/lib/services/pmo");
+  const projectId = formData.get("projectId") as string;
+  await createPiIncrement({
+    projectId,
+    name: ((formData.get("name") as string) || "").trim(),
+    goals: ((formData.get("goals") as string) || "").trim() || null,
+    startDate: optDate(formData, "startDate"),
+    endDate: optDate(formData, "endDate"),
+    capacityPoints: optNum(formData, "capacityPoints") ?? null,
+  });
+  revalidatePath(`/pmo/projects/${projectId}`);
+  redirect(`/pmo/projects/${projectId}?tab=pi`);
+}
+
+export async function actionAddPiFeature(formData: FormData): Promise<void> {
+  const { addPiFeature } = await import("@/lib/services/pmo");
+  const projectId = formData.get("projectId") as string;
+  await addPiFeature({
+    piId: formData.get("piId") as string,
+    name: ((formData.get("name") as string) || "").trim(),
+    description: ((formData.get("description") as string) || "").trim() || null,
+    storyPoints: optNum(formData, "storyPoints") ?? null,
+    ownerName: ((formData.get("ownerName") as string) || "").trim() || null,
+  });
+  revalidatePath(`/pmo/projects/${projectId}`);
+  redirect(`/pmo/projects/${projectId}?tab=pi`);
+}
+
+export async function actionAddCostEntry(formData: FormData): Promise<void> {
+  const { addCostEntry } = await import("@/lib/services/pmo");
+  const projectId = formData.get("projectId") as string;
+  await addCostEntry({
+    projectId,
+    productId: ((formData.get("productId") as string) || "").trim() || null,
+    category: ((formData.get("category") as string) || "LABOR").trim(),
+    description: ((formData.get("description") as string) || "").trim() || null,
+    amount: optNum(formData, "amount") ?? 0,
+    hours: optNum(formData, "hours") ?? null,
+    entryDate: optDate(formData, "entryDate"),
+    source: "MANUAL",
+  });
+  revalidatePath(`/pmo/projects/${projectId}`);
+  revalidatePath("/products");
+  redirect(`/pmo/projects/${projectId}?tab=cost`);
+}
+
+export async function actionAddProjectRequirement(
+  formData: FormData
+): Promise<void> {
+  const { addProjectRequirement } = await import("@/lib/services/pmo");
+  const projectId = formData.get("projectId") as string;
+  await addProjectRequirement({
+    projectId,
+    number: ((formData.get("number") as string) || "").trim() || null,
+    title: ((formData.get("title") as string) || "").trim(),
+    description: ((formData.get("description") as string) || "").trim() || null,
+    category: ((formData.get("category") as string) || "FUNCTIONAL").trim(),
+    priority: ((formData.get("priority") as string) || "NORMAL").trim(),
+    source: ((formData.get("source") as string) || "").trim() || null,
+  });
+  revalidatePath(`/pmo/projects/${projectId}`);
+  redirect(`/pmo/projects/${projectId}?tab=requirements`);
+}
+
+export async function actionSyncReqsToProduct(
+  formData: FormData
+): Promise<void> {
+  const user = await getCurrentUser();
+  const { syncRequirementsToProduct } = await import("@/lib/services/pmo");
+  const projectId = formData.get("projectId") as string;
+  await syncRequirementsToProduct({ projectId, userId: user?.id });
+  revalidatePath(`/pmo/projects/${projectId}`);
+  revalidatePath("/products");
+  redirect(`/pmo/projects/${projectId}?tab=requirements`);
+}
+
+export async function actionSyncMilestonesToProduct(
+  formData: FormData
+): Promise<void> {
+  const user = await getCurrentUser();
+  const { syncMilestonesToProduct } = await import("@/lib/services/pmo");
+  const projectId = formData.get("projectId") as string;
+  await syncMilestonesToProduct({ projectId, userId: user?.id });
+  revalidatePath(`/pmo/projects/${projectId}`);
+  revalidatePath("/products");
+  redirect(`/pmo/projects/${projectId}?tab=schedule`);
+}
+
+export async function actionLinkProductToProject(
+  formData: FormData
+): Promise<void> {
+  const { linkProductToProject } = await import("@/lib/services/pmo");
+  const projectId = formData.get("projectId") as string;
+  await linkProductToProject({
+    projectId,
+    productId: formData.get("productId") as string,
+    role: ((formData.get("role") as string) || "PRIMARY").trim(),
+  });
+  revalidatePath(`/pmo/projects/${projectId}`);
+  revalidatePath("/products");
+  redirect(`/pmo/projects/${projectId}?tab=product`);
+}
+
+// ─── Engineering work: WBS, Campaigns, Sagas, Tasks, Scan ──────
+
+export async function actionCreateWbs(formData: FormData): Promise<void> {
+  const { createWbsElement } = await import("@/lib/services/engineering-work");
+  const projectId = formData.get("projectId") as string;
+  const parentId = ((formData.get("parentId") as string) || "").trim() || null;
+  await createWbsElement({
+    projectId,
+    parentId,
+    code: ((formData.get("code") as string) || "").trim(),
+    name: ((formData.get("name") as string) || "").trim(),
+    kind: ((formData.get("kind") as string) || "WORK_PACKAGE").trim(),
+    description: ((formData.get("description") as string) || "").trim() || null,
+    deliverables: ((formData.get("deliverables") as string) || "").trim() || null,
+    budgetCost: optNum(formData, "budgetCost"),
+    startDate: optDate(formData, "startDate"),
+    endDate: optDate(formData, "endDate"),
+  });
+  revalidatePath(`/pmo/projects/${projectId}`);
+  const returnTo = ((formData.get("returnTo") as string) || "").trim();
+  redirect(returnTo || `/pmo/projects/${projectId}?tab=wbs`);
+}
+
+export async function actionUpdateWbs(formData: FormData): Promise<void> {
+  const { updateWbsElement } = await import("@/lib/services/engineering-work");
+  const id = formData.get("id") as string;
+  const projectId = formData.get("projectId") as string;
+  await updateWbsElement({
+    id,
+    name: ((formData.get("name") as string) || "").trim() || undefined,
+    code: ((formData.get("code") as string) || "").trim() || undefined,
+    kind: ((formData.get("kind") as string) || "").trim() || undefined,
+    description: ((formData.get("description") as string) || "").trim() || null,
+    deliverables: ((formData.get("deliverables") as string) || "").trim() || null,
+    acceptanceCriteria:
+      ((formData.get("acceptanceCriteria") as string) || "").trim() || null,
+    assumptions: ((formData.get("assumptions") as string) || "").trim() || null,
+    constraints: ((formData.get("constraints") as string) || "").trim() || null,
+    resources: ((formData.get("resources") as string) || "").trim() || null,
+    notes: ((formData.get("notes") as string) || "").trim() || null,
+    status: ((formData.get("status") as string) || "").trim() || undefined,
+    budgetCost: optNum(formData, "budgetCost"),
+    actualCost: optNum(formData, "actualCost"),
+    percentComplete: optNum(formData, "percentComplete"),
+    startDate: optDate(formData, "startDate"),
+    endDate: optDate(formData, "endDate"),
+  });
+  revalidatePath(`/pmo/projects/${projectId}`);
+  revalidatePath(`/pmo/wbs/${id}`);
+  redirect(`/pmo/wbs/${id}`);
+}
+
+export async function actionCreateCampaign(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  const { createCampaign } = await import("@/lib/services/engineering-work");
+  const projectId = formData.get("projectId") as string;
+  await createCampaign({
+    projectId,
+    wbsElementId: ((formData.get("wbsElementId") as string) || "").trim() || null,
+    name: ((formData.get("name") as string) || "").trim(),
+    description: ((formData.get("description") as string) || "").trim() || null,
+    definitionOfDone:
+      ((formData.get("definitionOfDone") as string) || "").trim() || null,
+    priority: ((formData.get("priority") as string) || "NORMAL").trim(),
+    ownerId: ((formData.get("ownerId") as string) || "").trim() || null,
+    startDate: optDate(formData, "startDate"),
+    endDate: optDate(formData, "endDate"),
+    dueDate: optDate(formData, "dueDate"),
+    estimatedHours: optNum(formData, "estimatedHours"),
+    storyPoints: optNum(formData, "storyPoints"),
+    userId: user?.id,
+  });
+  revalidatePath(`/pmo/projects/${projectId}`);
+  revalidatePath("/engineering");
+  redirect(`/pmo/projects/${projectId}?tab=campaigns`);
+}
+
+export async function actionUpdateCampaign(formData: FormData): Promise<void> {
+  const { updateCampaign } = await import("@/lib/services/engineering-work");
+  const projectId = formData.get("projectId") as string;
+  await updateCampaign({
+    id: formData.get("id") as string,
+    name: ((formData.get("name") as string) || "").trim() || undefined,
+    status: ((formData.get("status") as string) || "").trim() || undefined,
+    definitionOfDone:
+      ((formData.get("definitionOfDone") as string) || "").trim() || null,
+    priority: ((formData.get("priority") as string) || "").trim() || undefined,
+  });
+  revalidatePath(`/pmo/projects/${projectId}`);
+  revalidatePath("/engineering");
+  redirect(`/pmo/projects/${projectId}?tab=campaigns`);
+}
+
+export async function actionCreateSaga(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  const { createSaga } = await import("@/lib/services/engineering-work");
+  const projectId = formData.get("projectId") as string;
+  const dependsOnTaskIds = formData
+    .getAll("dependsOnTaskIds")
+    .map((v) => String(v).trim())
+    .filter(Boolean);
+  const dependsOnSagaIds = formData
+    .getAll("dependsOnSagaIds")
+    .map((v) => String(v).trim())
+    .filter(Boolean);
+  await createSaga({
+    projectId,
+    campaignId: formData.get("campaignId") as string,
+    name: ((formData.get("name") as string) || "").trim(),
+    description: ((formData.get("description") as string) || "").trim() || null,
+    discipline: ((formData.get("discipline") as string) || "SYSTEMS").trim(),
+    definitionOfDone:
+      ((formData.get("definitionOfDone") as string) || "").trim() || null,
+    priority: ((formData.get("priority") as string) || "NORMAL").trim(),
+    ownerId: ((formData.get("ownerId") as string) || "").trim() || null,
+    startDate: optDate(formData, "startDate"),
+    endDate: optDate(formData, "endDate"),
+    dueDate: optDate(formData, "dueDate"),
+    estimatedHours: optNum(formData, "estimatedHours"),
+    storyPoints: optNum(formData, "storyPoints"),
+    dependsOnTaskIds,
+    dependsOnSagaIds,
+    userId: user?.id,
+  });
+  revalidatePath(`/pmo/projects/${projectId}`);
+  revalidatePath("/engineering");
+  const ret = ((formData.get("returnTo") as string) || "").trim();
+  redirect(ret || `/pmo/projects/${projectId}?tab=campaigns`);
+}
+
+export async function actionUpdateSaga(formData: FormData): Promise<void> {
+  const { updateSaga } = await import("@/lib/services/engineering-work");
+  await updateSaga({
+    id: formData.get("id") as string,
+    status: ((formData.get("status") as string) || "").trim() || undefined,
+    definitionOfDone:
+      ((formData.get("definitionOfDone") as string) || "").trim() || null,
+    discipline: ((formData.get("discipline") as string) || "").trim() || undefined,
+    priority: ((formData.get("priority") as string) || "").trim() || undefined,
+  });
+  revalidatePath("/engineering");
+  revalidatePath("/pmo");
+  const ret = ((formData.get("returnTo") as string) || "/engineering").trim();
+  redirect(ret);
+}
+
+export async function actionCreateEngTask(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  const { createEngTask } = await import("@/lib/services/engineering-work");
+  const projectId =
+    ((formData.get("projectId") as string) || "").trim() || null;
+  const productId =
+    ((formData.get("productId") as string) || "").trim() || null;
+  const dependsOnTaskIds = formData
+    .getAll("dependsOnTaskIds")
+    .map((v) => String(v).trim())
+    .filter(Boolean);
+  const dependsOnSagaIds = formData
+    .getAll("dependsOnSagaIds")
+    .map((v) => String(v).trim())
+    .filter(Boolean);
+  await createEngTask({
+    projectId,
+    productId,
+    sagaId: ((formData.get("sagaId") as string) || "").trim() || null,
+    campaignId: ((formData.get("campaignId") as string) || "").trim() || null,
+    parentId: ((formData.get("parentId") as string) || "").trim() || null,
+    name: ((formData.get("name") as string) || "").trim(),
+    description: ((formData.get("description") as string) || "").trim() || null,
+    kind: ((formData.get("kind") as string) || "TASK").trim(),
+    discipline: ((formData.get("discipline") as string) || "").trim() || null,
+    priority: ((formData.get("priority") as string) || "NORMAL").trim(),
+    assigneeId: ((formData.get("assigneeId") as string) || "").trim() || null,
+    startDate: optDate(formData, "startDate"),
+    endDate: optDate(formData, "endDate"),
+    dueDate: optDate(formData, "dueDate"),
+    estimatedHours: optNum(formData, "estimatedHours"),
+    storyPoints: optNum(formData, "storyPoints") ?? null,
+    dependsOnTaskIds,
+    dependsOnSagaIds,
+    userId: user?.id,
+  });
+  revalidatePath("/engineering");
+  if (projectId) revalidatePath(`/pmo/projects/${projectId}`);
+  if (productId) revalidatePath(`/products/${productId}`);
+  const ret = ((formData.get("returnTo") as string) || "/engineering").trim();
+  redirect(ret);
+}
+
+export async function actionUpdateEngTask(formData: FormData): Promise<void> {
+  // revalidate task detail below after update
+  const { updateEngTask } = await import("@/lib/services/engineering-work");
+  const sprintRaw = ((formData.get("engSprintId") as string) || "").trim();
+  await updateEngTask({
+    id: formData.get("id") as string,
+    status: ((formData.get("status") as string) || "").trim() || undefined,
+    priority: ((formData.get("priority") as string) || "").trim() || undefined,
+    assigneeId: ((formData.get("assigneeId") as string) || "").trim() || null,
+    percentComplete: optNum(formData, "percentComplete"),
+    engSprintId:
+      formData.has("engSprintId") ? sprintRaw || null : undefined,
+  });
+  revalidatePath("/engineering");
+  const tid = formData.get("id") as string;
+  if (tid) revalidatePath(`/engineering/tasks/${tid}`);
+  revalidatePath("/pmo");
+  const ret = ((formData.get("returnTo") as string) || "/engineering").trim();
+  redirect(ret);
+}
+
+export async function actionScanIn(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("Sign in required to scan in");
+  const { scanIntoTask } = await import("@/lib/services/engineering-work");
+  const engTaskId = formData.get("engTaskId") as string;
+  await scanIntoTask({
+    engTaskId,
+    userId: user.id,
+    notes: ((formData.get("notes") as string) || "").trim() || null,
+  });
+  revalidatePath("/engineering");
+  revalidatePath("/pmo");
+  if (engTaskId) revalidatePath(`/engineering/tasks/${engTaskId}`);
+  const ret = ((formData.get("returnTo") as string) || "/engineering").trim();
+  redirect(ret);
+}
+
+export async function actionScanOut(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("Sign in required to scan out");
+  const { scanOutOfTask } = await import("@/lib/services/engineering-work");
+  await scanOutOfTask({
+    engTaskId: ((formData.get("engTaskId") as string) || "").trim() || undefined,
+    scanId: ((formData.get("scanId") as string) || "").trim() || undefined,
+    userId: user.id,
+    notes: ((formData.get("notes") as string) || "").trim() || null,
+  });
+  revalidatePath("/engineering");
+  revalidatePath("/pmo");
+  revalidatePath("/products");
+  const ret = ((formData.get("returnTo") as string) || "/engineering").trim();
+  redirect(ret);
+}
+
+export async function actionBreakDownTask(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  const { breakDownTask } = await import("@/lib/services/engineering-work");
+  await breakDownTask({
+    parentTaskId: formData.get("parentTaskId") as string,
+    name: ((formData.get("name") as string) || "").trim(),
+    description: ((formData.get("description") as string) || "").trim() || null,
+    assigneeId: ((formData.get("assigneeId") as string) || "").trim() || null,
+    estimatedHours: optNum(formData, "estimatedHours"),
+    storyPoints: optNum(formData, "storyPoints") ?? null,
+    dueDate: optDate(formData, "dueDate"),
+    userId: user?.id,
+  });
+  revalidatePath("/engineering");
+  const ret = ((formData.get("returnTo") as string) || "/engineering").trim();
+  redirect(ret);
+}
+
+export async function actionAddEngDependency(
+  formData: FormData
+): Promise<void> {
+  const { addEngDependency } = await import("@/lib/services/engineering-work");
+  const type = ((formData.get("type") as string) || "FINISH_TO_START").trim();
+  const notes = ((formData.get("notes") as string) || "").trim() || null;
+  const targetTaskId =
+    ((formData.get("targetTaskId") as string) || "").trim() || null;
+  const targetSagaId =
+    ((formData.get("targetSagaId") as string) || "").trim() || null;
+  // Typeahead multi-select (dependsOn*) OR single source fields
+  const depTaskIds = formData
+    .getAll("dependsOnTaskIds")
+    .map((v) => String(v).trim())
+    .filter(Boolean);
+  const depSagaIds = formData
+    .getAll("dependsOnSagaIds")
+    .map((v) => String(v).trim())
+    .filter(Boolean);
+  const singleSourceTask =
+    ((formData.get("sourceTaskId") as string) || "").trim() || null;
+  const singleSourceSaga =
+    ((formData.get("sourceSagaId") as string) || "").trim() || null;
+  if (singleSourceTask) depTaskIds.push(singleSourceTask);
+  if (singleSourceSaga) depSagaIds.push(singleSourceSaga);
+
+  for (const sourceTaskId of depTaskIds) {
+    await addEngDependency({
+      type,
+      notes,
+      sourceTaskId,
+      targetTaskId,
+      targetSagaId,
+    });
+  }
+  for (const sourceSagaId of depSagaIds) {
+    await addEngDependency({
+      type,
+      notes,
+      sourceSagaId,
+      targetTaskId,
+      targetSagaId,
+    });
+  }
+  revalidatePath("/engineering");
+  if (targetTaskId) revalidatePath(`/engineering/tasks/${targetTaskId}`);
+  const ret = ((formData.get("returnTo") as string) || "/engineering").trim();
+  redirect(ret);
+}
+
+export async function actionRemoveEngDependency(
+  formData: FormData
+): Promise<void> {
+  const { removeEngDependency } = await import(
+    "@/lib/services/engineering-work"
+  );
+  await removeEngDependency(formData.get("id") as string);
+  revalidatePath("/engineering");
+  const ret = ((formData.get("returnTo") as string) || "/engineering").trim();
+  redirect(ret);
+}
+
+export async function actionCreateEngSprint(
+  formData: FormData
+): Promise<void> {
+  const { createEngSprint } = await import("@/lib/services/engineering-work");
+  await createEngSprint({
+    name: ((formData.get("name") as string) || "").trim(),
+    goal: ((formData.get("goal") as string) || "").trim() || null,
+    discipline: ((formData.get("discipline") as string) || "").trim() || null,
+    projectId: ((formData.get("projectId") as string) || "").trim() || null,
+    quarterId: ((formData.get("quarterId") as string) || "").trim() || null,
+    startDate: optDate(formData, "startDate"),
+    endDate: optDate(formData, "endDate"),
+    createdByPmo: true,
+  });
+  revalidatePath("/engineering");
+  revalidatePath("/pmo");
+  revalidatePath("/pmo/pi");
+  const ret = ((formData.get("returnTo") as string) || "/pmo/pi").trim();
+  redirect(ret);
+}
+
+export async function actionCreatePlanningQuarter(
+  formData: FormData
+): Promise<void> {
+  const { createPlanningQuarter } = await import("@/lib/services/pmo");
+  const year = Number(formData.get("year"));
+  const quarter = Number(formData.get("quarter"));
+  await createPlanningQuarter({
+    year,
+    quarter,
+    name: ((formData.get("name") as string) || "").trim() || undefined,
+    startDate: optDate(formData, "startDate") || new Date(),
+    endDate: optDate(formData, "endDate") || new Date(),
+    goals: ((formData.get("goals") as string) || "").trim() || null,
+    status: ((formData.get("status") as string) || "PLANNED").trim(),
+  });
+  revalidatePath("/pmo");
+  revalidatePath("/pmo/pi");
+  redirect("/pmo/pi");
+}
+
+export async function actionUpdatePlanningQuarter(
+  formData: FormData
+): Promise<void> {
+  const { updatePlanningQuarter } = await import("@/lib/services/pmo");
+  await updatePlanningQuarter({
+    id: formData.get("id") as string,
+    status: ((formData.get("status") as string) || "").trim() || undefined,
+    goals: ((formData.get("goals") as string) || "").trim() || null,
+    name: ((formData.get("name") as string) || "").trim() || undefined,
+  });
+  revalidatePath("/pmo/pi");
+  redirect("/pmo/pi");
+}
+
+export async function actionCreatePmoSprint(
+  formData: FormData
+): Promise<void> {
+  const { createPmoSprint } = await import("@/lib/services/pmo");
+  await createPmoSprint({
+    quarterId: formData.get("quarterId") as string,
+    name: ((formData.get("name") as string) || "").trim(),
+    goal: ((formData.get("goal") as string) || "").trim() || null,
+    discipline: ((formData.get("discipline") as string) || "").trim() || null,
+    projectId: ((formData.get("projectId") as string) || "").trim() || null,
+    startDate: optDate(formData, "startDate"),
+    endDate: optDate(formData, "endDate"),
+  });
+  revalidatePath("/pmo/pi");
+  revalidatePath("/engineering");
+  redirect("/pmo/pi");
+}
+
+export async function actionUpsertBusinessPriority(
+  formData: FormData
+): Promise<void> {
+  const user = await getCurrentUser();
+  const { upsertBusinessPriority } = await import(
+    "@/lib/services/leadership"
+  );
+  const id = ((formData.get("id") as string) || "").trim() || undefined;
+  await upsertBusinessPriority({
+    id,
+    title: ((formData.get("title") as string) || "").trim(),
+    description: ((formData.get("description") as string) || "").trim() || null,
+    category: ((formData.get("category") as string) || "STRATEGIC").trim(),
+    priority: optNum(formData, "priority") ?? 1,
+    ownerRole: ((formData.get("ownerRole") as string) || "").trim() || null,
+    status: ((formData.get("status") as string) || "DRAFT").trim(),
+    effectiveFrom: optDate(formData, "effectiveFrom"),
+    effectiveTo: optDate(formData, "effectiveTo"),
+    userId: user?.id,
+  });
+  revalidatePath("/leadership");
+  redirect("/leadership");
+}
+
+export async function actionSetPriorityStatus(
+  formData: FormData
+): Promise<void> {
+  const user = await getCurrentUser();
+  const { setPriorityStatus } = await import("@/lib/services/leadership");
+  await setPriorityStatus({
+    id: formData.get("id") as string,
+    status: ((formData.get("status") as string) || "PUBLISHED").trim(),
+    userId: user?.id,
+  });
+  revalidatePath("/leadership");
+  redirect("/leadership");
+}
+
+export async function actionAssignUserGroup(
+  formData: FormData
+): Promise<void> {
+  const { assignUserToGroup } = await import("@/lib/services/permissions");
+  await assignUserToGroup({
+    userId: formData.get("userId") as string,
+    groupId: formData.get("groupId") as string,
+  });
+  revalidatePath("/admin/permissions");
+  redirect("/admin/permissions");
+}
+
+export async function actionRemoveUserGroup(
+  formData: FormData
+): Promise<void> {
+  const { removeUserFromGroup } = await import("@/lib/services/permissions");
+  await removeUserFromGroup({
+    userId: formData.get("userId") as string,
+    groupId: formData.get("groupId") as string,
+  });
+  revalidatePath("/admin/permissions");
+  redirect("/admin/permissions");
+}
+
+export async function actionGrantUserPermission(
+  formData: FormData
+): Promise<void> {
+  const { grantUserPermission } = await import("@/lib/services/permissions");
+  const allowedRaw = ((formData.get("allowed") as string) || "true").trim();
+  await grantUserPermission({
+    userId: formData.get("userId") as string,
+    permissionCode: formData.get("permissionCode") as string,
+    allowed: allowedRaw !== "false",
+  });
+  revalidatePath("/admin/permissions");
+  redirect("/admin/permissions");
+}
+
+export async function actionPostJournal(formData: FormData): Promise<void> {
+  const user = await getCurrentUser("ACCOUNTING");
+  const { postJournal } = await import("@/lib/services/gaap");
+  const description = ((formData.get("description") as string) || "").trim();
+  const debitAccountId = ((formData.get("debitAccountId") as string) || "").trim();
+  const creditAccountId = ((formData.get("creditAccountId") as string) || "").trim();
+  const amount = optNum(formData, "amount") || 0;
+  if (!description || !debitAccountId || !creditAccountId || amount <= 0) {
+    throw new Error("Description, accounts, and positive amount required");
+  }
+  const attachments: { url: string; fileName?: string; caption?: string; docType?: string }[] = [];
+  for (let i = 0; i < 8; i++) {
+    const url = ((formData.get(`receipt_url_${i}`) as string) || "").trim();
+    if (!url) continue;
+    attachments.push({
+      url,
+      fileName: ((formData.get(`receipt_name_${i}`) as string) || "").trim() || undefined,
+      caption: ((formData.get(`receipt_caption_${i}`) as string) || "").trim() || undefined,
+      docType: "RECEIPT",
+    });
+  }
+  // Single-field convenience
+  const singleUrl = ((formData.get("receiptUrl") as string) || "").trim();
+  if (singleUrl) {
+    attachments.push({
+      url: singleUrl,
+      fileName: ((formData.get("receiptFileName") as string) || "").trim() || "receipt",
+      docType: "RECEIPT",
+    });
+  }
+  await postJournal({
+    description,
+    source: "MANUAL",
+    projectId: ((formData.get("projectId") as string) || "").trim() || undefined,
+    chargeCode: ((formData.get("chargeCode") as string) || "").trim() || undefined,
+    createdById: user?.id,
+    attachments,
+    lines: [
+      {
+        accountId: debitAccountId,
+        debit: amount,
+        chargeCode: ((formData.get("chargeCode") as string) || "").trim() || undefined,
+      },
+      {
+        accountId: creditAccountId,
+        credit: amount,
+        chargeCode: ((formData.get("chargeCode") as string) || "").trim() || undefined,
+      },
+    ],
+  });
+  revalidatePath("/accounting");
+  redirect("/accounting?tab=je");
+}
+
+export async function actionUpdateEngSprint(
+  formData: FormData
+): Promise<void> {
+  const { updateEngSprint } = await import("@/lib/services/engineering-work");
+  await updateEngSprint({
+    id: formData.get("id") as string,
+    status: ((formData.get("status") as string) || "").trim() || undefined,
+    name: ((formData.get("name") as string) || "").trim() || undefined,
+    goal: ((formData.get("goal") as string) || "").trim() || null,
+  });
+  revalidatePath("/engineering");
+  revalidatePath("/pmo/pi");
+  const ret = ((formData.get("returnTo") as string) || "/engineering").trim();
+  redirect(ret);
+}
+
+export async function actionAssignTaskSprint(
+  formData: FormData
+): Promise<void> {
+  const { assignTaskToSprint } = await import(
+    "@/lib/services/engineering-work"
+  );
+  const sprintRaw = ((formData.get("engSprintId") as string) || "").trim();
+  await assignTaskToSprint({
+    engTaskId: formData.get("engTaskId") as string,
+    engSprintId: sprintRaw || null,
+  });
+  revalidatePath("/engineering");
+  const ret = ((formData.get("returnTo") as string) || "/engineering").trim();
+  redirect(ret);
+}
+
+export async function actionAssignSagaSprint(
+  formData: FormData
+): Promise<void> {
+  const { assignSagaToSprint } = await import(
+    "@/lib/services/engineering-work"
+  );
+  const sprintRaw = ((formData.get("engSprintId") as string) || "").trim();
+  await assignSagaToSprint({
+    sagaId: formData.get("sagaId") as string,
+    engSprintId: sprintRaw || null,
+  });
+  revalidatePath("/engineering");
+  const ret = ((formData.get("returnTo") as string) || "/engineering").trim();
+  redirect(ret);
+}
+
+export async function actionCreateProductionEngIssue(
+  formData: FormData
+): Promise<void> {
+  const user = await getCurrentUser();
+  const { createProductionEngIssue } = await import(
+    "@/lib/services/engineering-work"
+  );
+  await createProductionEngIssue({
+    title: ((formData.get("title") as string) || "").trim(),
+    description: ((formData.get("description") as string) || "").trim() || null,
+    category: ((formData.get("category") as string) || "PROCESS").trim(),
+    priority: ((formData.get("priority") as string) || "NORMAL").trim(),
+    reportedById: user?.id,
+    reportedByName: user?.name || null,
+    workOrderId: ((formData.get("workOrderId") as string) || "").trim() || null,
+    partId: ((formData.get("partId") as string) || "").trim() || null,
+    productId: ((formData.get("productId") as string) || "").trim() || null,
+    projectId: ((formData.get("projectId") as string) || "").trim() || null,
+    sourceArea: ((formData.get("sourceArea") as string) || "").trim() || null,
+    workCenter: ((formData.get("workCenter") as string) || "").trim() || null,
+  });
+  revalidatePath("/engineering");
+  revalidatePath("/engineering/mfg_eng");
+  revalidatePath("/floor");
+  revalidatePath("/work-orders");
+  const ret =
+    ((formData.get("returnTo") as string) || "/engineering/mfg_eng?tab=prod").trim();
+  redirect(ret);
+}
+
+export async function actionAcceptProductionIssue(
+  formData: FormData
+): Promise<void> {
+  const user = await getCurrentUser();
+  const { acceptProductionIssueAsTask } = await import(
+    "@/lib/services/engineering-work"
+  );
+  await acceptProductionIssueAsTask({
+    issueId: formData.get("issueId") as string,
+    assigneeId: ((formData.get("assigneeId") as string) || "").trim() || null,
+    userId: user?.id,
+  });
+  revalidatePath("/engineering");
+  revalidatePath("/engineering/mfg_eng");
+  const ret =
+    ((formData.get("returnTo") as string) || "/engineering/mfg_eng?tab=board").trim();
+  redirect(ret);
+}
+
+export async function actionUpdateProductionEngIssue(
+  formData: FormData
+): Promise<void> {
+  const user = await getCurrentUser();
+  const { updateProductionEngIssue } = await import(
+    "@/lib/services/engineering-work"
+  );
+  await updateProductionEngIssue({
+    id: formData.get("id") as string,
+    status: ((formData.get("status") as string) || "").trim() || undefined,
+    resolution: ((formData.get("resolution") as string) || "").trim() || null,
+    changeRequestId:
+      ((formData.get("changeRequestId") as string) || "").trim() || null,
+    priority: ((formData.get("priority") as string) || "").trim() || undefined,
+    userId: user?.id,
+  });
+  revalidatePath("/engineering");
+  revalidatePath("/engineering/mfg_eng");
+  revalidatePath("/floor");
+  revalidatePath("/work-orders");
+  const ret =
+    ((formData.get("returnTo") as string) || "/engineering/mfg_eng?tab=prod").trim();
+  redirect(ret);
+}
+
+export async function actionMoveEngWork(params: {
+  kind: "task" | "saga";
+  id: string;
+  status: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    if (params.kind === "task") {
+      const { updateEngTask } = await import("@/lib/services/engineering-work");
+      await updateEngTask({ id: params.id, status: params.status });
+    } else {
+      const { updateSaga } = await import("@/lib/services/engineering-work");
+      await updateSaga({ id: params.id, status: params.status });
+    }
+    revalidatePath("/engineering");
+    return { ok: true };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Move failed",
+    };
+  }
+}
+
+export async function actionCreateSwimLane(formData: FormData): Promise<void> {
+  const { createSwimLane } = await import("@/lib/services/engineering-work");
+  await createSwimLane({
+    code: ((formData.get("code") as string) || "").trim(),
+    name: ((formData.get("name") as string) || "").trim(),
+    description: ((formData.get("description") as string) || "").trim() || null,
+  });
+  revalidatePath("/engineering");
+  redirect("/engineering");
+}
+
+export async function actionRemoveSwimLane(formData: FormData): Promise<void> {
+  const { removeSwimLane } = await import("@/lib/services/engineering-work");
+  await removeSwimLane({
+    id: ((formData.get("id") as string) || "").trim() || undefined,
+    code: ((formData.get("code") as string) || "").trim() || undefined,
+  });
+  revalidatePath("/engineering");
+  redirect("/engineering");
+}
+
+export async function actionMarkEngAlertRead(formData: FormData): Promise<void> {
+  const { markAlertRead } = await import("@/lib/services/engineering-work");
+  await markAlertRead(formData.get("id") as string);
+  revalidatePath("/pmo");
+  revalidatePath("/pmo/alerts");
+  revalidatePath("/engineering");
+  const ret = ((formData.get("returnTo") as string) || "/pmo/alerts").trim();
+  redirect(ret);
+}
+
+// ─── GFP / Government Property ─────────────────────────────────
+
+export async function actionAttachGfpDocument(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  const { attachGfpDocument } = await import("@/lib/services/gfp");
+  const url = ((formData.get("url") as string) || "").trim();
+  if (!url) throw new Error("Document URL / data required");
+  await attachGfpDocument({
+    propertyId: ((formData.get("propertyId") as string) || "").trim() || undefined,
+    contractNumber:
+      ((formData.get("contractNumber") as string) || "").trim() || undefined,
+    docType: ((formData.get("docType") as string) || "DD1149").trim(),
+    url,
+    fileName: ((formData.get("fileName") as string) || "").trim() || undefined,
+    caption: ((formData.get("caption") as string) || "").trim() || undefined,
+    formNumber: ((formData.get("formNumber") as string) || "").trim() || undefined,
+    formDate: (() => {
+      const d = ((formData.get("formDate") as string) || "").trim();
+      return d ? new Date(d) : null;
+    })(),
+    uploadedById: user?.id,
+  });
+  revalidatePath("/government-property");
+}
+
+export async function actionSetGfpAuditInterval(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  const { setGfpAuditInterval } = await import("@/lib/services/gfp");
+  await setGfpAuditInterval({
+    propertyId: formData.get("propertyId") as string,
+    auditIntervalDays: Number(formData.get("auditIntervalDays") || 90),
+    userId: user?.id,
+  });
+  revalidatePath("/government-property");
+}
+
+export async function actionCompleteGfpAudit(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  const { completeGfpAudit } = await import("@/lib/services/gfp");
+  await completeGfpAudit({
+    auditId: ((formData.get("auditId") as string) || "").trim() || undefined,
+    propertyId: formData.get("propertyId") as string,
+    result: (formData.get("result") as "PASS" | "FAIL" | "N_A") || "PASS",
+    findings: ((formData.get("findings") as string) || "").trim() || undefined,
+    notes: ((formData.get("notes") as string) || "").trim() || undefined,
+    auditedById: user?.id,
+  });
+  revalidatePath("/government-property");
+}
+
+export async function actionCheckoutGfp(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("No user");
+  const { checkoutGfp } = await import("@/lib/services/gfp");
+  const expectedReturn = ((formData.get("expectedReturn") as string) || "").trim();
+  await checkoutGfp({
+    propertyId: formData.get("propertyId") as string,
+    checkedOutById:
+      ((formData.get("checkedOutById") as string) || "").trim() || user.id,
+    purpose: ((formData.get("purpose") as string) || "").trim() || undefined,
+    expectedReturn: expectedReturn ? new Date(expectedReturn) : null,
+  });
+  revalidatePath("/government-property");
+}
+
+export async function actionCheckinGfp(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("No user");
+  const { checkinGfp } = await import("@/lib/services/gfp");
+  const dispositionRaw = ((formData.get("disposition") as string) || "CHECKIN").trim();
+  const disposition =
+    dispositionRaw === "RETURN_TO_GOV" || dispositionRaw === "TRANSFER_COMPANY"
+      ? dispositionRaw
+      : "CHECKIN";
+  await checkinGfp({
+    propertyId: formData.get("propertyId") as string,
+    checkedInById: user.id,
+    notes: ((formData.get("notes") as string) || "").trim() || undefined,
+    disposition,
+  });
+  revalidatePath("/government-property");
+  revalidatePath("/inventory");
+}
+
+export async function actionRequestGfpConsumption(
+  formData: FormData
+): Promise<void> {
+  const user = await getCurrentUser();
+  const { requestGfpConsumption } = await import("@/lib/services/gfp");
+  await requestGfpConsumption({
+    propertyId: formData.get("propertyId") as string,
+    workOrderId:
+      ((formData.get("workOrderId") as string) || "").trim() || undefined,
+    quantity: Number(formData.get("quantity") || 1),
+    reason: ((formData.get("reason") as string) || "").trim() || undefined,
+    requestedById: user?.id,
+  });
+  revalidatePath("/government-property");
+  revalidatePath("/work-orders");
+}
+
+export async function actionDecideGfpConsumption(
+  formData: FormData
+): Promise<void> {
+  const user = await getCurrentUser("PM");
+  if (!user) throw new Error("No user");
+  const { decideGfpConsumption } = await import("@/lib/services/gfp");
+  await decideGfpConsumption({
+    consumptionId: formData.get("consumptionId") as string,
+    approve: formData.get("approve") === "true",
+    approvedById: user.id,
+    approvalNotes:
+      ((formData.get("approvalNotes") as string) || "").trim() || undefined,
+    pinCode: ((formData.get("pinCode") as string) || "").trim() || undefined,
+  });
+  revalidatePath("/government-property");
+  revalidatePath("/work-orders");
+}
+
+// ─── Virtual assets ────────────────────────────────────────────
+
+export async function actionCreateVirtualAsset(
+  formData: FormData
+): Promise<void> {
+  const user = await getCurrentUser();
+  const { createVirtualAsset } = await import(
+    "@/lib/services/virtual-assets"
+  );
+  await createVirtualAsset({
+    name: ((formData.get("name") as string) || "").trim(),
+    description: ((formData.get("description") as string) || "").trim() || undefined,
+    assetType: ((formData.get("assetType") as string) || "LICENSE").trim(),
+    usageType: ((formData.get("usageType") as string) || "INTERNAL").trim(),
+    vendor: ((formData.get("vendor") as string) || "").trim() || undefined,
+    licenseKey: ((formData.get("licenseKey") as string) || "").trim() || undefined,
+    seats: formData.get("seats")
+      ? Number(formData.get("seats"))
+      : undefined,
+    cost: formData.get("cost") ? Number(formData.get("cost")) : undefined,
+    expiresAt: (() => {
+      const d = ((formData.get("expiresAt") as string) || "").trim();
+      return d ? new Date(d) : null;
+    })(),
+    notes: ((formData.get("notes") as string) || "").trim() || undefined,
+    computerName: ((formData.get("computerName") as string) || "").trim() || undefined,
+    productId: ((formData.get("productId") as string) || "").trim() || undefined,
+    programId: ((formData.get("programId") as string) || "").trim() || undefined,
+    projectId: ((formData.get("projectId") as string) || "").trim() || undefined,
+    salesOrderId:
+      ((formData.get("salesOrderId") as string) || "").trim() || undefined,
+    userId: user?.id,
+  });
+  revalidatePath("/virtual-assets");
+  redirect("/virtual-assets");
+}
+
+export async function actionAssignVirtualAsset(
+  formData: FormData
+): Promise<void> {
+  const user = await getCurrentUser();
+  const { assignVirtualAsset } = await import(
+    "@/lib/services/virtual-assets"
+  );
+  await assignVirtualAsset({
+    assetId: formData.get("assetId") as string,
+    userId: formData.get("userId") as string,
+    notes: ((formData.get("notes") as string) || "").trim() || undefined,
+    actorId: user?.id,
+  });
+  revalidatePath("/virtual-assets");
+}
+
+export async function actionCheckoutVirtualAsset(
+  formData: FormData
+): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("No user");
+  const { checkoutVirtualAsset } = await import(
+    "@/lib/services/virtual-assets"
+  );
+  await checkoutVirtualAsset({
+    assetId: formData.get("assetId") as string,
+    userId: ((formData.get("userId") as string) || "").trim() || user.id,
+    notes: ((formData.get("notes") as string) || "").trim() || undefined,
+  });
+  revalidatePath("/virtual-assets");
+}
+
+export async function actionReturnVirtualAsset(
+  formData: FormData
+): Promise<void> {
+  const user = await getCurrentUser();
+  const { returnVirtualAsset } = await import(
+    "@/lib/services/virtual-assets"
+  );
+  await returnVirtualAsset({
+    assetId: formData.get("assetId") as string,
+    actorId: user?.id,
+    notes: ((formData.get("notes") as string) || "").trim() || undefined,
+  });
+  revalidatePath("/virtual-assets");
+}
+
+export async function actionUnassignVirtualAsset(
+  formData: FormData
+): Promise<void> {
+  const user = await getCurrentUser();
+  const { unassignVirtualAsset } = await import(
+    "@/lib/services/virtual-assets"
+  );
+  await unassignVirtualAsset({
+    assetId: formData.get("assetId") as string,
+    actorId: user?.id,
+  });
+  revalidatePath("/virtual-assets");
+}
+
+// ─── Business priority alignment ───────────────────────────────
+
+export async function actionAlignBusinessPriority(
+  formData: FormData
+): Promise<void> {
+  const user = await getCurrentUser();
+  const entityType = ((formData.get("entityType") as string) || "").trim();
+  const entityId = ((formData.get("entityId") as string) || "").trim();
+  const raw = ((formData.get("businessPriorityId") as string) || "").trim();
+  const businessPriorityId = raw && raw !== "UNRATED" ? raw : null;
+
+  if (entityType === "WorkOrder") {
+    await prisma.workOrder.update({
+      where: { id: entityId },
+      data: { businessPriorityId },
+    });
+    revalidatePath("/work-orders");
+    revalidatePath(`/work-orders/${entityId}`);
+    revalidatePath("/planning");
+  } else if (entityType === "EngTask") {
+    await prisma.engTask.update({
+      where: { id: entityId },
+      data: { businessPriorityId },
+    });
+    revalidatePath("/engineering");
+    revalidatePath("/pmo");
+  } else if (entityType === "Campaign") {
+    await prisma.campaign.update({
+      where: { id: entityId },
+      data: { businessPriorityId },
+    });
+    revalidatePath("/pmo");
+  } else if (entityType === "Saga") {
+    await prisma.saga.update({
+      where: { id: entityId },
+      data: { businessPriorityId },
+    });
+    revalidatePath("/engineering");
+    revalidatePath("/pmo");
+  } else {
+    throw new Error("Unknown entity type for priority alignment");
+  }
+
+  await logAudit({
+    entityType,
+    entityId,
+    action: "PRIORITY_ALIGN",
+    userId: user?.id,
+    changes: { businessPriorityId },
+  });
+  revalidatePath("/leadership");
+  revalidatePath("/planning");
+}
+
+export async function actionAssignWorkCenterStaff(
+  formData: FormData
+): Promise<{ movedFrom: { code: string; name: string } | null }> {
+  const { assignWorkCenterStaff } = await import("@/lib/services/capacity");
+  const result = await assignWorkCenterStaff({
+    workCenterId: formData.get("workCenterId") as string,
+    userId: formData.get("userId") as string,
+    hoursPerDay: Number(formData.get("hoursPerDay") || 8),
+  });
+  revalidatePath("/planning");
+  revalidatePath("/workcenters");
+  revalidatePath("/floor");
+  return { movedFrom: result.movedFrom };
+}
+
+export async function actionRemoveWorkCenterStaff(
+  formData: FormData
+): Promise<void> {
+  const { removeWorkCenterStaff } = await import("@/lib/services/capacity");
+  await removeWorkCenterStaff({
+    workCenterId: formData.get("workCenterId") as string,
+    userId: formData.get("userId") as string,
+  });
+  revalidatePath("/planning");
+  revalidatePath("/workcenters");
+  revalidatePath("/floor");
+}
+
+export async function actionCreateAccount(formData: FormData): Promise<void> {
+  const user = await getCurrentUser("ACCOUNTING");
+  const code = ((formData.get("code") as string) || "").trim();
+  const name = ((formData.get("name") as string) || "").trim();
+  if (!code || !name) throw new Error("Account code and name required");
+  await prisma.account.create({
+    data: {
+      code,
+      name,
+      type: ((formData.get("type") as string) || "EXPENSE").trim(),
+      subtype: ((formData.get("subtype") as string) || "").trim() || null,
+      chargeCodeType:
+        ((formData.get("chargeCodeType") as string) || "").trim() || null,
+      chargeCode: ((formData.get("chargeCode") as string) || "").trim() || null,
+      description:
+        ((formData.get("description") as string) || "").trim() || null,
+      isActive: true,
+      balance: Number(formData.get("balance") || 0),
+    },
+  });
+  await logAudit({
+    entityType: "Account",
+    entityId: code,
+    action: "CREATED",
+    userId: user?.id,
+  });
+  revalidatePath("/accounting");
+}
+
+export async function actionUpdateAccount(formData: FormData): Promise<void> {
+  const id = formData.get("id") as string;
+  await prisma.account.update({
+    where: { id },
+    data: {
+      name: ((formData.get("name") as string) || "").trim() || undefined,
+      type: ((formData.get("type") as string) || "").trim() || undefined,
+      chargeCodeType:
+        ((formData.get("chargeCodeType") as string) || "").trim() || null,
+      chargeCode: ((formData.get("chargeCode") as string) || "").trim() || null,
+      description:
+        ((formData.get("description") as string) || "").trim() || null,
+      isActive: formData.get("isActive") !== "false",
+    },
+  });
+  revalidatePath("/accounting");
+}
+
+// Fix queue packing list — always redirect to shipment detail when created
+export async function actionQueueShipmentAndOpen(
+  formData: FormData
+): Promise<void> {
+  const salesOrderId = formData.get("salesOrderId") as string;
+  const user = await getCurrentUser();
+  const result = await ensureShipmentForSalesOrder({
+    salesOrderId,
+    userId: user?.id,
+  });
+  revalidateFulfillmentPaths([`/sales/${salesOrderId}`, "/shipping"]);
+  if (result.shipment) {
+    redirect(`/shipping/${result.shipment.id}`);
+  }
+  redirect("/shipping?queued=empty");
 }

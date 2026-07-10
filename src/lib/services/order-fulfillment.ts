@@ -1022,6 +1022,19 @@ export async function captureReceivingPhotos(params: {
       });
       photos.push(photo);
     }
+    // First dock photo → item card when the part has no primary image yet
+    if (params.partId && photos[0]?.url) {
+      const part = await prisma.part.findUnique({
+        where: { id: params.partId },
+        select: { primaryImageUrl: true },
+      });
+      if (part && !part.primaryImageUrl) {
+        await prisma.part.update({
+          where: { id: params.partId },
+          data: { primaryImageUrl: photos[0].url },
+        });
+      }
+    }
     await recordTrace({
       eventType: "PHOTO",
       partId: params.partId,
@@ -1056,6 +1069,19 @@ export async function captureReceivingPhotos(params: {
       },
     });
     photos.push(photo);
+  }
+
+  if (params.partId && photos[0]?.url) {
+    const part = await prisma.part.findUnique({
+      where: { id: params.partId },
+      select: { primaryImageUrl: true },
+    });
+    if (part && !part.primaryImageUrl) {
+      await prisma.part.update({
+        where: { id: params.partId },
+        data: { primaryImageUrl: photos[0].url },
+      });
+    }
   }
 
   await recordTrace({
@@ -1846,6 +1872,31 @@ export async function ensureShipmentForSalesOrder(params: {
   const count = await prisma.shipment.count();
   const number = `SHP-${String(count + 1).padStart(5, "0")}`;
 
+  // Prefer ready / allocated lines; fall back to all SO lines so queue is never empty
+  let lineCreate = so.lines
+    .filter(
+      (l) =>
+        l.quantityAllocated > l.quantityShipped ||
+        l.fulfillmentStatus === "READY"
+    )
+    .map((l) => ({
+      partId: l.partId,
+      description: l.description,
+      quantity: Math.max(
+        0,
+        (l.quantityAllocated || l.quantity) - l.quantityShipped
+      ),
+    }))
+    .filter((l) => l.quantity > 0);
+
+  if (!lineCreate.length) {
+    lineCreate = so.lines.map((l) => ({
+      partId: l.partId,
+      description: l.description,
+      quantity: Math.max(0, l.quantity - (l.quantityShipped || 0)),
+    }));
+  }
+
   const shipment = await prisma.shipment.create({
     data: {
       number,
@@ -1858,13 +1909,7 @@ export async function ensureShipmentForSalesOrder(params: {
         ? "Auto-created when FG became available"
         : `HOLD: ${shipCheck.reason}`,
       lines: {
-        create: so.lines
-          .filter((l) => l.quantityAllocated > l.quantityShipped || l.fulfillmentStatus === "READY")
-          .map((l) => ({
-            partId: l.partId,
-            description: l.description,
-            quantity: Math.max(0, (l.quantityAllocated || l.quantity) - l.quantityShipped),
-          })),
+        create: lineCreate,
       },
     },
     include: { lines: true },

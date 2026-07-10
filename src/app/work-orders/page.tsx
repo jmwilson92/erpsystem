@@ -5,18 +5,41 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatDate, formatCurrency } from "@/lib/utils";
-import Link from "next/link";
 import {
   actionCreateTaskWo,
   actionCreateProductionWo,
 } from "@/app/actions";
 import { Plus } from "lucide-react";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
-export default async function WorkOrdersPage() {
+function pick(sp: Record<string, string | string[] | undefined>, key: string) {
+  const v = sp[key];
+  return Array.isArray(v) ? v[0] : v || "";
+}
+
+const STATUS_FILTERS = [
+  { id: "", label: "All" },
+  { id: "BACKLOG", label: "Backlog" },
+  { id: "PLANNED", label: "Planned" },
+  { id: "RELEASED", label: "Released" },
+  { id: "IN_PROGRESS", label: "In progress" },
+  { id: "COMPLETED", label: "Completed" },
+  { id: "ON_HOLD", label: "On hold" },
+] as const;
+
+export default async function WorkOrdersPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const sp = await searchParams;
+  const statusFilter = pick(sp, "status");
+
   const [workOrders, certifiedBoms, projects] = await Promise.all([
     prisma.workOrder.findMany({
+      where: statusFilter ? { status: statusFilter } : undefined,
       orderBy: { createdAt: "desc" },
       include: {
         part: true,
@@ -25,6 +48,9 @@ export default async function WorkOrdersPage() {
         project: true,
         salesOrder: { select: { id: true, number: true } },
         materialRequisition: { select: { id: true, number: true } },
+        businessPriority: {
+          select: { id: true, number: true, title: true, priority: true },
+        },
         stepCompletions: true,
         _count: { select: { instructions: true } },
       },
@@ -100,6 +126,20 @@ export default async function WorkOrdersPage() {
                   </select>
                 </div>
               </div>
+              <div>
+                <label className="text-[10px] uppercase text-slate-500">
+                  Initial status
+                </label>
+                <select
+                  name="status"
+                  defaultValue="PLANNED"
+                  className={`${selectClass} mt-1`}
+                >
+                  <option value="BACKLOG">Backlog</option>
+                  <option value="PLANNED">Planned</option>
+                  <option value="RELEASED">Released</option>
+                </select>
+              </div>
               <Button type="submit" size="sm">
                 <Plus className="mr-1 h-4 w-4" />
                 Create production WO
@@ -124,6 +164,20 @@ export default async function WorkOrdersPage() {
                   className="mt-1"
                 />
               </div>
+              <div>
+                <label className="text-[10px] uppercase text-slate-500">
+                  Initial status
+                </label>
+                <select
+                  name="status"
+                  defaultValue="BACKLOG"
+                  className={`${selectClass} mt-1`}
+                >
+                  <option value="BACKLOG">Backlog</option>
+                  <option value="PLANNED">Planned</option>
+                  <option value="RELEASED">Released</option>
+                </select>
+              </div>
               <p className="text-xs text-slate-600">
                 No BOM / material kitting. Sign-off progress only if a general WI
                 is attached.
@@ -137,7 +191,30 @@ export default async function WorkOrdersPage() {
         </Card>
       </div>
 
+      <div className="flex flex-wrap gap-2">
+        {STATUS_FILTERS.map((f) => (
+          <Link
+            key={f.id || "all"}
+            href={f.id ? `/work-orders?status=${f.id}` : "/work-orders"}
+            className={`rounded border px-3 py-1.5 text-sm ${
+              statusFilter === f.id || (!statusFilter && !f.id)
+                ? "border-teal-500/50 bg-teal-500/10 text-teal-200"
+                : "border-slate-700 text-slate-400"
+            }`}
+          >
+            {f.label}
+          </Link>
+        ))}
+      </div>
+
       <div className="grid gap-3">
+        {workOrders.length === 0 && (
+          <Card>
+            <CardContent className="p-8 text-center text-sm text-slate-500">
+              No work orders match this filter.
+            </CardContent>
+          </Card>
+        )}
         {workOrders.map((wo) => {
           const isTask = wo.type === "TASK_ONLY";
           const total = wo.stepCompletions.length;
@@ -170,6 +247,13 @@ export default async function WorkOrdersPage() {
                       <StatusBadge status={wo.status} />
                       <StatusBadge status={wo.sourceType || wo.type} />
                       <StatusBadge status={wo.priority} />
+                      <StatusBadge
+                        status={
+                          wo.businessPriority
+                            ? wo.businessPriority.number
+                            : "UNRATED"
+                        }
+                      />
                     </div>
                     <p className="text-sm text-slate-300">
                       {wo.description || wo.part?.description || "—"}
@@ -186,6 +270,9 @@ export default async function WorkOrdersPage() {
                             : ""}
                       {` · ${wo.workCenter || "—"}`}
                       {` · ${wo.assignee?.name || "Unassigned"}`}
+                      {wo.businessPriority
+                        ? ` · ${wo.businessPriority.title}`
+                        : " · Unrated"}
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-6 text-right text-xs text-slate-500">

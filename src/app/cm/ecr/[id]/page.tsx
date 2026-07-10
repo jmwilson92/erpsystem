@@ -15,6 +15,7 @@ import {
 import {
   parseEcrAttachments,
   mapCrToColumn,
+  mapDocumentEcrToColumn,
   ensureAdminFolder,
 } from "@/lib/services/cm-library";
 import { EcrCollabPanel } from "@/components/cm/ecr-collab-panel";
@@ -87,8 +88,10 @@ export default async function EcrDetailPage({
   ]);
 
   const userMap = Object.fromEntries(users.map((u) => [u.id, u]));
-  const column = mapCrToColumn(cr.status);
   const isDocumentEcr = Boolean(cr.documentNumber);
+  const column = isDocumentEcr
+    ? mapDocumentEcrToColumn(cr.status)
+    : mapCrToColumn(cr.status);
   const canEditFiles =
     isDocumentEcr &&
     cr.status !== "IMPLEMENTED" &&
@@ -384,80 +387,101 @@ export default async function EcrDetailPage({
                   <p className="text-[10px] uppercase text-slate-500">
                     Approvers
                   </p>
-                  {cr.boardMembers.map((m) => (
-                    <div
-                      key={m.id}
-                      className="rounded-lg border border-slate-800 px-3 py-2"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div>
-                          <p className="text-sm text-slate-200">
-                            {userMap[m.userId]?.name || m.role}
-                          </p>
-                          <p className="text-[11px] text-slate-500">{m.role}</p>
-                        </div>
-                        {m.vote ? (
-                          <StatusBadge status={m.vote} />
-                        ) : showVotes ? (
-                          <div className="flex gap-1">
-                            <form action={actionVoteCm}>
-                              <input
-                                type="hidden"
-                                name="memberId"
-                                value={m.id}
-                              />
-                              <input
-                                type="hidden"
-                                name="vote"
-                                value="APPROVE"
-                              />
-                              <input
-                                type="hidden"
-                                name="returnTo"
-                                value={returnTo}
-                              />
-                              <Button type="submit" size="sm">
-                                Approve
-                              </Button>
-                            </form>
-                            <form action={actionVoteCm}>
-                              <input
-                                type="hidden"
-                                name="memberId"
-                                value={m.id}
-                              />
-                              <input
-                                type="hidden"
-                                name="vote"
-                                value="REJECT"
-                              />
-                              <input
-                                type="hidden"
-                                name="returnTo"
-                                value={returnTo}
-                              />
-                              <Button
-                                type="submit"
-                                size="sm"
-                                variant="destructive"
-                              >
-                                Reject
-                              </Button>
-                            </form>
+                  {cr.boardMembers
+                    .filter((m) =>
+                      isDocumentEcr
+                        ? ["APPROVER", "ENGINEERING", "QUALITY"].includes(
+                            m.role
+                          )
+                        : m.role !== "CHAIR"
+                    )
+                    .map((m) => (
+                      <div
+                        key={m.id}
+                        className="rounded-lg border border-slate-800 px-3 py-2"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div>
+                            <p className="text-sm text-slate-200">
+                              {userMap[m.userId]?.name || m.role}
+                            </p>
+                            <p className="text-[11px] text-slate-500">
+                              {m.role}
+                              {m.vote ? ` · current: ${m.vote}` : ""}
+                            </p>
                           </div>
-                        ) : (
-                          <span className="text-xs text-slate-600">
-                            Pending
-                          </span>
+                          {showVotes ? (
+                            <div className="flex shrink-0 gap-1">
+                              <form action={actionVoteCm}>
+                                <input
+                                  type="hidden"
+                                  name="memberId"
+                                  value={m.id}
+                                />
+                                <input
+                                  type="hidden"
+                                  name="vote"
+                                  value="APPROVE"
+                                />
+                                <input
+                                  type="hidden"
+                                  name="returnTo"
+                                  value={returnTo}
+                                />
+                                <Button
+                                  type="submit"
+                                  size="sm"
+                                  variant={
+                                    m.vote === "APPROVE" ? "default" : "outline"
+                                  }
+                                >
+                                  Approve
+                                </Button>
+                              </form>
+                              <form action={actionVoteCm}>
+                                <input
+                                  type="hidden"
+                                  name="memberId"
+                                  value={m.id}
+                                />
+                                <input
+                                  type="hidden"
+                                  name="vote"
+                                  value="REJECT"
+                                />
+                                <input
+                                  type="hidden"
+                                  name="returnTo"
+                                  value={returnTo}
+                                />
+                                <Button
+                                  type="submit"
+                                  size="sm"
+                                  variant={
+                                    m.vote === "REJECT"
+                                      ? "destructive"
+                                      : "outline"
+                                  }
+                                >
+                                  Reject
+                                </Button>
+                              </form>
+                            </div>
+                          ) : m.vote ? (
+                            <StatusBadge status={m.vote} />
+                          ) : (
+                            <span className="text-xs text-slate-600">
+                              Pending
+                            </span>
+                          )}
+                        </div>
+                        {m.comments && (
+                          <p className="mt-1 text-xs text-slate-400">
+                            {m.comments}
+                          </p>
                         )}
                       </div>
-                      {m.comments && (
-                        <p className="mt-1 text-xs text-slate-400">
-                          {m.comments}
-                        </p>
-                      )}
-                    </div>
-                  ))}
+                    ))}
                 </div>
               )}
 

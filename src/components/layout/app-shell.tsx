@@ -4,14 +4,20 @@ import { Suspense, useState } from "react";
 import { Sidebar } from "./sidebar";
 import { Header } from "./header";
 import { CommandPalette } from "./command-palette";
+import { ThemeProvider, useTheme } from "./theme-provider";
 import { Toaster } from "sonner";
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+function ShellInner({ children }: { children: React.ReactNode }) {
   const [cmdOpen, setCmdOpen] = useState(false);
+  const { theme } = useTheme();
 
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-950 text-slate-100">
-      <Suspense fallback={<aside className="w-60 border-r border-slate-800 bg-slate-950" />}>
+    <div className="flex h-screen overflow-hidden bg-background text-foreground">
+      <Suspense
+        fallback={
+          <aside className="w-60 border-r border-border bg-background" />
+        }
+      >
         <Sidebar />
       </Suspense>
       <div className="flex min-w-0 flex-1 flex-col">
@@ -22,12 +28,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
       <CommandPalette open={cmdOpen} onOpenChange={setCmdOpen} />
       <Toaster
-        theme="dark"
+        theme={theme === "light" ? "light" : "dark"}
         position="bottom-right"
         toastOptions={{
-          className: "border-slate-800 bg-slate-900 text-slate-100",
+          className:
+            "border-border bg-card text-card-foreground",
         }}
       />
     </div>
+  );
+}
+
+export function AppShell({ children }: { children: React.ReactNode }) {
+  return (
+    <ThemeProvider>
+      <ShellInner>{children}</ShellInner>
+    </ThemeProvider>
   );
 }

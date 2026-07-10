@@ -5,7 +5,8 @@ import { StatCard } from "@/components/shared/stat-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatCurrency, formatDate, cn } from "@/lib/utils";
-import { actionApprovePr, actionConvertPrToPo } from "@/app/actions";
+import { actionApprovePr } from "@/app/actions";
+import { ConvertPrToPoButton } from "@/components/purchasing/convert-pr-button";
 import { ensureDefaultPrApprovalPolicy } from "@/lib/services/pr-approval";
 import { getCurrentUser } from "@/lib/auth";
 import Link from "next/link";
@@ -811,14 +812,7 @@ export default async function PurchasingPage({
                                 </p>
                               );
                             }
-                            return (
-                              <form action={actionConvertPrToPo}>
-                                <input type="hidden" name="id" value={pr.id} />
-                                <Button type="submit" size="sm" variant="secondary">
-                                  Convert to PO
-                                </Button>
-                              </form>
-                            );
+                            return <ConvertPrToPoButton prId={pr.id} />;
                           })()
                         )}
                       </div>

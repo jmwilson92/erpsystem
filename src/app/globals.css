@@ -1,6 +1,8 @@
 @import "tailwindcss";
 
-:root {
+/* Night mode (default) */
+:root,
+html.dark {
   --background: #020617;
   --foreground: #f1f5f9;
   --card: #0f172a;
@@ -14,9 +16,31 @@
   --ring: #14b8a6;
 }
 
+/* Day mode */
+html.light {
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --primary: #0f766e;
+  --primary-foreground: #f0fdfa;
+  --muted: #e2e8f0;
+  --muted-foreground: #475569;
+  --accent: #d97706;
+  --border: #e2e8f0;
+  --ring: #0d9488;
+  color-scheme: light;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-primary: var(--primary);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -28,12 +52,48 @@
 html {
   color-scheme: dark;
 }
+html.light {
+  color-scheme: light;
+}
 
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Day mode soft overrides for hard-coded slate utility classes used across pages */
+html.light .bg-slate-950,
+html.light .bg-slate-950\/40,
+html.light .bg-slate-950\/50,
+html.light .bg-slate-950\/60,
+html.light .bg-slate-950\/95 {
+  background-color: #f8fafc !important;
+}
+html.light .bg-slate-900,
+html.light .bg-slate-900\/50,
+html.light .bg-slate-900\/80 {
+  background-color: #ffffff !important;
+}
+html.light .border-slate-800,
+html.light .border-slate-800\/80,
+html.light .border-slate-700 {
+  border-color: #e2e8f0 !important;
+}
+html.light .text-slate-100,
+html.light .text-slate-200 {
+  color: #0f172a !important;
+}
+html.light .text-slate-300 {
+  color: #1e293b !important;
+}
+html.light .text-slate-400,
+html.light .text-slate-500 {
+  color: #64748b !important;
+}
+html.light .text-slate-600 {
+  color: #94a3b8 !important;
 }
 
 /* Scrollbar */

@@ -705,7 +705,7 @@ export async function tryCompleteInventoryReceivingInspections(params: {
   inventoryItemId: string;
   userId?: string;
 }) {
-  let inspections = await prisma.inspection.findMany({
+  const inspections = await prisma.inspection.findMany({
     where: { inventoryItemId: params.inventoryItemId },
   });
   if (inspections.length === 0) return { ready: false };

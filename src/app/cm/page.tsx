@@ -14,13 +14,22 @@ import {
 } from "@/app/actions";
 import {
   mapCrToColumn,
+  mapDocumentEcrToColumn,
   mapWiToColumn,
   mapBomToColumn,
   ensureAdminFolder,
   type CmBoardColumn,
 } from "@/lib/services/cm-library";
+import {
+  listNumberSchemes,
+  listNumberRequests,
+  listNumberRegistry,
+  listAvailableNumbersForEcr,
+  ensureDefaultNumberSchemes,
+} from "@/lib/services/cm-numbers";
 import { DocumentEcrForm } from "@/components/cm/document-ecr-form";
 import { CmSubmissionsBoard } from "@/components/cm/cm-board";
+import { CmNumbersPanel } from "@/components/cm/cm-numbers-panel";
 import { parseEcrAttachments } from "@/lib/services/cm-library";
 import Link from "next/link";
 import {
@@ -33,6 +42,7 @@ import {
   Trash2,
   Shield,
   Package,
+  Hash,
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -128,11 +138,18 @@ export default async function CmPage({
   const sp = await searchParams;
   const tab = pick(sp, "tab") || "submissions";
   const folderId = pick(sp, "folder") || null;
+  const numbersPanel = (pick(sp, "panel") || "request") as
+    | "request"
+    | "requests"
+    | "master"
+    | "schemes";
+  const registrySearch = pick(sp, "q") || "";
 
   // Admin folder always available for both library + document ECR
   await ensureAdminFolder();
+  await ensureDefaultNumberSchemes();
 
-  const [crs, wis, boms, folders, currentFolder, documents, cmUsers, libraryDocs] =
+  const [crs, wis, boms, folders, currentFolder, documents, cmUsers, libraryDocs, numberSchemes, numberRequests, numberRegistry, assignedNumbers] =
     await Promise.all([
       prisma.changeRequest.findMany({
         orderBy: { createdAt: "desc" },
@@ -235,6 +252,13 @@ export default async function CmPage({
           },
         },
       }),
+      listNumberSchemes(false),
+      listNumberRequests({ limit: 100 }),
+      listNumberRegistry({
+        search: registrySearch || undefined,
+        limit: 500,
+      }),
+      listAvailableNumbersForEcr(),
     ]);
 
   const userIds = [
@@ -281,6 +305,7 @@ export default async function CmPage({
       ];
     }
 
+    const isDocumentEcr = Boolean(cr.documentNumber);
     cards.push({
       id: `cr-${cr.id}`,
       kind: "CR",
@@ -289,9 +314,12 @@ export default async function CmPage({
       type: cr.type,
       status: cr.status,
       priority: cr.priority,
-      column: mapCrToColumn(cr.status),
+      // Document ECRs start (and stay out of) Submitted — not In work
+      column: isDocumentEcr
+        ? mapDocumentEcrToColumn(cr.status)
+        : mapCrToColumn(cr.status),
       changeRequestId: cr.id,
-      isDocumentEcr: Boolean(cr.documentNumber),
+      isDocumentEcr,
       documentNumber: cr.documentNumber,
       documentRevision: cr.documentRevision,
       productName: cr.productName,
@@ -437,7 +465,7 @@ export default async function CmPage({
           href="/cm?tab=submissions"
           className={cn(
             "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm",
-            tab !== "library"
+            tab !== "library" && tab !== "numbers"
               ? "bg-slate-800 text-slate-50"
               : "text-slate-400 hover:text-slate-200"
           )}
@@ -457,10 +485,92 @@ export default async function CmPage({
           <Library className="h-3.5 w-3.5" />
           CM library
         </Link>
+        <Link
+          href="/cm?tab=numbers"
+          className={cn(
+            "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm",
+            tab === "numbers"
+              ? "bg-slate-800 text-slate-50"
+              : "text-slate-400 hover:text-slate-200"
+          )}
+        >
+          <Hash className="h-3.5 w-3.5" />
+          Numbers
+          {numberRequests.filter((r) => r.status === "PENDING").length > 0 && (
+            <span className="rounded-full bg-amber-500/20 px-1.5 text-[10px] font-medium text-amber-300">
+              {numberRequests.filter((r) => r.status === "PENDING").length}
+            </span>
+          )}
+        </Link>
       </div>
 
+      {/* ═══════════════ NUMBER CONTROL ═══════════════ */}
+      {tab === "numbers" && (
+        <CmNumbersPanel
+          initialPanel={numbersPanel}
+          searchQuery={registrySearch}
+          schemes={numberSchemes.map((s) => ({
+            id: s.id,
+            code: s.code,
+            name: s.name,
+            description: s.description,
+            appliesTo: s.appliesTo,
+            prefix: s.prefix,
+            separator: s.separator,
+            padLength: s.padLength,
+            suffix: s.suffix,
+            nextSequence: s.nextSequence,
+            example: s.example,
+            isActive: s.isActive,
+            sortOrder: s.sortOrder,
+          }))}
+          requests={numberRequests.map((r) => ({
+            id: r.id,
+            requestNumber: r.requestNumber,
+            status: r.status,
+            category: r.category,
+            title: r.title,
+            description: r.description,
+            preferredNumber: r.preferredNumber,
+            productName: r.productName,
+            assignedNumber: r.assignedNumber,
+            assignedAt: r.assignedAt ? r.assignedAt.toISOString() : null,
+            cmNotes: r.cmNotes,
+            rejectedReason: r.rejectedReason,
+            requestedByName: r.requestedByName,
+            createdAt: r.createdAt.toISOString(),
+            scheme: r.scheme
+              ? {
+                  id: r.scheme.id,
+                  code: r.scheme.code,
+                  name: r.scheme.name,
+                  example: r.scheme.example,
+                }
+              : null,
+          }))}
+          registry={numberRegistry.map((row) => ({
+            id: row.id,
+            number: row.number,
+            category: row.category,
+            title: row.title,
+            description: row.description,
+            status: row.status,
+            productName: row.productName,
+            assignedAt: row.assignedAt.toISOString(),
+            notes: row.notes,
+            scheme: row.scheme,
+            request: row.request,
+          }))}
+          productFolders={productRoots.map((f) => ({
+            id: f.id,
+            name: f.name,
+            productName: f.productName,
+          }))}
+        />
+      )}
+
       {/* ═══════════════ SUBMISSIONS BOARD ═══════════════ */}
-      {tab !== "library" && (
+      {tab !== "library" && tab !== "numbers" && (
         <div className="space-y-4">
           <p className="text-xs text-slate-500">
             Drag tiles by the grip handle between columns. Click a card body for
@@ -478,6 +588,14 @@ export default async function CmPage({
             }))}
             adminFolderId={adminRoot?.id || null}
             libraryDocs={libraryDocs}
+            assignedNumbers={assignedNumbers.map((n) => ({
+              id: n.id,
+              number: n.number,
+              title: n.title,
+              category: n.category,
+              status: n.status,
+              productName: n.productName,
+            }))}
           />
 
           <CmSubmissionsBoard

@@ -8,7 +8,6 @@ import { CompleteInspectionForm } from "@/components/quality/complete-inspection
 import { WorkcenterPanel } from "@/components/workcenters/workcenter-panel";
 import { getTestCenterQueue } from "@/lib/services/test-center";
 import { formatDate, cn } from "@/lib/utils";
-import { actionSignOffStep } from "@/app/actions";
 import Link from "next/link";
 import {
   FlaskConical,
@@ -17,6 +16,7 @@ import {
   AlertTriangle,
   Gauge,
 } from "lucide-react";
+import { SignOffStepForm } from "@/components/work-orders/sign-off-form";
 
 export const dynamic = "force-dynamic";
 
@@ -384,41 +384,16 @@ export default async function TestCenterPage({
                                 />
                               )}
                             </span>
-                            <form
-                              action={actionSignOffStep}
-                              className="flex items-center gap-1"
-                            >
-                              <input
-                                type="hidden"
-                                name="workOrderId"
-                                value={wo.id}
-                              />
-                              <input
-                                type="hidden"
-                                name="stepId"
-                                value={sc.stepId}
-                              />
-                              <input type="hidden" name="result" value="PASS" />
-                              <Button type="submit" size="sm" variant="secondary">
-                                Pass
-                              </Button>
-                            </form>
-                            <form action={actionSignOffStep}>
-                              <input
-                                type="hidden"
-                                name="workOrderId"
-                                value={wo.id}
-                              />
-                              <input
-                                type="hidden"
-                                name="stepId"
-                                value={sc.stepId}
-                              />
-                              <input type="hidden" name="result" value="FAIL" />
-                              <Button type="submit" size="sm" variant="outline">
-                                Fail
-                              </Button>
-                            </form>
+                            <SignOffStepForm
+                              workOrderId={wo.id}
+                              stepId={sc.stepId}
+                              isTestStep={!!sc.step.isTestStep}
+                              passFailRequired={
+                                !!sc.step.passFailRequired || !!sc.step.isTestStep
+                              }
+                              measureUom={sc.step.measureUom}
+                              expectedValue={sc.step.expectedValue}
+                            />
                           </div>
                         ))}
                       {pendingSteps.length === 0 && testSteps.length > 0 && (
@@ -553,42 +528,18 @@ export default async function TestCenterPage({
                         </p>
                       )}
                     </div>
-                    <div className="flex gap-1">
+                    <div className="min-w-[12rem]">
                       {stepReady ? (
-                        <>
-                          <form action={actionSignOffStep}>
-                            <input
-                              type="hidden"
-                              name="workOrderId"
-                              value={wo.id}
-                            />
-                            <input
-                              type="hidden"
-                              name="stepId"
-                              value={sc.stepId}
-                            />
-                            <input type="hidden" name="result" value="PASS" />
-                            <Button type="submit" size="sm">
-                              Pass
-                            </Button>
-                          </form>
-                          <form action={actionSignOffStep}>
-                            <input
-                              type="hidden"
-                              name="workOrderId"
-                              value={wo.id}
-                            />
-                            <input
-                              type="hidden"
-                              name="stepId"
-                              value={sc.stepId}
-                            />
-                            <input type="hidden" name="result" value="FAIL" />
-                            <Button type="submit" size="sm" variant="outline">
-                              Fail
-                            </Button>
-                          </form>
-                        </>
+                        <SignOffStepForm
+                          workOrderId={wo.id}
+                          stepId={sc.stepId}
+                          isTestStep={!!sc.step.isTestStep}
+                          passFailRequired={
+                            !!sc.step.passFailRequired || !!sc.step.isTestStep
+                          }
+                          measureUom={sc.step.measureUom}
+                          expectedValue={sc.step.expectedValue}
+                        />
                       ) : (
                         <span className="text-[11px] text-amber-400/90">
                           Not ready yet

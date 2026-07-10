@@ -76,33 +76,186 @@ export async function startPrApprovalWorkflow(params: {
     return { status: "APPROVED" as const, approvals: [] };
   }
 
-  // Project / SO owner first (if PR is charged to a project with a PM member)
-  let projectOwnerId: string | null = null;
-  if (pr.projectId) {
+  // Resolve the specific person who owns Project / Program / Sales Order
+  // (not just a generic role title).
+  let ownerApprovals: {
+    stage: string;
+    approverId: string;
+  }[] = [];
+
+  // Reload PR with ownership links
+  const prFull = await prisma.purchaseRequest.findUnique({
+    where: { id: pr.id },
+    include: {
+      project: {
+        select: {
+          id: true,
+          projectManagerId: true,
+          sponsorId: true,
+          programId: true,
+          program: { select: { ownerId: true } },
+        },
+      },
+      workOrder: {
+        select: {
+          projectId: true,
+          project: {
+            select: {
+              projectManagerId: true,
+              sponsorId: true,
+              program: { select: { ownerId: true } },
+            },
+          },
+          salesOrderId: true,
+        },
+      },
+    },
+  });
+
+  const project =
+    prFull?.project ||
+    prFull?.workOrder?.project ||
+    null;
+  if (project?.projectManagerId) {
+    ownerApprovals.push({
+      stage: "Project manager",
+      approverId: project.projectManagerId,
+    });
+  } else if (project?.sponsorId) {
+    ownerApprovals.push({
+      stage: "Project sponsor",
+      approverId: project.sponsorId,
+    });
+  } else if (pr.projectId) {
+    // Fallback: first PM/OWNER membership
     const pm = await prisma.projectMember.findFirst({
       where: {
         projectId: pr.projectId,
         role: { in: ["PM", "OWNER", "MANAGER"] },
       },
     });
-    projectOwnerId = pm?.userId || null;
-    if (!projectOwnerId) {
-      const any = await prisma.projectMember.findFirst({
-        where: { projectId: pr.projectId },
+    if (pm) {
+      ownerApprovals.push({
+        stage: "Project owner",
+        approverId: pm.userId,
       });
-      projectOwnerId = any?.userId || null;
     }
   }
 
+  const programOwnerId =
+    project && "program" in project
+      ? (project as { program?: { ownerId?: string | null } | null }).program
+          ?.ownerId
+      : null;
+  if (programOwnerId) {
+    ownerApprovals.push({
+      stage: "Program owner",
+      approverId: programOwnerId,
+    });
+  }
+
+  // Sales-order charged PRs: no named SO owner field — use linked project PM if any
+  if (pr.salesOrderId && !ownerApprovals.length) {
+    const so = await prisma.salesOrder.findUnique({
+      where: { id: pr.salesOrderId },
+      select: { id: true, number: true },
+    });
+    if (so) {
+      // Prefer explicit sales lead: admin/purchasing still processes after owner steps
+      const salesLead = await prisma.user.findFirst({
+        where: { role: "ADMIN", isActive: true },
+        select: { id: true },
+      });
+      if (salesLead) {
+        ownerApprovals.push({
+          stage: `Sales order ${so.number} owner`,
+          approverId: salesLead.id,
+        });
+      }
+    }
+  }
+
+  // Deduplicate by person
+  const seenOwners = new Set<string>();
+  ownerApprovals = ownerApprovals.filter((o) => {
+    if (seenOwners.has(o.approverId)) return false;
+    seenOwners.add(o.approverId);
+    return true;
+  });
+
   // Steps that apply for this dollar amount
-  let applicable = policy.steps
+  const applicable = policy.steps
     .filter((s) => pr.totalEstimate >= s.minAmount)
     .sort((a, b) => a.stepOrder - b.stepOrder);
 
-  // Buyer processing is always first policy step after optional project owner
-  // (project owner step injected as synthetic order 0 when present)
+  // Clear prior approvals for re-submit cases
+  await prisma.approval.deleteMany({
+    where: { entityType: "PurchaseRequest", entityId: pr.id },
+  });
 
-  if (applicable.length === 0) {
+  const approvals = [];
+  let stepOrder = 0;
+
+  // Owner steps first (specific people)
+  for (const o of ownerApprovals) {
+    const ownerAp = await prisma.approval.create({
+      data: {
+        entityType: "PurchaseRequest",
+        entityId: pr.id,
+        stage: o.stage,
+        stepOrder: stepOrder++,
+        minAmount: 0,
+        status: "PENDING",
+        approverId: o.approverId,
+      },
+    });
+    approvals.push(ownerAp);
+  }
+
+  // CFO for any accounting/finance step (role ACCOUNTING or stage name match)
+  const cfoUser = await prisma.user.findFirst({
+    where: {
+      isActive: true,
+      OR: [
+        { title: { contains: "CFO" } },
+        { email: { contains: "cfo" } },
+        { role: "EXECUTIVE", department: "Finance" },
+      ],
+    },
+    orderBy: { name: "asc" },
+  });
+
+  for (const step of applicable) {
+    const isFinance =
+      /finance|controller|accounting|cfo/i.test(step.name) ||
+      step.approverRole === "ACCOUNTING" ||
+      step.approverRole === "EXECUTIVE";
+
+    let approverId = step.approverUserId || undefined;
+    let stage = step.name;
+
+    if (isFinance && cfoUser) {
+      // Accounting approval requires the CFO specifically
+      approverId = cfoUser.id;
+      stage = step.name.includes("CFO") ? step.name : `${step.name} (CFO)`;
+    }
+
+    const ap = await prisma.approval.create({
+      data: {
+        entityType: "PurchaseRequest",
+        entityId: pr.id,
+        stage,
+        stepOrder: stepOrder++,
+        minAmount: step.minAmount,
+        policyStepId: step.id,
+        status: "PENDING",
+        approverId,
+      },
+    });
+    approvals.push(ap);
+  }
+
+  if (approvals.length === 0) {
     await prisma.purchaseRequest.update({
       where: { id: pr.id },
       data: {
@@ -119,53 +272,12 @@ export async function startPrApprovalWorkflow(params: {
       action: "AUTO_APPROVED",
       userId: params.userId,
       metadata: {
-        reason: "Below all thresholds",
+        reason: "No approval steps required",
         amount: pr.totalEstimate,
         policyId: policy.id,
       },
     });
     return { status: "APPROVED" as const, approvals: [] };
-  }
-
-  // Clear prior approvals for re-submit cases
-  await prisma.approval.deleteMany({
-    where: { entityType: "PurchaseRequest", entityId: pr.id },
-  });
-
-  const approvals = [];
-  // Inject project owner as step order 0 when PR is project-charged
-  let stepOffset = 0;
-  if (projectOwnerId) {
-    stepOffset = 1;
-    const ownerAp = await prisma.approval.create({
-      data: {
-        entityType: "PurchaseRequest",
-        entityId: pr.id,
-        stage: "Project owner",
-        stepOrder: 0,
-        minAmount: 0,
-        status: "PENDING",
-        approverId: projectOwnerId,
-      },
-    });
-    approvals.push(ownerAp);
-  }
-
-  for (let i = 0; i < applicable.length; i++) {
-    const step = applicable[i];
-    const ap = await prisma.approval.create({
-      data: {
-        entityType: "PurchaseRequest",
-        entityId: pr.id,
-        stage: step.name,
-        stepOrder: step.stepOrder + stepOffset,
-        minAmount: step.minAmount,
-        policyStepId: step.id,
-        status: "PENDING",
-        approverId: step.approverUserId || undefined,
-      },
-    });
-    approvals.push(ap);
   }
 
   const firstOrder = approvals[0]?.stepOrder ?? 0;
@@ -221,10 +333,27 @@ export async function canUserApproveStep(params: {
     return ["ADMIN", "PURCHASING"].includes(params.userRole || "");
   }
 
+  // Specific person assigned on the approval row wins
+  if (approval.approverId) {
+    return (
+      approval.approverId === params.userId || params.userRole === "ADMIN"
+    );
+  }
   if (step.approverUserId) {
     return step.approverUserId === params.userId || params.userRole === "ADMIN";
   }
   if (step.approverRole) {
+    // CFO / accounting steps: allow EXECUTIVE finance or ACCOUNTING
+    if (
+      step.approverRole === "ACCOUNTING" ||
+      /cfo|finance|controller/i.test(approval.stage)
+    ) {
+      return (
+        params.userRole === "ACCOUNTING" ||
+        params.userRole === "EXECUTIVE" ||
+        params.userRole === "ADMIN"
+      );
+    }
     return (
       params.userRole === step.approverRole ||
       params.userRole === "ADMIN"

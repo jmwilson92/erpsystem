@@ -47,6 +47,27 @@ model User {
   mrbDecisions        MrbDisposition[]
   carActivityLogs     CarActivityLog[]
   projectMemberships  ProjectMember[]
+  productsOwned       Product[]              @relation("ProductOwner")
+  productsEngLead     Product[]              @relation("ProductEngLead")
+  productsCmOwned     Product[]              @relation("ProductCmOwner")
+  productMemberships  ProductMember[]
+  productLifecycleEvents ProductLifecycleEvent[]
+  programsOwned       Program[]              @relation("ProgramOwner")
+  projectsSponsored   Project[]              @relation("ProjectSponsor")
+  projectsManaged     Project[]              @relation("ProjectManager")
+  wikiPagesEdited     ProjectWikiPage[]
+  permissionGroups    UserPermissionGroup[]
+  userPermissions     UserPermission[]
+  gfpCheckedOut       GovernmentProperty[]   @relation("GfpCheckedOut")
+  gfpAudits           GfpAuditRecord[]       @relation("GfpAuditor")
+  gfpCheckouts        GfpCheckout[]          @relation("GfpCheckoutUser")
+  gfpCheckins         GfpCheckout[]          @relation("GfpCheckinUser")
+  gfpConsumptionsRequested GfpConsumption[]  @relation("GfpConsumptionRequester")
+  gfpConsumptionsApproved  GfpConsumption[]  @relation("GfpConsumptionApprover")
+  virtualAssetsAssigned    VirtualAsset[]    @relation("VirtualAssetAssignee")
+  virtualAssetsCheckedOut  VirtualAsset[]    @relation("VirtualAssetCheckout")
+  virtualAssetAssignments  VirtualAssetAssignment[]
+  workCenterStaff     WorkCenterStaff[]
 }
 
 model AuditLog {
@@ -178,6 +199,8 @@ model Part {
   isLotControlled Boolean  @default(false)
   isActive        Boolean  @default(true)
   drawingNumber   String?
+  /// First/primary product photo (auto-filled from first dock receive photo when empty)
+  primaryImageUrl String?
   // Accounting ledger assignment (choice only — not posted yet)
   inventoryAccountId String?
   inventoryAccount   Account? @relation("PartInventoryAccount", fields: [inventoryAccountId], references: [id])
@@ -221,6 +244,11 @@ model Part {
   forecastLines   ForecastLine[]
   mrsLines        MaterialRequisitionLine[]
   cmDocuments     CmDocument[]
+  // PLM product links
+  productsAsTopLevel Product[]     @relation("ProductTopLevelPart")
+  productPartLinks   ProductPart[]
+  productVariants    ProductVariant[]
+  productionEngIssues ProductionEngIssue[]
 
   @@index([sourcingMethod])
   @@index([itemStructure])
@@ -413,7 +441,7 @@ model WorkOrder {
   // Origin of the WO — drives numbering and which refs show on traveler
   // SALES_ORDER | BOM | MATERIAL_REQ | OTHER
   sourceType      String   @default("OTHER")
-  // PLANNED → WAITING_MATERIAL → READY_TO_KIT → KITTING → KITTED → RELEASED → IN_PROGRESS → COMPLETED
+  // BACKLOG → PLANNED → WAITING_MATERIAL → READY_TO_KIT → KITTING → KITTED → RELEASED → IN_PROGRESS → COMPLETED
   status          String   @default("PLANNED")
   priority        String   @default("NORMAL") // LOW, NORMAL, HIGH, CRITICAL
   partId          String?
@@ -435,6 +463,9 @@ model WorkOrder {
   // Forecast-driven material requisition (MWO- prefix)
   materialRequisitionId String?
   materialRequisition   MaterialRequisition? @relation(fields: [materialRequisitionId], references: [id])
+  // Leadership business priority alignment (null = Unrated)
+  businessPriorityId String?
+  businessPriority   BusinessPriority? @relation(fields: [businessPriorityId], references: [id], onDelete: SetNull)
   workCenter      String?
   department      String?
   assigneeId      String?
@@ -454,6 +485,8 @@ model WorkOrder {
   notes           String?
   travelerNotes   String?  // digital traveler header notes
   requiresInspection Boolean @default(false)
+  /// Absolute URL payload used in printed QR (phase-2 mobile deep link)
+  qrPayload       String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -468,6 +501,8 @@ model WorkOrder {
   purchaseRequests PurchaseRequest[]
   traceEvents     TraceEvent[]
   mrsLines        MaterialRequisitionLine[]
+  productionEngIssues ProductionEngIssue[]
+  gfpConsumptions GfpConsumption[]
 
   @@index([status])
   @@index([workCenter])
@@ -476,6 +511,7 @@ model WorkOrder {
   @@index([materialRequisitionId])
   @@index([sourceType])
   @@index([dueDate])
+  @@index([businessPriorityId])
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -726,6 +762,8 @@ model CmFolder {
   documents   CmDocument[]
   ecrProducts ChangeRequest[] @relation("CrProductFolder")
   ecrReleases ChangeRequest[] @relation("CrReleaseFolder")
+  // Link to PLM product master (when this is a product root folder)
+  product     Product?
 
   @@index([parentId])
   @@index([kind])
@@ -772,6 +810,7 @@ model CmDocument {
 
   sourceForEcrs   ChangeRequest[] @relation("CrSourceDoc")
   releasedFromEcrs ChangeRequest[] @relation("CrReleasedDoc")
+  numberRegistry  CmNumberRegistry? @relation("RegistryReleasedDoc")
 
   @@index([folderId])
   @@index([docType])
@@ -782,24 +821,436 @@ model CmDocument {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// PROJECTS / EVM
+// CM NUMBER CONTROL — schemes, requests, master registry
 // ═══════════════════════════════════════════════════════════════
+
+/// Customer-configurable number scheme (prefix / format / sequence).
+/// Example: DRAWING → DWG-####, PART → PN-#####, POLICY → POL-###
+model CmNumberScheme {
+  id            String   @id @default(cuid())
+  /// Stable code: PART | DRAWING | POLICY | FORM | TEST | SPEC | PROCEDURE | WI | OTHER
+  code          String   @unique
+  name          String
+  description   String?
+  /// PART | DOCUMENT | BOTH — what this scheme issues
+  appliesTo     String   @default("DOCUMENT")
+  prefix        String
+  separator     String   @default("-")
+  /// Zero-pad width for the numeric sequence (e.g. 4 → 0001)
+  padLength     Int      @default(4)
+  /// Optional static suffix after sequence (e.g. product family code)
+  suffix        String?
+  /// Next sequence value to issue (incremented on assign)
+  nextSequence  Int      @default(1)
+  /// Example preview shown to users, e.g. DWG-0001
+  example       String?
+  isActive      Boolean  @default(true)
+  sortOrder     Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  requests      CmNumberRequest[]
+  registry      CmNumberRegistry[]
+
+  @@index([appliesTo])
+  @@index([isActive])
+  @@index([sortOrder])
+}
+
+/// User request for a new part number or document number.
+/// CM manager assigns the number → it lands on the master registry.
+model CmNumberRequest {
+  id              String   @id @default(cuid())
+  /// Human-readable request id, e.g. NREQ-00001
+  requestNumber   String   @unique
+  /// PENDING | ASSIGNED | REJECTED | CANCELLED
+  status          String   @default("PENDING")
+  /// Same codes as scheme: PART | DRAWING | POLICY | FORM | TEST | SPEC | PROCEDURE | WI | OTHER
+  category        String
+  schemeId        String?
+  scheme          CmNumberScheme? @relation(fields: [schemeId], references: [id], onDelete: SetNull)
+  /// What the number is for (drawing title, policy name, part description…)
+  title           String
+  description     String?
+  justification   String?
+  /// Optional preferred number (CM may override)
+  preferredNumber String?
+  productName     String?
+  productFolderId String?
+  /// Snapshot of assigned number when CM approves
+  assignedNumber  String?
+  assignedAt      DateTime?
+  assignedById    String?
+  cmNotes         String?
+  rejectedReason  String?
+  requestedById   String?
+  requestedByName String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  registryEntry   CmNumberRegistry?
+
+  @@index([status])
+  @@index([category])
+  @@index([schemeId])
+  @@index([requestedById])
+  @@index([assignedNumber])
+  @@index([createdAt])
+}
+
+/// Master CM list of all part numbers and document numbers ever assigned.
+model CmNumberRegistry {
+  id              String   @id @default(cuid())
+  /// Unique controlled number (e.g. DWG-0042, PN-10001, POL-003)
+  number          String   @unique
+  /// PART | DRAWING | POLICY | FORM | TEST | SPEC | PROCEDURE | WI | OTHER
+  category        String
+  schemeId        String?
+  scheme          CmNumberScheme? @relation(fields: [schemeId], references: [id], onDelete: SetNull)
+  title           String
+  description     String?
+  /// RESERVED (assigned, not yet used) | ACTIVE (ECR/part filed) | RELEASED | OBSOLETE
+  status          String   @default("RESERVED")
+  productName     String?
+  sequenceValue   Int?
+  requestId       String?  @unique
+  request         CmNumberRequest? @relation(fields: [requestId], references: [id], onDelete: SetNull)
+  requestedById   String?
+  assignedById    String?
+  assignedAt      DateTime @default(now())
+  /// Optional link once a part master uses this number
+  partId          String?
+  /// Optional link once a CM library document is released with this number
+  cmDocumentId    String?  @unique
+  cmDocument      CmDocument? @relation("RegistryReleasedDoc", fields: [cmDocumentId], references: [id], onDelete: SetNull)
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([category])
+  @@index([status])
+  @@index([schemeId])
+  @@index([partId])
+  @@index([assignedAt])
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PRODUCTS (PLM) — product master, lifecycle, structure, docs
+// ═══════════════════════════════════════════════════════════════
+
+/// PLM product master — identity, lifecycle, compliance, structure.
+model Product {
+  id              String   @id @default(cuid())
+  /// Unique product code, e.g. PRD-CM-1000
+  code            String   @unique
+  name            String
+  /// Short summary
+  description     String?
+  /// Longer “what it is” narrative for PLM / design history
+  overview        String?
+  /// Platform / family grouping
+  productFamily   String?
+  productLine     String?
+  modelNumber     String?
+  revision        String   @default("A")
+
+  /// CONCEPT | DESIGN | DEVELOPMENT | QUALIFICATION | PRODUCTION | SUSTAINMENT | EOL | OBSOLETE
+  lifecyclePhase  String   @default("CONCEPT")
+  phaseEnteredAt  DateTime @default(now())
+  /// ACTIVE | ON_HOLD | CANCELLED | OBSOLETE
+  status          String   @default("ACTIVE")
+
+  // Market / customer
+  marketSegment   String?
+  customerName    String?
+  customerId      String?
+  customer        Customer? @relation(fields: [customerId], references: [id])
+
+  // Ownership
+  productOwnerId    String?
+  productOwner      User?   @relation("ProductOwner", fields: [productOwnerId], references: [id])
+  engineeringLeadId String?
+  engineeringLead   User?   @relation("ProductEngLead", fields: [engineeringLeadId], references: [id])
+  cmOwnerId         String?
+  cmOwner           User?   @relation("ProductCmOwner", fields: [cmOwnerId], references: [id])
+
+  // Top-level assembly (primary finished good / TLA)
+  topLevelPartId  String?
+  topLevelPart    Part?    @relation("ProductTopLevelPart", fields: [topLevelPartId], references: [id])
+
+  // Linked CM library product root folder
+  cmFolderId      String?  @unique
+  cmFolder        CmFolder? @relation(fields: [cmFolderId], references: [id], onDelete: SetNull)
+
+  // Technical / commercial targets
+  targetCost      Float?
+  standardCost    Float?
+  estimatedWeight Float?
+  weightUom       String?  @default("LB")
+  targetLeadDays  Int?
+
+  // Compliance / export / quality
+  itarControlled  Boolean  @default(false)
+  exportControl   String?  // NONE | EAR | ITAR | OTHER
+  qualityStandard String?  // AS9100, ISO9001, …
+  nsn             String?  // National stock number
+  cageCode        String?
+  regulatoryNotes String?
+
+  // Key lifecycle dates
+  conceptDate              DateTime?
+  designStartDate          DateTime?
+  developmentStartDate     DateTime?
+  qualificationStartDate   DateTime?
+  firstArticleDate         DateTime?
+  productionReleaseDate    DateTime?
+  sustainmentStartDate     DateTime?
+  eolDate                  DateTime?
+  obsoleteDate             DateTime?
+
+  notes           String?
+  createdById     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  lifecycleEvents ProductLifecycleEvent[]
+  members         ProductMember[]
+  partLinks       ProductPart[]
+  documentLinks   ProductDocument[]
+  variants        ProductVariant[]
+  requirements    ProductRequirement[]
+  milestones      ProductMilestone[]
+  // PMO links — development programs/projects that build this product
+  projectLinks    ProjectProduct[]
+  primaryProjects Project[]          @relation("ProjectPrimaryProduct")
+  costEntries     ProjectCostEntry[]
+  /// Rolled-up NRE / development cost captured from linked projects
+  developmentBudget Float @default(0)
+  developmentActual Float @default(0)
+  /// Sustainment / product-linked eng tasks (outside or inside projects)
+  engTasks        EngTask[]
+  productionIssues ProductionEngIssue[]
+  virtualAssets   VirtualAsset[]
+
+  @@index([lifecyclePhase])
+  @@index([status])
+  @@index([productFamily])
+  @@index([customerId])
+  @@index([topLevelPartId])
+  @@index([name])
+}
+
+model ProductLifecycleEvent {
+  id          String   @id @default(cuid())
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  fromPhase   String?
+  toPhase     String
+  notes       String?
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@index([productId])
+  @@index([createdAt])
+}
+
+model ProductMember {
+  id          String  @id @default(cuid())
+  productId   String
+  product     Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// OWNER | ENG_LEAD | CM | QUALITY | MANUFACTURING | SUPPLY_CHAIN | OTHER
+  role        String  @default("OTHER")
+  notes       String?
+
+  @@unique([productId, userId, role])
+  @@index([productId])
+  @@index([userId])
+}
+
+/// Parts structured against the product (TLA, major assemblies, options, spares).
+model ProductPart {
+  id          String  @id @default(cuid())
+  productId   String
+  product     Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  partId      String
+  part        Part    @relation(fields: [partId], references: [id], onDelete: Cascade)
+  /// TOP_LEVEL | MAJOR_ASSEMBLY | OPTION | SPARE | RELATED | TOOLING
+  role        String  @default("RELATED")
+  notes       String?
+  sortOrder   Int     @default(0)
+
+  @@unique([productId, partId, role])
+  @@index([productId])
+  @@index([partId])
+}
+
+/// Controlled or reference documents on the product (CM library and/or free refs).
+model ProductDocument {
+  id            String   @id @default(cuid())
+  productId     String
+  product       Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  cmDocumentId  String?
+  /// DRAWING | SPEC | PROCEDURE | WI | BOM | MANUAL | CERT | OTHER
+  docType       String   @default("OTHER")
+  number        String?
+  title         String
+  revision      String?
+  status        String?  // mirrors CM when linked
+  url           String?
+  notes         String?
+  sortOrder     Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([productId])
+  @@index([cmDocumentId])
+  @@index([docType])
+}
+
+model ProductVariant {
+  id              String  @id @default(cuid())
+  productId       String
+  product         Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  code            String
+  name            String
+  description     String?
+  isDefault       Boolean @default(false)
+  isActive        Boolean @default(true)
+  topLevelPartId  String?
+  topLevelPart    Part?   @relation(fields: [topLevelPartId], references: [id])
+  sortOrder       Int     @default(0)
+
+  @@unique([productId, code])
+  @@index([productId])
+}
+
+/// Product requirements / design inputs (lightweight PLM requirements list).
+model ProductRequirement {
+  id          String   @id @default(cuid())
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  number      String
+  title       String
+  description String?
+  /// FUNCTIONAL | PERFORMANCE | SAFETY | REGULATORY | INTERFACE | ENVIRONMENTAL | OTHER
+  category    String   @default("FUNCTIONAL")
+  /// DRAFT | APPROVED | VERIFIED | WAIVED | OBSOLETE
+  status      String   @default("DRAFT")
+  priority    String   @default("NORMAL") // LOW | NORMAL | HIGH | CRITICAL
+  source      String?  // customer SOW, standard, internal
+  verificationMethod String? // TEST | ANALYSIS | INSPECTION | DEMONSTRATION
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([productId, number])
+  @@index([productId])
+  @@index([status])
+  @@index([category])
+}
+
+model ProductMilestone {
+  id          String    @id @default(cuid())
+  productId   String
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  name        String
+  /// GATE | REVIEW | RELEASE | OTHER
+  kind        String    @default("GATE")
+  targetDate  DateTime?
+  actualDate  DateTime?
+  /// PLANNED | IN_PROGRESS | COMPLETE | MISSED | CANCELLED
+  status      String    @default("PLANNED")
+  notes       String?
+  sortOrder   Int       @default(0)
+
+  @@index([productId])
+  @@index([status])
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PMO — Programs, Projects, EVM, agile/waterfall, product links
+// ═══════════════════════════════════════════════════════════════
+
+/// Portfolio / program that groups projects (PMO hierarchy).
+model Program {
+  id              String   @id @default(cuid())
+  code            String   @unique
+  name            String
+  description     String?
+  /// ACTIVE | ON_HOLD | COMPLETED | CANCELLED
+  status          String   @default("ACTIVE")
+  /// Free-text portfolio grouping (e.g. Defense, Commercial)
+  portfolio       String?
+  ownerId         String?
+  owner           User?    @relation("ProgramOwner", fields: [ownerId], references: [id])
+  budgetCost      Float    @default(0)
+  actualCost      Float    @default(0)
+  startDate       DateTime?
+  endDate         DateTime?
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  projects        Project[]
+  virtualAssets   VirtualAsset[]
+
+  @@index([status])
+  @@index([portfolio])
+}
 
 model Project {
   id              String   @id @default(cuid())
   number          String   @unique
   name            String
   description     String?
-  status          String   @default("PLANNING") // PLANNING, ACTIVE, ON_HOLD, COMPLETED, CANCELLED
+  /// PLANNING | ACTIVE | ON_HOLD | COMPLETED | CANCELLED
+  status          String   @default("PLANNING")
+  /// WATERFALL | AGILE | HYBRID
+  methodology     String   @default("HYBRID")
+  /// INITIATION | PLANNING | EXECUTION | MONITORING | CLOSURE (waterfall) or ongoing for agile
+  phase           String   @default("INITIATION")
   customerName    String?
   contractValue   Float    @default(0)
   budgetCost      Float    @default(0)
   actualCost      Float    @default(0)
   plannedValue    Float    @default(0) // PV / BCWS
   earnedValue     Float    @default(0) // EV / BCWP
+  /// NRE / product development cost tracked on this project
+  developmentBudget Float  @default(0)
+  developmentActual Float  @default(0)
   startDate       DateTime?
   endDate         DateTime?
   percentComplete Float    @default(0)
+
+  // PMO hierarchy
+  programId       String?
+  program         Program? @relation(fields: [programId], references: [id], onDelete: SetNull)
+
+  // Primary product this project develops / delivers
+  productId       String?
+  product         Product? @relation("ProjectPrimaryProduct", fields: [productId], references: [id], onDelete: SetNull)
+
+  // Charter / setup
+  /// DRAFT | APPROVED | SUPERSEDED
+  charterStatus   String   @default("DRAFT")
+  businessCase    String?
+  objectives      String?
+  scopeIn         String?
+  scopeOut        String?
+  successCriteria String?
+  assumptions     String?
+  constraints     String?
+  deliverables    String?
+  stakeholdersSummary String?
+  sponsorId       String?
+  sponsor         User?    @relation("ProjectSponsor", fields: [sponsorId], references: [id])
+  projectManagerId String?
+  projectManager  User?    @relation("ProjectManager", fields: [projectManagerId], references: [id])
+  charterApprovedAt DateTime?
+
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -815,25 +1266,534 @@ model Project {
   timeEntries     TimeEntry[]
   cmFolders       CmFolder[]
   cmDocuments     CmDocument[]
+  productLinks    ProjectProduct[]
+  requirements    ProjectRequirement[]
+  raciEntries     ProjectRaciEntry[]
+  communications  ProjectCommunication[]
+  wikiPages       ProjectWikiPage[]
+  piIncrements    PiIncrement[]
+  costEntries     ProjectCostEntry[]
+  campaigns       Campaign[]
+  sagas           Saga[]
+  virtualAssets   VirtualAsset[]
+  engTasks        EngTask[]
+  productionIssues ProductionEngIssue[]
+
+  @@index([programId])
+  @@index([productId])
+  @@index([status])
+  @@index([methodology])
+  @@index([phase])
 }
 
+/// Many-to-many: projects can touch multiple products; products can have multiple projects.
+model ProjectProduct {
+  id          String  @id @default(cuid())
+  projectId   String
+  project     Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  /// PRIMARY | ENABLING | DERIVATIVE | SUSTAINMENT
+  role        String  @default("PRIMARY")
+  /// When true, pushing reqs/milestones/cost to product is allowed
+  syncRequirements Boolean @default(true)
+  syncMilestones   Boolean @default(true)
+  syncCosts        Boolean @default(true)
+  notes       String?
+
+  @@unique([projectId, productId])
+  @@index([productId])
+}
+
+/// Project-level requirements — can be pushed into ProductRequirement on the linked product.
+model ProjectRequirement {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  number      String
+  title       String
+  description String?
+  category    String   @default("FUNCTIONAL")
+  status      String   @default("DRAFT")
+  priority    String   @default("NORMAL")
+  source      String?
+  verificationMethod String?
+  /// Set when synced to product master
+  productRequirementId String?
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([projectId, number])
+  @@index([projectId])
+  @@index([status])
+}
+
+/// Hierarchical WBS — PMBOK deliverable-oriented decomposition (100% rule).
+/// Click an element for full detail; expand children as line items.
 model WbsElement {
   id              String  @id @default(cuid())
   projectId       String
   project         Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   code            String
   name            String
+  /// SUMMARY | CONTROL_ACCOUNT | WORK_PACKAGE | PLANNING_PACKAGE
+  kind            String  @default("WORK_PACKAGE")
+  description     String?
+  /// Deliverables / SOW language for this node
+  deliverables    String?
+  acceptanceCriteria String?
+  assumptions     String?
+  constraints     String?
+  resources       String?  // skillsets, orgs, equipment
+  notes           String?
+  /// NOT_STARTED | IN_PROGRESS | COMPLETE | ON_HOLD
+  status          String  @default("NOT_STARTED")
   parentId        String?
+  parent          WbsElement?  @relation("WbsTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children        WbsElement[] @relation("WbsTree")
+  ownerId         String?
+  startDate       DateTime?
+  endDate         DateTime?
   budgetCost      Float   @default(0)
   actualCost      Float   @default(0)
   percentComplete Float   @default(0)
   sortOrder       Int     @default(0)
+  /// Depth hint: 0 = root under project, 1 = major, 2+ = sub
+  level           Int     @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   workOrders      WorkOrder[]
   purchaseOrders  PurchaseOrder[]
   tasks           ProjectTask[]
+  campaigns       Campaign[]
+
+  @@index([projectId])
+  @@index([parentId])
+  @@index([code])
+  @@index([kind])
 }
 
+// ── Campaign → Saga → Task (Jira-like, PMO + Engineering) ─────
+
+/// PM-owned campaign: body of work supporting a WBS element / project objective.
+model Campaign {
+  id              String   @id @default(cuid())
+  projectId       String
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  wbsElementId    String?
+  wbsElement      WbsElement? @relation(fields: [wbsElementId], references: [id], onDelete: SetNull)
+  number          String
+  name            String
+  description     String?
+  /// Definition of Done for the campaign (PM + eng agreed)
+  definitionOfDone String?
+  /// BACKLOG | PLANNED | IN_PROGRESS | BLOCKED | DONE | CANCELLED
+  status          String   @default("PLANNED")
+  priority        String   @default("NORMAL")
+  ownerId         String?  // PM owner
+  // Leadership business priority alignment (null = Unrated)
+  businessPriorityId String?
+  businessPriority   BusinessPriority? @relation(fields: [businessPriorityId], references: [id], onDelete: SetNull)
+  startDate       DateTime?
+  endDate         DateTime?
+  dueDate         DateTime?
+  estimatedHours  Float    @default(0)
+  actualHours     Float    @default(0)
+  storyPoints     Float    @default(0)
+  percentComplete Float    @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  sagas           Saga[]
+  engTasks        EngTask[]
+  timeEntries     TimeEntry[]
+
+  @@unique([projectId, number])
+  @@index([projectId])
+  @@index([wbsElementId])
+  @@index([status])
+  @@index([businessPriorityId])
+}
+
+/// Engineering saga under a campaign — owned by a discipline swim lane.
+model Saga {
+  id              String   @id @default(cuid())
+  projectId       String
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  campaignId      String
+  campaign        Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  number          String
+  name            String
+  description     String?
+  /// SYSTEMS | MECHANICAL | ELECTRICAL | NETWORK | CYBER | SOFTWARE | HARDWARE | RF | QUALITY | OTHER
+  discipline      String   @default("SYSTEMS")
+  definitionOfDone String?
+  /// BACKLOG | TODO | IN_PROGRESS | IN_REVIEW | BLOCKED | DONE | CANCELLED
+  status          String   @default("BACKLOG")
+  priority        String   @default("NORMAL")
+  ownerId         String?  // eng lead for this saga
+  // Leadership business priority alignment (null = Unrated)
+  businessPriorityId String?
+  businessPriority   BusinessPriority? @relation(fields: [businessPriorityId], references: [id], onDelete: SetNull)
+  startDate       DateTime?
+  endDate         DateTime?
+  dueDate         DateTime?
+  estimatedHours  Float    @default(0)
+  actualHours     Float    @default(0)
+  storyPoints     Float    @default(0)
+  percentComplete Float    @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  engSprintId     String?
+  engSprint       EngSprint? @relation(fields: [engSprintId], references: [id], onDelete: SetNull)
+  engTasks        EngTask[]
+  timeEntries     TimeEntry[]
+  // Cross-lane dependencies
+  blockedBy       EngDependency[] @relation("DepTargetSaga")
+  blocking        EngDependency[] @relation("DepSourceSaga")
+
+  @@unique([campaignId, number])
+  @@index([projectId])
+  @@index([campaignId])
+  @@index([discipline])
+  @@index([status])
+  @@index([engSprintId])
+  @@index([businessPriorityId])
+}
+
+/// Engineering task / subtask under a saga (or loose under campaign / product).
+/// projectId optional — sustainment work can be product-only (no open project).
+model EngTask {
+  id              String   @id @default(cuid())
+  projectId       String?
+  project         Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  /// Product master link — sustainment BOM/doc updates outside a project
+  productId       String?
+  product         Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+  campaignId      String?
+  campaign        Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  sagaId          String?
+  saga            Saga?     @relation(fields: [sagaId], references: [id], onDelete: Cascade)
+  parentId        String?
+  parent          EngTask?  @relation("EngTaskTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children        EngTask[] @relation("EngTaskTree")
+  engSprintId     String?
+  engSprint       EngSprint? @relation(fields: [engSprintId], references: [id], onDelete: SetNull)
+  number          String   @unique
+  name            String
+  description     String?
+  /// TASK | SUBTASK | SPIKE | BUG | SUSTAINMENT | PROD_SUPPORT
+  kind            String   @default("TASK")
+  discipline      String?  // inherits saga if null; MFG_ENG for manufacturing engineering
+  /// BACKLOG | TODO | IN_PROGRESS | IN_REVIEW | BLOCKED | DONE | CANCELLED
+  status          String   @default("TODO")
+  priority        String   @default("NORMAL")
+  assigneeId      String?
+  // Leadership business priority alignment (null = Unrated)
+  businessPriorityId String?
+  businessPriority   BusinessPriority? @relation(fields: [businessPriorityId], references: [id], onDelete: SetNull)
+  startDate       DateTime?
+  endDate         DateTime?
+  dueDate         DateTime?
+  estimatedHours  Float    @default(0)
+  actualHours     Float    @default(0)
+  storyPoints     Float?
+  percentComplete Float    @default(0)
+  /// Open scan-in session (engineer currently clocked on this task)
+  activeScanUserId String?
+  activeScanAt    DateTime?
+  /// Production support ticket that spawned this task (if any)
+  productionIssueId String? @unique
+  productionIssue ProductionEngIssue? @relation(fields: [productionIssueId], references: [id], onDelete: SetNull)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  timeEntries     TimeEntry[]
+  scans           WorkTimeScan[]
+  blockedBy       EngDependency[] @relation("DepTargetTask")
+  blocking        EngDependency[] @relation("DepSourceTask")
+
+  @@index([projectId])
+  @@index([productId])
+  @@index([campaignId])
+  @@index([sagaId])
+  @@index([parentId])
+  @@index([status])
+  @@index([assigneeId])
+  @@index([discipline])
+  @@index([engSprintId])
+  @@index([kind])
+  @@index([businessPriorityId])
+}
+
+/// Production → Manufacturing Engineering support ticket.
+/// Floor/production raises issues (hardware, process, docs); ME board picks them up,
+/// can clarify, fix process, or open an ECR.
+model ProductionEngIssue {
+  id              String   @id @default(cuid())
+  number          String   @unique
+  title           String
+  description     String?
+  /// HARDWARE | PROCESS | DOCUMENT | BOM | TOOLING | OTHER
+  category        String   @default("PROCESS")
+  /// OPEN | TRIAGED | IN_PROGRESS | WAITING_ECR | RESOLVED | CLOSED | REJECTED
+  status          String   @default("OPEN")
+  priority        String   @default("NORMAL") // LOW | NORMAL | HIGH | CRITICAL
+  reportedById    String?
+  reportedByName  String?
+  workOrderId     String?
+  workOrder       WorkOrder? @relation(fields: [workOrderId], references: [id], onDelete: SetNull)
+  partId          String?
+  part            Part?      @relation(fields: [partId], references: [id], onDelete: SetNull)
+  productId       String?
+  product         Product?   @relation(fields: [productId], references: [id], onDelete: SetNull)
+  projectId       String?
+  project         Project?   @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  /// Where found: STATION | RECEIVING | TEST | INSPECTION | OTHER
+  sourceArea      String?
+  workCenter      String?
+  /// Linked ME task when accepted onto MFG_ENG board
+  engTask         EngTask?
+  /// ECR opened to fix controlled docs (optional)
+  changeRequestId String?
+  resolution      String?
+  resolvedAt      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([status])
+  @@index([category])
+  @@index([workOrderId])
+  @@index([productId])
+  @@index([partId])
+  @@index([priority])
+  @@index([createdAt])
+}
+
+/// Cross-swim-lane (and within-lane) dependencies between tasks and/or sagas.
+/// source must finish (or be satisfied) before target can proceed.
+model EngDependency {
+  id              String   @id @default(cuid())
+  /// FINISH_TO_START | START_TO_START | FINISH_TO_FINISH | BLOCKS
+  type            String   @default("FINISH_TO_START")
+  notes           String?
+  /// Source (predecessor) — at least one of sourceTaskId / sourceSagaId
+  sourceTaskId    String?
+  sourceTask      EngTask? @relation("DepSourceTask", fields: [sourceTaskId], references: [id], onDelete: Cascade)
+  sourceSagaId    String?
+  sourceSaga      Saga?    @relation("DepSourceSaga", fields: [sourceSagaId], references: [id], onDelete: Cascade)
+  /// Target (successor)
+  targetTaskId    String?
+  targetTask      EngTask? @relation("DepTargetTask", fields: [targetTaskId], references: [id], onDelete: Cascade)
+  targetSagaId    String?
+  targetSaga      Saga?    @relation("DepTargetSaga", fields: [targetSagaId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
+
+  @@index([sourceTaskId])
+  @@index([sourceSagaId])
+  @@index([targetTaskId])
+  @@index([targetSagaId])
+}
+
+/// PMO-defined planning quarter (houses sprints for PI planning).
+model PlanningQuarter {
+  id          String   @id @default(cuid())
+  /// e.g. 2026-Q3
+  code        String   @unique
+  name        String
+  year        Int
+  quarter     Int      // 1-4
+  startDate   DateTime
+  endDate     DateTime
+  /// PLANNED | ACTIVE | CLOSED
+  status      String   @default("PLANNED")
+  goals       String?  // PI / quarter objectives from leadership & PMO
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  sprints     EngSprint[]
+
+  @@index([year, quarter])
+  @@index([status])
+}
+
+/// Discipline-scoped sprint — created by PMO under a quarter; lanes populate work.
+model EngSprint {
+  id          String    @id @default(cuid())
+  name        String
+  goal        String?
+  /// Optional: limit sprint to one swim lane; null = multi-discipline / all lanes
+  discipline  String?
+  projectId   String?
+  quarterId   String?
+  quarter     PlanningQuarter? @relation(fields: [quarterId], references: [id], onDelete: SetNull)
+  startDate   DateTime?
+  endDate     DateTime?
+  /// PLANNED | ACTIVE | COMPLETED
+  status      String    @default("PLANNED")
+  /// True when created via PMO PI planning (not lane managers)
+  createdByPmo Boolean  @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  sagas       Saga[]
+  engTasks    EngTask[]
+
+  @@index([discipline])
+  @@index([projectId])
+  @@index([quarterId])
+  @@index([status])
+}
+
+/// Senior leadership published business priorities (readable by all).
+model BusinessPriority {
+  id          String   @id @default(cuid())
+  number      String   @unique
+  title       String
+  description String?
+  /// STRATEGIC | FINANCIAL | OPERATIONAL | COMPLIANCE | CUSTOMER | PEOPLE
+  category    String   @default("STRATEGIC")
+  /// DRAFT | PUBLISHED | ARCHIVED
+  status      String   @default("DRAFT")
+  priority    Int      @default(1) // 1 = highest
+  ownerRole   String?  // CEO | CFO | COO | VP_ENG | VP_OPS | etc.
+  publishedAt DateTime?
+  effectiveFrom DateTime?
+  effectiveTo   DateTime?
+  createdById String?
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workOrders  WorkOrder[]
+  campaigns   Campaign[]
+  sagas       Saga[]
+  engTasks    EngTask[]
+
+  @@index([status])
+  @@index([priority])
+  @@index([category])
+}
+
+/// Fine-grained permission catalog.
+model Permission {
+  id          String   @id @default(cuid())
+  /// e.g. engineering.task.create, accounting.journal.post
+  code        String   @unique
+  name        String
+  module      String
+  description String?
+
+  groupLinks  PermissionGroupMember[]
+  userGrants  UserPermission[]
+}
+
+model PermissionGroup {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  description String?
+  /// Optional base ERP role this group extends
+  baseRole    String?
+  createdAt   DateTime @default(now())
+
+  permissions PermissionGroupMember[]
+  users       UserPermissionGroup[]
+}
+
+model PermissionGroupMember {
+  id           String @id @default(cuid())
+  groupId      String
+  group        PermissionGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  permissionId String
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, permissionId])
+}
+
+model UserPermissionGroup {
+  id       String @id @default(cuid())
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  groupId  String
+  group    PermissionGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, groupId])
+}
+
+model UserPermission {
+  id           String  @id @default(cuid())
+  userId       String
+  user         User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permissionId String
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  /// true = grant, false = explicit deny
+  allowed      Boolean @default(true)
+
+  @@unique([userId, permissionId])
+}
+
+/// Configurable engineering swim lanes (create / deactivate).
+model EngSwimLane {
+  id          String   @id @default(cuid())
+  /// Stable code used on Saga/EngTask.discipline (e.g. SOFTWARE, MFG_ENG)
+  code        String   @unique
+  name        String
+  description String?
+  color       String?  // tailwind-ish accent key
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  /// System lanes cannot be hard-deleted (only deactivated)
+  isSystem    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isActive])
+  @@index([sortOrder])
+}
+
+/// Alerts for PMs when dependencies are created or block work.
+model EngAlert {
+  id          String   @id @default(cuid())
+  /// DEPENDENCY_CREATED | DEPENDENCY_BLOCKING | TASK_BLOCKED
+  type        String
+  title       String
+  body        String?
+  projectId   String?
+  engTaskId   String?
+  sagaId      String?
+  dependencyId String?
+  /// Unread until PM acknowledges
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([projectId])
+  @@index([isRead])
+  @@index([createdAt])
+}
+
+/// Scan-in / scan-out sessions for engineering time on a task.
+model WorkTimeScan {
+  id          String    @id @default(cuid())
+  engTaskId   String
+  engTask     EngTask   @relation(fields: [engTaskId], references: [id], onDelete: Cascade)
+  userId      String
+  scannedInAt DateTime  @default(now())
+  scannedOutAt DateTime?
+  hours       Float?    // filled on scan-out
+  notes       String?
+  /// OPEN | CLOSED
+  status      String    @default("OPEN")
+
+  @@index([engTaskId])
+  @@index([userId])
+  @@index([status])
+}
+
+/// Legacy project task list (schedule tab) — kept for WBS/PI links.
 model ProjectTask {
   id              String    @id @default(cuid())
   projectId       String
@@ -844,6 +1804,12 @@ model ProjectTask {
   description     String?
   status          String    @default("TODO") // TODO, IN_PROGRESS, BLOCKED, DONE
   priority        String    @default("NORMAL")
+  /// STORY | TASK | SPIKE | ENABLER | BUG (agile) or generic task
+  kind            String    @default("TASK")
+  storyPoints     Float?
+  sprintLabel     String?   // free-text sprint / iteration name
+  piIncrementId   String?
+  piIncrement     PiIncrement? @relation(fields: [piIncrementId], references: [id], onDelete: SetNull)
   assigneeId      String?
   startDate       DateTime?
   endDate         DateTime?
@@ -853,6 +1819,10 @@ model ProjectTask {
   dependsOnIds    String?   // JSON array of task ids
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
+
+  @@index([projectId])
+  @@index([status])
+  @@index([piIncrementId])
 }
 
 model Milestone {
@@ -861,34 +1831,61 @@ model Milestone {
   project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   name        String
   dueDate     DateTime?
-  status      String    @default("PENDING") // PENDING, ACHIEVED, MISSED
+  actualDate  DateTime?
+  status      String    @default("PENDING") // PENDING, ACHIEVED, MISSED, CANCELLED
   description String?
+  /// PDR | CDR | TRR | SRR | FAI | GATE | RELEASE | OTHER — gates that sync to product lifecycle
+  kind        String    @default("GATE")
+  /// Optional product milestone created/updated from this project gate
+  productMilestoneId String?
+
+  @@index([projectId])
+  @@index([kind])
 }
 
 model ProjectRisk {
   id          String  @id @default(cuid())
   projectId   String
   project     Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  number      String?
   title       String
   description String?
+  category    String? // TECHNICAL | SCHEDULE | COST | SUPPLY | QUALITY | OTHER
   probability String  @default("MEDIUM") // LOW, MEDIUM, HIGH
   impact      String  @default("MEDIUM")
-  status      String  @default("OPEN") // OPEN, MITIGATING, CLOSED
+  score       Int     @default(0) // computed or manual 1–25
+  status      String  @default("OPEN") // OPEN, MITIGATING, ACCEPTED, CLOSED
   mitigation  String?
+  contingency String?
+  residualRisk String?
   ownerId     String?
+  targetDate  DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([status])
 }
 
 model ProjectIssue {
   id          String    @id @default(cuid())
   projectId   String
   project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  number      String?
   title       String
   description String?
+  category    String?
   status      String    @default("OPEN") // OPEN, IN_PROGRESS, RESOLVED, CLOSED
   priority    String    @default("NORMAL")
+  ownerId     String?
   resolution  String?
   raisedAt    DateTime  @default(now())
   resolvedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([projectId])
+  @@index([status])
 }
 
 model ProjectMember {
@@ -897,7 +1894,126 @@ model ProjectMember {
   project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   userId    String
   user      User    @relation(fields: [userId], references: [id])
-  role      String  @default("MEMBER") // PM, MEMBER, STAKEHOLDER
+  role      String  @default("MEMBER") // PM, SPONSOR, MEMBER, STAKEHOLDER, TECH_LEAD, SCRUM_MASTER
+}
+
+/// RACI matrix rows — one activity with R/A/C/I assignments (names or user ids as text).
+model ProjectRaciEntry {
+  id          String  @id @default(cuid())
+  projectId   String
+  project     Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  activity    String
+  /// Responsible (does the work)
+  responsible String?
+  /// Accountable (one owner)
+  accountable String?
+  /// Consulted
+  consulted   String?
+  /// Informed
+  informed    String?
+  sortOrder   Int     @default(0)
+  notes       String?
+
+  @@index([projectId])
+}
+
+model ProjectCommunication {
+  id          String  @id @default(cuid())
+  projectId   String
+  project     Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  audience    String
+  purpose     String?
+  frequency   String? // DAILY | WEEKLY | BIWEEKLY | MONTHLY | AD_HOC | MILESTONE
+  channel     String? // MEETING | EMAIL | SLACK | REPORT | WIKI
+  ownerName   String?
+  notes       String?
+  sortOrder   Int     @default(0)
+
+  @@index([projectId])
+}
+
+/// Confluence-style project wiki pages (markdown body).
+model ProjectWikiPage {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  slug        String
+  title       String
+  body        String   @default("")
+  parentId    String?
+  parent      ProjectWikiPage?  @relation("WikiTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children    ProjectWikiPage[] @relation("WikiTree")
+  sortOrder   Int      @default(0)
+  updatedById String?
+  updatedBy   User?    @relation(fields: [updatedById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([projectId, slug])
+  @@index([projectId])
+  @@index([parentId])
+}
+
+/// SAFe-style PI (Program Increment) for agile / hybrid projects.
+model PiIncrement {
+  id          String    @id @default(cuid())
+  projectId   String
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name        String
+  number      Int       @default(1)
+  goals       String?
+  startDate   DateTime?
+  endDate     DateTime?
+  /// PLANNED | ACTIVE | COMPLETE | CANCELLED
+  status      String    @default("PLANNED")
+  capacityPoints Float?
+  committedPoints Float?
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  features    PiFeature[]
+  tasks       ProjectTask[]
+
+  @@index([projectId])
+  @@index([status])
+}
+
+model PiFeature {
+  id          String  @id @default(cuid())
+  piId        String
+  pi          PiIncrement @relation(fields: [piId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  /// BACKLOG | COMMITTED | IN_PROGRESS | DONE | DEFERRED
+  status      String  @default("BACKLOG")
+  storyPoints Float?
+  ownerName   String?
+  sortOrder   Int     @default(0)
+
+  @@index([piId])
+}
+
+/// Development / NRE cost lines — roll up to project and optionally product.
+model ProjectCostEntry {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  productId   String?
+  product     Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  /// LABOR | MATERIAL | NRE | TRAVEL | TOOLING | TEST | OTHER
+  category    String   @default("LABOR")
+  description String?
+  amount      Float    @default(0)
+  hours       Float?
+  entryDate   DateTime @default(now())
+  source      String?  // TIMESHEET | MANUAL | PO | WO
+  createdAt   DateTime @default(now())
+
+  @@index([projectId])
+  @@index([productId])
+  @@index([category])
+  @@index([entryDate])
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1470,11 +2586,19 @@ model Account {
   parentCode  String?
   isActive    Boolean @default(true)
   balance     Float   @default(0)
+  /// DIRECT | INDIRECT | null — charge code classification for project/overhead cost
+  chargeCodeType String?
+  /// Optional short charge code label (e.g. DIR-ENG, IND-G&A)
+  chargeCode  String?
+  description String?
 
   journalLines JournalLine[]
   partsInventory Part[] @relation("PartInventoryAccount")
   partsExpense   Part[] @relation("PartExpenseAccount")
   partsCogs      Part[] @relation("PartCogsAccount")
+
+  @@index([chargeCodeType])
+  @@index([type, isActive])
 }
 
 model JournalEntry {
@@ -1486,9 +2610,14 @@ model JournalEntry {
   source      String?  // MANUAL, AP, AR, PAYROLL, INVENTORY, WO
   sourceId    String?
   postedAt    DateTime?
+  /// Project / charge reference for job cost tracking
+  projectId   String?
+  chargeCode  String?
+  createdById String?
   createdAt   DateTime @default(now())
 
   lines       JournalLine[]
+  attachments JournalAttachment[]
 }
 
 model JournalLine {
@@ -1500,6 +2629,23 @@ model JournalLine {
   debit           Float  @default(0)
   credit          Float  @default(0)
   memo            String?
+  chargeCode      String?
+}
+
+/// Receipts / supporting docs on journal entries
+model JournalAttachment {
+  id              String   @id @default(cuid())
+  journalEntryId  String
+  journalEntry    JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  fileName        String?
+  url             String
+  caption         String?
+  /// RECEIPT | INVOICE | SUPPORTING | OTHER
+  docType         String   @default("RECEIPT")
+  uploadedById    String?
+  uploadedAt      DateTime @default(now())
+
+  @@index([journalEntryId])
 }
 
 model Customer {
@@ -1519,6 +2665,7 @@ model Customer {
   salesOrders   SalesOrder[]
   quotes        Quote[]
   receivingTravelers ReceivingTraveler[]
+  products      Product[]
 }
 
 model ArInvoice {
@@ -1646,6 +2793,7 @@ model SalesOrder {
   shipments     Shipment[]
   workOrders    WorkOrder[]
   traceEvents   TraceEvent[]
+  virtualAssets VirtualAsset[]
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1887,20 +3035,37 @@ model GovernmentProperty {
   acquisitionDate   DateTime?
   propertyType      String   // GFP, CAP, STE, ST, MATERIAL
   classification    String?  // EQUIPMENT, MATERIAL, REAL_PROPERTY
-  status            String   @default("ACTIVE") // ACTIVE, IN_USE, IN_STORAGE, DISPOSED, LOST, DAMAGED
+  status            String   @default("ACTIVE") // ACTIVE, IN_USE, IN_STORAGE, CHECKED_OUT, CONSUMED, DISPOSED, LOST, DAMAGED
   contractNumber    String?
   custodialCode     String?
   location          String?
   inventoryItemId   String?  @unique
   inventoryItem     InventoryItem? @relation(fields: [inventoryItemId], references: [id])
   lastInventoryDate DateTime?
+  /// Days between required physical / custodial audits (cycle count)
+  auditIntervalDays Int      @default(90)
+  nextAuditDue      DateTime?
   condition         String   @default("SERVICEABLE")
   notes             String?
   dfarsCompliant    Boolean  @default(true)
+  /// Current checkout holder (null when in storage / available)
+  checkedOutToId    String?
+  checkedOutTo      User?    @relation("GfpCheckedOut", fields: [checkedOutToId], references: [id], onDelete: SetNull)
+  checkedOutAt      DateTime?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
   complianceChecks  ComplianceCheck[]
+  documents         GfpDocument[]
+  auditRecords      GfpAuditRecord[]
+  checkouts         GfpCheckout[]
+  consumptions      GfpConsumption[]
+
+  @@index([contractNumber])
+  @@index([status])
+  @@index([propertyType])
+  @@index([nextAuditDue])
+  @@index([checkedOutToId])
 }
 
 model ComplianceCheck {
@@ -1915,6 +3080,172 @@ model ComplianceCheck {
   findings    String?
 }
 
+/// DD1149 and other GFP documents attached to property or contract
+model GfpDocument {
+  id              String   @id @default(cuid())
+  /// DD1149 | RECEIPT | TRANSFER | DISPOSAL | OTHER
+  docType         String   @default("DD1149")
+  fileName        String?
+  url             String   // data URL or path
+  caption         String?
+  contractNumber  String?
+  propertyId      String?
+  property        GovernmentProperty? @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  formNumber      String?  // e.g. DD Form 1149 control number
+  formDate        DateTime?
+  uploadedById    String?
+  uploadedAt      DateTime @default(now())
+  createdAt       DateTime @default(now())
+
+  @@index([docType])
+  @@index([contractNumber])
+  @@index([propertyId])
+}
+
+/// Scheduled / completed GFP cycle audits
+model GfpAuditRecord {
+  id              String   @id @default(cuid())
+  propertyId      String
+  property        GovernmentProperty @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  scheduledFor    DateTime
+  completedAt     DateTime?
+  /// SCHEDULED | COMPLETED | OVERDUE | SKIPPED
+  status          String   @default("SCHEDULED")
+  result          String?  // PASS | FAIL | N_A
+  findings        String?
+  notes           String?
+  auditedById     String?
+  auditedBy       User?    @relation("GfpAuditor", fields: [auditedById], references: [id], onDelete: SetNull)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([propertyId])
+  @@index([status])
+  @@index([scheduledFor])
+}
+
+/// GFP check-out / check-in history (full traceability trail)
+model GfpCheckout {
+  id              String   @id @default(cuid())
+  propertyId      String
+  property        GovernmentProperty @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  checkedOutById  String
+  checkedOutBy    User     @relation("GfpCheckoutUser", fields: [checkedOutById], references: [id])
+  checkedOutAt    DateTime @default(now())
+  expectedReturn  DateTime?
+  purpose         String?
+  checkedInAt     DateTime?
+  checkedInById   String?
+  checkedInBy     User?    @relation("GfpCheckinUser", fields: [checkedInById], references: [id], onDelete: SetNull)
+  checkedInNotes  String?
+  /// OPEN | RETURNED | RETURNED_TO_GOVERNMENT | TRANSFERRED_TO_COMPANY
+  status          String   @default("OPEN")
+  /// How the item left open checkout: CHECKIN | RETURN_TO_GOV | TRANSFER_COMPANY
+  disposition     String?
+  createdAt       DateTime @default(now())
+
+  @@index([propertyId])
+  @@index([checkedOutById])
+  @@index([status])
+  @@index([checkedOutAt])
+}
+
+/// GFP consumption against work orders (requires PM approval)
+model GfpConsumption {
+  id              String   @id @default(cuid())
+  propertyId      String
+  property        GovernmentProperty @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  workOrderId     String?
+  workOrder       WorkOrder? @relation(fields: [workOrderId], references: [id], onDelete: SetNull)
+  quantity        Float    @default(1)
+  reason          String?
+  requestedById   String?
+  requestedBy     User?    @relation("GfpConsumptionRequester", fields: [requestedById], references: [id], onDelete: SetNull)
+  requestedAt     DateTime @default(now())
+  /// PENDING_APPROVAL | APPROVED | REJECTED | CONSUMED
+  status          String   @default("PENDING_APPROVAL")
+  approvedById    String?
+  approvedBy      User?    @relation("GfpConsumptionApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  approvedAt      DateTime?
+  approvalNotes   String?
+  consumedAt      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([propertyId])
+  @@index([workOrderId])
+  @@index([status])
+}
+
+// ═══════════════════════════════════════════════════════════════
+// VIRTUAL ASSETS (licenses, downloads, digital items)
+// ═══════════════════════════════════════════════════════════════
+
+model VirtualAsset {
+  id              String   @id @default(cuid())
+  assetTag        String   @unique
+  name            String
+  description     String?
+  /// LICENSE | DOWNLOAD | SUBSCRIPTION | DIGITAL | OTHER
+  assetType       String   @default("LICENSE")
+  /// AVAILABLE | ASSIGNED | CHECKED_OUT | EXPIRED | RETIRED | SHIPPED
+  status          String   @default("AVAILABLE")
+  /// INTERNAL | SOLD — internal seats vs customer deliverable licenses
+  usageType       String   @default("INTERNAL")
+  vendor          String?
+  licenseKey      String?
+  seats           Int?
+  seatsUsed       Int      @default(0)
+  cost            Float    @default(0)
+  purchasedAt     DateTime?
+  expiresAt       DateTime?
+  renewalUrl      String?
+  notes           String?
+  /// Computer / host this seat is installed on
+  computerName    String?
+  productId       String?
+  product         Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  programId       String?
+  program         Program? @relation(fields: [programId], references: [id], onDelete: SetNull)
+  projectId       String?
+  project         Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  salesOrderId    String?
+  salesOrder      SalesOrder? @relation(fields: [salesOrderId], references: [id], onDelete: SetNull)
+  assignedToId    String?
+  assignedTo      User?    @relation("VirtualAssetAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  checkedOutToId  String?
+  checkedOutTo    User?    @relation("VirtualAssetCheckout", fields: [checkedOutToId], references: [id], onDelete: SetNull)
+  checkedOutAt    DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  assignments     VirtualAssetAssignment[]
+
+  @@index([status])
+  @@index([assetType])
+  @@index([usageType])
+  @@index([assignedToId])
+  @@index([productId])
+  @@index([programId])
+  @@index([projectId])
+  @@index([salesOrderId])
+}
+
+model VirtualAssetAssignment {
+  id              String   @id @default(cuid())
+  virtualAssetId  String
+  virtualAsset    VirtualAsset @relation(fields: [virtualAssetId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// ASSIGN | CHECKOUT | RETURN | UNASSIGN
+  action          String
+  notes           String?
+  createdAt       DateTime @default(now())
+
+  @@index([virtualAssetId])
+  @@index([userId])
+}
+
 // ═══════════════════════════════════════════════════════════════
 // HR / WORKFORCE
 // ═══════════════════════════════════════════════════════════════
@@ -1927,12 +3258,25 @@ model TimeEntry {
   workOrder   WorkOrder? @relation(fields: [workOrderId], references: [id])
   projectId   String?
   project     Project? @relation(fields: [projectId], references: [id])
+  campaignId  String?
+  campaign    Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  sagaId      String?
+  saga        Saga?     @relation(fields: [sagaId], references: [id], onDelete: SetNull)
+  engTaskId   String?
+  engTask     EngTask?  @relation(fields: [engTaskId], references: [id], onDelete: SetNull)
   date        DateTime
   hours       Float
-  type        String   @default("REGULAR") // REGULAR, OT, PTO, SICK, HOLIDAY
+  type        String   @default("REGULAR") // REGULAR, OT, PTO, SICK, HOLIDAY, ENG_SCAN
   description String?
   status      String   @default("SUBMITTED") // DRAFT, SUBMITTED, APPROVED, REJECTED
+  laborRate   Float    @default(0) // optional $/hr for cost rollup
+  costAmount  Float    @default(0) // hours * rate when posted
   createdAt   DateTime @default(now())
+
+  @@index([projectId])
+  @@index([engTaskId])
+  @@index([campaignId])
+  @@index([date])
 }
 
 model PtoRequest {
@@ -2017,6 +3361,8 @@ model EngineeringTicket {
   type            String   @default("TASK") // EPIC, STORY, TASK, BUG, CHANGE
   status          String   @default("BACKLOG") // BACKLOG, TODO, IN_PROGRESS, IN_REVIEW, DONE, BLOCKED
   priority        String   @default("MEDIUM") // LOWEST, LOW, MEDIUM, HIGH, CRITICAL
+  /// SYSTEMS | MECHANICAL | ELECTRICAL | NETWORK | CYBER | SOFTWARE | HARDWARE | RF | QUALITY | OTHER
+  discipline      String?
   assigneeId      String?
   assignee        User?    @relation("TicketAssignee", fields: [assigneeId], references: [id])
   createdById     String?
@@ -2030,6 +3376,10 @@ model EngineeringTicket {
   linkedWiId      String?
   linkedCrId      String?
   linkedPoId      String?
+  /// Optional bridge to new Campaign/Saga hierarchy
+  campaignId      String?
+  sagaId          String?
+  engTaskId       String?
   dueDate         DateTime?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -2038,6 +3388,7 @@ model EngineeringTicket {
 
   @@index([status])
   @@index([assigneeId])
+  @@index([discipline])
 }
 
 model Sprint {
@@ -2077,13 +3428,13 @@ model ValueStreamMetric {
   @@index([stage, metricKey])
 }
 
-// Plant stations under three modules:
-// MANUFACTURING (build/assembly), QA (inspections/DMM/GD&T), TEST (powered functional)
+// Plant stations:
+// MANUFACTURING | QA | TEST | SHIPPING | RECEIVING
 model WorkCenter {
   id              String @id @default(cuid())
   code            String @unique
   name            String
-  // MANUFACTURING | QA | TEST
+  // MANUFACTURING | QA | TEST | SHIPPING | RECEIVING
   area            String @default("MANUFACTURING")
   department      String?
   capacityHoursPerDay Float @default(16)
@@ -2094,5 +3445,22 @@ model WorkCenter {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
+  staff           WorkCenterStaff[]
+
   @@index([area, isActive])
+}
+
+/// People assigned to a work center for capacity planning
+model WorkCenterStaff {
+  id              String   @id @default(cuid())
+  workCenterId    String
+  workCenter      WorkCenter @relation(fields: [workCenterId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hoursPerDay     Float    @default(8)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+
+  @@unique([workCenterId, userId])
+  @@index([userId])
 }

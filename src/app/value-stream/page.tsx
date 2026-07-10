@@ -40,7 +40,7 @@ export default async function ValueStreamPage() {
     <div className="space-y-6">
       <PageHeader
         title="Value Stream Map"
-        description="End-to-end supply chain visibility — Suppliers → PO → Receiving → Inspection/MRB → Inventory → Production → Shipping"
+
         actions={<FloorAutoRefresh intervalSec={45} />}
       />
 

@@ -359,6 +359,16 @@ export function mapCrToColumn(status: string): CmBoardColumn {
   return "IN_WORK";
 }
 
+/**
+ * Document ECRs enter the board at SUBMITTED (not In work).
+ * Map legacy DRAFT document ECRs to the Submitted column.
+ */
+export function mapDocumentEcrToColumn(status: string): CmBoardColumn {
+  const s = status.toUpperCase();
+  if (s === "DRAFT" || s === "ENGINEERING_REVIEW") return "SUBMITTED";
+  return mapCrToColumn(s);
+}
+
 export function mapWiToColumn(status: string): CmBoardColumn {
   const s = status.toUpperCase();
   if (s === "DRAFT" || s === "ENGINEERING_REVIEW") return "IN_WORK";
@@ -573,9 +583,9 @@ export async function createDocumentEcr(params: {
     params.documentNumber?.trim().toUpperCase() ||
     source?.number ||
     null;
-  let documentTitle =
+  const documentTitle =
     params.documentTitle?.trim() || source?.title || params.title?.trim() || "";
-  let documentDocType =
+  const documentDocType =
     params.documentDocType?.trim().toUpperCase() ||
     source?.docType ||
     "DRAWING";
@@ -583,7 +593,7 @@ export async function createDocumentEcr(params: {
     params.documentFileUrl || source?.fileUrl || null;
   let documentFileName =
     params.documentFileName || source?.fileName || null;
-  let documentDescription =
+  const documentDescription =
     params.documentDescription || source?.description || null;
 
   if (source) {
@@ -652,6 +662,22 @@ export async function createDocumentEcr(params: {
   if (!documentNumber) throw new Error("Document number required");
   if (!documentTitle) throw new Error("Document title required");
 
+  // New document numbers should already be on the master CM list (from a
+  // number request). Updates of existing library docs may reuse the number.
+  // Legacy free-text still allowed if not on the list (soft guidance).
+  if (!isDocumentUpdate) {
+    const { markRegistryInUse } = await import("@/lib/services/cm-numbers");
+    try {
+      await markRegistryInUse({
+        number: documentNumber,
+        userId: params.userId,
+      });
+    } catch (e) {
+      // Obsolete numbers are hard-blocked; missing entries are allowed (soft)
+      if (e instanceof Error && e.message.includes("OBSOLETE")) throw e;
+    }
+  }
+
   const count = await prisma.changeRequest.count();
   const number = `ECR-${String(count + 1).padStart(5, "0")}`;
 
@@ -667,6 +693,7 @@ export async function createDocumentEcr(params: {
       ? `Revise document ${documentNumber} from Rev ${source?.revision} to ${documentRevision}. Product: ${productName}.`
       : `New document ${documentNumber} Rev ${documentRevision}. Product: ${productName}.`);
 
+  // Always land on the Submitted board column (never In work / DRAFT)
   const cr = await prisma.changeRequest.create({
     data: {
       number,
@@ -693,6 +720,15 @@ export async function createDocumentEcr(params: {
     },
   });
 
+  // Hard guarantee — schema default is DRAFT; never leave a new doc ECR there
+  if (cr.status !== "SUBMITTED") {
+    await prisma.changeRequest.update({
+      where: { id: cr.id },
+      data: { status: "SUBMITTED" },
+    });
+    cr.status = "SUBMITTED";
+  }
+
   await logAudit({
     entityType: "ChangeRequest",
     entityId: cr.id,
@@ -703,6 +739,7 @@ export async function createDocumentEcr(params: {
       documentNumber,
       productName,
       isDocumentUpdate,
+      status: "SUBMITTED",
     },
   });
 
@@ -919,6 +956,20 @@ export async function releaseDocumentEcr(params: {
       archivedId: previous?.id,
     },
   });
+
+  // Master number list: mark RELEASED and link to library document
+  try {
+    const { linkRegistryToReleasedDocument } = await import(
+      "@/lib/services/cm-numbers"
+    );
+    await linkRegistryToReleasedDocument({
+      number: newDoc.number,
+      cmDocumentId: newDoc.id,
+      userId: params.userId,
+    });
+  } catch {
+    /* registry entry may not exist for legacy numbers */
+  }
 
   return { changeRequest: updated, document: newDoc };
 }
