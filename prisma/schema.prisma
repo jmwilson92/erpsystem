@@ -220,6 +220,7 @@ model Part {
   traceEvents     TraceEvent[]
   forecastLines   ForecastLine[]
   mrsLines        MaterialRequisitionLine[]
+  cmDocuments     CmDocument[]
 
   @@index([sourcingMethod])
   @@index([itemStructure])
@@ -274,6 +275,7 @@ model BomHeader {
   workOrders      WorkOrder[]
   changeRequests  ChangeRequest[]
   workInstructions WorkInstruction[]
+  cmDocuments     CmDocument[]
 
   @@unique([partId, revision])
   @@index([status])
@@ -336,6 +338,7 @@ model WorkInstruction {
   workOrderLinks  WorkOrderInstruction[]
   changeRequests  ChangeRequest[]
   toolPurchaseRequests PurchaseRequest[]
+  cmDocuments     CmDocument[]
 
   @@unique([documentNumber, revision])
   @@index([status])
@@ -608,7 +611,7 @@ model ChangeRequest {
   number          String   @unique
   title           String
   description     String
-  type            String   // BOM, WORK_INSTRUCTION, DRAWING, PROCESS, OTHER
+  type            String   // BOM, WORK_INSTRUCTION, DRAWING, SPEC, PROCEDURE, PROCESS, OTHER
   status          String   @default("DRAFT") // DRAFT, SUBMITTED, IMPACT_ANALYSIS, REVIEW_BOARD, APPROVED, REJECTED, IMPLEMENTED, CLOSED
   priority        String   @default("NORMAL")
   requestedById   String?
@@ -619,13 +622,69 @@ model ChangeRequest {
   workInstructionId String?
   workInstruction WorkInstruction? @relation(fields: [workInstructionId], references: [id])
   engineeringTicketId String?
+  // ── Document ECR (drawing / policy) fields ──
+  // Product the creator targets (product root folder id) or Admin folder id
+  productFolderId String?
+  productFolder   CmFolder? @relation("CrProductFolder", fields: [productFolderId], references: [id])
+  // Free-text product name (required so creator always knows destination)
+  productName     String?
+  // true = company internal / policy → Admin
+  isCompanyInternal Boolean @default(false)
+  // Updating existing library doc?
+  isDocumentUpdate Boolean @default(false)
+  // Source CM document being revised (copy-from)
+  sourceDocumentId String?
+  sourceDocument   CmDocument? @relation("CrSourceDoc", fields: [sourceDocumentId], references: [id])
+  // Working copy fields on the ticket
+  documentNumber  String?
+  documentTitle   String?
+  documentRevision String?
+  documentDocType String?  // DRAWING, SPEC, PROCEDURE, FORM, FAT, ATP, TP, TR, etc.
+  // Primary file released into the library (drawing PDF, form, etc.)
+  documentFileUrl String?
+  documentFileName String?
+  documentDescription String?
+  // Extra attachments carried with the ECR through review (JSON array):
+  // [{ id, url, fileName, caption?, uploadedAt, uploadedById?, isPrimary? }]
+  documentAttachments String?
+  // CM manager sets on release — where released doc lands
+  releaseFolderId String?
+  releaseFolder   CmFolder? @relation("CrReleaseFolder", fields: [releaseFolderId], references: [id])
+  // Resulting library document after release
+  releasedDocumentId String?
+  releasedDocument   CmDocument? @relation("CrReleasedDoc", fields: [releasedDocumentId], references: [id])
+  // Approvers assigned by CM manager (also mirrored in boardMembers)
+  approversAssignedAt DateTime?
   boardDate       DateTime?
   decidedAt       DateTime?
   decisionNotes   String?
+  releasedAt      DateTime?
+  releasedById    String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   boardMembers    CmBoardMember[]
+  comments        ChangeRequestComment[]
+
+  @@index([status])
+  @@index([type])
+  @@index([productFolderId])
+  @@index([documentNumber])
+}
+
+// Discussion / notes on an ECR as it flows through CM review
+model ChangeRequestComment {
+  id              String   @id @default(cuid())
+  changeRequestId String
+  changeRequest   ChangeRequest @relation(fields: [changeRequestId], references: [id], onDelete: Cascade)
+  userId          String?
+  // Optional display name snapshot (demo auth may not join User)
+  authorName      String?
+  body            String
+  createdAt       DateTime @default(now())
+
+  @@index([changeRequestId])
+  @@index([createdAt])
 }
 
 model CmBoardMember {
@@ -637,6 +696,89 @@ model CmBoardMember {
   vote            String? // APPROVE, REJECT, ABSTAIN
   comments        String?
   votedAt         DateTime?
+}
+
+// User-organized CM library — primarily by product; Admin for company policies
+model CmFolder {
+  id          String   @id @default(cuid())
+  name        String
+  parentId    String?
+  parent      CmFolder?  @relation("CmFolderTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children    CmFolder[] @relation("CmFolderTree")
+  // PRODUCT = product family root (or child under a product)
+  // ADMIN = company internal docs / policies (system-protected root)
+  // ARCHIVE = holds locked superseded revisions (under product or Admin)
+  kind        String   @default("PRODUCT") // PRODUCT | ADMIN | ARCHIVE
+  // Product name when this is a product root (kind=PRODUCT, parentId=null)
+  productName String?
+  // Optional legacy project link (not used for primary organization)
+  projectId   String?
+  project     Project? @relation(fields: [projectId], references: [id])
+  productTag  String?  // free-text alias / SKU family
+  description String?
+  // System folders (e.g. Admin, Archive) cannot be deleted
+  isSystem    Boolean  @default(false)
+  sortOrder   Int      @default(0)
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  documents   CmDocument[]
+  ecrProducts ChangeRequest[] @relation("CrProductFolder")
+  ecrReleases ChangeRequest[] @relation("CrReleaseFolder")
+
+  @@index([parentId])
+  @@index([kind])
+  @@index([productName])
+  @@index([projectId])
+  @@index([sortOrder])
+}
+
+model CmDocument {
+  id              String   @id @default(cuid())
+  folderId        String?
+  folder          CmFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  // DRAWING | SPEC | PROCEDURE | WI | BOM | CERT | OTHER
+  docType         String   @default("DRAWING")
+  number          String
+  title           String
+  revision        String   @default("A")
+  // DRAFT | IN_WORK | RELEASED | OBSOLETE | ARCHIVED
+  status          String   @default("IN_WORK")
+  description     String?
+  // File / link (path, URL, or data URL)
+  fileUrl         String?
+  fileName        String?
+  productTag      String?
+  projectId       String?
+  project         Project? @relation(fields: [projectId], references: [id])
+  partId          String?
+  part            Part?    @relation(fields: [partId], references: [id])
+  workInstructionId String?
+  workInstruction WorkInstruction? @relation(fields: [workInstructionId], references: [id])
+  bomHeaderId     String?
+  bomHeader       BomHeader? @relation(fields: [bomHeaderId], references: [id])
+  // Revision chain — locked previous revs live in Archive
+  isLocked        Boolean  @default(false)
+  isArchived      Boolean  @default(false)
+  lockedAt        DateTime?
+  supersedesId    String?
+  supersedes      CmDocument?  @relation("CmDocRevision", fields: [supersedesId], references: [id])
+  supersededBy    CmDocument[] @relation("CmDocRevision")
+  sortOrder       Int      @default(0)
+  createdById     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  sourceForEcrs   ChangeRequest[] @relation("CrSourceDoc")
+  releasedFromEcrs ChangeRequest[] @relation("CrReleasedDoc")
+
+  @@index([folderId])
+  @@index([docType])
+  @@index([status])
+  @@index([projectId])
+  @@index([number, revision])
+  @@index([isArchived])
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -671,6 +813,8 @@ model Project {
   purchaseRequests PurchaseRequest[]
   members         ProjectMember[]
   timeEntries     TimeEntry[]
+  cmFolders       CmFolder[]
+  cmDocuments     CmDocument[]
 }
 
 model WbsElement {

@@ -1350,11 +1350,19 @@ export async function actionLinkWiToBom(formData: FormData): Promise<void> {
   redirect(`/work-instructions/${wiId}`);
 }
 
+function cmReturnTo(formData: FormData, fallback = "/cm?tab=submissions") {
+  const raw = ((formData.get("returnTo") as string) || "").trim();
+  // Only allow local CM paths
+  if (raw.startsWith("/cm")) return raw;
+  return fallback;
+}
+
 export async function actionVoteCm(formData: FormData) {
   const memberId = formData.get("memberId") as string;
   const vote = formData.get("vote") as string;
   const comments = (formData.get("comments") as string) || undefined;
-  const user = await getCurrentUser("CM");
+  // Approvers may vote; CM can also vote if on board
+  const user = await getCurrentUser();
 
   await prisma.cmBoardMember.update({
     where: { id: memberId },
@@ -1371,12 +1379,27 @@ export async function actionVoteCm(formData: FormData) {
   });
 
   if (member) {
-    const votes = member.changeRequest.boardMembers;
-    const allVoted = votes.every((v) => v.vote);
+    const cr = member.changeRequest;
+    // Document ECRs: only APPROVER seats count (need both)
+    const isDocEcr = Boolean(cr.documentNumber);
+    const voters = isDocEcr
+      ? cr.boardMembers.filter((v) =>
+          ["APPROVER", "ENGINEERING", "QUALITY"].includes(v.role)
+        )
+      : cr.boardMembers;
+    const allVoted = voters.length > 0 && voters.every((v) => v.vote);
     if (allVoted) {
-      const approved = votes.filter((v) => v.vote === "APPROVE").length;
-      const rejected = votes.filter((v) => v.vote === "REJECT").length;
-      const status = approved > rejected ? "APPROVED" : "REJECTED";
+      const approved = voters.filter((v) => v.vote === "APPROVE").length;
+      const rejected = voters.filter((v) => v.vote === "REJECT").length;
+      // Document ECRs require both approvers to APPROVE
+      const status =
+        isDocEcr
+          ? approved === voters.length && rejected === 0
+            ? "APPROVED"
+            : "REJECTED"
+          : approved > rejected
+            ? "APPROVED"
+            : "REJECTED";
       await prisma.changeRequest.update({
         where: { id: member.changeRequestId },
         data: {
@@ -1386,9 +1409,10 @@ export async function actionVoteCm(formData: FormData) {
         },
       });
 
-      // Auto-release WI when CM approves WORK_INSTRUCTION CR
+      // Auto-release WI when CM approves WORK_INSTRUCTION CR (not document ECR)
       if (
         status === "APPROVED" &&
+        !isDocEcr &&
         member.changeRequest.workInstructionId &&
         member.changeRequest.type === "WORK_INSTRUCTION"
       ) {
@@ -1399,7 +1423,7 @@ export async function actionVoteCm(formData: FormData) {
           workInstructionId: member.changeRequest.workInstructionId,
           bomHeaderId: member.changeRequest.bomHeaderId,
           userId: user?.id,
-          decisionNotes: `Released by CM board (${approved}/${votes.length})`,
+          decisionNotes: `Released by CM board (${approved}/${voters.length})`,
         });
         revalidatePath(
           `/work-instructions/${member.changeRequest.workInstructionId}`
@@ -1410,6 +1434,312 @@ export async function actionVoteCm(formData: FormData) {
   }
 
   revalidatePath("/cm");
+  if (member?.changeRequestId) {
+    revalidatePath(`/cm/ecr/${member.changeRequestId}`);
+  }
+  redirect(cmReturnTo(formData, member?.changeRequestId ? `/cm/ecr/${member.changeRequestId}` : "/cm?tab=submissions"));
+}
+
+export async function actionCreateDocumentEcr(
+  formData: FormData
+): Promise<void> {
+  const user = await getCurrentUser();
+  const { createDocumentEcr } = await import("@/lib/services/cm-library");
+  const isCompanyInternal =
+    formData.get("isCompanyInternal") === "on" ||
+    formData.get("isCompanyInternal") === "true";
+
+  // File uploads from client (data URLs) — att_0, att_name_0, att_caption_0 …
+  const attachments: {
+    url: string;
+    fileName: string;
+    caption?: string | null;
+    isPrimary?: boolean;
+  }[] = [];
+  for (let i = 0; i < 12; i++) {
+    const url = ((formData.get(`att_${i}`) as string) || "").trim();
+    if (!url) break;
+    const fileName =
+      ((formData.get(`att_name_${i}`) as string) || "").trim() || `file-${i + 1}`;
+    const caption =
+      ((formData.get(`att_caption_${i}`) as string) || "").trim() || null;
+    attachments.push({
+      url,
+      fileName,
+      caption,
+      isPrimary: i === 0,
+    });
+  }
+
+  const documentFileUrl =
+    ((formData.get("documentFileUrl") as string) || "").trim() ||
+    attachments[0]?.url ||
+    null;
+  const documentFileName =
+    ((formData.get("documentFileName") as string) || "").trim() ||
+    attachments[0]?.fileName ||
+    null;
+
+  await createDocumentEcr({
+    title: ((formData.get("title") as string) || "").trim() || undefined,
+    description:
+      ((formData.get("description") as string) || "").trim() || undefined,
+    productFolderId:
+      ((formData.get("productFolderId") as string) || "").trim() || null,
+    productName: ((formData.get("productName") as string) || "").trim() || null,
+    isCompanyInternal,
+    sourceDocumentId:
+      ((formData.get("sourceDocumentId") as string) || "").trim() || null,
+    documentNumber:
+      ((formData.get("documentNumber") as string) || "").trim() || null,
+    documentTitle:
+      ((formData.get("documentTitle") as string) || "").trim() || null,
+    documentRevision:
+      ((formData.get("documentRevision") as string) || "").trim() || null,
+    documentDocType:
+      ((formData.get("documentDocType") as string) || "").trim() || null,
+    documentFileUrl,
+    documentFileName,
+    documentDescription:
+      ((formData.get("documentDescription") as string) || "").trim() || null,
+    attachments,
+    priority: ((formData.get("priority") as string) || "NORMAL").trim(),
+    userId: user?.id,
+  });
+  revalidatePath("/cm");
+  redirect("/cm?tab=submissions");
+}
+
+export async function actionAddEcrAttachments(
+  formData: FormData
+): Promise<void> {
+  const user = await getCurrentUser();
+  const { addEcrAttachments } = await import("@/lib/services/cm-library");
+  const changeRequestId = formData.get("changeRequestId") as string;
+  const setAsPrimary =
+    formData.get("setAsPrimary") === "on" ||
+    formData.get("setAsPrimary") === "true";
+  const files: { url: string; fileName: string; caption?: string | null }[] =
+    [];
+  for (let i = 0; i < 12; i++) {
+    const url = ((formData.get(`att_${i}`) as string) || "").trim();
+    if (!url) break;
+    files.push({
+      url,
+      fileName:
+        ((formData.get(`att_name_${i}`) as string) || "").trim() ||
+        `file-${i + 1}`,
+      caption:
+        ((formData.get(`att_caption_${i}`) as string) || "").trim() || null,
+    });
+  }
+  await addEcrAttachments({
+    changeRequestId,
+    files,
+    setAsPrimary,
+    userId: user?.id,
+  });
+  revalidatePath("/cm");
+  revalidatePath(`/cm/ecr/${changeRequestId}`);
+  redirect(cmReturnTo(formData, `/cm/ecr/${changeRequestId}`));
+}
+
+export async function actionSetEcrPrimaryAttachment(
+  formData: FormData
+): Promise<void> {
+  const user = await getCurrentUser();
+  const { setEcrPrimaryAttachment } = await import("@/lib/services/cm-library");
+  const changeRequestId = formData.get("changeRequestId") as string;
+  await setEcrPrimaryAttachment({
+    changeRequestId,
+    attachmentId: formData.get("attachmentId") as string,
+    userId: user?.id,
+  });
+  revalidatePath("/cm");
+  revalidatePath(`/cm/ecr/${changeRequestId}`);
+  redirect(cmReturnTo(formData, `/cm/ecr/${changeRequestId}`));
+}
+
+export async function actionAddEcrComment(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  const { addChangeRequestComment } = await import("@/lib/services/cm-library");
+  const changeRequestId = formData.get("changeRequestId") as string;
+  await addChangeRequestComment({
+    changeRequestId,
+    body: ((formData.get("body") as string) || "").trim(),
+    userId: user?.id,
+    authorName: user?.name || null,
+  });
+  revalidatePath("/cm");
+  revalidatePath(`/cm/ecr/${changeRequestId}`);
+  redirect(cmReturnTo(formData, `/cm/ecr/${changeRequestId}`));
+}
+
+export async function actionAssignEcrApprovers(
+  formData: FormData
+): Promise<void> {
+  const user = await getCurrentUser("CM");
+  const { assignEcrApprovers } = await import("@/lib/services/cm-library");
+  const changeRequestId = formData.get("changeRequestId") as string;
+  await assignEcrApprovers({
+    changeRequestId,
+    approverUserId1: formData.get("approverUserId1") as string,
+    approverUserId2: formData.get("approverUserId2") as string,
+    userId: user?.id,
+  });
+  revalidatePath("/cm");
+  revalidatePath(`/cm/ecr/${changeRequestId}`);
+  redirect(cmReturnTo(formData, `/cm/ecr/${changeRequestId}`));
+}
+
+export async function actionReleaseDocumentEcr(
+  formData: FormData
+): Promise<void> {
+  const user = await getCurrentUser("CM");
+  const { releaseDocumentEcr } = await import("@/lib/services/cm-library");
+  const result = await releaseDocumentEcr({
+    changeRequestId: formData.get("changeRequestId") as string,
+    releaseFolderId: formData.get("releaseFolderId") as string,
+    userId: user?.id,
+  });
+  revalidatePath("/cm");
+  revalidatePath(
+    `/cm?tab=library&folder=${result.document.folderId || result.changeRequest.releaseFolderId}`
+  );
+  redirect(
+    `/cm?tab=library&folder=${result.document.folderId || ""}`
+  );
+}
+
+export async function actionMoveCmSubmission(formData: FormData): Promise<void> {
+  const changeRequestId = formData.get("changeRequestId") as string;
+  const column = ((formData.get("column") as string) || "IN_WORK").toUpperCase();
+  const user = await getCurrentUser("CM");
+  const { moveChangeRequestColumn } = await import("@/lib/services/cm-library");
+  await moveChangeRequestColumn({
+    changeRequestId,
+    column: column as
+      | "IN_WORK"
+      | "SUBMITTED"
+      | "IN_REVIEW"
+      | "APPROVED"
+      | "RELEASED",
+    userId: user?.id,
+  });
+  revalidatePath("/cm");
+  revalidatePath(`/cm/ecr/${changeRequestId}`);
+  redirect(cmReturnTo(formData, `/cm/ecr/${changeRequestId}`));
+}
+
+/** Drag-and-drop board move — no redirect; client refreshes. */
+export async function actionMoveCmBoardCard(params: {
+  changeRequestId: string;
+  column: string;
+  isDocumentEcr?: boolean;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const user = await getCurrentUser("CM");
+    const column = params.column.toUpperCase() as
+      | "IN_WORK"
+      | "SUBMITTED"
+      | "IN_REVIEW"
+      | "APPROVED"
+      | "RELEASED";
+    const allowed = [
+      "IN_WORK",
+      "SUBMITTED",
+      "IN_REVIEW",
+      "APPROVED",
+      "RELEASED",
+    ] as const;
+    if (!allowed.includes(column)) {
+      return { ok: false, error: "Invalid column" };
+    }
+    // Document ECRs must use formal release (folder pick) — not drag into Released
+    if (params.isDocumentEcr && column === "RELEASED") {
+      return {
+        ok: false,
+        error:
+          "Document ECRs must use CM release (pick library folder) from Approved — cannot drop into Released",
+      };
+    }
+    const { moveChangeRequestColumn } = await import("@/lib/services/cm-library");
+    await moveChangeRequestColumn({
+      changeRequestId: params.changeRequestId,
+      column,
+      userId: user?.id,
+    });
+    revalidatePath("/cm");
+    revalidatePath(`/cm/ecr/${params.changeRequestId}`);
+    return { ok: true };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Move failed",
+    };
+  }
+}
+
+export async function actionCreateCmFolder(formData: FormData): Promise<void> {
+  const user = await getCurrentUser("CM");
+  const { createCmFolder } = await import("@/lib/services/cm-library");
+  const parentId =
+    ((formData.get("parentId") as string) || "").trim() || null;
+  const kindRaw = ((formData.get("kind") as string) || "PRODUCT").toUpperCase();
+  const folder = await createCmFolder({
+    name: ((formData.get("name") as string) || "").trim(),
+    parentId,
+    kind: kindRaw === "ADMIN" ? "ADMIN" : "PRODUCT",
+    productTag: ((formData.get("productTag") as string) || "").trim() || null,
+    description: ((formData.get("description") as string) || "").trim() || null,
+    userId: user?.id,
+  });
+  revalidatePath("/cm");
+  redirect(`/cm?tab=library&folder=${folder.id}`);
+}
+
+export async function actionDeleteCmFolder(formData: FormData): Promise<void> {
+  const user = await getCurrentUser("CM");
+  const id = formData.get("id") as string;
+  const { deleteCmFolder } = await import("@/lib/services/cm-library");
+  const folder = await prisma.cmFolder.findUnique({ where: { id } });
+  await deleteCmFolder({ id, userId: user?.id });
+  revalidatePath("/cm");
+  redirect(
+    folder?.parentId
+      ? `/cm?tab=library&folder=${folder.parentId}`
+      : "/cm?tab=library"
+  );
+}
+
+// Documents (drawings, company policies, etc.) enter the CM library only via
+// actionReleaseDocumentEcr after a document ECR is approved on CM submissions.
+// There is no manual "add document" action for library folders.
+
+export async function actionMoveCmDocument(formData: FormData): Promise<void> {
+  const user = await getCurrentUser("CM");
+  const { moveCmDocument } = await import("@/lib/services/cm-library");
+  const id = formData.get("id") as string;
+  const folderId =
+    ((formData.get("folderId") as string) || "").trim() || null;
+  await moveCmDocument({ id, folderId, userId: user?.id });
+  revalidatePath("/cm");
+  redirect(
+    folderId ? `/cm?tab=library&folder=${folderId}` : "/cm?tab=library"
+  );
+}
+
+export async function actionDeleteCmDocument(formData: FormData): Promise<void> {
+  const user = await getCurrentUser("CM");
+  const id = formData.get("id") as string;
+  const folderId =
+    ((formData.get("folderId") as string) || "").trim() || null;
+  const { deleteCmDocument } = await import("@/lib/services/cm-library");
+  await deleteCmDocument({ id, userId: user?.id });
+  revalidatePath("/cm");
+  redirect(
+    folderId ? `/cm?tab=library&folder=${folderId}` : "/cm?tab=library"
+  );
 }
 
 // ─── Order fulfillment flow ─────────────────────────────────────
