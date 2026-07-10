@@ -23,6 +23,8 @@ export default async function WorkOrdersPage() {
         bomHeader: true,
         assignee: true,
         project: true,
+        salesOrder: { select: { id: true, number: true } },
+        materialRequisition: { select: { id: true, number: true } },
         stepCompletions: true,
         _count: { select: { instructions: true } },
       },
@@ -43,10 +45,7 @@ export default async function WorkOrdersPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Work Orders"
-        description="Production (BOM) and task-only orders — WI sign-off uses PIN"
-      />
+      <PageHeader title="Work Orders" />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="border-teal-900/40">
@@ -155,11 +154,21 @@ export default async function WorkOrdersPage() {
                 <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0 space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-base font-semibold text-teal-400">
+                      <span
+                        className={`font-mono text-base font-semibold ${
+                          wo.number.startsWith("SWO")
+                            ? "text-sky-400"
+                            : wo.number.startsWith("MWO")
+                              ? "text-violet-400"
+                              : wo.number.startsWith("BWO")
+                                ? "text-teal-400"
+                                : "text-teal-400"
+                        }`}
+                      >
                         {wo.number}
                       </span>
                       <StatusBadge status={wo.status} />
-                      <StatusBadge status={wo.type} />
+                      <StatusBadge status={wo.sourceType || wo.type} />
                       <StatusBadge status={wo.priority} />
                     </div>
                     <p className="text-sm text-slate-300">
@@ -168,7 +177,13 @@ export default async function WorkOrdersPage() {
                     <p className="text-xs text-slate-500">
                       {wo.part?.partNumber || "No part"}
                       {wo.bomHeader ? ` · BOM Rev ${wo.bomHeader.revision}` : ""}
-                      {wo.project ? ` · ${wo.project.number}` : ""}
+                      {wo.salesOrder
+                        ? ` · SO ${wo.salesOrder.number}`
+                        : wo.materialRequisition
+                          ? ` · MRS ${wo.materialRequisition.number}`
+                          : wo.project
+                            ? ` · ${wo.project.number}`
+                            : ""}
                       {` · ${wo.workCenter || "—"}`}
                       {` · ${wo.assignee?.name || "Unassigned"}`}
                     </p>

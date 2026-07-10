@@ -1,12 +1,62 @@
-"use server";
-
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { seedStepAssignments } from "@/lib/services/workcenters";
 
+export type WorkOrderSourceType =
+  | "SALES_ORDER"
+  | "BOM"
+  | "MATERIAL_REQ"
+  | "OTHER";
+
+/** Prefix by origin: SWO sales, BWO BOM, MWO material req, WO other */
+export function workOrderPrefix(source: WorkOrderSourceType): string {
+  switch (source) {
+    case "SALES_ORDER":
+      return "SWO";
+    case "BOM":
+      return "BWO";
+    case "MATERIAL_REQ":
+      return "MWO";
+    default:
+      return "WO";
+  }
+}
+
+export function resolveWorkOrderSource(params: {
+  sourceType?: WorkOrderSourceType;
+  salesOrderId?: string | null;
+  materialRequisitionId?: string | null;
+  bomHeaderId?: string | null;
+}): WorkOrderSourceType {
+  if (params.sourceType) return params.sourceType;
+  if (params.materialRequisitionId) return "MATERIAL_REQ";
+  if (params.salesOrderId) return "SALES_ORDER";
+  if (params.bomHeaderId) return "BOM";
+  return "OTHER";
+}
+
+async function nextWorkOrderNumber(prefix: string): Promise<string> {
+  const rows = await prisma.workOrder.findMany({
+    where: { number: { startsWith: `${prefix}-` } },
+    select: { number: true },
+  });
+  let max = 0;
+  for (const r of rows) {
+    const n = parseInt(r.number.split("-").pop() || "0", 10);
+    if (Number.isFinite(n) && n > max) max = n;
+  }
+  return `${prefix}-${String(max + 1).padStart(5, "0")}`;
+}
+
 /**
  * Create Work Order from BOM (certified revision only for PRODUCTION)
  * or as TASK_ONLY without BOM.
+ *
+ * Numbering:
+ * - SWO-##### sales order
+ * - BWO-##### BOM / production (no SO)
+ * - MWO-##### material requisition (forecast)
+ * - WO-##### other (task, rework, inspection)
  */
 export async function createWorkOrder(params: {
   type?: string;
@@ -29,9 +79,28 @@ export async function createWorkOrder(params: {
   salesOrderId?: string;
   salesOrderLineId?: string;
   salesOrderRef?: string;
+  materialRequisitionId?: string;
+  sourceType?: WorkOrderSourceType;
   travelerNotes?: string;
 }) {
   const type = params.type || (params.bomHeaderId || params.partId ? "PRODUCTION" : "TASK_ONLY");
+  const sourceType = resolveWorkOrderSource({
+    sourceType: params.sourceType,
+    salesOrderId: params.salesOrderId,
+    materialRequisitionId: params.materialRequisitionId,
+    bomHeaderId: params.bomHeaderId,
+  });
+
+  // Sales-order builds are commercial demand — do not attach project/WBS unless
+  // the caller explicitly passed them (rare). Forecast MWOs also stay project-free.
+  const projectId =
+    sourceType === "SALES_ORDER" || sourceType === "MATERIAL_REQ"
+      ? params.projectId || undefined
+      : params.projectId;
+  const wbsElementId =
+    sourceType === "SALES_ORDER" || sourceType === "MATERIAL_REQ"
+      ? params.wbsElementId || undefined
+      : params.wbsElementId;
 
   const bomHeaderId = params.bomHeaderId;
   let partId = params.partId;
@@ -90,14 +159,33 @@ export async function createWorkOrder(params: {
     plannedStart = new Date(plannedEnd.getTime() - estimatedMinutes * 60 * 1000);
   }
 
-  const count = await prisma.workOrder.count();
-  const number = `WO-${String(count + 1).padStart(5, "0")}`;
+  const number = await nextWorkOrderNumber(workOrderPrefix(sourceType));
+
+  // Resolve MRS number for traveler header when MWO
+  let mrsNumber: string | null = null;
+  if (params.materialRequisitionId) {
+    const mrs = await prisma.materialRequisition.findUnique({
+      where: { id: params.materialRequisitionId },
+      select: { number: true },
+    });
+    mrsNumber = mrs?.number || null;
+  }
 
   const travelerNotes =
     params.travelerNotes ||
     [
       "DIGITAL TRAVELER",
-      params.salesOrderRef ? `Sales order: ${params.salesOrderRef}` : null,
+      sourceType === "SALES_ORDER"
+        ? `Source: Sales order ${params.salesOrderRef || params.salesOrderId || ""}`
+        : sourceType === "MATERIAL_REQ"
+          ? `Source: Material requisition ${mrsNumber || params.materialRequisitionId}`
+          : sourceType === "BOM"
+            ? "Source: BOM / production plan"
+            : null,
+      params.salesOrderRef && sourceType !== "SALES_ORDER"
+        ? `Sales order: ${params.salesOrderRef}`
+        : null,
+      mrsNumber ? `MRS: ${mrsNumber}` : null,
       dueDate ? `Due: ${dueDate.toISOString().slice(0, 10)}` : null,
       `Est. process: ${estimatedMinutes} min`,
       "Contains: BOM, Work Instructions, Kit list, sign-offs, material trace",
@@ -109,16 +197,18 @@ export async function createWorkOrder(params: {
     data: {
       number,
       type,
+      sourceType,
       status: "PLANNED",
       priority: params.priority || "NORMAL",
       partId,
       bomHeaderId,
       quantity: params.quantity || 1,
-      projectId: params.projectId,
-      wbsElementId: params.wbsElementId,
+      projectId: projectId || null,
+      wbsElementId: wbsElementId || null,
       salesOrderId: params.salesOrderId,
       salesOrderLineId: params.salesOrderLineId,
       salesOrderRef: params.salesOrderRef,
+      materialRequisitionId: params.materialRequisitionId || null,
       workCenter: params.workCenter,
       department: params.department,
       assigneeId: params.assigneeId,
@@ -136,9 +226,14 @@ export async function createWorkOrder(params: {
         create: {
           toStatus: "PLANNED",
           userId: params.createdById,
-          notes: dueDate
-            ? `Work order created — due ${dueDate.toISOString().slice(0, 10)}, est ${estimatedMinutes} min`
-            : "Work order created",
+          notes: [
+            `${number} created (${sourceType})`,
+            dueDate ? `due ${dueDate.toISOString().slice(0, 10)}` : null,
+            `est ${estimatedMinutes} min`,
+            mrsNumber ? `MRS ${mrsNumber}` : null,
+          ]
+            .filter(Boolean)
+            .join(" — "),
         },
       },
     },
@@ -179,11 +274,13 @@ export async function createWorkOrder(params: {
     metadata: {
       number,
       type,
+      sourceType,
       bomHeaderId,
       partId,
       dueDate,
       estimatedMinutes,
       salesOrderId: params.salesOrderId,
+      materialRequisitionId: params.materialRequisitionId,
     },
   });
 

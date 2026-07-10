@@ -515,9 +515,9 @@ export async function actionDispositionMrb(formData: FormData) {
   revalidatePath("/work-orders");
   revalidatePath("/floor");
   if (result.carNumber) {
-    redirect(`/mrb?car=${result.carNumber}`);
+    redirect(`/mrb?view=cars&filter=open&car=${result.carNumber}`);
   }
-  redirect("/mrb");
+  redirect("/mrb?view=mrb&filter=open");
 }
 
 export async function actionUpdateCar(formData: FormData): Promise<void> {
@@ -546,10 +546,10 @@ export async function actionUpdateCar(formData: FormData): Promise<void> {
     carAttachments: attachments.length ? attachments : undefined,
     userId: user?.id,
   });
+  // Revalidate only — no redirect (client form catches redirect as "NEXT_REDIRECT")
   revalidatePath("/mrb");
   revalidatePath("/quality");
   revalidatePath("/suppliers");
-  redirect("/mrb");
 }
 
 export async function actionSignOffStep(formData: FormData) {
@@ -797,6 +797,8 @@ export async function actionCreateWoFromBom(formData: FormData): Promise<void> {
     bomHeaderId,
     quantity,
     type,
+    sourceType: "BOM",
+    // Only attach project when user explicitly selected one
     projectId,
     createdById: user?.id,
     workCenter: "ASM-01",
@@ -806,6 +808,81 @@ export async function actionCreateWoFromBom(formData: FormData): Promise<void> {
   revalidatePath("/floor");
   revalidatePath("/bom");
   redirect(`/work-orders/${wo.id}`);
+}
+
+export async function actionCreateForecast(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  const { createForecast } = await import("@/lib/services/planning");
+  const name = ((formData.get("name") as string) || "").trim();
+  const notes = ((formData.get("notes") as string) || "").trim() || null;
+  const periodStartRaw = ((formData.get("periodStart") as string) || "").trim();
+  const periodEndRaw = ((formData.get("periodEnd") as string) || "").trim();
+
+  const lines: {
+    partId: string;
+    quantity: number;
+    dueDate?: Date | null;
+  }[] = [];
+  for (let i = 0; i < 40; i++) {
+    const partId = ((formData.get(`partId_${i}`) as string) || "").trim();
+    if (!partId) continue;
+    const quantity = Number(formData.get(`qty_${i}`) || 0);
+    if (!(quantity > 0)) continue;
+    const dueRaw = ((formData.get(`due_${i}`) as string) || "").trim();
+    lines.push({
+      partId,
+      quantity,
+      dueDate: dueRaw ? new Date(dueRaw) : null,
+    });
+  }
+
+  const forecast = await createForecast({
+    name,
+    notes,
+    periodStart: periodStartRaw ? new Date(periodStartRaw) : null,
+    periodEnd: periodEndRaw ? new Date(periodEndRaw) : null,
+    lines,
+    userId: user?.id,
+  });
+
+  revalidatePath("/planning");
+  redirect(`/planning/forecasts/${forecast.id}`);
+}
+
+export async function actionGenerateMrsFromForecast(
+  formData: FormData
+): Promise<void> {
+  const user = await getCurrentUser();
+  const forecastId = formData.get("forecastId") as string;
+  const { generateMaterialRequisitionFromForecast } = await import(
+    "@/lib/services/planning"
+  );
+  const mrs = await generateMaterialRequisitionFromForecast({
+    forecastId,
+    userId: user?.id,
+  });
+  revalidatePath("/planning");
+  revalidatePath(`/planning/forecasts/${forecastId}`);
+  redirect(`/planning/mrs/${mrs.id}`);
+}
+
+export async function actionReleaseMaterialRequisition(
+  formData: FormData
+): Promise<void> {
+  const user = await getCurrentUser();
+  const materialRequisitionId = formData.get("materialRequisitionId") as string;
+  const { releaseMaterialRequisition } = await import(
+    "@/lib/services/planning"
+  );
+  await releaseMaterialRequisition({
+    materialRequisitionId,
+    userId: user?.id,
+  });
+  revalidatePath("/planning");
+  revalidatePath(`/planning/mrs/${materialRequisitionId}`);
+  revalidatePath("/work-orders");
+  revalidatePath("/floor");
+  redirect(`/planning/mrs/${materialRequisitionId}`);
 }
 
 export async function actionCreateTaskWo(formData: FormData): Promise<void> {
@@ -979,6 +1056,14 @@ export async function actionConvertPrToPo(formData: FormData): Promise<void> {
     data: { status: "CONVERTED" },
   });
 
+  // Count trial ASL usage toward the vendor's trial order limit
+  if (pr.supplier.isTrialVendor) {
+    await prisma.supplier.update({
+      where: { id: pr.supplierId },
+      data: { trialOrdersUsed: { increment: 1 } },
+    });
+  }
+
   // Dock traveler waits for material against this PO
   await createReceivingTravelerForPo({
     purchaseOrderId: po.id,
@@ -995,6 +1080,7 @@ export async function actionConvertPrToPo(formData: FormData): Promise<void> {
 
   revalidatePath("/purchasing");
   revalidatePath("/receiving");
+  revalidatePath("/suppliers");
   revalidatePath(`/purchasing/po/${po.id}`);
   redirect(`/purchasing/po/${po.id}`);
 }
@@ -1090,6 +1176,7 @@ export async function actionCreateWorkInstruction(
   const steps: {
     title: string;
     instructions: string;
+    stepType?: string;
     passFailRequired?: boolean;
     isTestStep?: boolean;
     measureUom?: string;
@@ -1097,6 +1184,7 @@ export async function actionCreateWorkInstruction(
     cureTimeMinutes?: number;
     requiredArea?: string;
     workCenter?: string;
+    attachmentUrls?: string[];
   }[] = [];
   for (let i = 0; i < 40; i++) {
     const title = ((formData.get(`step_title_${i}`) as string) || "").trim();
@@ -1104,15 +1192,23 @@ export async function actionCreateWorkInstruction(
     const instructions =
       ((formData.get(`step_instructions_${i}`) as string) || "").trim() ||
       title;
+    const stepType =
+      ((formData.get(`step_type_${i}`) as string) || "BUILD").trim().toUpperCase();
+    const photos: string[] = [];
+    for (let p = 0; p < 8; p++) {
+      const u = ((formData.get(`step_photo_${i}_${p}`) as string) || "").trim();
+      if (u) photos.push(u);
+    }
     steps.push({
       title,
       instructions,
+      stepType,
       passFailRequired:
         formData.get(`step_passfail_${i}`) === "on" ||
-        formData.get(`step_passfail_${i}`) === "true",
-      isTestStep:
-        formData.get(`step_test_${i}`) === "on" ||
-        formData.get(`step_test_${i}`) === "true",
+        formData.get(`step_passfail_${i}`) === "true" ||
+        stepType === "QA" ||
+        stepType === "TEST",
+      isTestStep: stepType === "TEST",
       measureUom:
         ((formData.get(`step_uom_${i}`) as string) || "").trim() || undefined,
       expectedValue:
@@ -1126,6 +1222,26 @@ export async function actionCreateWorkInstruction(
         ((formData.get(`step_area_${i}`) as string) || "").trim() || undefined,
       workCenter:
         ((formData.get(`step_wc_${i}`) as string) || "").trim() || undefined,
+      attachmentUrls: photos,
+    });
+  }
+
+  // Required tools: tool_name_0, tool_partId_0, tool_qty_0
+  const requiredTools: {
+    name: string;
+    partId?: string | null;
+    qty?: number;
+  }[] = [];
+  for (let i = 0; i < 20; i++) {
+    const name = ((formData.get(`tool_name_${i}`) as string) || "").trim();
+    if (!name) continue;
+    const partId =
+      ((formData.get(`tool_partId_${i}`) as string) || "").trim() || null;
+    const qty = Number(formData.get(`tool_qty_${i}`) || 1);
+    requiredTools.push({
+      name,
+      partId,
+      qty: Number.isFinite(qty) && qty > 0 ? qty : 1,
     });
   }
 
@@ -1137,10 +1253,25 @@ export async function actionCreateWorkInstruction(
     bomHeaderId: ((formData.get("bomHeaderId") as string) || "").trim() || null,
     workCenter: ((formData.get("workCenter") as string) || "").trim() || null,
     notes: ((formData.get("notes") as string) || "").trim() || null,
+    hazmatRequired:
+      ((formData.get("hazmatRequired") as string) || "").trim() || null,
+    drawingNumber:
+      ((formData.get("drawingNumber") as string) || "").trim() || null,
+    drawingReferences:
+      ((formData.get("drawingReferences") as string) || "").trim() || null,
+    requiredTools,
     steps,
     userId: user?.id,
   });
   revalidatePath("/work-instructions");
+  revalidatePath("/purchasing");
+  // Surface tool PR if one was auto-created
+  const toolPr = (wi as { toolPr?: { prNumber: string } | null }).toolPr;
+  if (toolPr?.prNumber) {
+    redirect(
+      `/work-instructions/${wi.id}?toolPr=${encodeURIComponent(toolPr.prNumber)}`
+    );
+  }
   redirect(`/work-instructions/${wi.id}`);
 }
 
@@ -1160,15 +1291,21 @@ export async function actionAddWiStep(formData: FormData): Promise<void> {
     const u = (formData.get(`media_${i}`) as string) || "";
     if (u) media.push(u);
   }
+  const stepType =
+    ((formData.get("stepType") as string) || "BUILD").trim().toUpperCase();
   await addWorkInstructionStep(
     wiId,
     {
       title: ((formData.get("title") as string) || "").trim(),
       instructions: ((formData.get("instructions") as string) || "").trim(),
+      stepType,
       passFailRequired:
         formData.get("passFailRequired") === "on" ||
-        formData.get("passFailRequired") === "true",
+        formData.get("passFailRequired") === "true" ||
+        stepType === "QA" ||
+        stepType === "TEST",
       isTestStep:
+        stepType === "TEST" ||
         formData.get("isTestStep") === "on" ||
         formData.get("isTestStep") === "true",
       measureUom:
@@ -1692,6 +1829,18 @@ export async function actionUpdateItem(formData: FormData): Promise<void> {
     data.isActive = formBool(formData, "isActive");
   }
 
+  if (returnTab === "inventory") {
+    data.isKanban = formBool(formData, "isKanban");
+    data.isCritical = formBool(formData, "isCritical");
+    data.minStock = formNum(formData, "minStock");
+    data.maxStock = formNum(formData, "maxStock");
+    data.reorderPoint = formNum(formData, "reorderPoint");
+    data.safetyStock = formNum(formData, "safetyStock");
+    data.abcClass = formOptId(formData, "abcClass");
+    const shelf = formStr(formData, "shelfLifeDays");
+    data.shelfLifeDays = shelf ? Math.round(formNum(formData, "shelfLifeDays")) : null;
+  }
+
   await updatePart(id, data);
   revalidatePath("/items");
   revalidatePath(`/items/${id}`);
@@ -1770,21 +1919,14 @@ export async function actionSaveUomConversion(formData: FormData): Promise<void>
 export async function actionToggleSupplierAsl(formData: FormData): Promise<void> {
   const supplierId = formStr(formData, "supplierId");
   const approve = formBool(formData, "approve");
+  const forceTrial = formBool(formData, "forceTrial");
   const user = await getCurrentUser("PURCHASING");
 
-  const supplier = await prisma.supplier.update({
-    where: { id: supplierId },
-    data: {
-      isApprovedVendor: approve,
-      approvedAt: approve ? new Date() : null,
-      approvedById: approve ? user?.id || null : null,
-    },
-  });
-
-  await logAudit({
-    entityType: "Supplier",
-    entityId: supplier.id,
-    action: approve ? "ASL_APPROVED" : "ASL_REMOVED",
+  const { setSupplierAsl } = await import("@/lib/services/asl");
+  await setSupplierAsl({
+    supplierId,
+    approve,
+    forceTrial,
     userId: user?.id,
   });
 
@@ -1792,6 +1934,85 @@ export async function actionToggleSupplierAsl(formData: FormData): Promise<void>
   revalidatePath(`/suppliers/${supplierId}`);
   revalidatePath("/items");
   revalidatePath("/purchasing");
+}
+
+export async function actionUpdateAslPolicy(formData: FormData): Promise<void> {
+  const user = await getCurrentUser("PURCHASING");
+  const { updateAslPolicy } = await import("@/lib/services/asl");
+  await updateAslPolicy({
+    requireIso9001: formBool(formData, "requireIso9001"),
+    requireAs9100d: formBool(formData, "requireAs9100d"),
+    allowTrialOrders: formBool(formData, "allowTrialOrders"),
+    defaultTrialLimit: Math.max(1, Math.round(formNum(formData, "defaultTrialLimit", 1))),
+    notes: formStr(formData, "notes") || null,
+    userId: user?.id,
+  });
+  revalidatePath("/suppliers");
+  redirect("/suppliers");
+}
+
+export async function actionUpsertSupplierCert(formData: FormData): Promise<void> {
+  const user = await getCurrentUser("PURCHASING");
+  const supplierId = formStr(formData, "supplierId");
+  const { upsertSupplierCertification } = await import("@/lib/services/asl");
+
+  const issuedAtRaw = formStr(formData, "issuedAt");
+  const expiresAtRaw = formStr(formData, "expiresAt");
+
+  await upsertSupplierCertification({
+    id: formOptId(formData, "id") || undefined,
+    supplierId,
+    certType: formStr(formData, "certType") || "OTHER",
+    certNumber: formStr(formData, "certNumber") || null,
+    issuedBy: formStr(formData, "issuedBy") || null,
+    issuedAt: issuedAtRaw ? new Date(issuedAtRaw) : null,
+    expiresAt: expiresAtRaw ? new Date(expiresAtRaw) : null,
+    documentUrl: formStr(formData, "documentUrl") || null,
+    documentName: formStr(formData, "documentName") || null,
+    notes: formStr(formData, "notes") || null,
+    userId: user?.id,
+  });
+
+  revalidatePath(`/suppliers/${supplierId}`);
+  revalidatePath("/suppliers");
+  redirect(`/suppliers/${supplierId}?tab=certs`);
+}
+
+export async function actionDeleteSupplierCert(formData: FormData): Promise<void> {
+  const user = await getCurrentUser("PURCHASING");
+  const id = formStr(formData, "id");
+  const supplierId = formStr(formData, "supplierId");
+  const { deleteSupplierCertification } = await import("@/lib/services/asl");
+  await deleteSupplierCertification({ id, userId: user?.id });
+  revalidatePath(`/suppliers/${supplierId}`);
+  redirect(`/suppliers/${supplierId}?tab=certs`);
+}
+
+export async function actionUpdateDepositStatus(formData: FormData): Promise<void> {
+  const salesOrderId = formStr(formData, "salesOrderId");
+  const depositStatus = formStr(formData, "depositStatus") || "PENDING";
+  const user = await getCurrentUser();
+
+  const so = await prisma.salesOrder.update({
+    where: { id: salesOrderId },
+    data: {
+      depositStatus,
+      creditHold: depositStatus === "RECEIVED" || depositStatus === "WAIVED" ? false : true,
+    },
+  });
+
+  await logAudit({
+    entityType: "SalesOrder",
+    entityId: so.id,
+    action: "DEPOSIT_STATUS",
+    userId: user?.id,
+    metadata: { depositStatus },
+  });
+
+  revalidatePath(`/sales/${salesOrderId}`);
+  revalidatePath("/sales");
+  revalidatePath("/shipping");
+  revalidatePath(`/customers/${so.customerId}`);
 }
 
 export async function actionCompleteReceivingInspection(
@@ -1924,7 +2145,25 @@ export async function actionShipSalesOrder(formData: FormData): Promise<void> {
     userId: user?.id,
     force,
   });
-  revalidateFulfillmentPaths([`/sales/${salesOrderId}`, "/shipping"]);
+  revalidateFulfillmentPaths([
+    `/sales/${salesOrderId}`,
+    "/shipping",
+    "/purchasing",
+    "/inventory",
+  ]);
+}
+
+/** Manually scan kanban mins and open PRs for anything at/below min (not already on order). */
+export async function actionRunKanbanReplenishment(): Promise<void> {
+  const user = await getCurrentUser();
+  const { ensureKanbanReplenishmentPrs } = await import(
+    "@/lib/services/kanban-replenishment"
+  );
+  await ensureKanbanReplenishmentPrs({ userId: user?.id });
+  revalidatePath("/purchasing");
+  revalidatePath("/inventory");
+  revalidatePath("/items");
+  redirect("/purchasing");
 }
 
 export async function actionQueueShipment(formData: FormData): Promise<void> {

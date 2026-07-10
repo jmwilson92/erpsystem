@@ -1,10 +1,23 @@
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
+import { getAvailableQty } from "@/lib/services/order-fulfillment";
+import { startPrApprovalWorkflow } from "@/lib/services/pr-approval";
+
+export type WiStepType = "BUILD" | "QA" | "TEST";
+
+export type WiToolInput = {
+  name: string;
+  partId?: string | null;
+  qty?: number;
+  notes?: string | null;
+};
 
 export type WiStepInput = {
   stepNumber?: number;
   title: string;
   instructions: string;
+  /** BUILD | QA | TEST */
+  stepType?: WiStepType | string;
   isTestStep?: boolean;
   passFailRequired?: boolean;
   testCriteria?: string;
@@ -29,6 +42,164 @@ function jsonArr(v?: string[] | null) {
   return JSON.stringify(v);
 }
 
+function normalizeStepType(st: WiStepInput): WiStepType {
+  const raw = (st.stepType || "").toUpperCase();
+  if (raw === "QA" || raw === "TEST" || raw === "BUILD") return raw;
+  if (st.isTestStep) return "TEST";
+  return "BUILD";
+}
+
+function stepCreateData(st: WiStepInput, i: number) {
+  const stepType = normalizeStepType(st);
+  const isTestStep = stepType === "TEST" || !!st.isTestStep;
+  // Default area from step type when not specified
+  let requiredArea = st.requiredArea || null;
+  if (!requiredArea) {
+    if (stepType === "QA") requiredArea = "QA";
+    else if (stepType === "TEST") requiredArea = "TEST";
+    else requiredArea = "MANUFACTURING";
+  }
+  return {
+    stepNumber: st.stepNumber ?? i + 1,
+    title: st.title.trim(),
+    instructions: st.instructions.trim(),
+    stepType,
+    isTestStep,
+    passFailRequired:
+      st.passFailRequired ?? (stepType === "QA" || stepType === "TEST"),
+    testCriteria: st.testCriteria || null,
+    expectedValue: st.expectedValue || null,
+    minValue: st.minValue ?? null,
+    maxValue: st.maxValue ?? null,
+    measureUom: st.measureUom || null,
+    measureUomUnitId: st.measureUomUnitId || null,
+    cureTimeMinutes: st.cureTimeMinutes ?? null,
+    requiredArea,
+    workCenter: st.workCenter || null,
+    routeLock: st.routeLock ?? false,
+    estimatedMinutes: st.estimatedMinutes ?? null,
+    attachmentUrls: jsonArr(st.attachmentUrls),
+    mediaUrls: jsonArr(st.mediaUrls),
+    drawingLinks: jsonArr(st.drawingLinks),
+    requiresSignOff: st.requiresSignOff ?? true,
+    sortOrder: st.stepNumber ?? i + 1,
+  };
+}
+
+/**
+ * If WI tools are item-linked and not in stock, open a PR so purchasing can obtain them.
+ * PR justification / triggerSource show WI + tool purpose.
+ */
+export async function createToolPurchaseRequestForWi(params: {
+  workInstructionId: string;
+  documentNumber: string;
+  revision: string;
+  title: string;
+  tools: WiToolInput[];
+  userId?: string;
+}): Promise<{ prId: string; prNumber: string } | null> {
+  const shortages: {
+    partId: string;
+    partNumber: string;
+    description: string;
+    qty: number;
+    unitCost: number;
+    uom: string;
+    toolName: string;
+  }[] = [];
+
+  for (const tool of params.tools) {
+    if (!tool.partId) continue;
+    const part = await prisma.part.findUnique({ where: { id: tool.partId } });
+    if (!part) continue;
+    const need = Math.max(1, tool.qty || 1);
+    const onHand = await getAvailableQty(part.id);
+    const short = Math.max(0, need - onHand);
+    if (short <= 0) continue;
+    shortages.push({
+      partId: part.id,
+      partNumber: part.partNumber,
+      description: part.description,
+      qty: short,
+      unitCost: part.standardCost || part.lastBuyCost || 0,
+      uom: part.uom || "EA",
+      toolName: tool.name || part.partNumber,
+    });
+  }
+
+  if (!shortages.length) return null;
+
+  const preferred = await prisma.supplier.findFirst({
+    where: {
+      isApprovedVendor: true,
+      status: { in: ["APPROVED", "CONDITIONAL"] },
+    },
+    orderBy: { overallScore: "desc" },
+  });
+
+  const prCount = await prisma.purchaseRequest.count();
+  const number = `PR-${String(prCount + 1).padStart(5, "0")}`;
+  const totalEstimate = shortages.reduce(
+    (s, r) => s + r.qty * r.unitCost,
+    0
+  );
+
+  const justification = [
+    `WI TOOLING — auto-created when work instruction was authored.`,
+    `Work instruction: ${params.documentNumber} Rev ${params.revision} — ${params.title}`,
+    `Trigger: required tools not in stock at WI create.`,
+    `Tools needed:`,
+    ...shortages.map(
+      (s) =>
+        `• ${s.toolName} (${s.partNumber}) × ${s.qty} — needed for WI ${params.documentNumber}`
+    ),
+  ].join("\n");
+
+  const pr = await prisma.purchaseRequest.create({
+    data: {
+      number,
+      status: "SUBMITTED",
+      requestedById: params.userId,
+      department: "Engineering",
+      neededBy: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+      justification,
+      totalEstimate,
+      supplierId: preferred?.id,
+      workInstructionId: params.workInstructionId,
+      triggerSource: "WI_TOOL",
+      lines: {
+        create: shortages.map((s) => ({
+          partId: s.partId,
+          description: `TOOL: ${s.toolName} — ${s.description}`,
+          quantity: s.qty,
+          estimatedUnitCost: s.unitCost,
+          uom: s.uom,
+          notes: `Required for WI ${params.documentNumber} Rev ${params.revision} (${params.title})`,
+        })),
+      },
+    },
+  });
+
+  await startPrApprovalWorkflow({
+    purchaseRequestId: pr.id,
+    userId: params.userId,
+  });
+
+  await logAudit({
+    entityType: "PurchaseRequest",
+    entityId: pr.id,
+    action: "CREATED_FROM_WI_TOOL",
+    userId: params.userId,
+    metadata: {
+      number,
+      workInstructionId: params.workInstructionId,
+      tools: shortages.map((s) => s.partNumber),
+    },
+  });
+
+  return { prId: pr.id, prNumber: pr.number };
+}
+
 export async function createWorkInstruction(params: {
   documentNumber: string;
   revision?: string;
@@ -37,6 +208,10 @@ export async function createWorkInstruction(params: {
   bomHeaderId?: string | null;
   workCenter?: string | null;
   notes?: string | null;
+  hazmatRequired?: string | null;
+  drawingNumber?: string | null;
+  drawingReferences?: string | null;
+  requiredTools?: WiToolInput[];
   steps?: WiStepInput[];
   userId?: string;
 }) {
@@ -58,6 +233,7 @@ export async function createWorkInstruction(params: {
     if (bom) bomRevision = bom.revision;
   }
 
+  const tools = (params.requiredTools || []).filter((t) => t.name?.trim());
   const steps = params.steps || [];
   const wi = await prisma.workInstruction.create({
     data: {
@@ -70,6 +246,19 @@ export async function createWorkInstruction(params: {
       bomRevision,
       workCenter: params.workCenter || null,
       notes: params.notes || null,
+      hazmatRequired: params.hazmatRequired?.trim() || null,
+      drawingNumber: params.drawingNumber?.trim() || null,
+      drawingReferences: params.drawingReferences?.trim() || null,
+      requiredTools: tools.length
+        ? JSON.stringify(
+            tools.map((t) => ({
+              name: t.name.trim(),
+              partId: t.partId || null,
+              qty: t.qty ?? 1,
+              notes: t.notes || null,
+            }))
+          )
+        : null,
       createdById: params.userId,
       isLocked: false,
       estimatedMinutes: steps.reduce(
@@ -77,42 +266,39 @@ export async function createWorkInstruction(params: {
         0
       ) || null,
       steps: {
-        create: steps.map((st, i) => ({
-          stepNumber: st.stepNumber ?? i + 1,
-          title: st.title.trim(),
-          instructions: st.instructions.trim(),
-          isTestStep: st.isTestStep ?? st.passFailRequired ?? false,
-          passFailRequired: st.passFailRequired ?? st.isTestStep ?? false,
-          testCriteria: st.testCriteria || null,
-          expectedValue: st.expectedValue || null,
-          minValue: st.minValue ?? null,
-          maxValue: st.maxValue ?? null,
-          measureUom: st.measureUom || null,
-          measureUomUnitId: st.measureUomUnitId || null,
-          cureTimeMinutes: st.cureTimeMinutes ?? null,
-          requiredArea: st.requiredArea || null,
-          workCenter: st.workCenter || null,
-          routeLock: st.routeLock ?? false,
-          estimatedMinutes: st.estimatedMinutes ?? null,
-          attachmentUrls: jsonArr(st.attachmentUrls),
-          mediaUrls: jsonArr(st.mediaUrls),
-          drawingLinks: jsonArr(st.drawingLinks),
-          requiresSignOff: st.requiresSignOff ?? true,
-          sortOrder: i + 1,
-        })),
+        create: steps.map((st, i) => stepCreateData(st, i)),
       },
     },
     include: { steps: true, part: true },
   });
+
+  // Auto-PR for tools not in stock (item-linked tools only)
+  let toolPr: { prId: string; prNumber: string } | null = null;
+  try {
+    toolPr = await createToolPurchaseRequestForWi({
+      workInstructionId: wi.id,
+      documentNumber: wi.documentNumber,
+      revision: wi.revision,
+      title: wi.title,
+      tools,
+      userId: params.userId,
+    });
+  } catch (e) {
+    console.error("WI tool PR create failed:", e);
+  }
 
   await logAudit({
     entityType: "WorkInstruction",
     entityId: wi.id,
     action: "CREATED",
     userId: params.userId,
-    metadata: { documentNumber, revision },
+    metadata: {
+      documentNumber,
+      revision,
+      toolPr: toolPr?.prNumber,
+    },
   });
-  return wi;
+  return { ...wi, toolPr };
 }
 
 export async function addWorkInstructionStep(
@@ -136,30 +322,11 @@ export async function addWorkInstructionStep(
     step.stepNumber ??
     (wi.steps.reduce((m, s) => Math.max(m, s.stepNumber), 0) + 1);
 
+  const data = stepCreateData({ ...step, stepNumber }, stepNumber - 1);
   const created = await prisma.workInstructionStep.create({
     data: {
       workInstructionId: wiId,
-      stepNumber,
-      title: step.title.trim(),
-      instructions: step.instructions.trim(),
-      isTestStep: step.isTestStep ?? step.passFailRequired ?? false,
-      passFailRequired: step.passFailRequired ?? step.isTestStep ?? false,
-      testCriteria: step.testCriteria || null,
-      expectedValue: step.expectedValue || null,
-      minValue: step.minValue ?? null,
-      maxValue: step.maxValue ?? null,
-      measureUom: step.measureUom || null,
-      measureUomUnitId: step.measureUomUnitId || null,
-      cureTimeMinutes: step.cureTimeMinutes ?? null,
-      requiredArea: step.requiredArea || null,
-      workCenter: step.workCenter || null,
-      routeLock: step.routeLock ?? false,
-      estimatedMinutes: step.estimatedMinutes ?? null,
-      attachmentUrls: jsonArr(step.attachmentUrls),
-      mediaUrls: jsonArr(step.mediaUrls),
-      drawingLinks: jsonArr(step.drawingLinks),
-      requiresSignOff: step.requiresSignOff ?? true,
-      sortOrder: stepNumber,
+      ...data,
     },
   });
 
@@ -168,7 +335,7 @@ export async function addWorkInstructionStep(
     entityId: wiId,
     action: "STEP_ADDED",
     userId,
-    metadata: { stepNumber },
+    metadata: { stepNumber, stepType: data.stepType },
   });
   return created;
 }
@@ -376,6 +543,10 @@ export async function createWiRevisionFromReleased(params: {
       bomHeaderId: src.bomHeaderId,
       bomRevision: src.bomRevision,
       workCenter: src.workCenter,
+      hazmatRequired: src.hazmatRequired,
+      drawingNumber: src.drawingNumber,
+      drawingReferences: src.drawingReferences,
+      requiredTools: src.requiredTools,
       notes: `In development revision from Rev ${src.revision}`,
       createdById: params.userId,
       isLocked: false,
@@ -386,6 +557,7 @@ export async function createWiRevisionFromReleased(params: {
           stepNumber: st.stepNumber,
           title: st.title,
           instructions: st.instructions,
+          stepType: st.stepType || (st.isTestStep ? "TEST" : "BUILD"),
           isTestStep: st.isTestStep,
           passFailRequired: st.passFailRequired,
           testCriteria: st.testCriteria,

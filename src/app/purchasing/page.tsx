@@ -168,6 +168,14 @@ export default async function PurchasingPage({
             wbsElement: { select: { code: true, name: true } },
           },
         },
+        workInstruction: {
+          select: {
+            id: true,
+            documentNumber: true,
+            revision: true,
+            title: true,
+          },
+        },
       },
     }),
     prisma.purchaseOrder.findMany({
@@ -639,11 +647,41 @@ export default async function PurchasingPage({
                   >
                     <td className="px-3 py-2">
                       <span className="font-mono text-sky-400">{pr.number}</span>
+                      {pr.triggerSource && (
+                        <StatusBadge
+                          status={pr.triggerSource}
+                          className="ml-1"
+                        />
+                      )}
+                      {pr.workInstruction && (
+                        <p className="text-[11px] text-amber-400/90">
+                          Tool for WI{" "}
+                          <Link
+                            href={`/work-instructions/${pr.workInstruction.id}`}
+                            className="font-mono underline"
+                          >
+                            {pr.workInstruction.documentNumber} Rev{" "}
+                            {pr.workInstruction.revision}
+                          </Link>
+                          {" — "}
+                          {pr.workInstruction.title}
+                        </p>
+                      )}
                       {pr.justification && (
                         <p className="max-w-xs truncate text-[11px] text-slate-600">
                           {pr.justification}
                         </p>
                       )}
+                      {pr.triggerSource === "WI_TOOL" &&
+                        pr.lines.length > 0 && (
+                          <p className="text-[11px] text-slate-400">
+                            Tools:{" "}
+                            {pr.lines
+                              .map((l) => l.description.replace(/^TOOL:\s*/i, ""))
+                              .slice(0, 3)
+                              .join("; ")}
+                          </p>
+                        )}
                     </td>
                     <td className="px-3 py-2 text-slate-300">
                       {pr.supplier?.name || "—"}

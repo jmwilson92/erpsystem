@@ -95,6 +95,7 @@ export default async function ItemDetailPage({
   const tabs = [
     { id: "general", label: "General" },
     { id: "cost", label: "Cost" },
+    { id: "inventory", label: "Inventory policy" },
     { id: "accounting", label: "Accounting" },
     { id: "vendors", label: "Vendors" },
     { id: "receiving", label: "Receiving" },
@@ -127,6 +128,16 @@ export default async function ItemDetailPage({
         {part.itemStructure !== "N_A" && (
           <StatusBadge status={part.itemStructure} />
         )}
+        {part.isKanban && (
+          <span className="rounded border border-violet-500/40 px-2 py-0.5 text-xs text-violet-300">
+            Kanban {part.minStock}/{part.maxStock}
+          </span>
+        )}
+        {part.isCritical && (
+          <span className="rounded border border-amber-500/40 px-2 py-0.5 text-xs text-amber-300">
+            Critical
+          </span>
+        )}
         <span className="rounded border border-slate-700 px-2 py-0.5 text-xs text-slate-400">
           Rev {part.revision} · {part.uom}
         </span>
@@ -149,7 +160,10 @@ export default async function ItemDetailPage({
         ))}
       </div>
 
-      {(tab === "general" || tab === "cost" || tab === "accounting") && (
+      {(tab === "general" ||
+        tab === "cost" ||
+        tab === "accounting" ||
+        tab === "inventory") && (
         <form action={actionUpdateItem} className="space-y-4">
           <input type="hidden" name="id" value={part.id} />
           <input type="hidden" name="returnTab" value={tab} />
@@ -304,6 +318,160 @@ export default async function ItemDetailPage({
             </Card>
           )}
 
+          {tab === "inventory" && (
+            <div className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Replenishment policy</CardTitle>
+                </CardHeader>
+                <CardContent className="grid gap-3 sm:grid-cols-2">
+                  <div className="flex flex-wrap gap-4 sm:col-span-2">
+                    <Check
+                      name="isKanban"
+                      label="Kanban (min / max refill)"
+                      defaultChecked={part.isKanban}
+                    />
+                    <Check
+                      name="isCritical"
+                      label="Critical / sole-source item"
+                      defaultChecked={part.isCritical}
+                    />
+                  </div>
+                  <FieldInput
+                    label="Min stock (kanban reorder trigger)"
+                    name="minStock"
+                    type="number"
+                    step="0.01"
+                    defaultValue={String(part.minStock)}
+                  />
+                  <FieldInput
+                    label="Max stock (kanban refill target)"
+                    name="maxStock"
+                    type="number"
+                    step="0.01"
+                    defaultValue={String(part.maxStock)}
+                  />
+                  <FieldInput
+                    label="Reorder point (classic ROP)"
+                    name="reorderPoint"
+                    type="number"
+                    step="0.01"
+                    defaultValue={String(part.reorderPoint)}
+                  />
+                  <FieldInput
+                    label="Safety stock"
+                    name="safetyStock"
+                    type="number"
+                    step="0.01"
+                    defaultValue={String(part.safetyStock)}
+                  />
+                  <div>
+                    <label className="text-[10px] uppercase text-slate-500">
+                      ABC class
+                    </label>
+                    <select
+                      name="abcClass"
+                      className={`${selectClass} mt-1`}
+                      defaultValue={part.abcClass || ""}
+                    >
+                      <option value="">—</option>
+                      <option value="A">A (high value / critical)</option>
+                      <option value="B">B (moderate)</option>
+                      <option value="C">C (low value / bulk)</option>
+                    </select>
+                  </div>
+                  <FieldInput
+                    label="Shelf life (days)"
+                    name="shelfLifeDays"
+                    type="number"
+                    defaultValue={
+                      part.shelfLifeDays != null ? String(part.shelfLifeDays) : ""
+                    }
+                  />
+                  <p className="sm:col-span-2 text-xs text-slate-500">
+                    Kanban items show on Inventory when available qty is at or
+                    below min. Refill quantity is typically max − on hand.
+                    Safety stock and reorder point support classic MRP-style
+                    planning when kanban is off.
+                  </p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Other item controls (available)</CardTitle>
+                </CardHeader>
+                <CardContent className="text-xs text-slate-400">
+                  <ul className="list-inside list-disc space-y-1">
+                    <li>
+                      <strong className="text-slate-300">Serialized / lot controlled</strong>{" "}
+                      — set on General tab
+                    </li>
+                    <li>
+                      <strong className="text-slate-300">Receiving GD&amp;T / functional test</strong>{" "}
+                      — Receiving tab
+                    </li>
+                    <li>
+                      <strong className="text-slate-300">Preferred vendor + MOQ / lead time</strong>{" "}
+                      — Vendors tab
+                    </li>
+                    <li>
+                      <strong className="text-slate-300">Kanban min/max</strong> — this tab
+                      (refill by bin levels)
+                    </li>
+                    <li>
+                      <strong className="text-slate-300">Reorder point + safety stock</strong>{" "}
+                      — classic pull when not using kanban
+                    </li>
+                    <li>
+                      <strong className="text-slate-300">ABC class</strong> — inventory
+                      value classification for cycle counts
+                    </li>
+                    <li>
+                      <strong className="text-slate-300">Critical flag</strong> — highlight
+                      sole-source / high-risk parts
+                    </li>
+                    <li>
+                      <strong className="text-slate-300">Shelf life</strong> — lot expiry
+                      planning for chemicals / perishables
+                    </li>
+                    <li>
+                      <strong className="text-slate-300">Lead time</strong> — General tab
+                      (purchasing planning)
+                    </li>
+                  </ul>
+                </CardContent>
+              </Card>
+              {part.inventoryItems.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Current stock (snapshot)</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-1 text-sm">
+                    {part.inventoryItems.map((inv) => (
+                      <div
+                        key={inv.id}
+                        className="flex justify-between rounded border border-slate-800 px-2 py-1.5 text-xs"
+                      >
+                        <span className="text-slate-400">
+                          {inv.location.code}
+                        </span>
+                        <span className="tabular-nums text-slate-200">
+                          OH {inv.quantityOnHand} · Avail {inv.quantityAvailable}
+                        </span>
+                      </div>
+                    ))}
+                    <Link
+                      href={`/inventory?q=${encodeURIComponent(part.partNumber)}`}
+                      className="mt-2 inline-block text-xs text-sky-400 hover:underline"
+                    >
+                      Open in inventory →
+                    </Link>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          )}
+
           {tab === "accounting" && (
             <Card>
               <CardHeader>
@@ -339,7 +507,10 @@ export default async function ItemDetailPage({
             </Card>
           )}
 
-          {(tab === "general" || tab === "cost" || tab === "accounting") && (
+          {(tab === "general" ||
+            tab === "cost" ||
+            tab === "accounting" ||
+            tab === "inventory") && (
             <Button type="submit">Save</Button>
           )}
         </form>

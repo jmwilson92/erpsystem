@@ -180,7 +180,7 @@ export async function WorkcenterPanel({
               <Input
                 name="workOrderNumber"
                 className="mt-1 font-mono"
-                placeholder="WO-00012"
+                placeholder="SWO/BWO/MWO-00012"
               />
             </div>
             <div>

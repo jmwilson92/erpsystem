@@ -37,11 +37,13 @@ export async function getWorkCenterByCode(code: string) {
  * Resolve where a WI step should run.
  * - Specific workCenter code wins when set
  * - Else default for requiredArea
+ * - Else isTestStep → default TEST station (not manufacturing)
  * - Else coordinator / WO current station
  */
 export async function resolveStepStation(params: {
   stepWorkCenter?: string | null;
   requiredArea?: string | null;
+  isTestStep?: boolean;
   preferredWorkCenter?: string | null; // coordinator / WO
 }): Promise<{ code: string | null; area: WorkArea | null; locked: boolean }> {
   if (params.stepWorkCenter) {
@@ -57,6 +59,15 @@ export async function resolveStepStation(params: {
     return {
       code: def?.code || null,
       area: params.requiredArea,
+      locked: false,
+    };
+  }
+  // Test steps without routing still belong in Test — not the build station
+  if (params.isTestStep) {
+    const def = await getDefaultWorkCenter("TEST");
+    return {
+      code: def?.code || "TEST-01",
+      area: "TEST",
       locked: false,
     };
   }
@@ -287,6 +298,7 @@ export async function seedStepAssignments(workOrderId: string, preferredWorkCent
     const resolved = await resolveStepStation({
       stepWorkCenter: sc.step.workCenter,
       requiredArea: sc.step.requiredArea,
+      isTestStep: sc.step.isTestStep,
       preferredWorkCenter,
     });
     if (resolved.code) {

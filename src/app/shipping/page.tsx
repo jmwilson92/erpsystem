@@ -30,7 +30,7 @@ export default async function ShippingPage() {
     <div className="space-y-6">
       <PageHeader
         title="Shipping"
-        description="Queue → verify packing list → pack with photos → ship (inventory & SO update)"
+        description="Queue → verify packing list → pack with photos → ship (deposit must be clear)"
       />
 
       {readyOrders.length > 0 && (
@@ -41,36 +41,63 @@ export default async function ShippingPage() {
           <CardContent className="space-y-2">
             {readyOrders.map((so) => {
               const gate = so.shipNotBefore || so.requiredDate;
-              const blocked =
-                !so.allowEarlyShip && gate && new Date() < gate && so.status === "READY_TO_SHIP";
+              const depositBlocked =
+                so.depositRequired &&
+                !["RECEIVED", "WAIVED"].includes(
+                  (so.depositStatus || "").toUpperCase()
+                );
+              const dateBlocked =
+                !so.allowEarlyShip &&
+                gate &&
+                new Date() < gate &&
+                so.status === "READY_TO_SHIP";
               return (
                 <div
                   key={so.id}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 p-3"
+                  className={`flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3 ${
+                    depositBlocked
+                      ? "border-amber-500/40 bg-amber-500/5"
+                      : "border-slate-800"
+                  }`}
                 >
                   <div>
                     <Link href={`/sales/${so.id}`} className="font-mono text-sky-400">
                       {so.number}
                     </Link>
                     <StatusBadge status={so.status} className="ml-2" />
+                    {depositBlocked && (
+                      <span className="ml-2 rounded border border-amber-500/40 px-1.5 py-0.5 text-[10px] text-amber-300">
+                        Deposit hold
+                      </span>
+                    )}
                     <p className="text-sm text-slate-300">{so.customer.name}</p>
                     <p className="text-xs text-slate-500">
                       Required {formatDate(so.requiredDate)} ·{" "}
                       {formatCurrency(so.totalAmount)}
-                      {blocked
-                        ? ` · Held until ${formatDate(gate)}`
-                        : so.allowEarlyShip
-                          ? " · Early ship OK"
-                          : ""}
+                      {depositBlocked
+                        ? ` · Deposit ${formatCurrency(so.depositAmount)} ${so.depositStatus || "PENDING"} — ship blocked`
+                        : dateBlocked
+                          ? ` · Held until ${formatDate(gate)}`
+                          : so.allowEarlyShip
+                            ? " · Early ship OK"
+                            : ""}
                     </p>
                   </div>
                   <div className="flex gap-2">
-                    <form action={actionQueueShipment}>
-                      <input type="hidden" name="salesOrderId" value={so.id} />
-                      <Button type="submit" size="sm" variant="outline">
-                        Queue packing list
-                      </Button>
-                    </form>
+                    {depositBlocked ? (
+                      <Link href={`/sales/${so.id}`}>
+                        <Button size="sm" variant="secondary">
+                          Resolve deposit
+                        </Button>
+                      </Link>
+                    ) : (
+                      <form action={actionQueueShipment}>
+                        <input type="hidden" name="salesOrderId" value={so.id} />
+                        <Button type="submit" size="sm" variant="outline">
+                          Queue packing list
+                        </Button>
+                      </form>
+                    )}
                   </div>
                 </div>
               );
@@ -126,6 +153,20 @@ export default async function ShippingPage() {
                   packingListVerified={s.packingListVerified}
                   status={s.status}
                   shipToAddress={s.shipToAddress}
+                  depositBlocked={
+                    s.salesOrder.depositRequired &&
+                    !["RECEIVED", "WAIVED"].includes(
+                      (s.salesOrder.depositStatus || "").toUpperCase()
+                    )
+                  }
+                  depositMessage={
+                    s.salesOrder.depositRequired &&
+                    !["RECEIVED", "WAIVED"].includes(
+                      (s.salesOrder.depositStatus || "").toUpperCase()
+                    )
+                      ? `Deposit ${formatCurrency(s.salesOrder.depositAmount)} required (${s.salesOrder.depositStatus || "PENDING"}) — mark received or waive on SO ${s.salesOrder.number} before shipping.`
+                      : null
+                  }
                   lineSummary={s.lines.map(
                     (l) =>
                       `${l.description} × ${l.quantity}${

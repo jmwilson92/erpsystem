@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { Sidebar } from "./sidebar";
 import { Header } from "./header";
 import { CommandPalette } from "./command-palette";
@@ -11,7 +11,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-950 text-slate-100">
-      <Sidebar />
+      <Suspense fallback={<aside className="w-60 border-r border-slate-800 bg-slate-950" />}>
+        <Sidebar />
+      </Suspense>
       <div className="flex min-w-0 flex-1 flex-col">
         <Header onOpenCommand={() => setCmdOpen(true)} />
         <main className="flex-1 overflow-y-auto">

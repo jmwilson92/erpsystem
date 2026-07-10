@@ -7,8 +7,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { CompanyLetterhead } from "@/components/sales/document-header";
 import { SalesLineItemsEditor } from "@/components/sales/line-items-editor";
 import { actionCreateSalesOrder } from "@/app/actions";
+import { getCustomerCreditSnapshot } from "@/lib/services/credit";
 import Link from "next/link";
-import { formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -59,11 +60,15 @@ export default async function NewSalesOrderPage({
     standardCost: p.standardCost,
   }));
 
+  const credit = defaultCustomer
+    ? await getCustomerCreditSnapshot(defaultCustomer.id)
+    : null;
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Create sales order"
-        description="Document-style order entry"
+        description="Document-style order entry · customer PO"
         actions={
           <div className="flex gap-2">
             <Link href="/customers">
@@ -79,6 +84,33 @@ export default async function NewSalesOrderPage({
           </div>
         }
       />
+
+      {credit?.hasLimit && credit.isOverLimit && (
+        <Card className="border-amber-500/40 bg-amber-500/10">
+          <CardContent className="p-4 text-sm text-amber-100">
+            <p className="font-medium">
+              {defaultCustomer?.name} is over credit limit — deposit will be
+              required
+            </p>
+            <p className="mt-1 text-xs text-amber-200/90">
+              Exposure {formatCurrency(credit.exposure)} / limit{" "}
+              {formatCurrency(credit.creditLimit)} ({credit.utilizationPct}%
+              used). When you save this PO/order, the system will flag a
+              deposit for the amount that exceeds available credit.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {credit?.hasLimit && !credit.isOverLimit && credit.utilizationPct >= 80 && (
+        <Card className="border-amber-500/20 bg-amber-500/5">
+          <CardContent className="p-4 text-xs text-amber-200/90">
+            Credit nearly full: {formatCurrency(credit.availableCredit)}{" "}
+            available of {formatCurrency(credit.creditLimit)}. Large orders may
+            trigger a deposit requirement.
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="border-slate-700 bg-slate-950/80">
         <CardContent className="space-y-6 p-6 md:p-8">
@@ -165,9 +197,21 @@ export default async function NewSalesOrderPage({
                   {customers.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.code} — {c.name}
+                      {c.creditLimit > 0 ? ` (limit $${c.creditLimit.toLocaleString()})` : ""}
                     </option>
                   ))}
                 </select>
+                {credit?.hasLimit && (
+                  <p
+                    className={`mt-2 text-xs ${
+                      credit.isOverLimit ? "text-amber-400" : "text-slate-500"
+                    }`}
+                  >
+                    Credit: {formatCurrency(credit.exposure)} exposed /{" "}
+                    {formatCurrency(credit.creditLimit)}
+                    {credit.isOverLimit ? " — deposit required" : ""}
+                  </p>
+                )}
                 {customers.length === 0 && (
                   <p className="mt-2 text-xs text-amber-400">
                     <Link href={newCustomerHref} className="underline">

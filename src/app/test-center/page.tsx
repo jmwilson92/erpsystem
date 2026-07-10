@@ -105,10 +105,10 @@ export default async function TestCenterPage({
           accent="amber"
         />
         <StatCard
-          title="On hold"
-          value={stats.onHold}
+          title="Upcoming / ready"
+          value={`${stats.upcomingTests ?? 0} / ${stats.readyTests ?? 0}`}
           icon={AlertTriangle}
-          accent="red"
+          accent="amber"
         />
       </div>
 
@@ -448,22 +448,35 @@ export default async function TestCenterPage({
       <section className="space-y-3">
         <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-400">
           <ClipboardList className="h-4 w-4 text-amber-400" />
-          Production test steps
+          Production test steps (traveler)
           <span className="font-normal normal-case text-slate-600">
             ({data.productionTestGroups.length})
           </span>
         </h2>
+        <p className="text-xs text-slate-500">
+          Includes test steps that are not yet &quot;up&quot; on the work
+          instruction (prior build steps unfinished). They stay in this queue
+          until the step is ready or the WO is scanned into a Test station.
+        </p>
 
         {data.productionTestGroups.length === 0 && (
           <Card>
             <CardContent className="p-6 text-center text-sm text-slate-500">
-              No open production test steps on other workcenters.
+              No open production test steps. WOs with TEST / is-test-step on the
+              WI appear here even before scan-in.
             </CardContent>
           </Card>
         )}
 
-        {data.productionTestGroups.map(({ workOrder: wo, steps }) => (
-          <Card key={wo.id} className="border-amber-900/30">
+        {data.productionTestGroups.map(({ workOrder: wo, steps, readiness }) => (
+          <Card
+            key={wo.id}
+            className={
+              readiness === "UPCOMING"
+                ? "border-amber-900/40 bg-amber-500/5"
+                : "border-amber-900/30"
+            }
+          >
             <CardContent className="space-y-3 p-4">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
@@ -475,9 +488,18 @@ export default async function TestCenterPage({
                       {wo.number}
                     </Link>
                     <StatusBadge status={wo.status} />
+                    <StatusBadge
+                      status={
+                        readiness === "AT_STATION"
+                          ? "AT_STATION"
+                          : readiness === "STEP_READY"
+                            ? "READY"
+                            : "UPCOMING"
+                      }
+                    />
                     {wo.workCenter && (
                       <span className="font-mono text-[10px] text-slate-500">
-                        from {wo.workCenter}
+                        WO @ {wo.workCenter}
                       </span>
                     )}
                   </div>
@@ -486,6 +508,9 @@ export default async function TestCenterPage({
                   </p>
                   <p className="text-xs text-slate-500">
                     {wo.part?.description || wo.description || ""}
+                    {readiness === "UPCOMING"
+                      ? " · Waiting on prior traveler steps (or scan into Test)"
+                      : ""}
                   </p>
                 </div>
                 <Link href={`/work-orders/${wo.id}`}>
@@ -496,7 +521,11 @@ export default async function TestCenterPage({
               </div>
 
               <div className="space-y-2">
-                {steps.map((sc) => (
+                {steps.map((sc) => {
+                  const stepReady =
+                    sc.readiness === "STEP_READY" ||
+                    sc.readiness === "AT_STATION";
+                  return (
                   <div
                     key={sc.id}
                     className="flex flex-wrap items-center justify-between gap-2 rounded border border-slate-800 px-3 py-2 text-sm"
@@ -505,6 +534,16 @@ export default async function TestCenterPage({
                       <span className="text-slate-200">
                         Step {sc.step.stepNumber}: {sc.step.title}
                       </span>
+                      <StatusBadge
+                        status={
+                          sc.readiness === "AT_STATION"
+                            ? "AT_STATION"
+                            : sc.readiness === "STEP_READY"
+                              ? "READY"
+                              : "UPCOMING"
+                        }
+                        className="ml-2"
+                      />
                       {sc.step.testCriteria && (
                         <p className="text-[11px] text-slate-500">
                           {sc.step.testCriteria}
@@ -515,25 +554,50 @@ export default async function TestCenterPage({
                       )}
                     </div>
                     <div className="flex gap-1">
-                      <form action={actionSignOffStep}>
-                        <input type="hidden" name="workOrderId" value={wo.id} />
-                        <input type="hidden" name="stepId" value={sc.stepId} />
-                        <input type="hidden" name="result" value="PASS" />
-                        <Button type="submit" size="sm">
-                          Pass
-                        </Button>
-                      </form>
-                      <form action={actionSignOffStep}>
-                        <input type="hidden" name="workOrderId" value={wo.id} />
-                        <input type="hidden" name="stepId" value={sc.stepId} />
-                        <input type="hidden" name="result" value="FAIL" />
-                        <Button type="submit" size="sm" variant="outline">
-                          Fail
-                        </Button>
-                      </form>
+                      {stepReady ? (
+                        <>
+                          <form action={actionSignOffStep}>
+                            <input
+                              type="hidden"
+                              name="workOrderId"
+                              value={wo.id}
+                            />
+                            <input
+                              type="hidden"
+                              name="stepId"
+                              value={sc.stepId}
+                            />
+                            <input type="hidden" name="result" value="PASS" />
+                            <Button type="submit" size="sm">
+                              Pass
+                            </Button>
+                          </form>
+                          <form action={actionSignOffStep}>
+                            <input
+                              type="hidden"
+                              name="workOrderId"
+                              value={wo.id}
+                            />
+                            <input
+                              type="hidden"
+                              name="stepId"
+                              value={sc.stepId}
+                            />
+                            <input type="hidden" name="result" value="FAIL" />
+                            <Button type="submit" size="sm" variant="outline">
+                              Fail
+                            </Button>
+                          </form>
+                        </>
+                      ) : (
+                        <span className="text-[11px] text-amber-400/90">
+                          Not ready yet
+                        </span>
+                      )}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </CardContent>
           </Card>

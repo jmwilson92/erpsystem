@@ -1159,6 +1159,23 @@ export async function dispositionMrb(params: {
     },
   });
 
+  if (carNumber) {
+    await logCarActivity({
+      dispositionId: disposition.id,
+      carNumber,
+      action: "CREATED",
+      summary: `CAR ${carNumber} opened from MRB ${mrb.number} (${params.disposition.replace(/_/g, " ")})`,
+      changes: {
+        status: { from: null, to: "OPEN" },
+        mrbNumber: mrb.number,
+        ncrNumber: mrb.ncr.number,
+        disposition: params.disposition,
+        justification: params.justification,
+      },
+      userId: params.decidedById,
+    });
+  }
+
   // Update inventory based on disposition
   for (const item of mrb.inventoryHolds) {
     if (params.disposition === "SCRAP") {
@@ -1263,6 +1280,30 @@ export async function dispositionMrb(params: {
   return disposition;
 }
 
+export async function logCarActivity(params: {
+  dispositionId: string;
+  carNumber: string;
+  action: string;
+  summary: string;
+  changes?: Record<string, unknown> | null;
+  userId?: string | null;
+}) {
+  try {
+    await prisma.carActivityLog.create({
+      data: {
+        dispositionId: params.dispositionId,
+        carNumber: params.carNumber,
+        action: params.action,
+        summary: params.summary,
+        changes: params.changes ? JSON.stringify(params.changes) : null,
+        userId: params.userId || null,
+      },
+    });
+  } catch (e) {
+    console.error("CAR activity log failed:", e);
+  }
+}
+
 export async function updateCar(params: {
   dispositionId: string;
   carStatus?: string;
@@ -1292,20 +1333,55 @@ export async function updateCar(params: {
     throw new Error(`Invalid CAR status ${status}`);
   }
   const verified = status === "VERIFIED";
+  const storedStatus = verified ? "CLOSED" : status;
+  const priorStatus = d.carStatus || "OPEN";
 
   let carAttachments = d.carAttachments;
+  const newAttachmentMeta: { fileName?: string; caption?: string }[] = [];
   if (params.carAttachments?.length) {
     const existing: { url: string; fileName?: string; caption?: string }[] =
       carAttachments ? JSON.parse(carAttachments) : [];
+    newAttachmentMeta.push(
+      ...params.carAttachments.map((a) => ({
+        fileName: a.fileName,
+        caption: a.caption,
+      }))
+    );
     carAttachments = JSON.stringify(
       [...existing, ...params.carAttachments].slice(0, 24)
     );
   }
 
+  const fieldChanges: Record<string, { from: unknown; to: unknown }> = {};
+  if (storedStatus !== priorStatus) {
+    fieldChanges.status = { from: priorStatus, to: storedStatus };
+  }
+  if (
+    params.carResponse !== undefined &&
+    (params.carResponse || "") !== (d.carResponse || "")
+  ) {
+    fieldChanges.response = {
+      from: d.carResponse || "",
+      to: params.carResponse,
+    };
+  }
+  if (
+    params.carNotes !== undefined &&
+    (params.carNotes || "") !== (d.carNotes || "")
+  ) {
+    fieldChanges.notes = { from: d.carNotes || "", to: params.carNotes };
+  }
+  if (newAttachmentMeta.length > 0) {
+    fieldChanges.attachments = {
+      from: null,
+      to: newAttachmentMeta,
+    };
+  }
+
   const updated = await prisma.mrbDisposition.update({
     where: { id: d.id },
     data: {
-      carStatus: verified ? "CLOSED" : status, // store CLOSED after verify for reporting
+      carStatus: storedStatus,
       ...(params.carResponse !== undefined
         ? { carResponse: params.carResponse }
         : {}),
@@ -1326,12 +1402,53 @@ export async function updateCar(params: {
     });
   }
 
+  // Build human-readable summary of what changed
+  const summaryParts: string[] = [];
+  if (fieldChanges.status) {
+    summaryParts.push(
+      `Status ${String(fieldChanges.status.from)} → ${String(fieldChanges.status.to)}`
+    );
+  }
+  if (fieldChanges.response) summaryParts.push("Supplier response updated");
+  if (fieldChanges.notes) summaryParts.push("Internal notes updated");
+  if (fieldChanges.attachments) {
+    summaryParts.push(
+      `${newAttachmentMeta.length} attachment(s) added`
+    );
+  }
+  if (verified) summaryParts.push("CAR verified and closed");
+
+  const action = verified
+    ? "VERIFIED_CLOSED"
+    : fieldChanges.status && Object.keys(fieldChanges).length === 1
+      ? "STATUS_CHANGE"
+      : fieldChanges.attachments && Object.keys(fieldChanges).length === 1
+        ? "ATTACHMENT_ADDED"
+        : fieldChanges.response && Object.keys(fieldChanges).length === 1
+          ? "RESPONSE_UPDATED"
+          : fieldChanges.notes && Object.keys(fieldChanges).length === 1
+            ? "NOTES_UPDATED"
+            : "UPDATED";
+
+  await logCarActivity({
+    dispositionId: d.id,
+    carNumber: d.carNumber,
+    action,
+    summary:
+      summaryParts.length > 0
+        ? summaryParts.join(" · ")
+        : `CAR ${d.carNumber} updated (no field changes)`,
+    changes: Object.keys(fieldChanges).length ? fieldChanges : null,
+    userId: params.userId,
+  });
+
   await logAudit({
     entityType: "MrbDisposition",
     entityId: d.id,
     action: verified ? "CAR_VERIFIED_CLOSED" : "CAR_UPDATED",
     userId: params.userId,
-    metadata: { carNumber: d.carNumber, carStatus: status },
+    changes: fieldChanges,
+    metadata: { carNumber: d.carNumber, carStatus: storedStatus },
   });
 
   return updated;

@@ -23,6 +23,15 @@ export type PartInput = {
   cogsAccountId?: string | null;
   requiresGdtInspection?: boolean;
   requiresFunctionalTest?: boolean;
+  // Inventory policy
+  isKanban?: boolean;
+  minStock?: number;
+  maxStock?: number;
+  reorderPoint?: number;
+  safetyStock?: number;
+  abcClass?: string | null;
+  isCritical?: boolean;
+  shelfLifeDays?: number | null;
   notes?: string | null;
 };
 
@@ -72,6 +81,14 @@ export async function createPart(params: PartInput & { userId?: string }) {
       cogsAccountId: params.cogsAccountId || null,
       requiresGdtInspection: params.requiresGdtInspection ?? false,
       requiresFunctionalTest: params.requiresFunctionalTest ?? false,
+      isKanban: params.isKanban ?? false,
+      minStock: params.minStock ?? 0,
+      maxStock: params.maxStock ?? 0,
+      reorderPoint: params.reorderPoint ?? 0,
+      safetyStock: params.safetyStock ?? 0,
+      abcClass: params.abcClass || null,
+      isCritical: params.isCritical ?? false,
+      shelfLifeDays: params.shelfLifeDays ?? null,
       notes: params.notes || null,
     },
   });
@@ -159,6 +176,22 @@ export async function updatePart(
         : {}),
       ...(params.requiresFunctionalTest !== undefined
         ? { requiresFunctionalTest: params.requiresFunctionalTest }
+        : {}),
+      ...(params.isKanban !== undefined ? { isKanban: params.isKanban } : {}),
+      ...(params.minStock !== undefined ? { minStock: params.minStock } : {}),
+      ...(params.maxStock !== undefined ? { maxStock: params.maxStock } : {}),
+      ...(params.reorderPoint !== undefined
+        ? { reorderPoint: params.reorderPoint }
+        : {}),
+      ...(params.safetyStock !== undefined
+        ? { safetyStock: params.safetyStock }
+        : {}),
+      ...(params.abcClass !== undefined ? { abcClass: params.abcClass } : {}),
+      ...(params.isCritical !== undefined
+        ? { isCritical: params.isCritical }
+        : {}),
+      ...(params.shelfLifeDays !== undefined
+        ? { shelfLifeDays: params.shelfLifeDays }
         : {}),
       ...(params.notes !== undefined ? { notes: params.notes } : {}),
     },
@@ -254,9 +287,17 @@ export async function listApprovedSuppliers() {
 export function isSupplierApprovedForPo(s: {
   isApprovedVendor: boolean;
   status: string;
+  isTrialVendor?: boolean;
+  trialOrdersUsed?: number;
+  trialOrderLimit?: number;
 }) {
-  return (
-    s.isApprovedVendor &&
-    (s.status === "APPROVED" || s.status === "CONDITIONAL")
-  );
+  if (!s.isApprovedVendor) return false;
+  if (s.status !== "APPROVED" && s.status !== "CONDITIONAL") return false;
+  // Trial vendors: still eligible until trial order limit exhausted
+  if (s.isTrialVendor) {
+    const used = s.trialOrdersUsed ?? 0;
+    const limit = s.trialOrderLimit ?? 1;
+    if (used >= limit) return false;
+  }
+  return true;
 }

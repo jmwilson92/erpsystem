@@ -5,6 +5,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { CustomerForm } from "@/components/customers/customer-form";
+import { getCustomerCreditSnapshot } from "@/lib/services/credit";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import Link from "next/link";
 
@@ -37,6 +38,8 @@ export default async function CustomerDetailPage({
   });
   if (!customer) notFound();
 
+  const credit = await getCustomerCreditSnapshot(customer.id);
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -63,6 +66,7 @@ export default async function CustomerDetailPage({
 
       <div className="flex flex-wrap gap-2">
         <StatusBadge status={customer.isActive ? "ACTIVE" : "INACTIVE"} />
+        {credit.isOverLimit && <StatusBadge status="OVER_LIMIT" />}
         {customer.contactName && (
           <span className="text-xs text-slate-500">
             {customer.contactName}
@@ -72,8 +76,21 @@ export default async function CustomerDetailPage({
         )}
       </div>
 
+      {credit.hasLimit && credit.isOverLimit && (
+        <Card className="border-amber-500/40 bg-amber-500/10">
+          <CardContent className="p-4 text-sm text-amber-100">
+            <p className="font-medium">Credit limit exceeded</p>
+            <p className="mt-1 text-xs text-amber-200/90">
+              Exposure {formatCurrency(credit.exposure)} exceeds limit{" "}
+              {formatCurrency(credit.creditLimit)}. New customer POs / sales
+              orders will require a deposit covering the over-limit amount.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-2 border-slate-700">
+        <Card className="border-slate-700 lg:col-span-2">
           <CardHeader>
             <CardTitle>Edit customer</CardTitle>
           </CardHeader>
@@ -83,6 +100,88 @@ export default async function CustomerDetailPage({
         </Card>
 
         <div className="space-y-4">
+          <Card
+            className={
+              credit.isOverLimit
+                ? "border-amber-500/40"
+                : credit.hasLimit && credit.utilizationPct >= 80
+                  ? "border-amber-500/20"
+                  : ""
+            }
+          >
+            <CardHeader>
+              <CardTitle>Credit</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              <div>
+                <p className="text-xs text-slate-500">Credit limit</p>
+                <p className="text-lg font-semibold tabular-nums">
+                  {credit.hasLimit
+                    ? formatCurrency(credit.creditLimit)
+                    : "No limit set"}
+                </p>
+              </div>
+              {credit.hasLimit && (
+                <>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="rounded border border-slate-800 bg-slate-950/50 p-2">
+                      <p className="text-slate-500">Open AR</p>
+                      <p className="tabular-nums text-slate-200">
+                        {formatCurrency(credit.arBalance)}
+                      </p>
+                    </div>
+                    <div className="rounded border border-slate-800 bg-slate-950/50 p-2">
+                      <p className="text-slate-500">Open SOs</p>
+                      <p className="tabular-nums text-slate-200">
+                        {formatCurrency(credit.openSoBalance)}
+                      </p>
+                    </div>
+                    <div className="rounded border border-slate-800 bg-slate-950/50 p-2">
+                      <p className="text-slate-500">Exposure</p>
+                      <p
+                        className={`tabular-nums font-medium ${
+                          credit.isOverLimit ? "text-amber-400" : "text-slate-100"
+                        }`}
+                      >
+                        {formatCurrency(credit.exposure)}
+                      </p>
+                    </div>
+                    <div className="rounded border border-slate-800 bg-slate-950/50 p-2">
+                      <p className="text-slate-500">Available</p>
+                      <p className="tabular-nums text-emerald-400">
+                        {formatCurrency(credit.availableCredit)}
+                      </p>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="mb-1 flex justify-between text-[10px] text-slate-500">
+                      <span>Utilization</span>
+                      <span>{credit.utilizationPct}%</span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-slate-800">
+                      <div
+                        className={`h-full rounded-full ${
+                          credit.isOverLimit
+                            ? "bg-amber-500"
+                            : credit.utilizationPct >= 80
+                              ? "bg-amber-400"
+                              : "bg-teal-500"
+                        }`}
+                        style={{
+                          width: `${Math.min(100, credit.utilizationPct)}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                  {credit.isOverLimit && (
+                    <p className="text-[11px] text-amber-400">
+                      Deposit required on new orders
+                    </p>
+                  )}
+                </>
+              )}
+            </CardContent>
+          </Card>
           <Card>
             <CardHeader>
               <CardTitle>Bill to</CardTitle>
@@ -101,14 +200,6 @@ export default async function CustomerDetailPage({
               <pre className="whitespace-pre-wrap font-sans text-sm text-slate-300">
                 {customer.shipToAddress || customer.billToAddress || "—"}
               </pre>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4 text-sm">
-              <p className="text-xs text-slate-500">Credit limit</p>
-              <p className="text-lg font-semibold tabular-nums">
-                {formatCurrency(customer.creditLimit)}
-              </p>
             </CardContent>
           </Card>
         </div>
@@ -132,6 +223,11 @@ export default async function CustomerDetailPage({
                 <div>
                   <span className="font-mono text-sky-400">{so.number}</span>
                   <StatusBadge status={so.status} className="ml-2" />
+                  {so.depositRequired && (
+                    <span className="ml-1 rounded border border-amber-500/40 px-1 text-[10px] text-amber-400">
+                      Deposit
+                    </span>
+                  )}
                   <p className="text-[11px] text-slate-500">
                     {formatDate(so.orderDate)} · Due {formatDate(so.requiredDate)}
                   </p>

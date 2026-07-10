@@ -41,6 +41,7 @@ export default async function WorkOrderDetailPage({
         createdBy: true,
         project: true,
         salesOrder: true,
+        materialRequisition: true,
         instructions: {
           include: {
             workInstruction: {
@@ -68,7 +69,7 @@ export default async function WorkOrderDetailPage({
   if (!wo) notFound();
 
   const selectClass =
-    "flex h-8 rounded-md border border-slate-700 bg-slate-950 px-2 text-xs text-slate-200";
+    "flex h-8 w-full min-w-0 max-w-full rounded-md border border-slate-700 bg-slate-950 px-2 text-xs text-slate-200";
 
   const material = await checkBomMaterialAvailability(wo.id);
   const openKit = wo.kitOrders.find((k) =>
@@ -191,14 +192,70 @@ export default async function WorkOrderDetailPage({
         <StatusBadge status={wo.status} />
         <StatusBadge status={wo.kitStatus} />
         <StatusBadge status={wo.type} />
+        <StatusBadge status={wo.sourceType || "OTHER"} />
         <StatusBadge status={wo.priority} />
         {wo.bomHeader?.isPrototype && <StatusBadge status="PROTOTYPE" />}
         {wo.salesOrder && (
-          <Link href={`/sales/${wo.salesOrder.id}`} className="text-xs text-sky-400 underline">
-            {wo.salesOrder.number}
+          <Link
+            href={`/sales/${wo.salesOrder.id}`}
+            className="rounded border border-sky-500/40 px-2 py-0.5 text-xs font-medium text-sky-300 hover:bg-sky-500/10"
+          >
+            Sales order {wo.salesOrder.number}
+          </Link>
+        )}
+        {wo.materialRequisition && (
+          <Link
+            href={`/planning/mrs/${wo.materialRequisition.id}`}
+            className="rounded border border-violet-500/40 px-2 py-0.5 text-xs font-medium text-violet-300 hover:bg-violet-500/10"
+          >
+            MRS {wo.materialRequisition.number}
           </Link>
         )}
       </div>
+
+      {/* Origin banner — SO vs MRS vs project */}
+      {wo.salesOrder && !wo.projectId && (
+        <Card className="border-sky-900/40 bg-sky-500/5">
+          <CardContent className="p-3 text-sm text-sky-100">
+            <p className="font-medium">
+              Sales-order work order ({wo.number})
+            </p>
+            <p className="mt-0.5 text-xs text-sky-200/80">
+              Referenced to{" "}
+              <Link
+                href={`/sales/${wo.salesOrder.id}`}
+                className="font-mono underline"
+              >
+                {wo.salesOrder.number}
+              </Link>
+              {wo.salesOrderRef && wo.salesOrderRef !== wo.salesOrder.number
+                ? ` (${wo.salesOrderRef})`
+                : ""}
+              . Project / WBS not applied — this is commercial demand, not
+              project work.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+      {wo.materialRequisition && (
+        <Card className="border-violet-900/40 bg-violet-500/5">
+          <CardContent className="p-3 text-sm text-violet-100">
+            <p className="font-medium">
+              Material-requisition work order ({wo.number})
+            </p>
+            <p className="mt-0.5 text-xs text-violet-200/80">
+              Created from forecast planning via{" "}
+              <Link
+                href={`/planning/mrs/${wo.materialRequisition.id}`}
+                className="font-mono underline"
+              >
+                {wo.materialRequisition.number}
+              </Link>
+              . Traveler references this MRS unique number.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {wo.travelerNotes && (
         <Card className="border-teal-900/40 bg-teal-950/20">
@@ -213,8 +270,8 @@ export default async function WorkOrderDetailPage({
         </Card>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-4">
-        <Card>
+      <div className="grid min-w-0 gap-4 lg:grid-cols-4">
+        <Card className="min-w-0">
           <CardContent className="p-4">
             <p className="text-xs text-slate-500">Part / BOM</p>
             <p className="font-medium text-slate-200">
@@ -228,15 +285,22 @@ export default async function WorkOrderDetailPage({
             )}
           </CardContent>
         </Card>
-        <Card>
+        <Card className="min-w-0 overflow-hidden">
           <CardContent className="space-y-2 p-4">
             <p className="text-xs text-slate-500">Qty / Station</p>
             <p className="font-medium text-slate-200">
               {wo.quantityCompleted}/{wo.quantity} ·{" "}
-              <span className="font-mono text-teal-400">{wo.workCenter || "—"}</span>
+              <span className="font-mono text-teal-400">
+                {wo.workCenter || "—"}
+              </span>
             </p>
-            <p className="text-xs text-slate-500">{wo.assignee?.name || "Unassigned"}</p>
-            <form action={actionReassignWoStation} className="flex flex-wrap items-end gap-1">
+            <p className="truncate text-xs text-slate-500">
+              {wo.assignee?.name || "Unassigned"}
+            </p>
+            <form
+              action={actionReassignWoStation}
+              className="flex min-w-0 flex-col gap-2"
+            >
               <input type="hidden" name="workOrderId" value={wo.id} />
               <select
                 name="workCenterCode"
@@ -253,20 +317,26 @@ export default async function WorkOrderDetailPage({
                       .filter((c) => c.area === area)
                       .map((c) => (
                         <option key={c.id} value={c.code}>
-                          {c.code} — {c.name}
+                          {c.code}
                           {c.isDefault ? " ★" : ""}
                         </option>
                       ))}
                   </optgroup>
                 ))}
               </select>
-              <label className="flex items-center gap-1 text-[10px] text-slate-500">
-                <input type="checkbox" name="force" className="rounded border-slate-600" />
-                Force
-              </label>
-              <Button type="submit" size="sm" variant="secondary">
-                Move WO
-              </Button>
+              <div className="flex items-center justify-between gap-2">
+                <label className="flex shrink-0 items-center gap-1 text-[10px] text-slate-500">
+                  <input
+                    type="checkbox"
+                    name="force"
+                    className="rounded border-slate-600"
+                  />
+                  Force
+                </label>
+                <Button type="submit" size="sm" variant="secondary" className="shrink-0">
+                  Move
+                </Button>
+              </div>
             </form>
           </CardContent>
         </Card>
@@ -280,31 +350,65 @@ export default async function WorkOrderDetailPage({
             </p>
           </CardContent>
         </Card>
-        {wo.type !== "TASK_ONLY" && total > 0 ? (
-          <Card>
-            <CardContent className="p-4">
-              <p className="text-xs text-slate-500">WI sign-off progress</p>
-              <p className="font-medium text-teal-400">{pct}%</p>
-              <Progress value={pct} className="mt-2 h-1.5" />
-              <p className="mt-1 text-[10px] text-slate-600">
-                {done}/{total} steps signed
-              </p>
-            </CardContent>
-          </Card>
-        ) : (
-          <Card>
-            <CardContent className="p-4">
-              <p className="text-xs text-slate-500">
-                {wo.type === "TASK_ONLY" ? "Task order" : "WI steps"}
-              </p>
-              <p className="text-sm text-slate-400">
-                {wo.type === "TASK_ONLY"
-                  ? "No BOM progress for task-only WOs"
-                  : "No WI steps attached"}
-              </p>
-            </CardContent>
-          </Card>
-        )}
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-slate-500">Origin / reference</p>
+            {wo.salesOrder ? (
+              <>
+                <p className="font-medium text-sky-300">Sales order</p>
+                <Link
+                  href={`/sales/${wo.salesOrder.id}`}
+                  className="font-mono text-sm text-sky-400 hover:underline"
+                >
+                  {wo.salesOrder.number}
+                </Link>
+              </>
+            ) : wo.materialRequisition ? (
+              <>
+                <p className="font-medium text-violet-300">Material requisition</p>
+                <Link
+                  href={`/planning/mrs/${wo.materialRequisition.id}`}
+                  className="font-mono text-sm text-violet-400 hover:underline"
+                >
+                  {wo.materialRequisition.number}
+                </Link>
+              </>
+            ) : wo.projectId && wo.project ? (
+              <>
+                <p className="font-medium text-slate-200">Project</p>
+                <Link
+                  href={`/projects/${wo.project.id}`}
+                  className="font-mono text-sm text-teal-400 hover:underline"
+                >
+                  {wo.project.number}
+                </Link>
+                {wo.wbsElementId && (
+                  <p className="text-[11px] text-slate-500">WBS linked</p>
+                )}
+              </>
+            ) : (
+              <>
+                <p className="font-medium text-slate-200">
+                  {wo.sourceType === "BOM" ? "BOM production" : "Standalone"}
+                </p>
+                <p className="text-xs text-slate-500">No SO / MRS / project</p>
+              </>
+            )}
+            {wo.type !== "TASK_ONLY" && total > 0 && (
+              <>
+                <p className="mt-3 text-xs text-slate-500">WI sign-off</p>
+                <p className="font-medium text-teal-400">{pct}%</p>
+                <Progress value={pct} className="mt-1 h-1.5" />
+                <p className="mt-1 text-[10px] text-slate-600">
+                  {done}/{total} steps
+                </p>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
         {wo.type !== "TASK_ONLY" && (
           <Card>
             <CardContent className="p-4">

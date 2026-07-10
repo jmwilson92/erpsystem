@@ -14,98 +14,232 @@ const ACTIVE_WO = [
   "KITTED",
 ] as const;
 
+const DONE_STEP = ["PASSED", "FAILED", "SKIPPED", "SIGNED"] as const;
+
+export type QueueReadiness = "AT_STATION" | "STEP_READY" | "UPCOMING";
+
+function stepMatchesArea(
+  step: {
+    workCenter: string | null;
+    requiredArea: string | null;
+    isTestStep: boolean;
+  },
+  area: "QA" | "TEST",
+  areaCodes: string[],
+  otherCodes: string[]
+): boolean {
+  if (step.requiredArea === area) return true;
+  if (step.workCenter && areaCodes.includes(step.workCenter)) return true;
+  if (step.workCenter && otherCodes.includes(step.workCenter)) return false;
+  if (step.requiredArea && step.requiredArea !== area) return false;
+  // isTestStep defaults to TEST unless clearly QA-routed
+  if (area === "TEST" && step.isTestStep) return true;
+  return false;
+}
+
+function completionMatchesArea(
+  sc: {
+    assignedWorkCenter: string | null;
+    step: {
+      workCenter: string | null;
+      requiredArea: string | null;
+      isTestStep: boolean;
+    };
+  },
+  area: "QA" | "TEST",
+  areaCodes: string[],
+  otherCodes: string[]
+): boolean {
+  if (sc.assignedWorkCenter && areaCodes.includes(sc.assignedWorkCenter)) {
+    return true;
+  }
+  if (sc.assignedWorkCenter && otherCodes.includes(sc.assignedWorkCenter)) {
+    return false;
+  }
+  return stepMatchesArea(sc.step, area, areaCodes, otherCodes);
+}
+
+/**
+ * Prior steps (lower stepNumber) all complete → this step is "up" on the traveler.
+ * Or WO already scanned into this area station.
+ */
+function computeReadiness(params: {
+  stepNumber: number;
+  allCompletions: { status: string; step: { stepNumber: number } }[];
+  woWorkCenter: string | null | undefined;
+  areaCodes: string[];
+}): QueueReadiness {
+  if (params.woWorkCenter && params.areaCodes.includes(params.woWorkCenter)) {
+    return "AT_STATION";
+  }
+  const priorsDone = params.allCompletions
+    .filter((c) => c.step.stepNumber < params.stepNumber)
+    .every((c) => (DONE_STEP as readonly string[]).includes(c.status));
+  return priorsDone ? "STEP_READY" : "UPCOMING";
+}
+
+/**
+ * Pending QA/TEST steps for open WOs — includes steps not yet reached on the
+ * traveler and WOs not yet scanned into the station (UPCOMING).
+ */
+async function loadAreaStepQueue(area: "QA" | "TEST") {
+  const [areaCodes, otherCodes] = await Promise.all([
+    listWorkCenterCodesByArea(area),
+    listWorkCenterCodesByArea(area === "QA" ? "TEST" : "QA"),
+  ]);
+  const areaCodeList =
+    areaCodes.length > 0
+      ? areaCodes
+      : area === "QA"
+        ? ["QA-01"]
+        : ["TEST-01"];
+  const otherCodeList = otherCodes;
+
+  // Broad fetch of open WO step completions; filter in JS for area match
+  const allPending = await prisma.workOrderStepCompletion.findMany({
+    where: {
+      status: { in: ["PENDING", "IN_PROGRESS"] },
+      workOrder: { status: { in: [...ACTIVE_WO] } },
+      OR: [
+        { assignedWorkCenter: { in: areaCodeList } },
+        { step: { workCenter: { in: areaCodeList } } },
+        { step: { requiredArea: area } },
+        ...(area === "TEST"
+          ? [{ step: { isTestStep: true } }]
+          : []),
+      ],
+    },
+    include: {
+      step: true,
+      workOrder: {
+        include: {
+          part: {
+            select: { id: true, partNumber: true, description: true },
+          },
+          salesOrder: { select: { id: true, number: true } },
+          stepCompletions: {
+            include: { step: { select: { stepNumber: true } } },
+          },
+        },
+      },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
+  const matched = allPending.filter((sc) =>
+    completionMatchesArea(sc, area, areaCodeList, otherCodeList)
+  );
+
+  type Group = {
+    workOrder: (typeof matched)[0]["workOrder"];
+    steps: Array<
+      (typeof matched)[0] & { readiness: QueueReadiness }
+    >;
+    readiness: QueueReadiness; // best (most ready) status across steps
+  };
+
+  const byWo = new Map<string, Group>();
+  const rank: Record<QueueReadiness, number> = {
+    AT_STATION: 0,
+    STEP_READY: 1,
+    UPCOMING: 2,
+  };
+
+  for (const sc of matched) {
+    const readiness = computeReadiness({
+      stepNumber: sc.step.stepNumber,
+      allCompletions: sc.workOrder.stepCompletions,
+      woWorkCenter: sc.workOrder.workCenter,
+      areaCodes: areaCodeList,
+    });
+    const withReady = { ...sc, readiness };
+    const existing = byWo.get(sc.workOrderId);
+    if (existing) {
+      existing.steps.push(withReady);
+      if (rank[readiness] < rank[existing.readiness]) {
+        existing.readiness = readiness;
+      }
+    } else {
+      byWo.set(sc.workOrderId, {
+        workOrder: sc.workOrder,
+        steps: [withReady],
+        readiness,
+      });
+    }
+  }
+
+  // Sort groups: at station → step ready → upcoming
+  const groups = Array.from(byWo.values()).sort(
+    (a, b) => rank[a.readiness] - rank[b.readiness]
+  );
+
+  return {
+    areaCodeList,
+    groups,
+    flatSteps: groups.flatMap((g) => g.steps),
+    stats: {
+      atStation: groups.filter((g) => g.readiness === "AT_STATION").length,
+      stepReady: groups.filter((g) => g.readiness === "STEP_READY").length,
+      upcoming: groups.filter((g) => g.readiness === "UPCOMING").length,
+      totalSteps: groups.reduce((s, g) => s + g.steps.length, 0),
+    },
+  };
+}
+
 /**
  * Test module queue = stations in area TEST (powered functional).
- * QA (continuity / GD&T / visual) is separate.
+ * Includes traveler steps not yet "up" and WOs not yet scanned in.
  */
 export async function getTestCenterQueue() {
   const testCodes = await listWorkCenterCodesByArea("TEST");
   const testCodeList = testCodes.length ? testCodes : ["TEST-01"];
 
-  const [receivingInspections, testCenterWos, productionTestSteps] =
-    await Promise.all([
-      prisma.inspection.findMany({
-        where: {
-          workCenter: { in: testCodeList },
-          status: { in: ["PENDING", "IN_PROGRESS"] },
-          type: "FUNCTIONAL",
-        },
-        include: {
-          results: true,
-          documents: true,
-          workOrder: {
-            select: {
-              id: true,
-              number: true,
-              status: true,
-              type: true,
-              description: true,
-            },
+  const [receivingInspections, testCenterWos, stepQueue] = await Promise.all([
+    prisma.inspection.findMany({
+      where: {
+        workCenter: { in: testCodeList },
+        status: { in: ["PENDING", "IN_PROGRESS"] },
+        type: "FUNCTIONAL",
+      },
+      include: {
+        results: true,
+        documents: true,
+        workOrder: {
+          select: {
+            id: true,
+            number: true,
+            status: true,
+            type: true,
+            description: true,
           },
         },
-        orderBy: { createdAt: "asc" },
-      }),
-      prisma.workOrder.findMany({
-        where: {
-          workCenter: { in: testCodeList },
-          status: { in: [...ACTIVE_WO] },
+      },
+      orderBy: { createdAt: "asc" },
+    }),
+    prisma.workOrder.findMany({
+      where: {
+        workCenter: { in: testCodeList },
+        status: { in: [...ACTIVE_WO] },
+      },
+      include: {
+        part: { select: { id: true, partNumber: true, description: true } },
+        salesOrder: { select: { id: true, number: true } },
+        stepCompletions: {
+          include: { step: true },
+          orderBy: { step: { stepNumber: "asc" } },
         },
-        include: {
-          part: { select: { id: true, partNumber: true, description: true } },
-          salesOrder: { select: { id: true, number: true } },
-          stepCompletions: {
-            include: { step: true },
-            orderBy: { step: { stepNumber: "asc" } },
+        inspections: {
+          where: {
+            status: { in: ["PENDING", "IN_PROGRESS"] },
+            type: "FUNCTIONAL",
           },
-          inspections: {
-            where: {
-              status: { in: ["PENDING", "IN_PROGRESS"] },
-              type: "FUNCTIONAL",
-            },
-            select: { id: true, number: true, type: true, status: true },
-          },
+          select: { id: true, number: true, type: true, status: true },
         },
-        orderBy: [{ priority: "desc" }, { dueDate: "asc" }, { createdAt: "asc" }],
-      }),
-      prisma.workOrderStepCompletion.findMany({
-        where: {
-          status: { in: ["PENDING", "IN_PROGRESS"] },
-          OR: [
-            { assignedWorkCenter: { in: testCodeList } },
-            {
-              assignedWorkCenter: null,
-              step: {
-                OR: [
-                  { workCenter: { in: testCodeList } },
-                  { requiredArea: "TEST" },
-                ],
-              },
-            },
-          ],
-          workOrder: {
-            status: { in: [...ACTIVE_WO] },
-            NOT: {
-              AND: [
-                { workCenter: { in: testCodeList } },
-                { type: "INSPECTION" },
-              ],
-            },
-          },
-        },
-        include: {
-          step: true,
-          workOrder: {
-            include: {
-              part: {
-                select: { id: true, partNumber: true, description: true },
-              },
-              salesOrder: { select: { id: true, number: true } },
-            },
-          },
-        },
-        orderBy: { createdAt: "asc" },
-      }),
-    ]);
+      },
+      orderBy: [{ priority: "desc" }, { dueDate: "asc" }, { createdAt: "asc" }],
+    }),
+    loadAreaStepQueue("TEST"),
+  ]);
 
   const partIds = [
     ...new Set(
@@ -144,24 +278,11 @@ export async function getTestCenterQueue() {
     : [];
   const receiptMap = Object.fromEntries(receipts.map((r) => [r.id, r]));
 
+  // Production test groups = area steps for WOs not already listed as "at TEST station"
   const testWoIds = new Set(testCenterWos.map((w) => w.id));
-  const productionByWo = new Map<
-    string,
-    {
-      workOrder: (typeof productionTestSteps)[0]["workOrder"];
-      steps: typeof productionTestSteps;
-    }
-  >();
-  for (const sc of productionTestSteps) {
-    if (testWoIds.has(sc.workOrderId)) continue;
-    const existing = productionByWo.get(sc.workOrderId);
-    if (existing) existing.steps.push(sc);
-    else
-      productionByWo.set(sc.workOrderId, {
-        workOrder: sc.workOrder,
-        steps: [sc],
-      });
-  }
+  const productionTestGroups = stepQueue.groups.filter(
+    (g) => !testWoIds.has(g.workOrder.id)
+  );
 
   const receivingByWo = new Map<
     string,
@@ -196,7 +317,7 @@ export async function getTestCenterQueue() {
         ? w.estimatedMinutes / 60
         : 1.5;
   }
-  for (const [, group] of productionByWo) {
+  for (const group of productionTestGroups) {
     for (const s of group.steps) {
       loadHours += (s.step.estimatedMinutes || 30) / 60;
     }
@@ -206,19 +327,27 @@ export async function getTestCenterQueue() {
     receivingInspections,
     receivingByWo: Array.from(receivingByWo.values()),
     testCenterWos,
-    productionTestGroups: Array.from(productionByWo.values()),
+    productionTestGroups,
+    /** All TEST-area steps including those on WOs already at station */
+    testStepGroups: stepQueue.groups,
     partMap,
     receiptMap,
     stats: {
       openReceiving: receivingInspections.length,
       openInspectionWos: testCenterWos.filter((w) => w.type === "INSPECTION")
         .length,
-      openProductionTests: productionByWo.size,
+      openProductionTests: productionTestGroups.length,
+      upcomingTests: productionTestGroups.filter(
+        (g) => g.readiness === "UPCOMING"
+      ).length,
+      readyTests: productionTestGroups.filter(
+        (g) => g.readiness === "STEP_READY" || g.readiness === "AT_STATION"
+      ).length,
       onHold: testCenterWos.filter((w) => w.status === "ON_HOLD").length,
       totalQueue:
         receivingInspections.length +
         testCenterWos.length +
-        productionByWo.size,
+        productionTestGroups.length,
       loadHours: Math.round(loadHours * 10) / 10,
       capacity: Math.round(capacity * 10) / 10,
       utilPct:
@@ -234,7 +363,7 @@ export async function getQaInspectionQueue() {
   const qaCodes = await listWorkCenterCodesByArea("QA");
   const qaCodeList = qaCodes.length ? qaCodes : ["QA-01"];
 
-  const [qaInspections, qaWos, continuitySteps] = await Promise.all([
+  const [qaInspections, qaWos, stepQueue] = await Promise.all([
     prisma.inspection.findMany({
       where: {
         workCenter: { in: qaCodeList },
@@ -260,33 +389,7 @@ export async function getQaInspectionQueue() {
       },
       orderBy: { createdAt: "asc" },
     }),
-    prisma.workOrderStepCompletion.findMany({
-      where: {
-        status: { in: ["PENDING", "IN_PROGRESS"] },
-        OR: [
-          { assignedWorkCenter: { in: qaCodeList } },
-          {
-            assignedWorkCenter: null,
-            step: {
-              OR: [
-                { workCenter: { in: qaCodeList } },
-                { requiredArea: "QA" },
-              ],
-            },
-          },
-        ],
-        workOrder: { status: { in: [...ACTIVE_WO] } },
-      },
-      include: {
-        step: true,
-        workOrder: {
-          include: {
-            part: { select: { partNumber: true, description: true } },
-          },
-        },
-      },
-      orderBy: { createdAt: "asc" },
-    }),
+    loadAreaStepQueue("QA"),
   ]);
 
   const partIds = [
@@ -302,7 +405,6 @@ export async function getQaInspectionQueue() {
     : [];
   const partMap = Object.fromEntries(parts.map((p) => [p.id, p]));
 
-  // Also include open inspections on QA WOs even if workCenter field drifted
   const qaWoIds = new Set(qaWos.map((w) => w.id));
   const linkedMissing = await prisma.inspection.findMany({
     where: {
@@ -336,16 +438,32 @@ export async function getQaInspectionQueue() {
     for (const p of extraParts) partMap[p.id] = p;
   }
 
+  // Continuity / QA steps: exclude WOs already listed as scanned into QA
+  const continuityGroups = stepQueue.groups.filter(
+    (g) => !qaWoIds.has(g.workOrder.id)
+  );
+  // Flat list for backward-compatible UI (all steps, with readiness)
+  const continuitySteps = stepQueue.flatSteps.filter(
+    (sc) => !qaWoIds.has(sc.workOrderId)
+  );
+
   return {
     qaInspections: allQaInspections,
     qaWos,
     continuitySteps,
+    continuityGroups,
     partMap,
     stats: {
       openInspections: allQaInspections.length,
       openWos: qaWos.length,
       openSteps: continuitySteps.length,
-      total: allQaInspections.length + qaWos.length + continuitySteps.length,
+      upcomingSteps: continuitySteps.filter((s) => s.readiness === "UPCOMING")
+        .length,
+      readySteps: continuitySteps.filter(
+        (s) => s.readiness === "STEP_READY" || s.readiness === "AT_STATION"
+      ).length,
+      total:
+        allQaInspections.length + qaWos.length + continuitySteps.length,
     },
   };
 }

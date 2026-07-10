@@ -5,7 +5,7 @@ import { StatCard } from "@/components/shared/stat-card";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
 import Link from "next/link";
-import { Plus, Users, Building2, FileText, ShoppingBag } from "lucide-react";
+import { Plus, Users, Building2, FileText, ShoppingBag, AlertTriangle } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -18,8 +18,11 @@ export default async function CustomersPage() {
       },
       salesOrders: {
         select: { totalAmount: true, status: true },
-        take: 50,
         orderBy: { orderDate: "desc" },
+      },
+      invoices: {
+        where: { status: { in: ["OPEN", "PARTIAL"] } },
+        select: { total: true, amountPaid: true },
       },
     },
   });
@@ -34,11 +37,32 @@ export default async function CustomersPage() {
     0
   );
 
+  const rows = customers.map((c) => {
+    const arBalance = c.invoices.reduce(
+      (s, inv) => s + Math.max(0, inv.total - inv.amountPaid),
+      0
+    );
+    const openSoBalance = c.salesOrders
+      .filter((o) =>
+        ["OPEN", "PLANNED", "IN_PRODUCTION", "READY_TO_SHIP"].includes(o.status)
+      )
+      .reduce((s, o) => s + o.totalAmount, 0);
+    const exposure = arBalance + openSoBalance;
+    const hasLimit = c.creditLimit > 0;
+    const isOverLimit = hasLimit && exposure >= c.creditLimit;
+    const utilizationPct = hasLimit
+      ? Math.round((exposure / c.creditLimit) * 1000) / 10
+      : 0;
+    return { c, arBalance, openSoBalance, exposure, hasLimit, isOverLimit, utilizationPct };
+  });
+
+  const overLimitCount = rows.filter((r) => r.isOverLimit).length;
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Customers"
-        description="Accounts, bill-to / ship-to, terms — used by quotes and sales orders"
+        description="Accounts, credit limits, terms — used by quotes and sales orders"
         actions={
           <Link href="/customers/new">
             <Button size="sm">
@@ -54,10 +78,10 @@ export default async function CustomersPage() {
         <StatCard title="Active" value={active} icon={Users} accent="teal" />
         <StatCard title="Open sales orders" value={openSo} icon={ShoppingBag} accent="sky" />
         <StatCard
-          title="With quotes"
-          value={customers.filter((c) => c._count.quotes > 0).length}
-          icon={FileText}
-          accent="amber"
+          title="Over credit limit"
+          value={overLimitCount}
+          icon={overLimitCount > 0 ? AlertTriangle : FileText}
+          accent={overLimitCount > 0 ? "amber" : "sky"}
         />
       </div>
 
@@ -69,7 +93,8 @@ export default async function CustomersPage() {
               <th className="px-3 py-2.5 text-left">Name</th>
               <th className="px-3 py-2.5 text-left">Contact</th>
               <th className="px-3 py-2.5 text-left">Terms</th>
-              <th className="px-3 py-2.5 text-right">Credit</th>
+              <th className="px-3 py-2.5 text-right">Credit limit</th>
+              <th className="px-3 py-2.5 text-right">Exposure</th>
               <th className="px-3 py-2.5 text-right">SOs</th>
               <th className="px-3 py-2.5 text-right">Quotes</th>
               <th className="px-3 py-2.5 text-left">Status</th>
@@ -77,8 +102,13 @@ export default async function CustomersPage() {
             </tr>
           </thead>
           <tbody>
-            {customers.map((c) => (
-              <tr key={c.id} className="border-t border-slate-800/60 hover:bg-slate-900/40">
+            {rows.map(({ c, exposure, hasLimit, isOverLimit, utilizationPct }) => (
+              <tr
+                key={c.id}
+                className={`border-t border-slate-800/60 hover:bg-slate-900/40 ${
+                  isOverLimit ? "bg-amber-500/5" : ""
+                }`}
+              >
                 <td className="px-3 py-3 font-mono text-xs text-teal-400">{c.code}</td>
                 <td className="px-3 py-3">
                   <Link
@@ -87,6 +117,11 @@ export default async function CustomersPage() {
                   >
                     {c.name}
                   </Link>
+                  {isOverLimit && (
+                    <p className="mt-0.5 text-[10px] font-medium text-amber-400">
+                      Over limit — deposit required on new POs
+                    </p>
+                  )}
                 </td>
                 <td className="px-3 py-3 text-xs text-slate-400">
                   <div>{c.contactName || "—"}</div>
@@ -94,12 +129,37 @@ export default async function CustomersPage() {
                 </td>
                 <td className="px-3 py-3 text-xs text-slate-400">{c.paymentTerms}</td>
                 <td className="px-3 py-3 text-right tabular-nums text-slate-400">
-                  {formatCurrency(c.creditLimit)}
+                  {hasLimit ? formatCurrency(c.creditLimit) : "—"}
+                </td>
+                <td className="px-3 py-3 text-right">
+                  {hasLimit ? (
+                    <div>
+                      <span
+                        className={`tabular-nums ${
+                          isOverLimit ? "font-semibold text-amber-400" : "text-slate-300"
+                        }`}
+                      >
+                        {formatCurrency(exposure)}
+                      </span>
+                      <p
+                        className={`text-[10px] ${
+                          isOverLimit ? "text-amber-500" : "text-slate-600"
+                        }`}
+                      >
+                        {utilizationPct}% used
+                      </p>
+                    </div>
+                  ) : (
+                    <span className="text-slate-600">No limit</span>
+                  )}
                 </td>
                 <td className="px-3 py-3 text-right tabular-nums">{c._count.salesOrders}</td>
                 <td className="px-3 py-3 text-right tabular-nums">{c._count.quotes}</td>
                 <td className="px-3 py-3">
-                  <StatusBadge status={c.isActive ? "ACTIVE" : "INACTIVE"} />
+                  <div className="flex flex-wrap items-center gap-1">
+                    <StatusBadge status={c.isActive ? "ACTIVE" : "INACTIVE"} />
+                    {isOverLimit && <StatusBadge status="OVER_LIMIT" />}
+                  </div>
                 </td>
                 <td className="px-3 py-3 text-right">
                   <Link href={`/customers/${c.id}`}>

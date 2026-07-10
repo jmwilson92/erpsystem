@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
@@ -29,6 +29,9 @@ import {
   Bot,
   ChevronLeft,
   Flame,
+  AlertTriangle,
+  FileWarning,
+  LineChart,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -47,6 +50,7 @@ const nav = [
     label: "Manufacturing",
     items: [
       { href: "/work-orders", label: "Work Orders", icon: ClipboardList },
+      { href: "/planning", label: "Planning / Forecast", icon: LineChart },
       { href: "/work-instructions", label: "Work Instructions", icon: FileText },
       { href: "/qa", label: "QA", icon: FlaskConical },
       { href: "/test-center", label: "Test Center", icon: FlaskConical },
@@ -74,7 +78,8 @@ const nav = [
     label: "Quality & Compliance",
     items: [
       { href: "/quality", label: "NCR / Quality", icon: FlaskConical },
-      { href: "/mrb", label: "MRB / CAR", icon: Gauge },
+      { href: "/mrb", label: "MRB", icon: AlertTriangle },
+      { href: "/mrb?view=cars", label: "CAR", icon: FileWarning },
       { href: "/government-property", label: "Gov Property", icon: Shield },
     ],
   },
@@ -91,6 +96,7 @@ const nav = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [collapsed, setCollapsed] = useState(false);
 
   return (
@@ -131,10 +137,21 @@ export function Sidebar() {
             )}
             <ul className="space-y-0.5">
               {group.items.map((item) => {
-                const active =
+                const [itemPath, itemQuery] = item.href.split("?");
+                let active =
                   item.href === "/"
                     ? pathname === "/"
-                    : pathname === item.href || pathname.startsWith(item.href + "/");
+                    : pathname === itemPath ||
+                      pathname.startsWith(itemPath + "/");
+                // Distinguish /mrb vs /mrb?view=cars
+                if (itemPath === "/mrb" && pathname === "/mrb") {
+                  const view = searchParams.get("view") || "mrb";
+                  if (itemQuery?.includes("view=cars")) {
+                    active = view === "cars";
+                  } else {
+                    active = view !== "cars";
+                  }
+                }
                 const Icon = item.icon;
                 return (
                   <li key={item.href}>

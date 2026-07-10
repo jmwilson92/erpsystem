@@ -11,11 +11,27 @@ import { NewWiForm } from "@/components/work-instructions/new-wi-form";
 export const dynamic = "force-dynamic";
 
 export default async function NewWorkInstructionPage() {
-  const [parts, boms, measureUoms, workCenters] = await Promise.all([
+  const [parts, toolParts, boms, measureUoms, workCenters] = await Promise.all([
     prisma.part.findMany({
       where: { isActive: true },
       orderBy: { partNumber: "asc" },
       select: { id: true, partNumber: true, description: true },
+    }),
+    // Tools / tooling-ish items for WI required tools (purchase or any active)
+    prisma.part.findMany({
+      where: {
+        isActive: true,
+        OR: [
+          { sourcingMethod: "PURCHASE" },
+          { partType: "BUY" },
+          { description: { contains: "tool" } },
+          { description: { contains: "Tool" } },
+          { partNumber: { contains: "TOOL" } },
+        ],
+      },
+      orderBy: { partNumber: "asc" },
+      select: { id: true, partNumber: true, description: true },
+      take: 200,
     }),
     prisma.bomHeader.findMany({
       where: { status: { in: ["CERTIFIED", "PROTOTYPE", "PRODUCTION"] } },
@@ -60,6 +76,7 @@ export default async function NewWorkInstructionPage() {
       />
       <NewWiForm
         parts={parts}
+        toolParts={toolParts.length > 0 ? toolParts : parts}
         boms={boms.map((b) => ({
           id: b.id,
           label: `${b.part.partNumber} Rev ${b.revision} (${b.status})`,

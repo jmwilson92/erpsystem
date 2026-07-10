@@ -45,6 +45,7 @@ model User {
   engTicketsCreated   EngineeringTicket[]      @relation("TicketCreator")
   ncrsCreated         NonConformance[]         @relation("NCRCreator")
   mrbDecisions        MrbDisposition[]
+  carActivityLogs     CarActivityLog[]
   projectMemberships  ProjectMember[]
 }
 
@@ -187,6 +188,15 @@ model Part {
   // Receiving inspection requirements (item card — not BOM)
   requiresGdtInspection   Boolean @default(false)
   requiresFunctionalTest  Boolean @default(false)
+  // Inventory policy / replenishment (item card)
+  isKanban        Boolean @default(false) // min/max kanban refill
+  minStock        Float   @default(0)     // reorder when on-hand ≤ min
+  maxStock        Float   @default(0)     // refill target / max bin
+  reorderPoint    Float   @default(0)     // optional classic ROP (if not kanban)
+  safetyStock     Float   @default(0)
+  abcClass        String? // A | B | C inventory classification
+  isCritical      Boolean @default(false) // critical / sole-source flag
+  shelfLifeDays   Int?    // optional shelf life for lot expiry
   notes           String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -208,11 +218,14 @@ model Part {
   travelerLines   ReceivingTravelerLine[]
   vendors         PartVendor[]
   traceEvents     TraceEvent[]
+  forecastLines   ForecastLine[]
+  mrsLines        MaterialRequisitionLine[]
 
   @@index([sourcingMethod])
   @@index([itemStructure])
   @@index([partType])
   @@index([isActive])
+  @@index([isKanban])
 }
 
 // Vendor catalog lines for purchasable items
@@ -298,6 +311,13 @@ model WorkInstruction {
   bomRevision     String?
   workCenter      String?
   estimatedMinutes Int?
+  // Safety / references / tooling (header-level)
+  hazmatRequired  String?  // free text: chemicals, PPE, hazmat classes
+  // Primary drawing + additional refs (JSON string[] or newline list stored as text)
+  drawingNumber   String?
+  drawingReferences String?
+  // Required tools: JSON [{ name, partId?, qty, notes }]
+  requiredTools   String?
   createdById     String?
   createdBy       User?    @relation("WICreator", fields: [createdById], references: [id])
   releasedAt      DateTime?
@@ -315,6 +335,7 @@ model WorkInstruction {
   signOffs        WorkInstructionSignOff[]
   workOrderLinks  WorkOrderInstruction[]
   changeRequests  ChangeRequest[]
+  toolPurchaseRequests PurchaseRequest[]
 
   @@unique([documentNumber, revision])
   @@index([status])
@@ -328,7 +349,9 @@ model WorkInstructionStep {
   stepNumber          Int
   title               String
   instructions        String  // rich text / markdown
-  isTestStep          Boolean @default(false)
+  // BUILD | QA | TEST — drives station routing defaults and traveler queues
+  stepType            String  @default("BUILD")
+  isTestStep          Boolean @default(false) // kept for compatibility; true when stepType=TEST
   // Operator must record PASS/FAIL for this step
   passFailRequired    Boolean @default(false)
   testCriteria        String?
@@ -346,7 +369,7 @@ model WorkInstructionStep {
   workCenter          String?
   routeLock           Boolean @default(false)
   estimatedMinutes    Int?
-  attachmentUrls      String? // JSON array of photos
+  attachmentUrls      String? // JSON array of photos (data URLs or paths)
   mediaUrls           String? // JSON array of recordings / videos
   drawingLinks        String? // JSON array
   requiresSignOff     Boolean @default(true)
@@ -354,6 +377,8 @@ model WorkInstructionStep {
 
   signOffs            WorkInstructionSignOff[]
   woStepCompletions   WorkOrderStepCompletion[]
+
+  @@index([stepType])
 }
 
 model WorkInstructionSignOff {
@@ -380,7 +405,11 @@ model WorkInstructionSignOff {
 model WorkOrder {
   id              String   @id @default(cuid())
   number          String   @unique
+  // Number prefix by origin: SWO- (sales), BWO- (BOM), MWO- (material requisition), WO- (other)
   type            String   @default("PRODUCTION") // PRODUCTION, TASK_ONLY, REWORK, INSPECTION, PROTOTYPE
+  // Origin of the WO — drives numbering and which refs show on traveler
+  // SALES_ORDER | BOM | MATERIAL_REQ | OTHER
+  sourceType      String   @default("OTHER")
   // PLANNED → WAITING_MATERIAL → READY_TO_KIT → KITTING → KITTED → RELEASED → IN_PROGRESS → COMPLETED
   status          String   @default("PLANNED")
   priority        String   @default("NORMAL") // LOW, NORMAL, HIGH, CRITICAL
@@ -390,6 +419,7 @@ model WorkOrder {
   bomHeader       BomHeader? @relation(fields: [bomHeaderId], references: [id])
   quantity        Float    @default(1)
   quantityCompleted Float  @default(0)
+  // Project only when truly project work — not for pure sales-order builds
   projectId       String?
   project         Project? @relation(fields: [projectId], references: [id])
   wbsElementId    String?
@@ -399,6 +429,9 @@ model WorkOrder {
   salesOrderLineId String?
   salesOrderLine  SalesOrderLine? @relation(fields: [salesOrderLineId], references: [id])
   salesOrderRef   String?  // free-text ref kept for legacy seed
+  // Forecast-driven material requisition (MWO- prefix)
+  materialRequisitionId String?
+  materialRequisition   MaterialRequisition? @relation(fields: [materialRequisitionId], references: [id])
   workCenter      String?
   department      String?
   assigneeId      String?
@@ -431,12 +464,98 @@ model WorkOrder {
   kitOrders       KitOrder[]
   purchaseRequests PurchaseRequest[]
   traceEvents     TraceEvent[]
+  mrsLines        MaterialRequisitionLine[]
 
   @@index([status])
   @@index([workCenter])
   @@index([projectId])
   @@index([salesOrderId])
+  @@index([materialRequisitionId])
+  @@index([sourceType])
   @@index([dueDate])
+}
+
+// ═══════════════════════════════════════════════════════════════
+// FORECAST / MATERIAL REQUISITION (build-to-forecast planning)
+// ═══════════════════════════════════════════════════════════════
+
+model Forecast {
+  id          String   @id @default(cuid())
+  number      String   @unique // FC-00001
+  name        String
+  // DRAFT | ACTIVE | CLOSED | CANCELLED
+  status      String   @default("DRAFT")
+  periodStart DateTime?
+  periodEnd   DateTime?
+  notes       String?
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  lines                 ForecastLine[]
+  materialRequisitions  MaterialRequisition[]
+
+  @@index([status])
+}
+
+model ForecastLine {
+  id          String   @id @default(cuid())
+  forecastId  String
+  forecast    Forecast @relation(fields: [forecastId], references: [id], onDelete: Cascade)
+  partId      String
+  part        Part     @relation(fields: [partId], references: [id])
+  quantity    Float    @default(1)
+  dueDate     DateTime?
+  notes       String?
+
+  @@index([forecastId])
+  @@index([partId])
+}
+
+// Generated from forecast + stock netting; drives BUILD (MWO) and BUY suggestions
+model MaterialRequisition {
+  id          String   @id @default(cuid())
+  number      String   @unique // MRS-00001
+  // DRAFT | RELEASED | IN_PROGRESS | CLOSED | CANCELLED
+  status      String   @default("DRAFT")
+  forecastId  String?
+  forecast    Forecast? @relation(fields: [forecastId], references: [id])
+  name        String?
+  notes       String?
+  createdById String?
+  releasedAt  DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  lines       MaterialRequisitionLine[]
+  workOrders  WorkOrder[]
+
+  @@index([status])
+  @@index([forecastId])
+}
+
+model MaterialRequisitionLine {
+  id                      String @id @default(cuid())
+  materialRequisitionId   String
+  materialRequisition     MaterialRequisition @relation(fields: [materialRequisitionId], references: [id], onDelete: Cascade)
+  partId                  String
+  part                    Part   @relation(fields: [partId], references: [id])
+  // Demand after netting (what we still need)
+  requiredQty             Float  @default(0)
+  // Snapshot of available stock at generation
+  onHandQty               Float  @default(0)
+  shortQty                Float  @default(0)
+  // BUILD = make via MWO | BUY = purchase | STOCK = covered by on-hand | NONE
+  action                  String @default("NONE")
+  // Parent FG line that drove this component demand (for BOM explosion)
+  parentPartId            String?
+  workOrderId             String?
+  workOrder               WorkOrder? @relation(fields: [workOrderId], references: [id])
+  notes                   String?
+
+  @@index([materialRequisitionId])
+  @@index([partId])
+  @@index([workOrderId])
 }
 
 model WorkOrderInstruction {
@@ -755,6 +874,29 @@ model MrbDisposition {
   reworkWorkOrderId String? // optional WO created for REWORK disposition
   // Vendor email / acknowledgment attachments (JSON: [{url,fileName,caption}])
   carAttachments  String?
+
+  // Traceability log for CAR lifecycle (create + every update)
+  activityLog     CarActivityLog[]
+}
+
+// Append-only traceability log for Corrective Action Requests
+model CarActivityLog {
+  id              String   @id @default(cuid())
+  dispositionId   String
+  disposition     MrbDisposition @relation(fields: [dispositionId], references: [id], onDelete: Cascade)
+  carNumber       String
+  // CREATED | STATUS_CHANGE | RESPONSE_UPDATED | NOTES_UPDATED | ATTACHMENT_ADDED | VERIFIED_CLOSED | UPDATED
+  action          String
+  summary         String
+  // JSON: { field: { from, to }, ... } or attachment metadata
+  changes         String?
+  userId          String?
+  user            User?    @relation(fields: [userId], references: [id])
+  createdAt       DateTime @default(now())
+
+  @@index([dispositionId, createdAt])
+  @@index([carNumber])
+  @@index([createdAt])
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -871,7 +1013,7 @@ model Supplier {
   id              String  @id @default(cuid())
   code            String  @unique
   name            String
-  // PROSPECT, APPROVED (ASL), CONDITIONAL, DISQUALIFIED — only APPROVED/CONDITIONAL on POs
+  // PROSPECT, APPROVED (ASL), CONDITIONAL (incl. trial), DISQUALIFIED — only APPROVED/CONDITIONAL on POs
   status          String  @default("APPROVED")
   contactName     String?
   contactEmail    String?
@@ -884,6 +1026,10 @@ model Supplier {
   isApprovedVendor Boolean @default(false)
   approvedAt      DateTime?
   approvedById    String?
+  // Trial path onto ASL when QMS certs missing (per company ASL policy)
+  isTrialVendor   Boolean @default(false)
+  trialOrdersUsed Int     @default(0)
+  trialOrderLimit Int     @default(1)
   // Scorecard metrics (computed/cached)
   onTimeDeliveryPct Float @default(100)
   qualityPpm      Float   @default(0)
@@ -899,8 +1045,45 @@ model Supplier {
   scorecardHistory SupplierScorecardHistory[]
   rfqs            Rfq[]
   partVendors     PartVendor[]
+  certifications  SupplierCertification[]
+  apInvoices      ApInvoice[]
 
   @@index([isApprovedVendor, status])
+}
+
+// Company-level ASL policy: optional QMS cert gates + trial order path
+model AslPolicy {
+  id                 String  @id @default("default")
+  requireIso9001     Boolean @default(false)
+  requireAs9100d     Boolean @default(false)
+  allowTrialOrders   Boolean @default(true)
+  defaultTrialLimit  Int     @default(1)
+  notes              String?
+  updatedAt          DateTime @updatedAt
+}
+
+// QMS / quality system certificates kept on file for suppliers
+model SupplierCertification {
+  id            String   @id @default(cuid())
+  supplierId    String
+  supplier      Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  // ISO9001 | AS9100D | ISO14001 | NADCAP | OTHER
+  certType      String
+  certNumber    String?
+  issuedBy      String?
+  issuedAt      DateTime?
+  expiresAt     DateTime?
+  // Path or URL to stored copy (PDF/image)
+  documentUrl   String?
+  documentName  String?
+  notes         String?
+  // VALID | EXPIRED | PENDING | REVOKED
+  status        String   @default("VALID")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([supplierId, certType])
+  @@index([expiresAt])
 }
 
 model SupplierScorecardHistory {
@@ -932,6 +1115,11 @@ model PurchaseRequest {
   supplier        Supplier? @relation(fields: [supplierId], references: [id])
   workOrderId     String?
   workOrder       WorkOrder? @relation(fields: [workOrderId], references: [id])
+  // Triggered by WI tooling short (shows source WI on PR)
+  workInstructionId String?
+  workInstruction   WorkInstruction? @relation(fields: [workInstructionId], references: [id])
+  // WO_MATERIAL | WI_TOOL | MANUAL | KANBAN | etc.
+  triggerSource   String?
   projectId       String?
   project         Project? @relation(fields: [projectId], references: [id])
   salesOrderId    String?
@@ -951,6 +1139,7 @@ model PurchaseRequest {
   purchaseOrders  PurchaseOrder[]
 
   @@index([workOrderId])
+  @@index([workInstructionId])
   @@index([status])
 }
 
@@ -1231,6 +1420,7 @@ model ApInvoice {
   id              String   @id @default(cuid())
   number          String   @unique
   supplierId      String?
+  supplier        Supplier? @relation(fields: [supplierId], references: [id])
   purchaseOrderId String?
   purchaseOrder   PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
   invoiceDate     DateTime @default(now())
@@ -1243,6 +1433,9 @@ model ApInvoice {
   notes           String?
 
   payments        ApPayment[]
+
+  @@index([supplierId])
+  @@index([status])
 }
 
 model ApPayment {
@@ -1293,6 +1486,12 @@ model SalesOrder {
   contactName   String?
   contactEmail  String?
   totalAmount   Float    @default(0)
+  // Credit control: when customer is at/over credit limit, deposit is required on the SO
+  depositRequired Boolean @default(false)
+  depositAmount   Float   @default(0)
+  // PENDING | RECEIVED | WAIVED | N_A
+  depositStatus   String  @default("N_A")
+  creditHold      Boolean @default(false)
   notes         String?
   quoteId       String?  @unique
   quote         Quote?   @relation(fields: [quoteId], references: [id])

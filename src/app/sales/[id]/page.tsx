@@ -10,6 +10,7 @@ import {
   actionPlanSalesOrder,
   actionShipSalesOrder,
   actionQueueShipment,
+  actionUpdateDepositStatus,
 } from "@/app/actions";
 import Link from "next/link";
 
@@ -43,7 +44,11 @@ export default async function SalesOrderDetailPage({
 
   const now = new Date();
   const gate = so.shipNotBefore || so.requiredDate;
-  const shipBlocked = !so.allowEarlyShip && gate && now < gate;
+  const depositShipBlock =
+    so.depositRequired &&
+    !["RECEIVED", "WAIVED"].includes((so.depositStatus || "").toUpperCase());
+  const dateShipBlock = !so.allowEarlyShip && !!gate && now < gate;
+  const shipBlocked = depositShipBlock || dateShipBlock;
 
   return (
     <div className="space-y-6">
@@ -77,7 +82,12 @@ export default async function SalesOrderDetailPage({
               <>
                 <form action={actionQueueShipment}>
                   <input type="hidden" name="salesOrderId" value={so.id} />
-                  <Button type="submit" size="sm" variant="outline">
+                  <Button
+                    type="submit"
+                    size="sm"
+                    variant="outline"
+                    disabled={depositShipBlock}
+                  >
                     Queue shipment
                   </Button>
                 </form>
@@ -87,12 +97,13 @@ export default async function SalesOrderDetailPage({
                     Ship now
                   </Button>
                 </form>
-                {shipBlocked && (
+                {/* Force only bypasses date gate — never deposit */}
+                {dateShipBlock && !depositShipBlock && (
                   <form action={actionShipSalesOrder}>
                     <input type="hidden" name="salesOrderId" value={so.id} />
                     <input type="hidden" name="force" value="true" />
                     <Button type="submit" size="sm" variant="amber">
-                      Force ship
+                      Force ship (early)
                     </Button>
                   </form>
                 )}
@@ -104,6 +115,18 @@ export default async function SalesOrderDetailPage({
 
       <div className="flex flex-wrap gap-2">
         <StatusBadge status={so.status} />
+        {so.depositRequired && (
+          <span className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-300">
+            Deposit {so.depositStatus === "RECEIVED" || so.depositStatus === "WAIVED"
+              ? so.depositStatus.toLowerCase()
+              : "required — ship blocked"}
+          </span>
+        )}
+        {so.creditHold && (
+          <span className="rounded border border-red-500/40 bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-300">
+            Credit hold
+          </span>
+        )}
         {so.isFob && (
           <span className="rounded border border-slate-700 px-2 py-0.5 text-xs text-slate-400">
             FOB {so.fobPoint || ""}
@@ -114,12 +137,60 @@ export default async function SalesOrderDetailPage({
             from {so.quote.number}
           </Link>
         )}
-        {shipBlocked && (
+        {depositShipBlock && (
+          <span className="rounded border border-red-500/40 bg-red-500/10 px-2 py-0.5 text-xs text-red-300">
+            Shipping blocked until deposit
+          </span>
+        )}
+        {dateShipBlock && (
           <span className="rounded border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-xs text-amber-400">
             Ship held until {formatDate(gate)}
           </span>
         )}
       </div>
+
+      {so.depositRequired && (
+        <Card className="border-amber-500/40 bg-amber-500/10">
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+            <div>
+              <p className="text-sm font-medium text-amber-100">
+                {depositShipBlock
+                  ? "Deposit required — shipping is blocked"
+                  : "Deposit requirement on this order"}
+              </p>
+              <p className="mt-1 text-xs text-amber-200/80">
+                Deposit amount:{" "}
+                <span className="font-semibold tabular-nums">
+                  {formatCurrency(so.depositAmount)}
+                </span>
+                {" · "}
+                Status: {so.depositStatus}
+                {depositShipBlock
+                  ? " · Cannot ship until received or waived (no force override)"
+                  : ""}
+              </p>
+            </div>
+            {so.depositStatus === "PENDING" && (
+              <div className="flex flex-wrap gap-2">
+                <form action={actionUpdateDepositStatus}>
+                  <input type="hidden" name="salesOrderId" value={so.id} />
+                  <input type="hidden" name="depositStatus" value="RECEIVED" />
+                  <Button type="submit" size="sm">
+                    Mark deposit received
+                  </Button>
+                </form>
+                <form action={actionUpdateDepositStatus}>
+                  <input type="hidden" name="salesOrderId" value={so.id} />
+                  <input type="hidden" name="depositStatus" value="WAIVED" />
+                  <Button type="submit" size="sm" variant="outline">
+                    Waive deposit
+                  </Button>
+                </form>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Document view */}
       <Card className="border-slate-700 bg-slate-950/80">

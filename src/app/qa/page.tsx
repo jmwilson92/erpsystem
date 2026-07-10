@@ -48,7 +48,7 @@ export default async function QaModulePage({
         }
       />
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           title="Open inspections"
           value={qaQueue.stats.openInspections}
@@ -62,8 +62,14 @@ export default async function QaModulePage({
           accent="teal"
         />
         <StatCard
-          title="Continuity steps"
-          value={qaQueue.stats.openSteps}
+          title="QA steps ready"
+          value={qaQueue.stats.readySteps}
+          icon={ClipboardCheck}
+          accent="teal"
+        />
+        <StatCard
+          title="Upcoming on traveler"
+          value={qaQueue.stats.upcomingSteps}
           icon={ClipboardCheck}
           accent="amber"
         />
@@ -99,8 +105,11 @@ export default async function QaModulePage({
       ) : (
         <div className="space-y-3">
           <p className="text-xs text-slate-500">
-            Material / WOs at QA stations. Pass and Fail require uploaded
-            documentation. Functional power tests are on{" "}
+            Shows receiving inspections, WOs scanned into QA, and traveler steps
+            routed to QA — including <strong className="text-slate-400">upcoming</strong>{" "}
+            steps that are not yet &quot;up&quot; on the work instruction. A step
+            is ready when prior steps are done, or the WO is scanned into a QA
+            station. Functional power tests are on{" "}
             <Link href="/test-center" className="text-violet-400 hover:underline">
               Test Center
             </Link>
@@ -110,8 +119,9 @@ export default async function QaModulePage({
           {qaQueue.stats.total === 0 && (
             <Card>
               <CardContent className="p-6 text-center text-sm text-slate-500">
-                No open QA work. Scan a WO into a QA station from the Workcenters
-                tab, or receive material flagged for visual / GD&amp;T.
+                No open QA work. WOs with QA steps on the traveler appear here
+                (even before the step is reached). You can also scan a WO into a
+                QA station or receive material flagged for visual / GD&amp;T.
               </CardContent>
             </Card>
           )}
@@ -193,8 +203,18 @@ export default async function QaModulePage({
             );
           })}
 
-          {qaQueue.continuitySteps.map((sc) => (
-            <Card key={sc.id} className="border-sky-900/20">
+          {qaQueue.continuitySteps.map((sc) => {
+            const ready =
+              sc.readiness === "STEP_READY" || sc.readiness === "AT_STATION";
+            return (
+            <Card
+              key={sc.id}
+              className={
+                sc.readiness === "UPCOMING"
+                  ? "border-amber-900/30 bg-amber-500/5"
+                  : "border-sky-900/20"
+              }
+            >
               <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
@@ -204,12 +224,26 @@ export default async function QaModulePage({
                     >
                       {sc.workOrder.number}
                     </Link>
-                    <StatusBadge status="CONTINUITY" />
+                    <StatusBadge status="QA_STEP" />
+                    <StatusBadge
+                      status={
+                        sc.readiness === "AT_STATION"
+                          ? "AT_STATION"
+                          : sc.readiness === "STEP_READY"
+                            ? "READY"
+                            : "UPCOMING"
+                      }
+                    />
                     <span className="font-mono text-[10px] text-slate-500">
                       {sc.assignedWorkCenter ||
                         sc.step.workCenter ||
                         "QA-01"}
                     </span>
+                    {sc.workOrder.workCenter && (
+                      <span className="text-[10px] text-slate-600">
+                        WO @ {sc.workOrder.workCenter}
+                      </span>
+                    )}
                   </div>
                   <p className="mt-1 text-sm text-slate-300">
                     Step {sc.step.stepNumber}: {sc.step.title}
@@ -219,37 +253,51 @@ export default async function QaModulePage({
                     {sc.step.testCriteria
                       ? ` · ${sc.step.testCriteria}`
                       : ""}
+                    {sc.readiness === "UPCOMING"
+                      ? " · Waiting on prior traveler steps (or scan WO into QA)"
+                      : ""}
                   </p>
                 </div>
                 <div className="flex gap-1">
-                  <form action={actionSignOffStep}>
-                    <input
-                      type="hidden"
-                      name="workOrderId"
-                      value={sc.workOrderId}
-                    />
-                    <input type="hidden" name="stepId" value={sc.stepId} />
-                    <input type="hidden" name="result" value="PASS" />
-                    <Button type="submit" size="sm">
-                      Pass
-                    </Button>
-                  </form>
-                  <form action={actionSignOffStep}>
-                    <input
-                      type="hidden"
-                      name="workOrderId"
-                      value={sc.workOrderId}
-                    />
-                    <input type="hidden" name="stepId" value={sc.stepId} />
-                    <input type="hidden" name="result" value="FAIL" />
-                    <Button type="submit" size="sm" variant="outline">
-                      Fail
-                    </Button>
-                  </form>
+                  {ready ? (
+                    <>
+                      <form action={actionSignOffStep}>
+                        <input
+                          type="hidden"
+                          name="workOrderId"
+                          value={sc.workOrderId}
+                        />
+                        <input type="hidden" name="stepId" value={sc.stepId} />
+                        <input type="hidden" name="result" value="PASS" />
+                        <Button type="submit" size="sm">
+                          Pass
+                        </Button>
+                      </form>
+                      <form action={actionSignOffStep}>
+                        <input
+                          type="hidden"
+                          name="workOrderId"
+                          value={sc.workOrderId}
+                        />
+                        <input type="hidden" name="stepId" value={sc.stepId} />
+                        <input type="hidden" name="result" value="FAIL" />
+                        <Button type="submit" size="sm" variant="outline">
+                          Fail
+                        </Button>
+                      </form>
+                    </>
+                  ) : (
+                    <Link href={`/work-orders/${sc.workOrder.id}`}>
+                      <Button size="sm" variant="outline">
+                        View traveler
+                      </Button>
+                    </Link>
+                  )}
                 </div>
               </CardContent>
             </Card>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

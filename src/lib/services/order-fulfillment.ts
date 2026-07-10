@@ -1,5 +1,3 @@
-"use server";
-
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { createWorkOrder } from "@/lib/services/work-orders";
@@ -128,6 +126,18 @@ export async function createSalesOrder(params: SalesDocumentInput) {
     return s + price * l.quantity;
   }, 0);
 
+  // Credit limit → deposit required when order would exceed available credit
+  const { getCustomerCreditSnapshot, evaluateDepositRequirement } = await import(
+    "@/lib/services/credit"
+  );
+  const credit = await getCustomerCreditSnapshot(params.customerId);
+  const deposit = evaluateDepositRequirement(credit, totalAmount);
+
+  const depositNote = deposit.depositRequired
+    ? `DEPOSIT REQUIRED: ${deposit.depositAmount.toFixed(2)} USD (customer credit exposure ${credit.exposure.toFixed(2)} / limit ${credit.creditLimit.toFixed(2)}; order exceeds by ${deposit.overBy.toFixed(2)}).`
+    : null;
+  const notes = [params.notes, depositNote].filter(Boolean).join("\n") || undefined;
+
   const so = await prisma.salesOrder.create({
     data: {
       number,
@@ -148,9 +158,13 @@ export async function createSalesOrder(params: SalesDocumentInput) {
         params.shipToAddress || customer.shipToAddress || customer.billToAddress || undefined,
       contactName: params.contactName || customer.contactName || undefined,
       contactEmail: params.contactEmail || customer.contactEmail || undefined,
-      notes: params.notes,
+      notes,
       quoteId: params.quoteId,
       totalAmount,
+      depositRequired: deposit.depositRequired,
+      depositAmount: deposit.depositAmount,
+      depositStatus: deposit.depositStatus,
+      creditHold: deposit.creditHold,
       lines: {
         create: params.lines.map((l) => {
           const part = partMap[l.partId];
@@ -176,6 +190,8 @@ export async function createSalesOrder(params: SalesDocumentInput) {
       totalAmount,
       requiredDate: params.requiredDate,
       quoteId: params.quoteId,
+      depositRequired: deposit.depositRequired,
+      depositAmount: deposit.depositAmount,
     },
     userId: params.createdById,
   });
@@ -185,7 +201,10 @@ export async function createSalesOrder(params: SalesDocumentInput) {
     entityId: so.id,
     action: "CREATED",
     userId: params.createdById,
-    metadata: { number: so.number },
+    metadata: {
+      number: so.number,
+      depositRequired: deposit.depositRequired,
+    },
   });
 
   return so;
@@ -519,6 +538,7 @@ export async function planSalesOrderFulfillment(params: {
         const dueDate = so.requiredDate || new Date();
         const wo = await createWorkOrder({
           type: "PRODUCTION",
+          sourceType: "SALES_ORDER",
           partId: line.partId,
           bomHeaderId: bom.id,
           quantity: makeQty,
@@ -529,6 +549,7 @@ export async function planSalesOrderFulfillment(params: {
           salesOrderId: so.id,
           salesOrderLineId: line.id,
           salesOrderRef: so.number,
+          // Pure commercial demand — no project/WBS on SO-driven WOs
           priority:
             so.requiredDate && so.requiredDate < daysFromNow(14) ? "HIGH" : "NORMAL",
         });
@@ -1158,6 +1179,12 @@ export async function putAwayInventory(params: {
     metadata: { from: fromCode, to: storageLoc.code },
   });
 
+  // Re-evaluate kanban (may clear need if stock now above min, or still low)
+  await triggerKanbanReplenishment({
+    userId: params.userId,
+    partIds: [item.partId],
+  });
+
   return updated;
 }
 
@@ -1507,6 +1534,12 @@ export async function completeKitOrder(params: {
     userId: params.userId,
   });
 
+  // Kit issue often drives kanban components below min → auto PR
+  await triggerKanbanReplenishment({
+    userId: params.userId,
+    partIds: kit.lines.map((l) => l.partId),
+  });
+
   return prisma.kitOrder.findUnique({
     where: { id: kit.id },
     include: { lines: { include: { part: true } }, workOrder: true },
@@ -1739,11 +1772,35 @@ export async function syncSalesOrderReadyStatus(salesOrderId: string, userId?: s
   }
 }
 
-function canShipNow(so: {
+export type ShipBlockCode = "DEPOSIT" | "DATE";
+
+/** Deposit hold is a hard block (cannot force). Date gate can be force-shipped. */
+export function canShipNow(so: {
   allowEarlyShip: boolean;
   shipNotBefore: Date | null;
   requiredDate: Date | null;
-}): { ok: boolean; reason?: string } {
+  depositRequired?: boolean;
+  depositStatus?: string | null;
+  depositAmount?: number;
+}): { ok: boolean; reason?: string; code?: ShipBlockCode } {
+  // Hard block: deposit must be received or waived before any ship
+  if (
+    so.depositRequired &&
+    !["RECEIVED", "WAIVED"].includes((so.depositStatus || "").toUpperCase())
+  ) {
+    const amt =
+      so.depositAmount != null && so.depositAmount > 0
+        ? ` (${so.depositAmount.toFixed(2)} USD)`
+        : "";
+    return {
+      ok: false,
+      code: "DEPOSIT",
+      reason: `Deposit required${amt} before shipping — current status: ${
+        so.depositStatus || "PENDING"
+      }. Mark deposit received or waive on the sales order.`,
+    };
+  }
+
   const now = new Date();
   if (so.allowEarlyShip) return { ok: true };
 
@@ -1751,6 +1808,7 @@ function canShipNow(so: {
   if (gate && now < gate) {
     return {
       ok: false,
+      code: "DATE",
       reason: `Early ship not allowed until ${gate.toISOString().slice(0, 10)}`,
     };
   }
@@ -1896,8 +1954,11 @@ export async function shipSalesOrder(params: {
   if (!so) throw new Error("Sales order not found");
 
   const shipCheck = canShipNow(so);
-  if (!shipCheck.ok && !params.force) {
-    throw new Error(shipCheck.reason || "Cannot ship yet");
+  // Deposit is never force-bypassable; date gate can use force
+  if (!shipCheck.ok) {
+    if (shipCheck.code === "DEPOSIT" || !params.force) {
+      throw new Error(shipCheck.reason || "Cannot ship yet");
+    }
   }
 
   let shipment = params.shipmentId
@@ -2025,10 +2086,34 @@ export async function shipSalesOrder(params: {
     metadata: { shipmentId: shipment.id },
   });
 
+  // FG kanban parts may need refill after ship
+  await triggerKanbanReplenishment({
+    userId: params.userId,
+    partIds: so.lines.map((l) => l.partId).filter((id): id is string => !!id),
+  });
+
   return prisma.shipment.findUnique({
     where: { id: shipment.id },
     include: { lines: true, salesOrder: true },
   });
+}
+
+/** Non-fatal kanban PR auto-create after stock moves. */
+async function triggerKanbanReplenishment(params: {
+  userId?: string;
+  partIds?: string[];
+}) {
+  try {
+    const { ensureKanbanReplenishmentPrs } = await import(
+      "@/lib/services/kanban-replenishment"
+    );
+    await ensureKanbanReplenishmentPrs({
+      userId: params.userId,
+      partIds: params.partIds,
+    });
+  } catch (err) {
+    console.error("Kanban replenishment PR auto-create failed:", err);
+  }
 }
 
 // ─── Traveler aggregate ─────────────────────────────────────────

@@ -16,16 +16,21 @@ import {
   actionSaveUomUnit,
 } from "@/app/actions";
 import { listWorkCenters } from "@/lib/services/workcenters";
+import { StepPhotoFields } from "@/components/work-instructions/step-photo-fields";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
 export default async function WiDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { id } = await params;
+  const sp = await searchParams;
+  const toolPrNotice = Array.isArray(sp.toolPr) ? sp.toolPr[0] : sp.toolPr;
   const [wi, workCenters, boms, measureUoms] = await Promise.all([
     prisma.workInstruction.findUnique({
       where: { id },
@@ -41,6 +46,11 @@ export default async function WiDetailPage({
         },
         changeRequests: { orderBy: { createdAt: "desc" }, take: 5 },
         supersedes: true,
+        toolPurchaseRequests: {
+          orderBy: { createdAt: "desc" },
+          take: 10,
+          include: { lines: true },
+        },
       },
     }),
     listWorkCenters({ activeOnly: true }),
@@ -62,6 +72,16 @@ export default async function WiDetailPage({
     !["RELEASED", "OBSOLETE", "CM_REVIEW"].includes(wi.status);
   const selectClass =
     "flex h-8 rounded-md border border-slate-700 bg-slate-950 px-2 text-xs text-slate-200";
+
+  type ToolJson = { name: string; partId?: string | null; qty?: number };
+  let tools: ToolJson[] = [];
+  if (wi.requiredTools) {
+    try {
+      tools = JSON.parse(wi.requiredTools) as ToolJson[];
+    } catch {
+      tools = [];
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -141,6 +161,89 @@ export default async function WiDetailPage({
         </Card>
       )}
 
+      {toolPrNotice && (
+        <Card className="border-amber-500/40 bg-amber-500/10">
+          <CardContent className="p-3 text-sm text-amber-100">
+            Tooling short — purchase request{" "}
+            <Link href="/purchasing" className="font-mono font-semibold underline">
+              {toolPrNotice}
+            </Link>{" "}
+            was opened for tools not in stock (needed for this WI).
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Hazmat / drawings / tools */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Drawing</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm">
+            <p className="font-mono text-teal-400">
+              {wi.drawingNumber || "—"}
+            </p>
+            {wi.drawingReferences && (
+              <p className="mt-1 whitespace-pre-wrap text-xs text-slate-400">
+                {wi.drawingReferences}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Hazmat / PPE</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-slate-300">
+            {wi.hazmatRequired ? (
+              <p className="whitespace-pre-wrap text-xs">{wi.hazmatRequired}</p>
+            ) : (
+              <p className="text-xs text-slate-600">None specified</p>
+            )}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Required tools</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1 text-xs">
+            {tools.length === 0 && (
+              <p className="text-slate-600">None specified</p>
+            )}
+            {tools.map((t, i) => (
+              <div key={i} className="text-slate-300">
+                <span className="font-medium">{t.name}</span>
+                {t.qty ? ` × ${t.qty}` : ""}
+                {t.partId && (
+                  <Link
+                    href={`/items/${t.partId}`}
+                    className="ml-1 font-mono text-teal-500 hover:underline"
+                  >
+                    item
+                  </Link>
+                )}
+              </div>
+            ))}
+            {wi.toolPurchaseRequests.length > 0 && (
+              <div className="mt-2 border-t border-slate-800 pt-2">
+                <p className="mb-1 text-[10px] uppercase text-amber-500">
+                  Tooling PRs
+                </p>
+                {wi.toolPurchaseRequests.map((pr) => (
+                  <Link
+                    key={pr.id}
+                    href="/purchasing"
+                    className="block font-mono text-amber-400 hover:underline"
+                  >
+                    {pr.number} · {pr.status}
+                  </Link>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
       <div className="flex flex-wrap gap-2 text-xs">
         {["DRAFT", "ENGINEERING_REVIEW", "CM_REVIEW", "RELEASED"].map((s) => (
           <span
@@ -200,7 +303,15 @@ export default async function WiDetailPage({
                   {step.stepNumber}
                 </span>
                 <span className="font-medium text-slate-100">{step.title}</span>
-                {step.isTestStep && <StatusBadge status="TEST" />}
+                <StatusBadge
+                  status={
+                    step.stepType === "QA"
+                      ? "QA"
+                      : step.stepType === "TEST" || step.isTestStep
+                        ? "TEST"
+                        : "BUILD"
+                  }
+                />
                 {step.passFailRequired && <StatusBadge status="PASS_FAIL" />}
                 {step.measureUom && (
                   <span className="font-mono text-[10px] text-sky-400">
@@ -225,6 +336,41 @@ export default async function WiDetailPage({
               <p className="mt-2 whitespace-pre-wrap text-sm text-slate-400">
                 {step.instructions}
               </p>
+              {(() => {
+                let photos: string[] = [];
+                if (step.attachmentUrls) {
+                  try {
+                    photos = JSON.parse(step.attachmentUrls) as string[];
+                  } catch {
+                    photos = [];
+                  }
+                }
+                if (!photos.length) return null;
+                return (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {photos.map((url, pi) =>
+                      url.startsWith("data:") ||
+                      url.startsWith("http") ||
+                      url.startsWith("/") ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          key={pi}
+                          src={url}
+                          alt={`Step ${step.stepNumber} photo ${pi + 1}`}
+                          className="h-20 w-20 rounded border border-slate-700 object-cover"
+                        />
+                      ) : (
+                        <span
+                          key={pi}
+                          className="rounded border border-slate-700 px-2 py-1 text-[10px] text-slate-500"
+                        >
+                          {url}
+                        </span>
+                      )
+                    )}
+                  </div>
+                );
+              })()}
               {editable && (
                 <form
                   action={actionUpdateWiStepRouting}
@@ -289,7 +435,7 @@ export default async function WiDetailPage({
             <CardTitle>Add step</CardTitle>
           </CardHeader>
           <CardContent>
-            <form action={actionAddWiStep} className="grid gap-3 sm:grid-cols-2">
+            <form action={actionAddWiStep} className="grid gap-3 sm:grid-cols-2" id="add-wi-step-form">
               <input type="hidden" name="workInstructionId" value={wi.id} />
               <div className="sm:col-span-2">
                 <label className="text-[10px] uppercase text-slate-500">
@@ -303,21 +449,27 @@ export default async function WiDetailPage({
                 </label>
                 <Textarea name="instructions" required rows={3} className="mt-1" />
               </div>
-              <label className="flex items-center gap-2 text-sm text-slate-400">
+              <div>
+                <label className="text-[10px] uppercase text-slate-500">
+                  Step type *
+                </label>
+                <select
+                  name="stepType"
+                  className={`${selectClass} mt-1 w-full`}
+                  defaultValue="BUILD"
+                >
+                  <option value="BUILD">Build (manufacturing)</option>
+                  <option value="QA">QA</option>
+                  <option value="TEST">Test</option>
+                </select>
+              </div>
+              <label className="flex items-center gap-2 self-end pb-1 text-sm text-slate-400">
                 <input
                   type="checkbox"
                   name="passFailRequired"
                   className="rounded border-slate-600"
                 />
                 Pass / Fail required
-              </label>
-              <label className="flex items-center gap-2 text-sm text-slate-400">
-                <input
-                  type="checkbox"
-                  name="isTestStep"
-                  className="rounded border-slate-600"
-                />
-                Test / measurement
               </label>
               <div>
                 <label className="text-[10px] uppercase text-slate-500">
@@ -358,6 +510,7 @@ export default async function WiDetailPage({
                   <option value="TEST">Test</option>
                 </select>
               </div>
+              <StepPhotoFields />
               <div className="sm:col-span-2">
                 <Button type="submit" size="sm">
                   Add step

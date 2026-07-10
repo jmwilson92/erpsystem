@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { actionUpdateCar } from "@/app/actions";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -22,6 +24,7 @@ export function CarUpdateForm({
   carNotes: string;
   existingAttachments: { url: string; fileName?: string; caption?: string }[];
 }) {
+  const router = useRouter();
   const [docs, setDocs] = useState<
     { url: string; fileName: string; caption: string }[]
   >([]);
@@ -59,7 +62,11 @@ export function CarUpdateForm({
     startTransition(async () => {
       try {
         await actionUpdateCar(fd);
+        setDocs([]);
+        router.refresh();
       } catch (err) {
+        // Server redirect() throws a special error — rethrow so Next can navigate
+        if (isRedirectError(err)) throw err;
         setError(err instanceof Error ? err.message : "Update failed");
       }
     });

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { isRedirectError } from "next/dist/client/components/redirect-error";
 import {
   actionVerifyPackingList,
   actionPackShipment,
@@ -17,6 +18,8 @@ export function PackShipPanel({
   status,
   shipToAddress,
   lineSummary,
+  depositBlocked,
+  depositMessage,
 }: {
   shipmentId: string;
   salesOrderId: string;
@@ -24,6 +27,9 @@ export function PackShipPanel({
   status: string;
   shipToAddress?: string | null;
   lineSummary: string[];
+  /** Hard block — deposit pending on the sales order */
+  depositBlocked?: boolean;
+  depositMessage?: string | null;
 }) {
   const [photos, setPhotos] = useState<
     { url: string; fileName: string; caption: string }[]
@@ -61,6 +67,7 @@ export function PackShipPanel({
         await fn();
         window.location.reload();
       } catch (e) {
+        if (isRedirectError(e)) throw e;
         setError(e instanceof Error ? e.message : "Failed");
       }
     });
@@ -141,45 +148,55 @@ export function PackShipPanel({
       )}
 
       {packed && !shipped && (
-        <div className="flex flex-wrap items-end gap-2">
-          <div>
-            <label className="text-[10px] uppercase text-slate-500">
-              Carrier
-            </label>
-            <Input
-              className="mt-0.5 h-8 w-32"
-              value={carrier}
-              onChange={(e) => setCarrier(e.target.value)}
-              placeholder="UPS"
-            />
+        <div className="space-y-2">
+          {depositBlocked && (
+            <p className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-xs text-amber-200">
+              {depositMessage ||
+                "Deposit required on this sales order — shipping is blocked until deposit is received or waived."}
+            </p>
+          )}
+          <div className="flex flex-wrap items-end gap-2">
+            <div>
+              <label className="text-[10px] uppercase text-slate-500">
+                Carrier
+              </label>
+              <Input
+                className="mt-0.5 h-8 w-32"
+                value={carrier}
+                onChange={(e) => setCarrier(e.target.value)}
+                placeholder="UPS"
+                disabled={depositBlocked}
+              />
+            </div>
+            <div>
+              <label className="text-[10px] uppercase text-slate-500">
+                Tracking
+              </label>
+              <Input
+                className="mt-0.5 h-8 w-40 font-mono"
+                value={tracking}
+                onChange={(e) => setTracking(e.target.value)}
+                disabled={depositBlocked}
+              />
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              disabled={pending || !!depositBlocked}
+              onClick={() =>
+                run(async () => {
+                  const fd = new FormData();
+                  fd.set("salesOrderId", salesOrderId);
+                  fd.set("shipmentId", shipmentId);
+                  if (carrier) fd.set("carrier", carrier);
+                  if (tracking) fd.set("trackingNumber", tracking);
+                  await actionShipSalesOrder(fd);
+                })
+              }
+            >
+              3. Ship
+            </Button>
           </div>
-          <div>
-            <label className="text-[10px] uppercase text-slate-500">
-              Tracking
-            </label>
-            <Input
-              className="mt-0.5 h-8 w-40 font-mono"
-              value={tracking}
-              onChange={(e) => setTracking(e.target.value)}
-            />
-          </div>
-          <Button
-            type="button"
-            size="sm"
-            disabled={pending}
-            onClick={() =>
-              run(async () => {
-                const fd = new FormData();
-                fd.set("salesOrderId", salesOrderId);
-                fd.set("shipmentId", shipmentId);
-                if (carrier) fd.set("carrier", carrier);
-                if (tracking) fd.set("trackingNumber", tracking);
-                await actionShipSalesOrder(fd);
-              })
-            }
-          >
-            3. Ship
-          </Button>
         </div>
       )}
 
