@@ -9,6 +9,8 @@ export default defineConfig({
     path: "prisma/migrations",
   },
   datasource: {
-    url: process.env["DATABASE_URL"],
+    // Zero-config default: local SQLite, same as src/lib/db.ts and
+    // .env.example. Set DATABASE_URL (e.g. Postgres) to override.
+    url: process.env["DATABASE_URL"] ?? "file:./prisma/dev.db",
   },
 });
