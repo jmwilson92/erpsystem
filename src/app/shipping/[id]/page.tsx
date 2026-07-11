@@ -6,6 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatDate } from "@/lib/utils";
 import { PackShipPanel } from "@/components/shipping/pack-ship-panel";
+import { Input } from "@/components/ui/input";
+import { actionShipReturnShipment } from "@/app/actions";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +22,7 @@ export default async function ShipmentDetailPage({
     where: { id },
     include: {
       salesOrder: { include: { customer: true, lines: true } },
+      mrbCase: { select: { id: true, number: true } },
       lines: true,
       traceEvents: { orderBy: { createdAt: "desc" }, take: 30 },
     },
@@ -48,7 +51,9 @@ export default async function ShipmentDetailPage({
         description={
           shipment.salesOrder
             ? `${shipment.salesOrder.customer.name} · SO ${shipment.salesOrder.number}`
-            : "Shipment"
+            : shipment.mrbCase
+              ? `Return to supplier · ${shipment.mrbCase.number}`
+              : "Shipment"
         }
         actions={
           <Link href="/shipping">
@@ -94,6 +99,22 @@ export default async function ShipmentDetailPage({
               label="Created"
               value={formatDate(shipment.createdAt)}
             />
+            {shipment.mrbCase && (
+              <div>
+                <p className="text-[10px] uppercase text-slate-600">
+                  MRB reference
+                </p>
+                <Link
+                  href="/mrb"
+                  className="font-mono text-amber-400 hover:underline"
+                >
+                  {shipment.mrbCase.number}
+                </Link>
+                <p className="text-xs text-slate-500">
+                  Nonconforming material return (RMA)
+                </p>
+              </div>
+            )}
             {shipment.salesOrder && (
               <div>
                 <p className="text-[10px] uppercase text-slate-600">
@@ -180,6 +201,40 @@ export default async function ShipmentDetailPage({
           )}
         </CardContent>
       </Card>
+
+      {!shipment.salesOrder &&
+        !["SHIPPED", "DELIVERED"].includes(shipment.status) && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Ship return</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <form
+                action={actionShipReturnShipment}
+                className="flex flex-wrap items-center gap-2"
+              >
+                <input type="hidden" name="shipmentId" value={shipment.id} />
+                <Input
+                  name="carrier"
+                  placeholder="Carrier (e.g. UPS)"
+                  className="max-w-[160px]"
+                />
+                <Input
+                  name="trackingNumber"
+                  placeholder="Tracking #"
+                  className="max-w-[220px]"
+                />
+                <Button type="submit" size="sm">
+                  Mark shipped
+                </Button>
+                <p className="w-full text-[11px] text-slate-500">
+                  Print the packing list lines above for the RMA box; shipping
+                  confirms the material physically left the building.
+                </p>
+              </form>
+            </CardContent>
+          </Card>
+        )}
 
       {shipment.salesOrder && !["SHIPPED", "DELIVERED"].includes(shipment.status) && (
         <Card>

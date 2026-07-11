@@ -4696,3 +4696,41 @@ export async function actionToggleGroupPermission(
   });
   revalidatePath("/admin/permissions");
 }
+
+/** Ship a return-to-vendor shipment (no sales order attached). */
+export async function actionShipReturnShipment(
+  formData: FormData
+): Promise<void> {
+  const user = await getCurrentUser();
+  const id = formData.get("shipmentId") as string;
+  const shipment = await prisma.shipment.findUniqueOrThrow({ where: { id } });
+  if (shipment.salesOrderId) {
+    throw new Error("Customer shipments ship through the pack & ship flow");
+  }
+  await prisma.shipment.update({
+    where: { id },
+    data: {
+      status: "SHIPPED",
+      shipDate: new Date(),
+      carrier: ((formData.get("carrier") as string) || "").trim() || null,
+      trackingNumber:
+        ((formData.get("trackingNumber") as string) || "").trim() || null,
+    },
+  });
+  await prisma.traceEvent.create({
+    data: {
+      shipmentId: id,
+      eventType: "SHIPPED",
+      notes: `Return shipment dispatched${user ? ` by ${user.name}` : ""}`,
+    },
+  });
+  await logAudit({
+    entityType: "Shipment",
+    entityId: id,
+    action: "RETURN_SHIPPED",
+    userId: user?.id,
+  });
+  revalidatePath("/shipping");
+  revalidatePath(`/shipping/${id}`);
+  revalidatePath("/mrb");
+}

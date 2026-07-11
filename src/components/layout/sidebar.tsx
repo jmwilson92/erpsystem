@@ -15,9 +15,11 @@ const COLLAPSED_GROUPS_KEY = "forge-nav-collapsed-groups";
 export function Sidebar({
   demoUsers = [],
   currentUser = null,
+  badges = {},
 }: {
   demoUsers?: DemoUser[];
   currentUser?: DemoUser | null;
+  badges?: Record<string, number>;
 }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -121,8 +123,18 @@ export function Sidebar({
                               : "text-slate-400 hover:bg-slate-900 hover:text-slate-200"
                           )}
                         >
-                          <Icon className={cn("h-4 w-4 shrink-0", active && "text-teal-400")} />
+                          <span className="relative">
+                            <Icon className={cn("h-4 w-4 shrink-0", active && "text-teal-400")} />
+                            {collapsed && (badges[item.href] || 0) > 0 && (
+                              <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-rose-500" />
+                            )}
+                          </span>
                           {!collapsed && <span className="truncate">{item.label}</span>}
+                          {!collapsed && (badges[item.href] || 0) > 0 && (
+                            <span className="ml-auto rounded-full bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-rose-400 ring-1 ring-rose-500/30">
+                              {badges[item.href]}
+                            </span>
+                          )}
                         </Link>
                       </li>
                     );

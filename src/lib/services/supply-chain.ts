@@ -1105,10 +1105,15 @@ export async function dispositionMrb(params: {
   justification: string;
   decidedById?: string;
   createCar?: boolean;
+  /** SCRAP only: raise a replacement purchase request for the scrapped qty. */
+  createReplacementPr?: boolean;
 }) {
   const mrb = await prisma.mrbCase.findUnique({
     where: { id: params.mrbCaseId },
-    include: { ncr: true, inventoryHolds: true },
+    include: {
+      ncr: { include: { part: true, supplier: true } },
+      inventoryHolds: true,
+    },
   });
   if (!mrb) throw new Error("MRB case not found");
 
@@ -1120,23 +1125,95 @@ export async function dispositionMrb(params: {
     ? `CAR for ${mrb.ncr.number} — ${params.disposition.replace(/_/g, " ")}`
     : null;
 
+  // REWORK / REPAIR each spawn a typed work order tied to the MRB case.
   let reworkWorkOrderId: string | null = null;
-  if (params.disposition === "REWORK" && mrb.ncr.partId) {
+  let repairWorkOrderId: string | null = null;
+  if (
+    (params.disposition === "REWORK" || params.disposition === "REPAIR") &&
+    mrb.ncr.partId
+  ) {
     const { createWorkOrder } = await import("@/lib/services/work-orders");
     const { getDefaultWorkCenter } = await import("@/lib/services/workcenters");
     const station = await getDefaultWorkCenter("MANUFACTURING");
+    const label = params.disposition === "REWORK" ? "rework" : "repair";
     const wo = await createWorkOrder({
-      type: "REWORK",
+      type: params.disposition,
       partId: mrb.ncr.partId,
       quantity: params.quantity,
       workCenter: station?.code || "ASM-01",
       department: "MANUFACTURING",
-      description: `MRB rework — ${mrb.number} / ${mrb.ncr.number}`,
+      description: `MRB ${label} — ${mrb.number} / ${mrb.ncr.number}`,
       travelerNotes: params.justification,
       createdById: params.decidedById,
       priority: "HIGH",
     });
-    reworkWorkOrderId = wo.id;
+    await prisma.workOrder.update({
+      where: { id: wo.id },
+      data: { mrbCaseId: mrb.id },
+    });
+    if (params.disposition === "REWORK") reworkWorkOrderId = wo.id;
+    else repairWorkOrderId = wo.id;
+  }
+
+  // RETURN_TO_SUPPLIER opens a return shipment with a packing list so the
+  // material can be shipped back through the normal pack/ship flow.
+  let returnShipmentId: string | null = null;
+  if (params.disposition === "RETURN_TO_SUPPLIER") {
+    const count = await prisma.shipment.count();
+    const shipment = await prisma.shipment.create({
+      data: {
+        number: `SHP-${String(count + 1).padStart(5, "0")}`,
+        mrbCaseId: mrb.id,
+        status: "PICKING",
+        shipToAddress: mrb.ncr.supplier
+          ? `${mrb.ncr.supplier.name} (RMA — return of nonconforming material)`
+          : "Supplier (RMA — return of nonconforming material)",
+        notes: `Return to supplier per ${mrb.number} / ${mrb.ncr.number}. ${params.justification}`,
+        lines: {
+          create: [
+            {
+              partId: mrb.ncr.partId,
+              description: `${mrb.ncr.part?.partNumber || "Material"} — nonconforming return (${mrb.number})`,
+              quantity: params.quantity,
+              lotNumber: mrb.inventoryHolds[0]?.lotNumber || null,
+            },
+          ],
+        },
+      },
+    });
+    returnShipmentId = shipment.id;
+  }
+
+  // SCRAP can raise a replacement PR so the shortage is covered.
+  let replacementPrId: string | null = null;
+  if (params.disposition === "SCRAP" && params.createReplacementPr) {
+    const prCount = await prisma.purchaseRequest.count();
+    const estUnit =
+      mrb.ncr.part?.standardCost || 0;
+    const pr = await prisma.purchaseRequest.create({
+      data: {
+        number: `PR-${String(prCount + 1).padStart(5, "0")}`,
+        status: "SUBMITTED",
+        requestedById: params.decidedById,
+        department: "QUALITY",
+        justification: `Replacement for material scrapped under ${mrb.number} / ${mrb.ncr.number}. ${params.justification}`,
+        totalEstimate: estUnit * params.quantity,
+        supplierId: mrb.ncr.supplierId,
+        triggerSource: "MRB_SCRAP",
+        mrbCaseId: mrb.id,
+        lines: {
+          create: [
+            {
+              partId: mrb.ncr.partId,
+              description: `${mrb.ncr.part?.partNumber || "Material"} — replacement for scrap (${mrb.number})`,
+              quantity: params.quantity,
+              estimatedUnitCost: estUnit,
+            },
+          ],
+        },
+      },
+    });
+    replacementPrId = pr.id;
   }
 
   const disposition = await prisma.mrbDisposition.create({
@@ -1156,6 +1233,9 @@ export async function dispositionMrb(params: {
         ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
         : null,
       reworkWorkOrderId,
+      repairWorkOrderId,
+      returnShipmentId,
+      replacementPrId,
     },
   });
 
@@ -1199,10 +1279,16 @@ export async function dispositionMrb(params: {
           userId: params.decidedById,
         },
       });
-    } else if (params.disposition === "USE_AS_IS" || params.disposition === "REPAIR") {
-      const storageLoc = await prisma.location.findFirst({
-        where: { type: "STORAGE" },
+    } else if (params.disposition === "USE_AS_IS") {
+      // Release in place: only relocate if the material sits in a
+      // quarantine cage — otherwise it stays wherever it lived before.
+      const currentLoc = await prisma.location.findUnique({
+        where: { id: item.locationId },
       });
+      const storageLoc =
+        currentLoc?.type === "QUARANTINE"
+          ? await prisma.location.findFirst({ where: { type: "STORAGE" } })
+          : null;
       await prisma.inventoryItem.update({
         where: { id: item.id },
         data: {
@@ -1245,7 +1331,8 @@ export async function dispositionMrb(params: {
         },
       });
     }
-    // REWORK leaves in quarantine / WIP path
+    // REWORK / REPAIR leave material in quarantine — the spawned WO
+    // consumes it and returns conforming stock on completion.
   }
 
   await prisma.mrbCase.update({
@@ -1274,6 +1361,10 @@ export async function dispositionMrb(params: {
       disposition: params.disposition,
       quantity: params.quantity,
       carNumber,
+      reworkWorkOrderId,
+      repairWorkOrderId,
+      returnShipmentId,
+      replacementPrId,
     },
   });
 

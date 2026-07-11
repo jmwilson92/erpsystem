@@ -52,11 +52,14 @@ export default async function MrbPage({
   });
 
   // Open = needs board attention; Closed = fully closed only.
-  // DISPOSITIONED is intermediate and appears under All (not Closed).
   const openCases = cases.filter((c) =>
     ["OPEN", "IN_REVIEW"].includes(c.status)
   );
-  const closedCases = cases.filter((c) => c.status === "CLOSED");
+  // Dispositioned cases are resolved — group them with Closed so they
+  // don't disappear between the two filters.
+  const closedCases = cases.filter((c) =>
+    ["CLOSED", "DISPOSITIONED"].includes(c.status)
+  );
 
   const cars = cases.flatMap((c) =>
     c.dispositions
@@ -568,7 +571,31 @@ export default async function MrbPage({
                                 href={`/work-orders/${d.reworkWorkOrderId}`}
                                 className="text-xs text-teal-400 hover:underline"
                               >
-                                Rework WO
+                                Rework WO →
+                              </Link>
+                            )}
+                            {d.repairWorkOrderId && (
+                              <Link
+                                href={`/work-orders/${d.repairWorkOrderId}`}
+                                className="text-xs text-teal-400 hover:underline"
+                              >
+                                Repair WO →
+                              </Link>
+                            )}
+                            {d.returnShipmentId && (
+                              <Link
+                                href={`/shipping/${d.returnShipmentId}`}
+                                className="text-xs text-violet-400 hover:underline"
+                              >
+                                Return shipment →
+                              </Link>
+                            )}
+                            {d.replacementPrId && (
+                              <Link
+                                href="/purchasing?tab=pr"
+                                className="text-xs text-amber-400 hover:underline"
+                              >
+                                Replacement PR →
                               </Link>
                             )}
                           </div>
@@ -637,6 +664,22 @@ export default async function MrbPage({
                         Create Corrective Action Request (CAR) — managed under
                         the CAR tab
                       </label>
+                      <label className="flex items-center gap-2 text-xs text-slate-400">
+                        <input
+                          type="checkbox"
+                          name="createReplacementPr"
+                          value="true"
+                          defaultChecked
+                          className="accent-teal-500"
+                        />
+                        If scrapped: raise a replacement purchase request for
+                        the scrapped quantity (references this MRB)
+                      </label>
+                      <p className="text-[11px] text-slate-500">
+                        Rework / repair create a linked work order · return to
+                        supplier opens a return shipment with packing list ·
+                        use-as-is releases stock back where it was.
+                      </p>
                       <Button type="submit" size="sm">
                         Record disposition
                       </Button>

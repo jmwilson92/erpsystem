@@ -534,6 +534,7 @@ export async function getFloorBoardData() {
       assignee: { select: { id: true, name: true } },
       stepCompletions: true,
       project: { select: { number: true, name: true } },
+      statusHistory: { orderBy: { createdAt: "asc" } },
     },
     orderBy: [{ priority: "desc" }, { plannedEnd: "asc" }],
   });

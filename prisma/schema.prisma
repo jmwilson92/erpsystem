@@ -450,6 +450,9 @@ model WorkOrder {
   // BACKLOG → PLANNED → WAITING_MATERIAL → READY_TO_KIT → KITTING → KITTED → RELEASED → IN_PROGRESS → COMPLETED
   status          String   @default("PLANNED")
   priority        String   @default("NORMAL") // LOW, NORMAL, HIGH, CRITICAL
+  /// Set when this WO was spawned by an MRB disposition (rework / repair)
+  mrbCaseId       String?
+  mrbCase         MrbCase? @relation(fields: [mrbCaseId], references: [id], onDelete: SetNull)
   partId          String?
   part            Part?    @relation(fields: [partId], references: [id])
   bomHeaderId     String?
@@ -2117,6 +2120,9 @@ model MrbCase {
 
   dispositions    MrbDisposition[]
   inventoryHolds  InventoryItem[]
+  workOrders      WorkOrder[]
+  returnShipments Shipment[]
+  replacementPrs  PurchaseRequest[]
 }
 
 model MrbDisposition {
@@ -2137,7 +2143,10 @@ model MrbDisposition {
   carResponse     String?
   carDueDate      DateTime?
   carClosedAt     DateTime?
-  reworkWorkOrderId String? // optional WO created for REWORK disposition
+  reworkWorkOrderId String? // WO created for REWORK disposition
+  repairWorkOrderId String? // WO created for REPAIR disposition
+  returnShipmentId  String? // return-to-vendor shipment (RETURN_TO_SUPPLIER)
+  replacementPrId   String? // replacement purchase request (SCRAP)
   // Vendor email / acknowledgment attachments (JSON: [{url,fileName,caption}])
   carAttachments  String?
 
@@ -2384,8 +2393,11 @@ model PurchaseRequest {
   // Triggered by WI tooling short (shows source WI on PR)
   workInstructionId String?
   workInstruction   WorkInstruction? @relation(fields: [workInstructionId], references: [id])
-  // WO_MATERIAL | WI_TOOL | MANUAL | KANBAN | etc.
+  // WO_MATERIAL | WI_TOOL | MANUAL | KANBAN | MRB_SCRAP | etc.
   triggerSource   String?
+  /// Set when this PR replaces scrapped material from an MRB disposition
+  mrbCaseId       String?
+  mrbCase         MrbCase? @relation(fields: [mrbCaseId], references: [id], onDelete: SetNull)
   projectId       String?
   project         Project? @relation(fields: [projectId], references: [id])
   salesOrderId    String?
@@ -2870,6 +2882,9 @@ model Shipment {
   number        String   @unique
   salesOrderId  String?
   salesOrder    SalesOrder? @relation(fields: [salesOrderId], references: [id])
+  /// Set for return-to-vendor shipments created from an MRB disposition
+  mrbCaseId     String?
+  mrbCase       MrbCase? @relation(fields: [mrbCaseId], references: [id], onDelete: SetNull)
   status        String   @default("DRAFT") // DRAFT, PICKING, VERIFIED, PACKED, SHIPPED, DELIVERED
   shipDate      DateTime?
   carrier       String?
