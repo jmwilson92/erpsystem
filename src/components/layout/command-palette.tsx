@@ -3,69 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Command } from "cmdk";
-import {
-  LayoutDashboard,
-  Factory,
-  ClipboardList,
-  FileText,
-  Boxes,
-  ShoppingCart,
-  Package,
-  FlaskConical,
-  Gauge,
-  FolderKanban,
-  Landmark,
-  Truck,
-  Award,
-  Network,
-  Monitor,
-  Shield,
-  Users2,
-  Briefcase,
-  Bot,
-  GitBranch,
-  LineChart,
-} from "lucide-react";
-
-const pages = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard, group: "Navigation" },
-  { href: "/floor", label: "Production Floor", icon: Factory, group: "Navigation" },
-  { href: "/work-orders", label: "Work Orders", icon: ClipboardList, group: "Manufacturing" },
-  { href: "/work-instructions", label: "Work Instructions", icon: FileText, group: "Manufacturing" },
-  { href: "/qa", label: "QA (visual / GD&T)", icon: FlaskConical, group: "Manufacturing" },
-  { href: "/test-center", label: "Test Center", icon: FlaskConical, group: "Manufacturing" },
-  { href: "/workcenters", label: "Workcenters", icon: Factory, group: "Manufacturing" },
-  { href: "/items", label: "Items / Item Cards", icon: Package, group: "Manufacturing" },
-  { href: "/bom", label: "Bill of Materials", icon: Boxes, group: "Manufacturing" },
-  { href: "/uom", label: "UOM Master", icon: Gauge, group: "Manufacturing" },
-  { href: "/sales", label: "Sales Orders", icon: ShoppingCart, group: "Supply Chain" },
-  { href: "/customers", label: "Customers", icon: ShoppingCart, group: "Supply Chain" },
-  { href: "/purchasing", label: "Purchasing", icon: ShoppingCart, group: "Supply Chain" },
-  { href: "/receiving", label: "Receiving Travelers", icon: Package, group: "Supply Chain" },
-  { href: "/suppliers", label: "Suppliers / ASL", icon: Award, group: "Supply Chain" },
-  { href: "/inventory", label: "Inventory", icon: Package, group: "Supply Chain" },
-  { href: "/kitting", label: "Kitting", icon: Boxes, group: "Supply Chain" },
-  { href: "/shipping", label: "Shipping", icon: Truck, group: "Supply Chain" },
-  { href: "/virtual-assets", label: "Virtual Assets", icon: Package, group: "Supply Chain" },
-  { href: "/government-property", label: "Gov Property", icon: Shield, group: "Quality" },
-  { href: "/planning?tab=capacity", label: "Capacity Planning", icon: LineChart, group: "Manufacturing" },
-  { href: "/value-stream", label: "Value Stream Map", icon: Network, group: "Supply Chain" },
-  { href: "/quality", label: "NCR / Quality", icon: FlaskConical, group: "Quality" },
-  { href: "/mrb", label: "MRB / CAR", icon: Gauge, group: "Quality" },
-  { href: "/cm", label: "Configuration Management", icon: GitBranch, group: "Quality" },
-  { href: "/government-property", label: "Government Property", icon: Shield, group: "Quality" },
-  { href: "/leadership", label: "Senior Leadership", icon: FolderKanban, group: "Business" },
-  { href: "/pmo", label: "PMO / Programs & Projects", icon: FolderKanban, group: "Business" },
-  { href: "/pmo/pi", label: "PI Planning", icon: FolderKanban, group: "Business" },
-  { href: "/pmo/alerts", label: "PM Alerts", icon: FolderKanban, group: "Business" },
-  { href: "/accounting", label: "Accounting (GAAP)", icon: Landmark, group: "Business" },
-  { href: "/engineering", label: "Engineering Tracker", icon: Briefcase, group: "Business" },
-  { href: "/products", label: "Products (PLM)", icon: Package, group: "Business" },
-  { href: "/admin/permissions", label: "Roles & Permissions", icon: Shield, group: "Business" },
-  { href: "/hr", label: "HR & Workforce", icon: Users2, group: "Business" },
-  { href: "/radiators", label: "Information Radiators", icon: Monitor, group: "Visual" },
-  { href: "/ai", label: "AI Assistant", icon: Bot, group: "Visual" },
-];
+import { NAV_GROUPS } from "@/lib/navigation";
 
 export function CommandPalette({
   open,
@@ -99,8 +37,6 @@ export function CommandPalette({
 
   if (!open) return null;
 
-  const groups = [...new Set(pages.map((p) => p.group))];
-
   return (
     <div className="fixed inset-0 z-[100]">
       <div
@@ -124,28 +60,27 @@ export function CommandPalette({
             <Command.Empty className="py-6 text-center text-sm text-slate-500">
               No results found.
             </Command.Empty>
-            {groups.map((group) => (
+            {NAV_GROUPS.map((group) => (
               <Command.Group
-                key={group}
-                heading={group}
+                key={group.label}
+                heading={group.label}
                 className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[10px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-slate-600"
               >
-                {pages
-                  .filter((p) => p.group === group)
-                  .map((page) => {
-                    const Icon = page.icon;
-                    return (
-                      <Command.Item
-                        key={page.href}
-                        value={page.label}
-                        onSelect={() => run(page.href)}
-                        className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-sm text-slate-300 aria-selected:bg-teal-500/10 aria-selected:text-teal-300"
-                      >
-                        <Icon className="h-4 w-4 opacity-70" />
-                        {page.label}
-                      </Command.Item>
-                    );
-                  })}
+                {group.items.map((page) => {
+                  const Icon = page.icon;
+                  return (
+                    <Command.Item
+                      key={page.href}
+                      value={page.label}
+                      keywords={page.keywords}
+                      onSelect={() => run(page.href)}
+                      className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-sm text-slate-300 aria-selected:bg-teal-500/10 aria-selected:text-teal-300"
+                    >
+                      <Icon className="h-4 w-4 opacity-70" />
+                      {page.label}
+                    </Command.Item>
+                  );
+                })}
               </Command.Group>
             ))}
           </Command.List>
