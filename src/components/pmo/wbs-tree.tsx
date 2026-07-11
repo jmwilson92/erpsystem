@@ -23,13 +23,7 @@ export type WbsNode = {
   campaigns?: { id: string; number: string; name: string; status: string }[];
 };
 
-export function WbsTree({
-  projectId,
-  nodes,
-}: {
-  projectId: string;
-  nodes: WbsNode[];
-}) {
+export function WbsTree({ nodes }: { nodes: WbsNode[] }) {
   const roots = useMemo(
     () => nodes.filter((n) => !n.parentId).sort((a, b) => a.code.localeCompare(b.code)),
     [nodes]

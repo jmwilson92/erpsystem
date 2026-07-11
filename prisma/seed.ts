@@ -107,7 +107,7 @@ async function main() {
       })
     )
   );
-  const [admin, engLead, cmMgr, qualityMgr, buyer, prodSup, controller, hrMgr, tech1, tech2, inspector, pm, ceo, cfo] = users;
+  const [admin, engLead, cmMgr, qualityMgr, buyer, prodSup, controller, , tech1, tech2, inspector, pm, ceo, cfo] = users;
   console.log(`  ✓ ${users.length} users`);
 
   // ── Permission catalog + default groups ────────────────────
@@ -303,6 +303,7 @@ async function main() {
       { code: "2000", name: "Accounts Payable", type: "LIABILITY", balance: 178000 },
       { code: "2100", name: "Accrued Expenses", type: "LIABILITY", balance: 45000 },
       { code: "3000", name: "Retained Earnings", type: "EQUITY", balance: 2100000 },
+      { code: "3100", name: "Common Stock & Paid-in Capital", type: "EQUITY", balance: 769000 },
       { code: "4000", name: "Sales Revenue", type: "REVENUE", balance: 3200000 },
       { code: "5000", name: "Cost of Goods Sold", type: "COGS", balance: 1850000 },
       { code: "6000", name: "Salaries & Wages", type: "EXPENSE", balance: 980000 },
@@ -551,7 +552,7 @@ async function main() {
 
   // ── BOMs: multi-level + prototype → certified flow ─────────
   // Rev A PROTOTYPE (obsolete path), Rev B CERTIFIED, Rev C PROTOTYPE for next
-  const bomA = await prisma.bomHeader.create({
+  await prisma.bomHeader.create({
     data: {
       partId: part["ASM-1000"].id,
       revision: "A",
@@ -1756,7 +1757,7 @@ async function main() {
     ],
   });
 
-  const project2 = await prisma.project.create({
+  await prisma.project.create({
     data: {
       number: "PRJ-INT-02",
       name: "Internal Tooling Upgrade",
@@ -1883,7 +1884,7 @@ async function main() {
   }
 
   // Prototype WO on Rev C BOM
-  const woProto = await prisma.workOrder.create({
+  await prisma.workOrder.create({
     data: {
       number: "WO-00003",
       type: "PROTOTYPE",
@@ -2209,7 +2210,7 @@ async function main() {
   });
 
   // Journal entries
-  const je = await prisma.journalEntry.create({
+  await prisma.journalEntry.create({
     data: {
       number: "JE-00001",
       date: daysAgo(1),

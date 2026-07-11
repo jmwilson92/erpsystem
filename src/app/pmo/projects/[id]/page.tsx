@@ -5,7 +5,6 @@ import { getProjectDetail, MILESTONE_KINDS } from "@/lib/services/pmo";
 import {
   getWbsTree,
   listCampaignsForProject,
-  ENG_DISCIPLINES,
 } from "@/lib/services/engineering-work";
 import { WbsTree } from "@/components/pmo/wbs-tree";
 import { PageHeader } from "@/components/shared/page-header";
@@ -534,7 +533,6 @@ export default async function PmoProjectDetailPage({
             resources). Campaigns hang off work packages.
           </p>
           <WbsTree
-            projectId={project.id}
             nodes={wbsNodes.map((n) => ({
               id: n.id,
               code: n.code,

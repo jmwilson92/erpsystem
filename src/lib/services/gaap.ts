@@ -87,7 +87,12 @@ export async function getGaapReportPack() {
       assets: totalAssets,
       liabilities: totalLiab,
       equity: totalEquity,
-      balanced: Math.abs(totalAssets - (totalLiab + totalEquity)) < 0.01,
+      // Revenue/expense accounts haven't been closed to retained earnings,
+      // so the accounting equation is A = L + E + current-period earnings.
+      currentEarnings: netIncome,
+      liabilitiesAndEquity: totalLiab + totalEquity + netIncome,
+      balanced:
+        Math.abs(totalAssets - (totalLiab + totalEquity + netIncome)) < 0.01,
       assetAccounts: assets,
       liabilityAccounts: liabilities,
       equityAccounts: equity,

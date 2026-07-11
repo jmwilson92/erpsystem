@@ -2,7 +2,7 @@ import Link from "next/link";
 import { listPrograms, listProjects } from "@/lib/services/pmo";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { formatCurrency, formatDate, cn } from "@/lib/utils";

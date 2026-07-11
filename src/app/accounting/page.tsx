@@ -169,8 +169,16 @@ export default async function AccountingPage({
               <div>
                 <Section title="Liabilities" rows={bs.liabilityAccounts} />
                 <Section title="Equity" rows={bs.equityAccounts} />
+                <div className="flex justify-between border-t border-slate-800 py-1.5 text-sm">
+                  <span className="text-slate-400">
+                    Current period earnings
+                  </span>
+                  <span className="tabular-nums">
+                    {formatCurrency(bs.currentEarnings)}
+                  </span>
+                </div>
                 <p className="mt-2 text-right font-semibold text-teal-400">
-                  {formatCurrency(bs.liabilities + bs.equity)}
+                  {formatCurrency(bs.liabilitiesAndEquity)}
                 </p>
               </div>
             </CardContent>

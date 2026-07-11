@@ -1,10 +1,6 @@
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/shared/page-header";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { actionCreateWorkInstruction } from "@/app/actions";
 import Link from "next/link";
 import { NewWiForm } from "@/components/work-instructions/new-wi-form";
 

@@ -148,7 +148,7 @@ export function activeNavHref(
   for (const group of NAV_GROUPS) {
     for (const item of group.items) {
       const [itemPath, itemQuery] = item.href.split("?");
-      let matches =
+      const matches =
         itemPath === "/"
           ? pathname === "/"
           : pathname === itemPath || pathname.startsWith(itemPath + "/");
@@ -169,7 +169,6 @@ export function activeNavHref(
         bestScore = score;
         best = item.href;
       }
-      void matches;
     }
   }
   return best;
