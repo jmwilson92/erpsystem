@@ -4472,3 +4472,79 @@ export async function actionQueueShipmentAndOpen(
   }
   redirect("/shipping?queued=empty");
 }
+
+// ─────────────────────────────────────────────────────────────
+// HR / Workforce
+// ─────────────────────────────────────────────────────────────
+
+export async function actionDecidePto(formData: FormData): Promise<void> {
+  const { decidePtoRequest } = await import("@/lib/services/hr");
+  const user = await getCurrentUser();
+  await decidePtoRequest({
+    id: formData.get("id") as string,
+    decision:
+      (formData.get("decision") as string) === "REJECTED"
+        ? "REJECTED"
+        : "APPROVED",
+    userId: user?.id,
+  });
+  revalidatePath("/hr");
+}
+
+export async function actionRequestPto(formData: FormData): Promise<void> {
+  const { createPtoRequest } = await import("@/lib/services/hr");
+  const userId = (formData.get("userId") as string) || "";
+  const startDate = new Date((formData.get("startDate") as string) || "");
+  const endDate = new Date((formData.get("endDate") as string) || "");
+  const hours = Number(formData.get("hours") || 0);
+  if (!userId || Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime()) || hours <= 0) {
+    return;
+  }
+  await createPtoRequest({
+    userId,
+    type: ((formData.get("type") as string) || "PTO").trim(),
+    startDate,
+    endDate,
+    hours,
+    reason: ((formData.get("reason") as string) || "").trim() || undefined,
+  });
+  revalidatePath("/hr");
+}
+
+export async function actionDecideTimeEntry(formData: FormData): Promise<void> {
+  const { decideTimeEntry } = await import("@/lib/services/hr");
+  const user = await getCurrentUser();
+  await decideTimeEntry({
+    id: formData.get("id") as string,
+    decision:
+      (formData.get("decision") as string) === "REJECTED"
+        ? "REJECTED"
+        : "APPROVED",
+    userId: user?.id,
+  });
+  revalidatePath("/hr");
+}
+
+export async function actionAdvanceExpense(formData: FormData): Promise<void> {
+  const { advanceExpenseReport } = await import("@/lib/services/hr");
+  const user = await getCurrentUser();
+  await advanceExpenseReport({
+    id: formData.get("id") as string,
+    status: ((formData.get("status") as string) || "").trim(),
+    userId: user?.id,
+  });
+  revalidatePath("/hr");
+}
+
+export async function actionUpdateGoalProgress(
+  formData: FormData
+): Promise<void> {
+  const { updateGoalProgress } = await import("@/lib/services/hr");
+  const user = await getCurrentUser();
+  await updateGoalProgress({
+    id: formData.get("id") as string,
+    progress: Number(formData.get("progress") || 0),
+    userId: user?.id,
+  });
+  revalidatePath("/hr");
+}
