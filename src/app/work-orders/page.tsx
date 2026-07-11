@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
+import { workOrderHoldProvenance } from "@/lib/provenance";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -48,6 +49,8 @@ export default async function WorkOrdersPage({
         project: true,
         salesOrder: { select: { id: true, number: true } },
         materialRequisition: { select: { id: true, number: true } },
+        mrbCase: { select: { id: true, number: true } },
+        statusHistory: { orderBy: { createdAt: "asc" } },
         businessPriority: {
           select: { id: true, number: true, title: true, priority: true },
         },
@@ -244,7 +247,10 @@ export default async function WorkOrdersPage({
                       >
                         {wo.number}
                       </span>
-                      <StatusBadge status={wo.status} />
+                      <StatusBadge
+                        status={wo.status}
+                        {...workOrderHoldProvenance(wo)}
+                      />
                       <StatusBadge status={wo.sourceType || wo.type} />
                       <StatusBadge status={wo.priority} />
                       <StatusBadge

@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
+import { workOrderHoldProvenance, workOrderMrbProvenance } from "@/lib/provenance";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -60,6 +61,7 @@ export default async function WorkOrderDetailPage({
         },
         stepCompletions: true,
         statusHistory: { orderBy: { createdAt: "asc" } },
+        mrbCase: { select: { id: true, number: true } },
         ncrs: true,
         kitOrders: {
           include: { lines: { include: { part: true } } },
@@ -238,7 +240,13 @@ export default async function WorkOrderDetailPage({
       />
 
       <div className="flex flex-wrap gap-2">
-        <StatusBadge status={wo.status} />
+        <StatusBadge status={wo.status} {...workOrderHoldProvenance(wo)} />
+        {wo.mrbCase && (
+          <StatusBadge
+            status={`FROM ${wo.mrbCase.number}`}
+            {...workOrderMrbProvenance(wo)}
+          />
+        )}
         <StatusBadge status={wo.kitStatus} />
         <StatusBadge status={wo.type} />
         <StatusBadge status={wo.sourceType || "OTHER"} />

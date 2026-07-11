@@ -16,6 +16,7 @@ export default async function ShippingPage() {
       orderBy: { createdAt: "desc" },
       include: {
         salesOrder: { include: { customer: true } },
+        mrbCase: { select: { number: true } },
         lines: true,
       },
     }),
@@ -131,7 +132,9 @@ export default async function ShippingPage() {
             </CardHeader>
             <CardContent className="text-sm">
               <p className="text-slate-300">
-                {s.salesOrder?.customer.name || "—"} · SO{" "}
+                {s.salesOrder?.customer.name ||
+                  (s.mrbCase ? `Return to supplier · ${s.mrbCase.number}` : "—")}{" "}
+                · SO{" "}
                 {s.salesOrder ? (
                   <Link href={`/sales/${s.salesOrder.id}`} className="text-sky-400">
                     {s.salesOrder.number}

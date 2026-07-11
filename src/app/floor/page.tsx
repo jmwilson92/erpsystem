@@ -1,6 +1,7 @@
 import { getFloorBoardData } from "@/lib/services/work-orders";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
+import { workOrderHoldProvenance } from "@/lib/provenance";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { formatCurrency, cn } from "@/lib/utils";
@@ -149,7 +150,10 @@ export default async function FloorPage({
                             {wo.quantity > 1 ? ` × ${wo.quantity}` : ""}
                           </p>
                         </div>
-                        <StatusBadge status={wo.status} />
+                        <StatusBadge
+                          status={wo.status}
+                          {...workOrderHoldProvenance(wo)}
+                        />
                       </div>
                       <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500">
                         <span>{wo.assignee?.name || "Unassigned"}</span>

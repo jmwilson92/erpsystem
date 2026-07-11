@@ -14,14 +14,22 @@ export type DemoUser = {
   title: string | null;
 };
 
+export type ShellNotifications = {
+  total: number;
+  items: { label: string; count: number; href: string }[];
+  badges: Record<string, number>;
+};
+
 function ShellInner({
   children,
   demoUsers,
   currentUser,
+  notifications,
 }: {
   children: React.ReactNode;
   demoUsers: DemoUser[];
   currentUser: DemoUser | null;
+  notifications: ShellNotifications;
 }) {
   const [cmdOpen, setCmdOpen] = useState(false);
   const { theme } = useTheme();
@@ -33,10 +41,14 @@ function ShellInner({
           <aside className="w-60 border-r border-border bg-background" />
         }
       >
-        <Sidebar demoUsers={demoUsers} currentUser={currentUser} />
+        <Sidebar
+          demoUsers={demoUsers}
+          currentUser={currentUser}
+          badges={notifications.badges}
+        />
       </Suspense>
       <div className="flex min-w-0 flex-1 flex-col">
-        <Header onOpenCommand={() => setCmdOpen(true)} />
+        <Header onOpenCommand={() => setCmdOpen(true)} notifications={notifications} />
         <main className="flex-1 overflow-y-auto">
           <div className="mx-auto max-w-[1600px] p-4 md:p-6">{children}</div>
         </main>
@@ -58,14 +70,20 @@ export function AppShell({
   children,
   demoUsers,
   currentUser,
+  notifications,
 }: {
   children: React.ReactNode;
   demoUsers: DemoUser[];
   currentUser: DemoUser | null;
+  notifications: ShellNotifications;
 }) {
   return (
     <ThemeProvider>
-      <ShellInner demoUsers={demoUsers} currentUser={currentUser}>
+      <ShellInner
+        demoUsers={demoUsers}
+        currentUser={currentUser}
+        notifications={notifications}
+      >
         {children}
       </ShellInner>
     </ThemeProvider>

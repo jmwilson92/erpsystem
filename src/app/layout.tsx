@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { AppShell } from "@/components/layout/app-shell";
 import { getCurrentUser, listUsers } from "@/lib/auth";
+import { getNotificationSummary } from "@/lib/services/notifications";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -30,6 +31,9 @@ export default async function RootLayout({
     listUsers(),
     getCurrentUser(),
   ]);
+  const notifications = currentUser
+    ? await getNotificationSummary(currentUser)
+    : { total: 0, items: [], badges: {} };
   const shellUsers = demoUsers.map((u) => ({
     id: u.id,
     name: u.name,
@@ -54,6 +58,7 @@ export default async function RootLayout({
         suppressHydrationWarning
       >
         <AppShell
+          notifications={notifications}
           demoUsers={shellUsers}
           currentUser={
             currentUser
