@@ -4487,8 +4487,10 @@ export async function actionDecidePto(formData: FormData): Promise<void> {
         ? "REJECTED"
         : "APPROVED",
     userId: user?.id,
+    approver: user ? { id: user.id, role: user.role } : null,
   });
   revalidatePath("/hr");
+  revalidatePath("/approvals");
 }
 
 export async function actionRequestPto(formData: FormData): Promise<void> {
@@ -4521,8 +4523,10 @@ export async function actionDecideTimeEntry(formData: FormData): Promise<void> {
         ? "REJECTED"
         : "APPROVED",
     userId: user?.id,
+    approver: user ? { id: user.id, role: user.role } : null,
   });
   revalidatePath("/hr");
+  revalidatePath("/approvals");
 }
 
 export async function actionAdvanceExpense(formData: FormData): Promise<void> {
@@ -4532,8 +4536,10 @@ export async function actionAdvanceExpense(formData: FormData): Promise<void> {
     id: formData.get("id") as string,
     status: ((formData.get("status") as string) || "").trim(),
     userId: user?.id,
+    approver: user ? { id: user.id, role: user.role } : null,
   });
   revalidatePath("/hr");
+  revalidatePath("/approvals");
 }
 
 export async function actionUpdateGoalProgress(
@@ -4547,4 +4553,146 @@ export async function actionUpdateGoalProgress(
     userId: user?.id,
   });
   revalidatePath("/hr");
+}
+
+export async function actionSwitchDemoUser(formData: FormData): Promise<void> {
+  const { cookies } = await import("next/headers");
+  const { DEMO_USER_COOKIE } = await import("@/lib/auth");
+  const userId = ((formData.get("userId") as string) || "").trim();
+  const jar = await cookies();
+  if (userId) {
+    jar.set(DEMO_USER_COOKIE, userId, { path: "/", httpOnly: false });
+  } else {
+    jar.delete(DEMO_USER_COOKIE);
+  }
+  revalidatePath("/", "layout");
+}
+
+export async function actionSavePerformanceReview(
+  formData: FormData
+): Promise<void> {
+  const { upsertPerformanceReview, canDecideFor } = await import(
+    "@/lib/services/hr"
+  );
+  const user = await getCurrentUser();
+  if (!user) return;
+  const employeeId = formData.get("employeeId") as string;
+  const ok = await canDecideFor(
+    { id: user.id, role: user.role },
+    employeeId,
+    "hr.review.manage"
+  );
+  if (!ok) throw new Error("Not authorized to review this employee");
+  const ratingRaw = (formData.get("overallRating") as string) || "";
+  await upsertPerformanceReview({
+    id: ((formData.get("id") as string) || "").trim() || undefined,
+    employeeId,
+    reviewerId: user.id,
+    period: ((formData.get("period") as string) || "").trim(),
+    status: ((formData.get("status") as string) || "DRAFT").trim(),
+    overallRating: ratingRaw ? Number(ratingRaw) : null,
+    strengths: (formData.get("strengths") as string) || null,
+    improvements: (formData.get("improvements") as string) || null,
+    careerNotes: (formData.get("careerNotes") as string) || null,
+  });
+  revalidatePath("/hr");
+}
+
+export async function actionCreateEmployeeGoal(
+  formData: FormData
+): Promise<void> {
+  const { createEmployeeGoal, canDecideFor } = await import(
+    "@/lib/services/hr"
+  );
+  const user = await getCurrentUser();
+  if (!user) return;
+  const forUserId = ((formData.get("userId") as string) || "").trim();
+  const title = ((formData.get("title") as string) || "").trim();
+  if (!forUserId || !title) return;
+  if (forUserId !== user.id) {
+    const ok = await canDecideFor(
+      { id: user.id, role: user.role },
+      forUserId,
+      "hr.goal.manage"
+    );
+    if (!ok) throw new Error("Not authorized to set goals for this employee");
+  }
+  const targetRaw = (formData.get("targetDate") as string) || "";
+  const target = targetRaw ? new Date(targetRaw) : null;
+  await createEmployeeGoal({
+    userId: forUserId,
+    title,
+    category: ((formData.get("category") as string) || "SKILL").trim(),
+    targetDate: target && !Number.isNaN(target.getTime()) ? target : null,
+    description: (formData.get("description") as string) || null,
+    createdById: user.id,
+  });
+  revalidatePath("/hr");
+}
+
+export async function actionAddEmployeeDocument(
+  formData: FormData
+): Promise<void> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const user = await getCurrentUser();
+  if (!user) return;
+  const ok = await userHasPermission(user.id, "hr.docs.manage");
+  if (!ok) throw new Error("Not authorized to manage employee documents");
+  const userId = ((formData.get("userId") as string) || "").trim();
+  const title = ((formData.get("title") as string) || "").trim();
+  if (!userId || !title) return;
+  await prisma.employeeDocument.create({
+    data: {
+      userId,
+      title,
+      kind: ((formData.get("kind") as string) || "GENERAL").trim(),
+      url: ((formData.get("url") as string) || "").trim() || null,
+      note: ((formData.get("note") as string) || "").trim() || null,
+    },
+  });
+  await logAudit({
+    entityType: "EmployeeDocument",
+    entityId: userId,
+    action: "DOC_ADDED",
+    userId: user.id,
+    metadata: { title },
+  });
+  revalidatePath("/hr");
+}
+
+export async function actionCreatePermissionGroup(
+  formData: FormData
+): Promise<void> {
+  const { createPermissionGroup } = await import("@/lib/services/permissions");
+  const { userHasPermission } = await import("@/lib/auth");
+  const user = await getCurrentUser();
+  if (!(await userHasPermission(user?.id, "admin.permissions"))) {
+    throw new Error("Not authorized to manage permissions");
+  }
+  const name = ((formData.get("name") as string) || "").trim();
+  if (!name) return;
+  await createPermissionGroup({
+    name,
+    baseRole: ((formData.get("baseRole") as string) || "").trim() || undefined,
+    description:
+      ((formData.get("description") as string) || "").trim() || undefined,
+  });
+  revalidatePath("/admin/permissions");
+}
+
+export async function actionToggleGroupPermission(
+  formData: FormData
+): Promise<void> {
+  const { toggleGroupPermission } = await import("@/lib/services/permissions");
+  const { userHasPermission } = await import("@/lib/auth");
+  const user = await getCurrentUser();
+  if (!(await userHasPermission(user?.id, "admin.permissions"))) {
+    throw new Error("Not authorized to manage permissions");
+  }
+  await toggleGroupPermission({
+    groupId: formData.get("groupId") as string,
+    permissionCode: formData.get("permissionCode") as string,
+    enabled: (formData.get("enabled") as string) !== "false",
+  });
+  revalidatePath("/admin/permissions");
 }

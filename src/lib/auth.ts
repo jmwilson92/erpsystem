@@ -1,7 +1,29 @@
 import { prisma } from "./db";
+import { cookies } from "next/headers";
 
-/** Demo auth — returns a default user by role. Replace with real auth in production. */
+export const DEMO_USER_COOKIE = "forge-demo-user";
+
+/**
+ * Demo auth — the "Demo Mode" switcher in the sidebar sets a cookie to
+ * impersonate any employee (so HR/manager/employee views can be
+ * exercised). Falls back to DEMO_USER_ROLE. Replace with real auth in
+ * production.
+ */
 export async function getCurrentUser(roleHint?: string) {
+  if (!roleHint) {
+    try {
+      const jar = await cookies();
+      const demoId = jar.get(DEMO_USER_COOKIE)?.value;
+      if (demoId) {
+        const byCookie = await prisma.user.findUnique({
+          where: { id: demoId },
+        });
+        if (byCookie?.isActive) return byCookie;
+      }
+    } catch {
+      // outside a request scope (scripts) — fall through to role lookup
+    }
+  }
   const role = roleHint || process.env.DEMO_USER_ROLE || "ADMIN";
   const user = await prisma.user.findFirst({
     where: { role, isActive: true },
@@ -38,21 +60,136 @@ export const ROLES = [
 
 export type Role = (typeof ROLES)[number];
 
-/** Catalog of permission codes used across modules. */
-export const PERMISSIONS = [
+/**
+ * Catalog of permission codes used across modules.
+ *
+ * Every module has a `<module>.view` permission gating read access, plus
+ * action permissions gating writes. Groups (admin/permissions) can mix
+ * these freely so companies can shape their own access model.
+ */
+const MODULE_VIEWS: [string, string][] = [
+  ["dashboard", "Dashboard"],
+  ["floor", "Production Floor"],
+  ["radiators", "Info Radiators"],
+  ["value-stream", "Value Stream"],
+  ["ai", "AI Assistant"],
+  ["sales", "Sales & Quotes"],
+  ["customers", "Customers"],
+  ["shipping", "Shipping"],
+  ["work-orders", "Work Orders"],
+  ["work-instructions", "Work Instructions"],
+  ["workcenters", "Workcenters"],
+  ["kitting", "Kitting"],
+  ["planning", "Planning & MRP"],
+  ["engineering", "Engineering"],
+  ["items", "Items"],
+  ["bom", "BOMs"],
+  ["products", "Products (PLM)"],
+  ["cm", "Config Management"],
+  ["uom", "UOM Master"],
+  ["purchasing", "Purchasing"],
+  ["receiving", "Receiving"],
+  ["suppliers", "Suppliers / ASL"],
+  ["inventory", "Inventory"],
+  ["virtual-assets", "Virtual Assets"],
+  ["qa", "QA Inspection"],
+  ["test-center", "Test Center"],
+  ["quality", "Quality / NCR"],
+  ["mrb", "MRB / CAR"],
+  ["government-property", "Government Property"],
+  ["leadership", "Leadership"],
+  ["pmo", "PMO"],
+  ["accounting", "Accounting"],
+  ["hr", "HR / Workforce"],
+  ["approvals", "My Approvals"],
+  ["admin", "Administration"],
+];
+
+const ACTION_PERMISSIONS: { code: string; name: string; module: string }[] = [
+  // Sales
+  { code: "sales.quote.create", name: "Create quotes", module: "sales" },
+  { code: "sales.order.create", name: "Create sales orders", module: "sales" },
+  { code: "sales.order.plan", name: "Plan fulfillment", module: "sales" },
+  { code: "sales.order.ship", name: "Ship sales orders", module: "shipping" },
+  { code: "customers.manage", name: "Create / edit customers", module: "customers" },
+  // Manufacturing
+  { code: "workorders.create", name: "Create work orders", module: "work-orders" },
+  { code: "workorders.status.update", name: "Change WO status", module: "work-orders" },
+  { code: "workorders.signoff", name: "Sign off WO steps", module: "work-orders" },
+  { code: "workorders.complete", name: "Complete WO to stock", module: "work-orders" },
+  { code: "wi.create", name: "Create work instructions", module: "work-instructions" },
+  { code: "wi.edit", name: "Edit work instructions", module: "work-instructions" },
+  { code: "wi.release", name: "Advance / release WIs", module: "work-instructions" },
+  { code: "workcenters.manage", name: "Manage workcenters", module: "workcenters" },
+  { code: "kitting.create", name: "Create kit orders", module: "kitting" },
+  { code: "kitting.complete", name: "Complete kits", module: "kitting" },
+  { code: "planning.forecast.create", name: "Create forecasts", module: "planning" },
+  { code: "planning.mrs.release", name: "Release material requisitions", module: "planning" },
+  // Engineering & PLM
   { code: "engineering.lane.manage", name: "Manage swim lanes", module: "engineering" },
   { code: "engineering.task.create", name: "Create eng tasks", module: "engineering" },
   { code: "engineering.task.scan", name: "Scan into tasks", module: "engineering" },
-  { code: "pmo.quarter.manage", name: "Manage PI quarters/sprints", module: "pmo" },
-  { code: "pmo.project.manage", name: "Manage projects", module: "pmo" },
-  { code: "pmo.alerts.read", name: "Read PM dependency alerts", module: "pmo" },
-  { code: "leadership.priority.manage", name: "Publish business priorities", module: "leadership" },
+  { code: "items.manage", name: "Create / edit items", module: "items" },
+  { code: "bom.edit", name: "Edit BOMs", module: "bom" },
+  { code: "bom.certify", name: "Certify BOM revisions", module: "bom" },
+  { code: "products.manage", name: "Manage products", module: "products" },
+  { code: "cm.ecr.create", name: "Create ECRs", module: "cm" },
+  { code: "cm.ecr.manage", name: "Manage ECRs", module: "cm" },
+  { code: "cm.vote", name: "Vote on change board", module: "cm" },
+  { code: "uom.manage", name: "Manage UOM master", module: "uom" },
+  // Supply chain
+  { code: "purchasing.pr.create", name: "Create purchase requests", module: "purchasing" },
+  { code: "purchasing.pr.approve", name: "Approve purchase requests", module: "purchasing" },
+  { code: "purchasing.po.convert", name: "Convert PR to PO", module: "purchasing" },
+  { code: "purchasing.po.close", name: "Close purchase orders", module: "purchasing" },
+  { code: "purchasing.policy.manage", name: "Edit PR approval policy", module: "purchasing" },
+  { code: "receiving.receive", name: "Receive material", module: "receiving" },
+  { code: "receiving.putaway", name: "Put away stock", module: "receiving" },
+  { code: "receiving.gfp.create", name: "Create GFP travelers", module: "receiving" },
+  { code: "suppliers.manage", name: "Manage suppliers / ASL", module: "suppliers" },
+  { code: "suppliers.scorecard.refresh", name: "Refresh scorecards", module: "suppliers" },
+  { code: "inventory.putaway", name: "Inventory putaway / moves", module: "inventory" },
+  { code: "va.manage", name: "Manage virtual assets", module: "virtual-assets" },
+  // Quality
+  { code: "qa.inspect", name: "Record QA inspections", module: "qa" },
+  { code: "test.record", name: "Record test results", module: "test-center" },
+  { code: "quality.ncr.create", name: "Create NCRs", module: "quality" },
+  { code: "quality.ncr.manage", name: "Manage NCRs", module: "quality" },
+  { code: "mrb.disposition", name: "Disposition MRB cases", module: "mrb" },
+  { code: "mrb.car.manage", name: "Manage CARs", module: "mrb" },
+  { code: "gfp.manage", name: "Manage government property", module: "government-property" },
+  // Programs & business
   { code: "leadership.priority.read", name: "Read business priorities", module: "leadership" },
+  { code: "leadership.priority.manage", name: "Publish business priorities", module: "leadership" },
+  { code: "pmo.program.manage", name: "Manage programs", module: "pmo" },
+  { code: "pmo.project.manage", name: "Manage projects", module: "pmo" },
+  { code: "pmo.quarter.manage", name: "Manage PI quarters/sprints", module: "pmo" },
+  { code: "pmo.alerts.read", name: "Read PM dependency alerts", module: "pmo" },
   { code: "accounting.journal.post", name: "Post journal entries", module: "accounting" },
   { code: "accounting.reports.read", name: "View GAAP reports", module: "accounting" },
-  { code: "cm.ecr.manage", name: "Manage ECRs", module: "cm" },
+  { code: "accounting.account.create", name: "Create GL accounts", module: "accounting" },
+  // HR
+  { code: "hr.admin", name: "HR administration (all employees)", module: "hr" },
+  { code: "hr.pto.request", name: "Request PTO", module: "hr" },
+  { code: "hr.pto.decide", name: "Approve / reject PTO", module: "hr" },
+  { code: "hr.time.decide", name: "Approve / reject timesheets", module: "hr" },
+  { code: "hr.expense.decide", name: "Approve / pay expenses", module: "hr" },
+  { code: "hr.review.manage", name: "Write performance reviews", module: "hr" },
+  { code: "hr.goal.manage", name: "Manage employee goals", module: "hr" },
+  { code: "hr.docs.manage", name: "Manage employee documents", module: "hr" },
+  // Admin
   { code: "admin.permissions", name: "Assign permissions", module: "admin" },
-] as const;
+  { code: "admin.users.manage", name: "Manage users / org chart", module: "admin" },
+];
+
+export const PERMISSIONS: { code: string; name: string; module: string }[] = [
+  ...MODULE_VIEWS.map(([module, label]) => ({
+    code: `${module}.view`,
+    name: `View ${label}`,
+    module,
+  })),
+  ...ACTION_PERMISSIONS,
+];
 
 export function canAccess(role: string, module: string): boolean {
   if (role === "ADMIN") return true;
@@ -189,24 +326,58 @@ export async function userHasPermission(
   });
   if (viaGroup) return true;
 
-  // Role defaults for key permissions
+  // View permissions default from the role/module matrix so groups only
+  // need to encode deviations from it.
+  if (permissionCode.endsWith(".view")) {
+    const moduleKey = permissionCode.slice(0, -".view".length);
+    if (moduleKey === "hr" || moduleKey === "approvals") return true; // own profile / own queue
+    return canAccess(user.role, moduleKey);
+  }
+
+  // Action defaults per role (companies override via groups/grants)
   const roleDefaults: Record<string, string[]> = {
-    PM: ["pmo.alerts.read", "pmo.project.manage", "leadership.priority.read"],
+    PM: ["pmo.alerts.read", "pmo.project.manage", "pmo.program.manage", "pmo.quarter.manage", "leadership.priority.read"],
     EXECUTIVE: [
       "leadership.priority.manage",
       "leadership.priority.read",
       "accounting.reports.read",
       "pmo.alerts.read",
     ],
-    ACCOUNTING: ["accounting.journal.post", "accounting.reports.read"],
+    ACCOUNTING: ["accounting.journal.post", "accounting.reports.read", "accounting.account.create", "hr.expense.decide"],
     ENGINEERING: [
       "engineering.task.create",
       "engineering.task.scan",
+      "engineering.lane.manage",
+      "items.manage",
+      "bom.edit",
+      "bom.certify",
+      "cm.ecr.create",
+      "cm.vote",
+      "wi.create",
+      "wi.edit",
       "leadership.priority.read",
     ],
+    CM: ["cm.ecr.create", "cm.ecr.manage", "cm.vote", "wi.release", "products.manage"],
+    QUALITY: ["qa.inspect", "test.record", "quality.ncr.create", "quality.ncr.manage", "mrb.disposition", "mrb.car.manage"],
+    PURCHASING: ["purchasing.pr.create", "purchasing.pr.approve", "purchasing.po.convert", "purchasing.po.close", "receiving.receive", "receiving.putaway", "suppliers.manage", "suppliers.scorecard.refresh"],
+    PRODUCTION: ["workorders.create", "workorders.status.update", "workorders.signoff", "workorders.complete", "kitting.create", "kitting.complete", "workcenters.manage", "inventory.putaway"],
+    OPERATOR: ["workorders.signoff", "kitting.complete", "test.record"],
+    HR: ["hr.admin", "hr.pto.request", "hr.pto.decide", "hr.time.decide", "hr.expense.decide", "hr.review.manage", "hr.goal.manage", "hr.docs.manage", "admin.users.manage"],
     ADMIN: PERMISSIONS.map((p) => p.code),
   };
-  return roleDefaults[user.role]?.includes(permissionCode) ?? false;
+  if (roleDefaults[user.role]?.includes(permissionCode)) return true;
+
+  // Everyone may request their own PTO by default.
+  if (permissionCode === "hr.pto.request") return true;
+  return false;
+}
+
+/** View gate for a module: `<module>.view` permission (group/grant aware). */
+export async function userCanView(
+  userId: string | undefined | null,
+  module: string
+): Promise<boolean> {
+  return userHasPermission(userId, `${module}.view`);
 }
 
 export async function requirePermission(

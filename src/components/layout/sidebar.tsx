@@ -4,14 +4,25 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { NAV_GROUPS, activeNavHref } from "@/lib/navigation";
+import { actionSwitchDemoUser } from "@/app/actions";
+import type { DemoUser } from "./app-shell";
 import { ChevronLeft, ChevronDown, Flame } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 
 const COLLAPSED_GROUPS_KEY = "forge-nav-collapsed-groups";
 
-export function Sidebar() {
+export function Sidebar({
+  demoUsers = [],
+  currentUser = null,
+}: {
+  demoUsers?: DemoUser[];
+  currentUser?: DemoUser | null;
+}) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const [switching, startSwitch] = useTransition();
   const [collapsed, setCollapsed] = useState(false);
   const [closedGroups, setClosedGroups] = useState<string[]>([]);
 
@@ -126,8 +137,36 @@ export function Sidebar() {
       {!collapsed && (
         <div className="border-t border-slate-800/80 p-3">
           <div className="rounded-lg bg-slate-900/80 p-2.5">
-            <p className="text-xs font-medium text-slate-300">Demo Mode</p>
-            <p className="text-[10px] text-slate-500">Alex Morgan · ADMIN</p>
+            <p className="text-xs font-medium text-slate-300">
+              Demo Mode {switching && "· switching…"}
+            </p>
+            {demoUsers.length > 0 ? (
+              <select
+                value={currentUser?.id || ""}
+                onChange={(e) => {
+                  const fd = new FormData();
+                  fd.set("userId", e.target.value);
+                  startSwitch(async () => {
+                    await actionSwitchDemoUser(fd);
+                    router.refresh();
+                  });
+                }}
+                className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-1.5 py-1 text-[11px] text-slate-300"
+                aria-label="Switch demo user"
+              >
+                {demoUsers.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name} · {u.role}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <p className="text-[10px] text-slate-500">
+                {currentUser
+                  ? `${currentUser.name} · ${currentUser.role}`
+                  : "No user"}
+              </p>
+            )}
           </div>
         </div>
       )}

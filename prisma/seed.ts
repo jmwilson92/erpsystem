@@ -26,7 +26,7 @@ async function main() {
   // Wipe in dependency order (SQLite)
   const tables = [
     "TicketComment", "EngineeringTicket", "Sprint",
-    "EmployeeGoal", "PerformanceReview", "ExpenseLine", "ExpenseReport", "PtoRequest", "TimeEntry",
+    "EmployeeDocument", "EmployeeGoal", "PerformanceReview", "ExpenseLine", "ExpenseReport", "PtoRequest", "TimeEntry",
     "GfpConsumption", "GfpCheckout", "GfpAuditRecord", "GfpDocument",
     "ComplianceCheck", "GovernmentProperty",
     "VirtualAssetAssignment", "VirtualAsset",
@@ -61,6 +61,10 @@ async function main() {
     "Approval", "ApprovalPolicyStep", "ApprovalPolicy",
     "AuditLog", "WorkCenter", "ValueStreamMetric", "User",
   ];
+  // FK enforcement off during the wipe so table order can't strand rows
+  // (failed deletes were silently caught and caused unique-constraint
+  // errors on the next insert pass).
+  await prisma.$executeRawUnsafe("PRAGMA foreign_keys = OFF");
   for (const t of tables) {
     try {
       await prisma.$executeRawUnsafe(`DELETE FROM "${t}"`);
@@ -68,6 +72,7 @@ async function main() {
       /* table may not exist yet */
     }
   }
+  await prisma.$executeRawUnsafe("PRAGMA foreign_keys = ON");
 
   // ── Users ──────────────────────────────────────────────────
   const users = await Promise.all(
@@ -107,7 +112,7 @@ async function main() {
       })
     )
   );
-  const [admin, engLead, cmMgr, qualityMgr, buyer, prodSup, controller, , tech1, tech2, inspector, pm, ceo, cfo] = users;
+  const [admin, engLead, cmMgr, qualityMgr, buyer, prodSup, controller, hrMgr, tech1, tech2, inspector, pm, ceo, cfo] = users;
   console.log(`  ✓ ${users.length} users`);
 
   // ── Permission catalog + default groups ────────────────────
@@ -2884,7 +2889,79 @@ async function main() {
       { userId: engLead.id, title: "Close Rev C certification", category: "PERFORMANCE", progress: 45, status: "ACTIVE", targetDate: daysFromNow(45) },
     ],
   });
-  console.log("  ✓ HR data");
+  // ── Org chart (manager assignments) ───────────────────────
+  const orgChart: [string, string | null][] = [
+    [ceo.id, null],
+    [cfo.id, ceo.id],
+    [admin.id, ceo.id],
+    [engLead.id, ceo.id],
+    [qualityMgr.id, ceo.id],
+    [hrMgr.id, ceo.id],
+    [pm.id, ceo.id],
+    [controller.id, cfo.id],
+    [cmMgr.id, engLead.id],
+    [prodSup.id, admin.id],
+    [buyer.id, admin.id],
+    [tech1.id, prodSup.id],
+    [tech2.id, prodSup.id],
+    [inspector.id, qualityMgr.id],
+  ];
+  for (const [userId, managerId] of orgChart) {
+    await prisma.user.update({ where: { id: userId }, data: { managerId } });
+  }
+
+  // ── Employee documents ─────────────────────────────────────
+  await prisma.employeeDocument.createMany({
+    data: [
+      { userId: tech1.id, title: "Offer letter", kind: "OFFER_LETTER", note: "Assembler II, signed" },
+      { userId: tech1.id, title: "IPC-A-610 certificate", kind: "CERTIFICATION", note: "Expires 2027-06-01" },
+      { userId: tech1.id, title: "Employee handbook acknowledgment", kind: "POLICY_ACK" },
+      { userId: tech2.id, title: "Offer letter", kind: "OFFER_LETTER", note: "Machinist, signed" },
+      { userId: tech2.id, title: "CMM operator training record", kind: "TRAINING" },
+      { userId: inspector.id, title: "GD&T Level II certificate", kind: "CERTIFICATION", note: "Expires 2027-06-01" },
+      { userId: engLead.id, title: "Employee handbook acknowledgment", kind: "POLICY_ACK" },
+      { userId: prodSup.id, title: "Leadership training completion", kind: "TRAINING" },
+    ],
+  });
+
+  // ── Upcoming / in-flight reviews ───────────────────────────
+  await prisma.performanceReview.create({
+    data: {
+      employeeId: tech1.id,
+      reviewerId: prodSup.id,
+      period: "2026-Q3",
+      status: "DRAFT",
+    },
+  });
+  await prisma.performanceReview.create({
+    data: {
+      employeeId: tech2.id,
+      reviewerId: prodSup.id,
+      period: "2026-Q2",
+      status: "IN_PROGRESS",
+      strengths: "Strong CNC setup times; quality-first mindset",
+    },
+  });
+
+  // A second pending PTO + goal for the manager demo queue
+  await prisma.ptoRequest.create({
+    data: {
+      userId: tech2.id,
+      type: "SICK",
+      startDate: daysFromNow(2),
+      endDate: daysFromNow(2),
+      hours: 8,
+      status: "PENDING",
+      reason: "Medical appointment",
+    },
+  });
+  await prisma.employeeGoal.createMany({
+    data: [
+      { userId: tech2.id, title: "CNC probe macro library", category: "SKILL", progress: 20, status: "ACTIVE", targetDate: daysFromNow(75) },
+    ],
+  });
+
+  console.log("  ✓ HR data (org chart, documents, reviews)");
 
   // ── Budgets ────────────────────────────────────────────────
   await prisma.budget.createMany({

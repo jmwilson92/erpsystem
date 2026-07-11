@@ -40,6 +40,7 @@ Navigation is organized into seven domains (sidebar groups are collapsible; stat
 | Module | Route | Highlights |
 |--------|-------|------------|
 | Command center | `/` | Cross-module KPIs, EVM strip, quality alerts |
+| My approvals | `/approvals` | Manager queue: reports' PTO, timesheets, expenses |
 | Production floor | `/floor` | Color-coded WO tiles, capacity load, sign-off % |
 | Info radiators | `/radiators` | Large-font wall display, auto-refresh |
 | Value stream | `/value-stream` | Supplier→Ship live flow + constraints |
@@ -96,8 +97,10 @@ Navigation is organized into seven domains (sidebar groups are collapsible; stat
 | Leadership | `/leadership` | Executive rollup |
 | PMO | `/pmo` | Programs, projects, WBS, SPI/CPI, PI planning, alerts |
 | Accounting | `/accounting` | GL, P&L, BS, TB, AR/AP, WO variance |
-| HR / workforce | `/hr` | Time, PTO, expenses, reviews, AI goal tips |
-| Permissions | `/admin/permissions` | Role/permission matrix |
+| HR / workforce | `/hr` | Role-aware: employees see their profile (reviews, goals, PTO, documents), managers see My Team (reviews, goals, approvals), HR sees administration |
+| Permissions | `/admin/permissions` | Full view + action permission catalog; custom groups per company |
+
+**Demo identity switcher** — the sidebar footer switches the signed-in demo user, so you can experience the app as an executive, HR, a people manager, or a shop-floor employee (permissions and HR views change accordingly).
 
 **Day / night mode** — toggle in the header; the choice persists and is applied before first paint (no flash). Theming is done centrally in `src/app/globals.css` by remapping the slate + accent color ramps for `html.light`, so module pages don't carry per-theme classes.
 
