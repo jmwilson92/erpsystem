@@ -4,12 +4,72 @@
  */
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
+import { userHasPermission } from "@/lib/auth";
+
+export type HrPersona = {
+  /** Full HR administration (sees every employee). */
+  isHrAdmin: boolean;
+  /** Has direct reports (sees "My Team"). */
+  isManager: boolean;
+  reportIds: string[];
+};
+
+/** Resolve what the current user may see in the HR module. */
+export async function getHrPersona(user: {
+  id: string;
+  role: string;
+}): Promise<HrPersona> {
+  const [reports, hrAdmin] = await Promise.all([
+    prisma.user.findMany({
+      where: { managerId: user.id, isActive: true },
+      select: { id: true },
+    }),
+    userHasPermission(user.id, "hr.admin"),
+  ]);
+  return {
+    isHrAdmin: hrAdmin,
+    isManager: reports.length > 0,
+    reportIds: reports.map((r) => r.id),
+  };
+}
+
+/**
+ * May `approver` decide HR items for `targetUserId`?
+ * Yes if they are the target's direct manager, or hold hr.admin /
+ * the specific decide permission via role, group, or grant.
+ */
+export async function canDecideFor(
+  approver: { id: string; role: string },
+  targetUserId: string,
+  decidePermission: string
+): Promise<boolean> {
+  const target = await prisma.user.findUnique({
+    where: { id: targetUserId },
+    select: { managerId: true },
+  });
+  if (target?.managerId === approver.id) return true;
+  if (await userHasPermission(approver.id, "hr.admin")) return true;
+  return userHasPermission(approver.id, decidePermission);
+}
 
 export async function decidePtoRequest(params: {
   id: string;
   decision: "APPROVED" | "REJECTED";
   userId?: string | null;
+  approver?: { id: string; role: string } | null;
 }) {
+  if (params.approver) {
+    const existing = await prisma.ptoRequest.findUniqueOrThrow({
+      where: { id: params.id },
+      select: { userId: true },
+    });
+    const ok = await canDecideFor(
+      params.approver,
+      existing.userId,
+      "hr.pto.decide"
+    );
+    if (!ok) throw new Error("Not authorized to decide this PTO request");
+  }
   const pto = await prisma.ptoRequest.update({
     where: { id: params.id },
     data: {
@@ -60,10 +120,19 @@ export async function decideTimeEntry(params: {
   id: string;
   decision: "APPROVED" | "REJECTED";
   userId?: string | null;
+  approver?: { id: string; role: string } | null;
 }) {
   const existing = await prisma.timeEntry.findUniqueOrThrow({
     where: { id: params.id },
   });
+  if (params.approver) {
+    const ok = await canDecideFor(
+      params.approver,
+      existing.userId,
+      "hr.time.decide"
+    );
+    if (!ok) throw new Error("Not authorized to decide this time entry");
+  }
   const entry = await prisma.timeEntry.update({
     where: { id: params.id },
     data: {
@@ -97,10 +166,20 @@ export async function advanceExpenseReport(params: {
   id: string;
   status: string;
   userId?: string | null;
+  approver?: { id: string; role: string } | null;
 }) {
   const existing = await prisma.expenseReport.findUniqueOrThrow({
     where: { id: params.id },
   });
+  // Anyone may submit their own report; decisions need authority.
+  if (params.approver && params.status !== "SUBMITTED") {
+    const ok = await canDecideFor(
+      params.approver,
+      existing.userId,
+      "hr.expense.decide"
+    );
+    if (!ok) throw new Error("Not authorized to decide this expense report");
+  }
   const allowed = EXPENSE_TRANSITIONS[existing.status] || [];
   if (!allowed.includes(params.status)) {
     throw new Error(
@@ -156,4 +235,172 @@ export function certExpiryTone(expires: string): "expired" | "soon" | "ok" {
   if (days < 0) return "expired";
   if (days < 90) return "soon";
   return "ok";
+}
+
+/** Pending approvals for a manager: their reports' PTO / time / expenses. */
+export async function getPendingApprovals(user: {
+  id: string;
+  role: string;
+}) {
+  const persona = await getHrPersona(user);
+  // HR admins see the whole company; managers see their reports.
+  const scope = persona.isHrAdmin
+    ? undefined
+    : { in: persona.reportIds };
+
+  const [ptoRequests, timeEntries, expenses] = await Promise.all([
+    prisma.ptoRequest.findMany({
+      where: { status: "PENDING", ...(scope ? { userId: scope } : {}) },
+      include: { user: true },
+      orderBy: { createdAt: "asc" },
+    }),
+    prisma.timeEntry.findMany({
+      where: { status: "SUBMITTED", ...(scope ? { userId: scope } : {}) },
+      include: { user: true, workOrder: true, project: true },
+      orderBy: { date: "asc" },
+    }),
+    prisma.expenseReport.findMany({
+      where: {
+        status: { in: ["SUBMITTED", "APPROVED"] },
+        ...(scope ? { userId: scope } : {}),
+      },
+      include: { user: true, lines: true },
+      orderBy: { createdAt: "asc" },
+    }),
+  ]);
+  return { persona, ptoRequests, timeEntries, expenses };
+}
+
+/** Everything an employee sees on their own HR profile. */
+export async function getEmployeeProfile(userId: string) {
+  const [user, ptoRequests, timeEntries, expenses, reviews, goals, documents] =
+    await Promise.all([
+      prisma.user.findUniqueOrThrow({
+        where: { id: userId },
+        include: { manager: { select: { id: true, name: true, title: true } } },
+      }),
+      prisma.ptoRequest.findMany({
+        where: { userId },
+        orderBy: { createdAt: "desc" },
+        take: 10,
+      }),
+      prisma.timeEntry.findMany({
+        where: { userId },
+        orderBy: { date: "desc" },
+        take: 10,
+        include: { workOrder: true, project: true },
+      }),
+      prisma.expenseReport.findMany({
+        where: { userId },
+        orderBy: { createdAt: "desc" },
+        include: { lines: true },
+      }),
+      prisma.performanceReview.findMany({
+        where: { employeeId: userId },
+        include: { reviewer: { select: { name: true } } },
+        orderBy: { createdAt: "desc" },
+      }),
+      prisma.employeeGoal.findMany({
+        where: { userId },
+        orderBy: [{ status: "asc" }, { targetDate: "asc" }],
+      }),
+      prisma.employeeDocument.findMany({
+        where: { userId },
+        orderBy: { uploadedAt: "desc" },
+      }),
+    ]);
+  return { user, ptoRequests, timeEntries, expenses, reviews, goals, documents };
+}
+
+/** A manager's view of their direct reports. */
+export async function getTeamOverview(managerId: string) {
+  const reports = await prisma.user.findMany({
+    where: { managerId, isActive: true },
+    orderBy: { name: "asc" },
+    include: {
+      performanceReviews: {
+        orderBy: { createdAt: "desc" },
+        take: 3,
+        include: { reviewer: { select: { name: true } } },
+      },
+      goals: {
+        where: { status: "ACTIVE" },
+        orderBy: { targetDate: "asc" },
+      },
+      ptoRequests: { where: { status: "PENDING" } },
+      timeEntries: { where: { status: "SUBMITTED" } },
+    },
+  });
+  return reports;
+}
+
+export async function upsertPerformanceReview(params: {
+  id?: string;
+  employeeId: string;
+  reviewerId: string;
+  period: string;
+  status?: string;
+  overallRating?: number | null;
+  strengths?: string | null;
+  improvements?: string | null;
+  careerNotes?: string | null;
+}) {
+  const data = {
+    period: params.period.trim(),
+    status: params.status || "DRAFT",
+    overallRating: params.overallRating ?? null,
+    strengths: params.strengths?.trim() || null,
+    improvements: params.improvements?.trim() || null,
+    careerNotes: params.careerNotes?.trim() || null,
+    completedAt: params.status === "COMPLETED" ? new Date() : null,
+  };
+  const review = params.id
+    ? await prisma.performanceReview.update({
+        where: { id: params.id },
+        data,
+      })
+    : await prisma.performanceReview.create({
+        data: {
+          ...data,
+          employeeId: params.employeeId,
+          reviewerId: params.reviewerId,
+        },
+      });
+  await logAudit({
+    entityType: "PerformanceReview",
+    entityId: review.id,
+    action: params.id ? "REVIEW_UPDATED" : "REVIEW_CREATED",
+    userId: params.reviewerId,
+    changes: { period: review.period, status: review.status },
+  });
+  return review;
+}
+
+export async function createEmployeeGoal(params: {
+  userId: string;
+  title: string;
+  category?: string;
+  targetDate?: Date | null;
+  description?: string | null;
+  createdById?: string | null;
+}) {
+  const goal = await prisma.employeeGoal.create({
+    data: {
+      userId: params.userId,
+      title: params.title.trim(),
+      category: params.category || "SKILL",
+      targetDate: params.targetDate || null,
+      description: params.description?.trim() || null,
+      status: "ACTIVE",
+      progress: 0,
+    },
+  });
+  await logAudit({
+    entityType: "EmployeeGoal",
+    entityId: goal.id,
+    action: "GOAL_CREATED",
+    userId: params.createdById,
+    metadata: { for: params.userId, title: goal.title },
+  });
+  return goal;
 }

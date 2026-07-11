@@ -23,6 +23,11 @@ model User {
   skills        String?  // JSON array
   certifications String? // JSON array with expiry dates
   avatarUrl     String?
+  /// Direct manager (org chart) — drives the manager approvals queue
+  /// and the "My Team" view in HR.
+  managerId     String?
+  manager       User?    @relation("OrgChart", fields: [managerId], references: [id], onDelete: SetNull)
+  reports       User[]   @relation("OrgChart")
   // Shop-floor sign-off PIN (demo: 4–6 digits). Required on WI step sign-off.
   pinCode       String?
   isActive      Boolean  @default(true)
@@ -36,6 +41,7 @@ model User {
   performanceReviews  PerformanceReview[]      @relation("ReviewSubject")
   reviewsGiven        PerformanceReview[]      @relation("Reviewer")
   goals               EmployeeGoal[]
+  employeeDocuments   EmployeeDocument[]
   assignedWorkOrders  WorkOrder[]              @relation("WOAssignee")
   createdWorkOrders   WorkOrder[]              @relation("WOCreator")
   stepSignOffs        WorkInstructionSignOff[]
@@ -3347,6 +3353,19 @@ model EmployeeGoal {
   category    String?  // SKILL, CAREER, PERFORMANCE, CERTIFICATION
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+model EmployeeDocument {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title      String
+  kind       String   @default("GENERAL") // OFFER_LETTER, CERTIFICATION, POLICY_ACK, TRAINING, GENERAL
+  url        String?
+  note       String?
+  uploadedAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 // ═══════════════════════════════════════════════════════════════

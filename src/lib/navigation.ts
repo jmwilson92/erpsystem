@@ -61,6 +61,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/radiators", label: "Info Radiators", icon: Monitor, keywords: ["wall display", "big screen"] },
       { href: "/value-stream", label: "Value Stream", icon: Network, keywords: ["vsm", "flow", "constraint"] },
       { href: "/ai", label: "AI Assistant", icon: Bot, keywords: ["chat", "grok", "assistant"] },
+      { href: "/approvals", label: "My Approvals", icon: ClipboardCheck, keywords: ["pending", "pto", "timesheet", "expense", "manager"] },
     ],
   },
   {

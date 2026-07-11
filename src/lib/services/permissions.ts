@@ -53,6 +53,35 @@ export async function ensureDefaultPermissionGroups() {
       perms: ["accounting.journal.post", "accounting.reports.read"],
     },
     {
+      code: "GRP_MGR",
+      name: "People Managers",
+      baseRole: "PM",
+      perms: [
+        "hr.pto.decide",
+        "hr.time.decide",
+        "hr.expense.decide",
+        "hr.review.manage",
+        "hr.goal.manage",
+        "approvals.view",
+      ],
+    },
+    {
+      code: "GRP_HR",
+      name: "Human Resources",
+      baseRole: "HR",
+      perms: [
+        "hr.admin",
+        "hr.pto.request",
+        "hr.pto.decide",
+        "hr.time.decide",
+        "hr.expense.decide",
+        "hr.review.manage",
+        "hr.goal.manage",
+        "hr.docs.manage",
+        "admin.users.manage",
+      ],
+    },
+    {
       code: "GRP_ENG",
       name: "Engineering",
       baseRole: "ENGINEERING",
@@ -156,5 +185,60 @@ export async function grantUserPermission(params: {
       allowed: params.allowed !== false,
     },
     update: { allowed: params.allowed !== false },
+  });
+}
+
+export async function createPermissionGroup(params: {
+  name: string;
+  code?: string;
+  baseRole?: string;
+  description?: string;
+}) {
+  const name = params.name.trim();
+  if (!name) throw new Error("Group name required");
+  const code =
+    params.code?.trim() ||
+    "GRP_" +
+      name
+        .toUpperCase()
+        .replace(/[^A-Z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "")
+        .slice(0, 24);
+  return prisma.permissionGroup.upsert({
+    where: { code },
+    create: {
+      code,
+      name,
+      baseRole: params.baseRole?.trim() || null,
+      description: params.description?.trim() || null,
+    },
+    update: { name },
+  });
+}
+
+export async function toggleGroupPermission(params: {
+  groupId: string;
+  permissionCode: string;
+  enabled: boolean;
+}) {
+  await ensurePermissionCatalog();
+  const perm = await prisma.permission.findUnique({
+    where: { code: params.permissionCode },
+  });
+  if (!perm) throw new Error("Unknown permission");
+  if (params.enabled) {
+    return prisma.permissionGroupMember.upsert({
+      where: {
+        groupId_permissionId: {
+          groupId: params.groupId,
+          permissionId: perm.id,
+        },
+      },
+      create: { groupId: params.groupId, permissionId: perm.id },
+      update: {},
+    });
+  }
+  return prisma.permissionGroupMember.deleteMany({
+    where: { groupId: params.groupId, permissionId: perm.id },
   });
 }

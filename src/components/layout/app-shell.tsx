@@ -7,7 +7,22 @@ import { CommandPalette } from "./command-palette";
 import { ThemeProvider, useTheme } from "./theme-provider";
 import { Toaster } from "sonner";
 
-function ShellInner({ children }: { children: React.ReactNode }) {
+export type DemoUser = {
+  id: string;
+  name: string;
+  role: string;
+  title: string | null;
+};
+
+function ShellInner({
+  children,
+  demoUsers,
+  currentUser,
+}: {
+  children: React.ReactNode;
+  demoUsers: DemoUser[];
+  currentUser: DemoUser | null;
+}) {
   const [cmdOpen, setCmdOpen] = useState(false);
   const { theme } = useTheme();
 
@@ -18,7 +33,7 @@ function ShellInner({ children }: { children: React.ReactNode }) {
           <aside className="w-60 border-r border-border bg-background" />
         }
       >
-        <Sidebar />
+        <Sidebar demoUsers={demoUsers} currentUser={currentUser} />
       </Suspense>
       <div className="flex min-w-0 flex-1 flex-col">
         <Header onOpenCommand={() => setCmdOpen(true)} />
@@ -39,10 +54,20 @@ function ShellInner({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export function AppShell({
+  children,
+  demoUsers,
+  currentUser,
+}: {
+  children: React.ReactNode;
+  demoUsers: DemoUser[];
+  currentUser: DemoUser | null;
+}) {
   return (
     <ThemeProvider>
-      <ShellInner>{children}</ShellInner>
+      <ShellInner demoUsers={demoUsers} currentUser={currentUser}>
+        {children}
+      </ShellInner>
     </ThemeProvider>
   );
 }

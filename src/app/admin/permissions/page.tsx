@@ -12,7 +12,21 @@ import {
   actionAssignUserGroup,
   actionRemoveUserGroup,
   actionGrantUserPermission,
+  actionCreatePermissionGroup,
+  actionToggleGroupPermission,
 } from "@/app/actions";
+import { Input } from "@/components/ui/input";
+
+/** Permissions grouped by module for pickers and the catalog reference. */
+function permsByModule() {
+  const by = new Map<string, typeof PERMISSIONS>();
+  for (const p of PERMISSIONS) {
+    const list = by.get(p.module) || [];
+    list.push(p);
+    by.set(p.module, list);
+  }
+  return [...by.entries()].sort(([a], [b]) => a.localeCompare(b));
+}
 
 export const dynamic = "force-dynamic";
 
@@ -71,12 +85,54 @@ export default async function PermissionsAdminPage() {
                 {g.permissions.map((pl) => (
                   <li
                     key={pl.id}
-                    className="rounded bg-slate-900 px-1.5 py-0.5 font-mono text-[10px] text-teal-400/90"
+                    className="flex items-center gap-1 rounded bg-slate-900 px-1.5 py-0.5 font-mono text-[10px] text-teal-400/90"
                   >
                     {pl.permission.code}
+                    <form action={actionToggleGroupPermission}>
+                      <input type="hidden" name="groupId" value={g.id} />
+                      <input
+                        type="hidden"
+                        name="permissionCode"
+                        value={pl.permission.code}
+                      />
+                      <input type="hidden" name="enabled" value="false" />
+                      <button
+                        type="submit"
+                        className="text-slate-600 hover:text-rose-400"
+                        title={`Remove ${pl.permission.code} from ${g.name}`}
+                      >
+                        ×
+                      </button>
+                    </form>
                   </li>
                 ))}
               </ul>
+              <form
+                action={actionToggleGroupPermission}
+                className="flex flex-wrap gap-1.5 border-t border-slate-800 pt-2"
+              >
+                <input type="hidden" name="groupId" value={g.id} />
+                <input type="hidden" name="enabled" value="true" />
+                <select
+                  name="permissionCode"
+                  required
+                  className={`${selectClass} h-8 max-w-[260px] text-[11px]`}
+                >
+                  <option value="">Add permission…</option>
+                  {permsByModule().map(([module, perms]) => (
+                    <optgroup key={module} label={module}>
+                      {perms.map((p) => (
+                        <option key={p.code} value={p.code}>
+                          {p.code} — {p.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+                <Button type="submit" size="sm" variant="outline" className="h-8">
+                  Add
+                </Button>
+              </form>
               {g.users.length > 0 && (
                 <ul className="space-y-1 border-t border-slate-800 pt-2">
                   {g.users.map((u) => (
@@ -100,6 +156,76 @@ export default async function PermissionsAdminPage() {
           </Card>
         ))}
       </div>
+
+      <Card className="border-slate-800">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Create permission group</CardTitle>
+          <p className="text-xs text-slate-500">
+            Build custom groups (e.g. &quot;Shop Leads&quot;, &quot;Finance
+            Approvers&quot;) and attach any mix of view / action permissions.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <form
+            action={actionCreatePermissionGroup}
+            className="flex flex-wrap gap-2"
+          >
+            <Input
+              name="name"
+              required
+              placeholder="Group name"
+              className="max-w-xs"
+            />
+            <Input
+              name="description"
+              placeholder="Description (optional)"
+              className="max-w-sm"
+            />
+            <Button type="submit" size="sm">
+              Create group
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+
+      <Card className="border-slate-800">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">
+            Permission catalog ({PERMISSIONS.length})
+          </CardTitle>
+          <p className="text-xs text-slate-500">
+            Every module has a <span className="font-mono">.view</span>{" "}
+            permission gating read access plus action permissions gating
+            writes. Role defaults apply unless a group or direct grant says
+            otherwise; direct denies always win.
+          </p>
+        </CardHeader>
+        <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {permsByModule().map(([module, perms]) => (
+            <div key={module} className="rounded-lg border border-slate-800 p-2.5">
+              <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                {module}
+              </p>
+              <ul className="space-y-0.5">
+                {perms.map((p) => (
+                  <li key={p.code} className="text-[11px]">
+                    <span
+                      className={
+                        p.code.endsWith(".view")
+                          ? "font-mono text-sky-400/90"
+                          : "font-mono text-teal-400/90"
+                      }
+                    >
+                      {p.code}
+                    </span>{" "}
+                    <span className="text-slate-500">{p.name}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
 
       <Card className="border-slate-800">
         <CardHeader className="pb-2">
@@ -153,10 +279,14 @@ export default async function PermissionsAdminPage() {
               className={`${selectClass} max-w-sm`}
             >
               <option value="">Permission…</option>
-              {PERMISSIONS.map((p) => (
-                <option key={p.code} value={p.code}>
-                  {p.code} — {p.name}
-                </option>
+              {permsByModule().map(([module, perms]) => (
+                <optgroup key={module} label={module}>
+                  {perms.map((p) => (
+                    <option key={p.code} value={p.code}>
+                      {p.code} — {p.name}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
             <select name="allowed" className={selectClass} defaultValue="true">

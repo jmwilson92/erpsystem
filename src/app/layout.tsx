@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { AppShell } from "@/components/layout/app-shell";
+import { getCurrentUser, listUsers } from "@/lib/auth";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -19,11 +20,22 @@ export const metadata: Metadata = {
     "Integrated manufacturing ERP: shop floor execution, CM, supply chain, MRB, EVM, and compliance.",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Demo-mode identity switcher data (replace with real auth in prod)
+  const [demoUsers, currentUser] = await Promise.all([
+    listUsers(),
+    getCurrentUser(),
+  ]);
+  const shellUsers = demoUsers.map((u) => ({
+    id: u.id,
+    name: u.name,
+    role: u.role,
+    title: u.title,
+  }));
   return (
     // suppressHydrationWarning: browser extensions (e.g. Scribe) often inject
     // class/data attrs on <html>/<body> before React hydrates.
@@ -41,7 +53,21 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
         suppressHydrationWarning
       >
-        <AppShell>{children}</AppShell>
+        <AppShell
+          demoUsers={shellUsers}
+          currentUser={
+            currentUser
+              ? {
+                  id: currentUser.id,
+                  name: currentUser.name,
+                  role: currentUser.role,
+                  title: currentUser.title,
+                }
+              : null
+          }
+        >
+          {children}
+        </AppShell>
       </body>
     </html>
   );
