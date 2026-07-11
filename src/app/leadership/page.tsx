@@ -1,6 +1,7 @@
 import Link from "next/link";
 import {
   listBusinessPriorities,
+  getExecutiveKpis,
 } from "@/lib/services/leadership";
 import { getCurrentUser, userHasPermission } from "@/lib/auth";
 import { PageHeader } from "@/components/shared/page-header";
@@ -9,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate } from "@/lib/utils";
 import {
   actionUpsertBusinessPriority,
   actionSetPriorityStatus,
@@ -29,9 +30,12 @@ export default async function LeadershipPage() {
   const isAdmin = user?.role === "ADMIN" || user?.role === "EXECUTIVE";
   const showManage = canManage || isAdmin;
 
-  const priorities = showManage
-    ? await listBusinessPriorities()
-    : await listBusinessPriorities({ publishedOnly: true });
+  const [priorities, kpis] = await Promise.all([
+    showManage
+      ? listBusinessPriorities()
+      : listBusinessPriorities({ publishedOnly: true }),
+    getExecutiveKpis(),
+  ]);
 
   const published = priorities.filter((p) => p.status === "PUBLISHED");
   const drafts = priorities.filter((p) => p.status === "DRAFT");
@@ -39,7 +43,88 @@ export default async function LeadershipPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Senior Leadership" />
+      <PageHeader
+        title="Senior Leadership"
+        description="Company pulse and published business priorities"
+      />
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+              Financial
+            </p>
+            <p className="mt-1 text-xl font-bold tabular-nums text-slate-100">
+              {formatCurrency(kpis.revenue)}
+            </p>
+            <p className="text-xs text-slate-500">
+              Revenue · Net income{" "}
+              <span
+                className={
+                  kpis.netIncome >= 0 ? "text-emerald-400" : "text-red-400"
+                }
+              >
+                {formatCurrency(kpis.netIncome)}
+              </span>
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+              Program health
+            </p>
+            <p className="mt-1 text-xl font-bold tabular-nums text-slate-100">
+              SPI {kpis.portfolioSpi ? kpis.portfolioSpi.toFixed(2) : "—"} · CPI{" "}
+              {kpis.portfolioCpi ? kpis.portfolioCpi.toFixed(2) : "—"}
+            </p>
+            <p className="text-xs text-slate-500">
+              {kpis.activeProjects} active project
+              {kpis.activeProjects === 1 ? "" : "s"} (portfolio EVM)
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+              Operations
+            </p>
+            <p className="mt-1 text-xl font-bold tabular-nums text-slate-100">
+              {kpis.openWorkOrders} WOs · {formatCurrency(kpis.wipValue)} WIP
+            </p>
+            <p className="text-xs text-slate-500">
+              {kpis.onHoldWorkOrders > 0 ? (
+                <span className="text-amber-400">
+                  {kpis.onHoldWorkOrders} on hold
+                </span>
+              ) : (
+                "No holds"
+              )}{" "}
+              · {formatCurrency(kpis.openPoCommitments)} PO commitments
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+              Quality
+            </p>
+            <p className="mt-1 text-xl font-bold tabular-nums text-slate-100">
+              {kpis.firstPassYield !== null
+                ? `${kpis.firstPassYield.toFixed(0)}% FPY`
+                : "— FPY"}
+            </p>
+            <p className="text-xs text-slate-500">
+              {kpis.openNcrs > 0 ? (
+                <span className="text-amber-400">{kpis.openNcrs} open NCR</span>
+              ) : (
+                "0 open NCR"
+              )}{" "}
+              · {kpis.openMrb} MRB
+            </p>
+          </CardContent>
+        </Card>
+      </div>
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-emerald-400/90">
