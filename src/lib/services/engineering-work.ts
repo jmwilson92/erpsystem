@@ -1426,7 +1426,7 @@ export async function scanOutOfTask(params: {
       )?.productId || null;
   }
 
-  await prisma.timeEntry.create({
+  const scanEntry = await prisma.timeEntry.create({
     data: {
       userId: params.userId,
       projectId: task.projectId,
@@ -1442,6 +1442,14 @@ export async function scanOutOfTask(params: {
       costAmount,
     },
   });
+  // Scanning a job auto-opens the current period's timesheet and files
+  // the time there (timesheets only open once their period starts).
+  {
+    const { attachEntryToTimesheet } = await import(
+      "@/lib/services/timesheets"
+    );
+    await attachEntryToTimesheet(scanEntry.id);
+  }
 
   // Cost entry for project/product NRE (requires a project for ProjectCostEntry)
   if (task.projectId) {

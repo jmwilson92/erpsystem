@@ -84,6 +84,14 @@ export async function decidePtoRequest(params: {
     userId: params.userId,
     changes: { status: params.decision },
   });
+  if (params.decision === "APPROVED") {
+    // Drop the approved time onto any already-open timesheets; future
+    // periods pick it up when their sheet opens.
+    const { pushApprovedPtoToTimesheets } = await import(
+      "@/lib/services/timesheets"
+    );
+    await pushApprovedPtoToTimesheets(pto.id);
+  }
   return pto;
 }
 
@@ -248,16 +256,16 @@ export async function getPendingApprovals(user: {
     ? undefined
     : { in: persona.reportIds };
 
-  const [ptoRequests, timeEntries, expenses] = await Promise.all([
+  const [ptoRequests, timesheets, expenses] = await Promise.all([
     prisma.ptoRequest.findMany({
       where: { status: "PENDING", ...(scope ? { userId: scope } : {}) },
       include: { user: true },
       orderBy: { createdAt: "asc" },
     }),
-    prisma.timeEntry.findMany({
+    prisma.timesheet.findMany({
       where: { status: "SUBMITTED", ...(scope ? { userId: scope } : {}) },
-      include: { user: true, workOrder: true, project: true },
-      orderBy: { date: "asc" },
+      include: { user: true, entries: true },
+      orderBy: { periodStart: "asc" },
     }),
     prisma.expenseReport.findMany({
       where: {
@@ -268,7 +276,7 @@ export async function getPendingApprovals(user: {
       orderBy: { createdAt: "asc" },
     }),
   ]);
-  return { persona, ptoRequests, timeEntries, expenses };
+  return { persona, ptoRequests, timesheets, expenses };
 }
 
 /** Everything an employee sees on their own HR profile. */

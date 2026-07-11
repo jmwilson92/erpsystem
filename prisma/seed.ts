@@ -26,7 +26,7 @@ async function main() {
   // Wipe in dependency order (SQLite)
   const tables = [
     "TicketComment", "EngineeringTicket", "Sprint",
-    "EmployeeDocument", "EmployeeGoal", "PerformanceReview", "ExpenseLine", "ExpenseReport", "PtoRequest", "TimeEntry",
+    "Timesheet", "PayrollPolicy", "ReviewPolicy", "AccountingSettings", "EmployeeDocument", "EmployeeGoal", "PerformanceReview", "ExpenseLine", "ExpenseReport", "PtoRequest", "TimeEntry",
     "GfpConsumption", "GfpCheckout", "GfpAuditRecord", "GfpDocument",
     "ComplianceCheck", "GovernmentProperty",
     "VirtualAssetAssignment", "VirtualAsset",
@@ -2961,7 +2961,65 @@ async function main() {
     ],
   });
 
-  console.log("  ✓ HR data (org chart, documents, reviews)");
+  // ── Payroll policy + a submitted timesheet for the approvals demo ──
+  await prisma.payrollPolicy.create({
+    data: {
+      id: "default",
+      timesheetFrequency: "WEEKLY",
+      weekStartsOn: 1,
+      ptoAccrualHoursPerPeriod: 4,
+      sickHoursPerYear: 40,
+      holidays: JSON.stringify([
+        { date: "2026-07-03", name: "Independence Day (observed)" },
+        { date: "2026-09-07", name: "Labor Day" },
+        { date: "2026-11-26", name: "Thanksgiving" },
+        { date: "2026-11-27", name: "Day after Thanksgiving" },
+        { date: "2026-12-25", name: "Christmas Day" },
+        { date: "2027-01-01", name: "New Year's Day" },
+      ]),
+    },
+  });
+  await prisma.reviewPolicy.create({
+    data: {
+      id: "default",
+      frequencyMonths: 12,
+      selfReviewLeadDays: 30,
+      questions: JSON.stringify([
+        "How well did you meet your goals this period?",
+        "What accomplishment are you most proud of?",
+        "Where do you need more support or training?",
+        "How would you rate your collaboration with the team?",
+        "What should your goals be for the next period?",
+      ]),
+    },
+  });
+  await prisma.accountingSettings.create({
+    data: { id: "default", basis: "ACCRUAL", fiscalYearStartMonth: 1 },
+  });
+
+  // Dana Kim's current-week timesheet, submitted for approval
+  {
+    const now = new Date();
+    const day = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const back = (day.getDay() - 1 + 7) % 7; // Monday start
+    const periodStart = new Date(day.getTime() - back * 86_400_000);
+    const periodEnd = new Date(periodStart.getTime() + 6 * 86_400_000);
+    const sheet = await prisma.timesheet.create({
+      data: {
+        userId: tech2.id,
+        periodStart,
+        periodEnd,
+        status: "SUBMITTED",
+        submittedAt: now,
+      },
+    });
+    await prisma.timeEntry.updateMany({
+      where: { userId: tech2.id, status: "SUBMITTED" },
+      data: { timesheetId: sheet.id },
+    });
+  }
+
+  console.log("  ✓ HR data (org chart, documents, reviews, timesheets)");
 
   // ── Budgets ────────────────────────────────────────────────
   await prisma.budget.createMany({
