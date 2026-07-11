@@ -1,6 +1,6 @@
 # ForgeERP
 
-**Integrated manufacturing ERP** for high-reliability environments (aerospace, defense, precision assembly). Built as a single cohesive **Next.js 15** application with dark navy/slate UI, teal/amber status accents, shop-floor tablet support, and large-screen information radiators.
+**Integrated manufacturing ERP** for high-reliability environments (aerospace, defense, precision assembly). Built as a single cohesive **Next.js 15** application with full **day/night theming** (navy/slate night mode, crisp white day mode), teal/amber status accents, shop-floor tablet support, and large-screen information radiators.
 
 ![Stack](https://img.shields.io/badge/Next.js-15-black) ![Prisma](https://img.shields.io/badge/Prisma-SQLite%2FPG-2D3748) ![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)
 
@@ -34,30 +34,72 @@ npm run setup
 
 ## Modules
 
-| Area | Routes | Highlights |
-|------|--------|------------|
+Navigation is organized into seven domains (sidebar groups are collapsible; state persists per browser). The same structure powers the **⌘K / Ctrl+K** command palette, with keyword search (e.g. "8d" → CAR, "rfq" → Quotes).
+
+### Overview
+| Module | Route | Highlights |
+|--------|-------|------------|
 | Command center | `/` | Cross-module KPIs, EVM strip, quality alerts |
 | Production floor | `/floor` | Color-coded WO tiles, capacity load, sign-off % |
 | Info radiators | `/radiators` | Large-font wall display, auto-refresh |
 | Value stream | `/value-stream` | Supplier→Ship live flow + constraints |
-| Work orders | `/work-orders` | Production / prototype / task-only + travelers |
-| Work instructions | `/work-instructions` | CM workflow Draft→Eng→CM→Released |
-| BOM / Parts | `/bom` | Multi-rev, prototype banner, certify, where-used |
-| Config management | `/cm` | ECR board votes, impact analysis |
-| Purchasing | `/purchasing` | PR→PO→Receive (pass/fail→MRB) |
-| Suppliers | `/suppliers` | Live scorecards (OTD, PPM, cost) |
-| Inventory | `/inventory` | Multi-loc, ownership, quarantine |
-| Quality / NCR | `/quality` | Inspections, NCR trends, yield |
-| MRB | `/mrb` | Disposition → inventory + scorecard |
-| Shipping | `/shipping` | SO + packing / ship status |
-| Gov property | `/government-property` | GFP/CAP, UID, DFARS checks |
-| Projects | `/projects` | WBS, SPI/CPI, risks, issues, linked WOs |
-| Accounting | `/accounting` | GL, P&L, BS, TB, AR/AP, WO variance |
-| Engineering | `/engineering` | JIRA-style board |
-| HR | `/hr` | Time, PTO, expenses, reviews, AI goal tips |
 | AI assistant | `/ai` | Local assistant; optional Grok API |
 
-**⌘K / Ctrl+K** — global command palette.
+### Sales & Customers
+| Module | Route | Highlights |
+|--------|-------|------------|
+| Quotes | `/sales/quotes` | Quote → SO conversion |
+| Sales orders | `/sales` | Order entry, fulfillment planning, ship gate |
+| Customers | `/customers` | Accounts, credit holds |
+| Shipping | `/shipping` | Pack/ship, lot & serial trace |
+
+### Manufacturing
+| Module | Route | Highlights |
+|--------|-------|------------|
+| Work orders | `/work-orders` | Production / prototype / task-only + travelers |
+| Work instructions | `/work-instructions` | CM workflow Draft→Eng→CM→Released |
+| Workcenters | `/workcenters` | Capacity and cell definitions |
+| Kitting | `/kitting` | Kit build/complete tied to travelers |
+| Planning & MRP | `/planning` | Forecasts, material requirements, capacity/workload |
+
+### Engineering & PLM
+| Module | Route | Highlights |
+|--------|-------|------------|
+| Engineering | `/engineering` | JIRA-style board, disciplines, WBS campaigns |
+| Items | `/items` | Item master + item cards |
+| BOMs | `/bom` | Multi-rev, prototype banner, certify, where-used |
+| Products (PLM) | `/products` | Product lifecycle linked to PMO |
+| Config management | `/cm` | ECR board votes, impact analysis, doc library |
+| UOM master | `/uom` | Units and conversions |
+
+### Supply Chain
+| Module | Route | Highlights |
+|--------|-------|------------|
+| Purchasing | `/purchasing` | PR→PO→Receive (pass/fail→MRB), PO search |
+| Receiving | `/receiving` | Dock travelers, partial receipts, GFP intake |
+| Suppliers / ASL | `/suppliers` | Live scorecards (OTD, PPM, cost) |
+| Inventory | `/inventory` | Multi-loc, ownership, quarantine, kanban |
+| Virtual assets | `/virtual-assets` | Licenses and intangibles |
+
+### Quality & Compliance
+| Module | Route | Highlights |
+|--------|-------|------------|
+| QA inspection | `/qa` | Visual / GD&T / first-article queue |
+| Test center | `/test-center` | Test stations and results |
+| Quality / NCR | `/quality` | Inspections, NCR trends, yield |
+| MRB / CAR | `/mrb` | Disposition → inventory + scorecard; corrective actions |
+| Gov property | `/government-property` | GFP/CAP, UID, DFARS checks |
+
+### Programs & Business
+| Module | Route | Highlights |
+|--------|-------|------------|
+| Leadership | `/leadership` | Executive rollup |
+| PMO | `/pmo` | Programs, projects, WBS, SPI/CPI, PI planning, alerts |
+| Accounting | `/accounting` | GL, P&L, BS, TB, AR/AP, WO variance |
+| HR / workforce | `/hr` | Time, PTO, expenses, reviews, AI goal tips |
+| Permissions | `/admin/permissions` | Role/permission matrix |
+
+**Day / night mode** — toggle in the header; the choice persists and is applied before first paint (no flash). Theming is done centrally in `src/app/globals.css` by remapping the slate + accent color ramps for `html.light`, so module pages don't carry per-theme classes.
 
 ---
 

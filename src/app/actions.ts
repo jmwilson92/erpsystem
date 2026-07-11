@@ -95,13 +95,6 @@ function parseDocPrefix(formData: FormData, prefix: string) {
   return docs;
 }
 
-function parsePassFail(raw: FormDataEntryValue | null): "PASS" | "FAIL" | "PENDING" | undefined {
-  if (!raw) return undefined;
-  const v = String(raw).toUpperCase();
-  if (v === "PASS" || v === "FAIL" || v === "PENDING") return v;
-  return undefined;
-}
-
 export async function actionReceivePo(formData: FormData): Promise<void> {
   const purchaseOrderId = formData.get("purchaseOrderId") as string;
   const travelerId = (formData.get("travelerId") as string) || undefined;

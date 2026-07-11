@@ -3,110 +3,42 @@
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
-import {
-  LayoutDashboard,
-  Factory,
-  ClipboardList,
-  FileText,
-  Boxes,
-  ShoppingCart,
-  ShoppingBag,
-  Building2,
-  PackageCheck,
-  Users2,
-  Shield,
-  FlaskConical,
-  Truck,
-  Landmark,
-  FolderKanban,
-  GitBranch,
-  Gauge,
-  Monitor,
-  Package,
-  Package2,
-  Award,
-  Network,
-  Briefcase,
-  Bot,
-  ChevronLeft,
-  Flame,
-  AlertTriangle,
-  FileWarning,
-  LineChart,
-  Crown,
-  KeyRound,
-} from "lucide-react";
-import { useState } from "react";
+import { NAV_GROUPS, activeNavHref } from "@/lib/navigation";
+import { ChevronLeft, ChevronDown, Flame } from "lucide-react";
+import { useEffect, useState } from "react";
 
-const nav = [
-  {
-    label: "Overview",
-    items: [
-      { href: "/", label: "Dashboard", icon: LayoutDashboard },
-      { href: "/floor", label: "Production Floor", icon: Factory },
-      { href: "/radiators", label: "Info Radiators", icon: Monitor },
-      { href: "/value-stream", label: "Value Stream", icon: Network },
-      { href: "/ai", label: "AI Assistant", icon: Bot },
-    ],
-  },
-  {
-    label: "Manufacturing",
-    items: [
-      { href: "/work-orders", label: "Work Orders", icon: ClipboardList },
-      { href: "/planning", label: "Planning / Forecast", icon: LineChart },
-      { href: "/work-instructions", label: "Work Instructions", icon: FileText },
-      { href: "/qa", label: "QA", icon: FlaskConical },
-      { href: "/test-center", label: "Test Center", icon: FlaskConical },
-      { href: "/workcenters", label: "Workcenters", icon: Factory },
-      { href: "/items", label: "Items", icon: Package },
-      { href: "/bom", label: "BOMs", icon: Boxes },
-      { href: "/uom", label: "UOM Master", icon: Gauge },
-    ],
-  },
-  {
-    label: "Supply Chain",
-    items: [
-      { href: "/sales", label: "Sales Orders", icon: ShoppingBag },
-      { href: "/customers", label: "Customers", icon: Building2 },
-      { href: "/purchasing", label: "Purchasing", icon: ShoppingCart },
-      { href: "/receiving", label: "Receiving", icon: PackageCheck },
-      { href: "/suppliers", label: "Suppliers / ASL", icon: Award },
-      { href: "/inventory", label: "Inventory", icon: Package },
-      { href: "/kitting", label: "Kitting", icon: Boxes },
-      { href: "/shipping", label: "Shipping", icon: Truck },
-      { href: "/virtual-assets", label: "Virtual Assets", icon: Package2 },
-    ],
-  },
-  {
-    label: "Quality & Compliance",
-    items: [
-      { href: "/quality", label: "NCR / Quality", icon: FlaskConical },
-      { href: "/mrb", label: "MRB", icon: AlertTriangle },
-      { href: "/mrb?view=cars", label: "CAR", icon: FileWarning },
-      { href: "/cm", label: "Config Mgmt", icon: GitBranch },
-      { href: "/government-property", label: "Gov Property", icon: Shield },
-    ],
-  },
-  {
-    label: "Business",
-    items: [
-      { href: "/leadership", label: "Leadership", icon: Crown },
-      { href: "/pmo", label: "PMO", icon: FolderKanban },
-      { href: "/pmo/pi", label: "PI Planning", icon: LineChart },
-      { href: "/pmo/alerts", label: "PM Alerts", icon: AlertTriangle },
-      { href: "/accounting", label: "Accounting", icon: Landmark },
-      { href: "/engineering", label: "Engineering", icon: Briefcase },
-      { href: "/products", label: "Products", icon: Package2 },
-      { href: "/hr", label: "HR / Workforce", icon: Users2 },
-      { href: "/admin/permissions", label: "Permissions", icon: KeyRound },
-    ],
-  },
-];
+const COLLAPSED_GROUPS_KEY = "forge-nav-collapsed-groups";
 
 export function Sidebar() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [collapsed, setCollapsed] = useState(false);
+  const [closedGroups, setClosedGroups] = useState<string[]>([]);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(COLLAPSED_GROUPS_KEY);
+      if (stored) setClosedGroups(JSON.parse(stored));
+    } catch {
+      // ignore malformed storage
+    }
+  }, []);
+
+  const toggleGroup = (label: string) => {
+    setClosedGroups((prev) => {
+      const next = prev.includes(label)
+        ? prev.filter((l) => l !== label)
+        : [...prev, label];
+      try {
+        localStorage.setItem(COLLAPSED_GROUPS_KEY, JSON.stringify(next));
+      } catch {
+        // ignore quota errors
+      }
+      return next;
+    });
+  };
+
+  const activeHref = activeNavHref(pathname, searchParams);
 
   return (
     <aside
@@ -137,52 +69,58 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 overflow-y-auto px-2 py-3">
-        {nav.map((group) => (
-          <div key={group.label} className="mb-4">
-            {!collapsed && (
-              <p className="mb-1.5 px-2 text-[10px] font-semibold uppercase tracking-wider text-slate-600">
-                {group.label}
-              </p>
-            )}
-            <ul className="space-y-0.5">
-              {group.items.map((item) => {
-                const [itemPath, itemQuery] = item.href.split("?");
-                let active =
-                  item.href === "/"
-                    ? pathname === "/"
-                    : pathname === itemPath ||
-                      pathname.startsWith(itemPath + "/");
-                // Distinguish /mrb vs /mrb?view=cars
-                if (itemPath === "/mrb" && pathname === "/mrb") {
-                  const view = searchParams.get("view") || "mrb";
-                  if (itemQuery?.includes("view=cars")) {
-                    active = view === "cars";
-                  } else {
-                    active = view !== "cars";
-                  }
-                }
-                const Icon = item.icon;
-                return (
-                  <li key={item.href}>
-                    <Link
-                      href={item.href}
-                      title={collapsed ? item.label : undefined}
-                      className={cn(
-                        "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors",
-                        active
-                          ? "bg-teal-500/10 text-teal-400 shadow-sm"
-                          : "text-slate-400 hover:bg-slate-900 hover:text-slate-200"
-                      )}
-                    >
-                      <Icon className={cn("h-4 w-4 shrink-0", active && "text-teal-400")} />
-                      {!collapsed && <span className="truncate">{item.label}</span>}
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        ))}
+        {NAV_GROUPS.map((group) => {
+          const groupClosed = !collapsed && closedGroups.includes(group.label);
+          const groupHasActive = group.items.some((i) => i.href === activeHref);
+          return (
+            <div key={group.label} className="mb-3">
+              {!collapsed && (
+                <button
+                  onClick={() => toggleGroup(group.label)}
+                  className={cn(
+                    "mb-1 flex w-full items-center justify-between rounded px-2 py-1 text-[10px] font-semibold uppercase tracking-wider transition-colors",
+                    groupHasActive && groupClosed
+                      ? "text-teal-500"
+                      : "text-slate-500 hover:text-slate-300"
+                  )}
+                >
+                  {group.label}
+                  <ChevronDown
+                    className={cn(
+                      "h-3 w-3 transition-transform",
+                      groupClosed && "-rotate-90"
+                    )}
+                  />
+                </button>
+              )}
+              {!groupClosed && (
+                <ul className="space-y-0.5">
+                  {group.items.map((item) => {
+                    const active = item.href === activeHref;
+                    const Icon = item.icon;
+                    return (
+                      <li key={item.href}>
+                        <Link
+                          href={item.href}
+                          title={collapsed ? item.label : undefined}
+                          className={cn(
+                            "flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm transition-colors",
+                            active
+                              ? "bg-teal-500/10 text-teal-400 shadow-sm"
+                              : "text-slate-400 hover:bg-slate-900 hover:text-slate-200"
+                          )}
+                        >
+                          <Icon className={cn("h-4 w-4 shrink-0", active && "text-teal-400")} />
+                          {!collapsed && <span className="truncate">{item.label}</span>}
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          );
+        })}
       </nav>
 
       {!collapsed && (

@@ -28,6 +28,15 @@ export default function RootLayout({
     // suppressHydrationWarning: browser extensions (e.g. Scribe) often inject
     // class/data attrs on <html>/<body> before React hydrates.
     <html lang="en" className="dark" suppressHydrationWarning>
+      <head>
+        {/* Apply the saved theme before first paint to avoid a dark flash
+            for day-mode users (ThemeProvider takes over after hydration). */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{var t=localStorage.getItem("forge-theme")||(matchMedia("(prefers-color-scheme: light)").matches?"light":"dark");var c=document.documentElement.classList;c.toggle("dark",t==="dark");c.toggle("light",t==="light");document.documentElement.style.colorScheme=t;}catch(e){}`,
+          }}
+        />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
         suppressHydrationWarning

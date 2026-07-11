@@ -429,9 +429,6 @@ export default async function CmPage({
   const releaseFolders = folders.filter((f) => f.kind !== "ARCHIVE");
   const childFolders = currentFolder ? currentFolder.children : [];
 
-  const selectClass =
-    "flex h-9 w-full rounded-md border border-slate-700 bg-slate-950 px-2 text-sm text-slate-200";
-
   // Breadcrumb path for library
   const breadcrumb: { id: string | null; name: string }[] = [
     { id: null, name: "All products" },
