@@ -4734,3 +4734,165 @@ export async function actionShipReturnShipment(
   revalidatePath(`/shipping/${id}`);
   revalidatePath("/mrb");
 }
+
+// ─────────────────────────────────────────────────────────────
+// Timesheets & payroll
+// ─────────────────────────────────────────────────────────────
+
+export async function actionAddTimesheetEntry(
+  formData: FormData
+): Promise<void> {
+  const { addTimesheetEntry } = await import("@/lib/services/timesheets");
+  const user = await getCurrentUser();
+  if (!user) return;
+  const date = new Date((formData.get("date") as string) || "");
+  if (Number.isNaN(date.getTime())) return;
+  await addTimesheetEntry({
+    userId: user.id,
+    date,
+    hours: Number(formData.get("hours") || 0),
+    type: ((formData.get("type") as string) || "REGULAR").trim(),
+    workOrderId: ((formData.get("workOrderId") as string) || "").trim() || null,
+    projectId: ((formData.get("projectId") as string) || "").trim() || null,
+    description: (formData.get("description") as string) || null,
+  });
+  revalidatePath("/hr/timesheet");
+}
+
+export async function actionRemoveTimesheetEntry(
+  formData: FormData
+): Promise<void> {
+  const { removeTimesheetEntry } = await import("@/lib/services/timesheets");
+  const user = await getCurrentUser();
+  if (!user) return;
+  await removeTimesheetEntry({
+    entryId: formData.get("entryId") as string,
+    userId: user.id,
+  });
+  revalidatePath("/hr/timesheet");
+}
+
+export async function actionSubmitTimesheet(
+  formData: FormData
+): Promise<void> {
+  const { submitTimesheet } = await import("@/lib/services/timesheets");
+  const user = await getCurrentUser();
+  if (!user) return;
+  await submitTimesheet({ id: formData.get("id") as string, userId: user.id });
+  revalidatePath("/hr/timesheet");
+  revalidatePath("/approvals");
+}
+
+export async function actionDecideTimesheet(
+  formData: FormData
+): Promise<void> {
+  const { decideTimesheet } = await import("@/lib/services/timesheets");
+  const user = await getCurrentUser();
+  if (!user) return;
+  await decideTimesheet({
+    id: formData.get("id") as string,
+    decision:
+      (formData.get("decision") as string) === "REJECTED"
+        ? "REJECTED"
+        : "APPROVED",
+    approver: { id: user.id, role: user.role },
+    notes: ((formData.get("notes") as string) || "").trim() || undefined,
+  });
+  revalidatePath("/approvals");
+  revalidatePath("/hr/timesheet");
+  revalidatePath("/accounting");
+}
+
+export async function actionProcessTimesheet(
+  formData: FormData
+): Promise<void> {
+  const { processTimesheet } = await import("@/lib/services/timesheets");
+  const user = await getCurrentUser();
+  if (!user) return;
+  await processTimesheet({
+    id: formData.get("id") as string,
+    processor: { id: user.id, role: user.role },
+  });
+  revalidatePath("/accounting");
+  revalidatePath("/hr/timesheet");
+}
+
+export async function actionSavePayrollPolicy(
+  formData: FormData
+): Promise<void> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const user = await getCurrentUser();
+  const allowed =
+    (await userHasPermission(user?.id, "accounting.journal.post")) ||
+    (await userHasPermission(user?.id, "hr.admin"));
+  if (!allowed) throw new Error("Payroll policy is owned by accounting / HR");
+
+  // Holidays arrive one per line: "YYYY-MM-DD Name of holiday"
+  const holidayLines = ((formData.get("holidays") as string) || "")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const holidays = holidayLines
+    .map((l) => {
+      const m = l.match(/^(\d{4}-\d{2}-\d{2})\s+(.+)$/);
+      return m ? { date: m[1], name: m[2] } : null;
+    })
+    .filter(Boolean);
+
+  const freq = ((formData.get("timesheetFrequency") as string) || "WEEKLY").toUpperCase();
+  await prisma.payrollPolicy.upsert({
+    where: { id: "default" },
+    create: { id: "default" },
+    update: {
+      timesheetFrequency: ["WEEKLY", "BIWEEKLY", "SEMIMONTHLY"].includes(freq)
+        ? freq
+        : "WEEKLY",
+      weekStartsOn: Math.min(6, Math.max(0, Number(formData.get("weekStartsOn") || 1))),
+      ptoAccrualHoursPerPeriod: Math.max(0, Number(formData.get("ptoAccrualHoursPerPeriod") || 0)),
+      sickHoursPerYear: Math.max(0, Number(formData.get("sickHoursPerYear") || 0)),
+      holidays: JSON.stringify(holidays),
+      updatedById: user?.id,
+    },
+  });
+  await logAudit({
+    entityType: "PayrollPolicy",
+    entityId: "default",
+    action: "POLICY_UPDATED",
+    userId: user?.id,
+  });
+  revalidatePath("/accounting");
+  revalidatePath("/hr/timesheet");
+}
+
+export async function actionSaveAccountingSettings(
+  formData: FormData
+): Promise<void> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const user = await getCurrentUser();
+  if (!(await userHasPermission(user?.id, "accounting.journal.post"))) {
+    throw new Error("Accounting settings require accounting authority");
+  }
+  const basis =
+    ((formData.get("basis") as string) || "ACCRUAL").toUpperCase() === "CASH"
+      ? "CASH"
+      : "ACCRUAL";
+  await prisma.accountingSettings.upsert({
+    where: { id: "default" },
+    create: { id: "default", basis },
+    update: {
+      basis,
+      fiscalYearStartMonth: Math.min(
+        12,
+        Math.max(1, Number(formData.get("fiscalYearStartMonth") || 1))
+      ),
+      updatedById: user?.id,
+    },
+  });
+  await logAudit({
+    entityType: "AccountingSettings",
+    entityId: "default",
+    action: "SETTINGS_UPDATED",
+    userId: user?.id,
+  });
+  revalidatePath("/accounting");
+}

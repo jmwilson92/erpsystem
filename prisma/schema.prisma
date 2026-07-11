@@ -42,6 +42,7 @@ model User {
   reviewsGiven        PerformanceReview[]      @relation("Reviewer")
   goals               EmployeeGoal[]
   employeeDocuments   EmployeeDocument[]
+  timesheets          Timesheet[]
   assignedWorkOrders  WorkOrder[]              @relation("WOAssignee")
   createdWorkOrders   WorkOrder[]              @relation("WOCreator")
   stepSignOffs        WorkInstructionSignOff[]
@@ -3287,7 +3288,9 @@ model TimeEntry {
   engTask     EngTask?  @relation(fields: [engTaskId], references: [id], onDelete: SetNull)
   date        DateTime
   hours       Float
-  type        String   @default("REGULAR") // REGULAR, OT, PTO, SICK, HOLIDAY, ENG_SCAN
+  type        String   @default("REGULAR") // REGULAR, OT, OVERHEAD, PTO, SICK, HOLIDAY, ENG_SCAN
+  timesheetId String?
+  timesheet   Timesheet? @relation(fields: [timesheetId], references: [id], onDelete: SetNull)
   description String?
   status      String   @default("SUBMITTED") // DRAFT, SUBMITTED, APPROVED, REJECTED
   laborRate   Float    @default(0) // optional $/hr for cost rollup
@@ -3346,12 +3349,19 @@ model PerformanceReview {
   reviewerId  String
   reviewer    User     @relation("Reviewer", fields: [reviewerId], references: [id])
   period      String   // 2025-Q1, 2025-Q2, etc
-  status      String   @default("DRAFT") // DRAFT, IN_PROGRESS, COMPLETED
+  status      String   @default("DRAFT") // DRAFT, SELF_REVIEW, IN_PROGRESS, AWAITING_SIGNOFF, COMPLETED
   overallRating Float?
   strengths   String?
   improvements String?
   careerNotes String?
   aiSuggestions String?
+  /// Review-cycle machinery: question snapshot + employee self-assessment
+  dueDate     DateTime?
+  questions   String?  // JSON [string] — snapshot of company questions at cycle start
+  selfRatings String?  // JSON [{question, rating, comment}] — employee self-grade
+  selfSubmittedAt   DateTime?
+  employeeSignedAt  DateTime?
+  managerSignedAt   DateTime?
   completedAt DateTime?
   createdAt   DateTime @default(now())
 }
@@ -3368,6 +3378,66 @@ model EmployeeGoal {
   category    String?  // SKILL, CAREER, PERFORMANCE, CERTIFICATION
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+/// Company-wide payroll & timesheet policy (single row, id="default").
+/// Accounting owns this: pay period shape, PTO/sick accrual, holidays.
+model PayrollPolicy {
+  id                       String   @id @default("default")
+  timesheetFrequency       String   @default("WEEKLY") // WEEKLY, BIWEEKLY, SEMIMONTHLY
+  weekStartsOn             Int      @default(1) // 0=Sun … 6=Sat (weekly/biweekly)
+  /// Anchor date for biweekly period math
+  periodAnchor             DateTime @default(now())
+  ptoAccrualHoursPerPeriod Float    @default(4)
+  sickHoursPerYear         Float    @default(40)
+  holidays                 String?  // JSON [{date:"2026-12-25", name:"Christmas"}]
+  updatedById              String?
+  updatedAt                DateTime @updatedAt
+}
+
+/// Company review-cycle policy (single row, id="default"). HR owns this.
+model ReviewPolicy {
+  id                 String   @id @default("default")
+  frequencyMonths    Int      @default(12)
+  selfReviewLeadDays Int      @default(30)
+  questions          String?  // JSON [string] — company-defined review questions
+  updatedById        String?
+  updatedAt          DateTime @updatedAt
+}
+
+/// Accounting system configuration (single row, id="default").
+model AccountingSettings {
+  id                    String   @id @default("default")
+  basis                 String   @default("ACCRUAL") // ACCRUAL, CASH
+  fiscalYearStartMonth  Int      @default(1) // 1 = January
+  updatedById           String?
+  updatedAt             DateTime @updatedAt
+}
+
+/// One pay-period timesheet per employee. Entries attach as they are
+/// scanned or keyed; submit -> manager approval -> accounting payroll.
+model Timesheet {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  periodStart   DateTime
+  periodEnd     DateTime
+  status        String   @default("OPEN") // OPEN, SUBMITTED, APPROVED, REJECTED, PROCESSED
+  submittedAt   DateTime?
+  approvedById  String?
+  approvedAt    DateTime?
+  processedById String?
+  processedAt   DateTime?
+  /// Payroll accrual journal entry posted by accounting on processing
+  journalEntryId String?
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  entries       TimeEntry[]
+
+  @@unique([userId, periodStart])
+  @@index([status])
 }
 
 model EmployeeDocument {

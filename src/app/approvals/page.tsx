@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import {
   actionDecidePto,
-  actionDecideTimeEntry,
+  actionDecideTimesheet,
   actionAdvanceExpense,
 } from "@/app/actions";
 import { CalendarCheck, Clock, Receipt, ShoppingCart } from "lucide-react";
@@ -20,7 +20,7 @@ export default async function ApprovalsPage() {
   const user = await getCurrentUser();
   if (!user) return null;
 
-  const [{ persona, ptoRequests, timeEntries, expenses }, openPrs] =
+  const [{ persona, ptoRequests, timesheets, expenses }, openPrs] =
     await Promise.all([
       getPendingApprovals(user),
       prisma.purchaseRequest.count({ where: { status: "SUBMITTED" } }),
@@ -33,7 +33,7 @@ export default async function ApprovalsPage() {
       : "your direct reports — none assigned to you";
 
   const empty =
-    ptoRequests.length === 0 && timeEntries.length === 0 && expenses.length === 0;
+    ptoRequests.length === 0 && timesheets.length === 0 && expenses.length === 0;
 
   return (
     <div className="space-y-6">
@@ -56,8 +56,8 @@ export default async function ApprovalsPage() {
           <CardContent className="flex items-center gap-3 p-4">
             <Clock className="h-5 w-5 text-sky-400" />
             <div>
-              <p className="text-xl font-bold tabular-nums">{timeEntries.length}</p>
-              <p className="text-xs text-slate-500">Timesheet entries</p>
+              <p className="text-xl font-bold tabular-nums">{timesheets.length}</p>
+              <p className="text-xs text-slate-500">Timesheets</p>
             </div>
           </CardContent>
         </Card>
@@ -100,17 +100,18 @@ export default async function ApprovalsPage() {
           </CardHeader>
           <CardContent className="space-y-2">
             {ptoRequests.map((p) => (
-              <div
+              <details
                 key={p.id}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 px-4 py-2.5"
+                className="rounded-lg border border-slate-800 px-4 py-2.5"
               >
-                <div>
-                  <p className="text-sm text-slate-200">{p.user.name}</p>
-                  <p className="text-xs text-slate-500">
-                    {p.type} · {formatDate(p.startDate)} → {formatDate(p.endDate)}{" "}
-                    · {p.hours}h{p.reason ? ` · ${p.reason}` : ""}
-                  </p>
-                </div>
+                <summary className="flex cursor-pointer flex-wrap items-center justify-between gap-2 [&::-webkit-details-marker]:hidden">
+                  <div>
+                    <p className="text-sm text-slate-200">{p.user.name}</p>
+                    <p className="text-xs text-slate-500">
+                      {p.type} · {formatDate(p.startDate)} → {formatDate(p.endDate)}{" "}
+                      · {p.hours}h{p.reason ? ` · ${p.reason}` : ""}
+                    </p>
+                  </div>
                 <div className="flex gap-1.5">
                   <form action={actionDecidePto}>
                     <input type="hidden" name="id" value={p.id} />
@@ -127,51 +128,92 @@ export default async function ApprovalsPage() {
                     </Button>
                   </form>
                 </div>
-              </div>
+                </summary>
+                <div className="mt-2 grid gap-1 border-t border-slate-800/60 pt-2 text-xs text-slate-400 sm:grid-cols-2">
+                  <p>
+                    Employee:{" "}
+                    <span className="text-slate-300">
+                      {p.user.name} · {p.user.title || p.user.role}
+                    </span>
+                  </p>
+                  <p>
+                    Department:{" "}
+                    <span className="text-slate-300">
+                      {p.user.department || "—"}
+                    </span>
+                  </p>
+                  <p>
+                    Type / hours:{" "}
+                    <span className="text-slate-300">
+                      {p.type} · {p.hours}h
+                    </span>
+                  </p>
+                  <p>
+                    Requested: <span className="text-slate-300">{formatDate(p.createdAt)}</span>
+                  </p>
+                  <p className="sm:col-span-2">
+                    Reason:{" "}
+                    <span className="text-slate-300">{p.reason || "—"}</span>
+                  </p>
+                  <p className="sm:col-span-2">
+                    Approving files the time onto their timesheet for the
+                    period(s) it covers.
+                  </p>
+                </div>
+              </details>
             ))}
           </CardContent>
         </Card>
       )}
 
-      {timeEntries.length > 0 && (
+      {timesheets.length > 0 && (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Timesheets</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            {timeEntries.map((t) => (
-              <div
-                key={t.id}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 px-4 py-2.5"
-              >
-                <div>
-                  <p className="text-sm text-slate-200">
-                    {t.user.name}{" "}
-                    <span className="tabular-nums text-teal-400">{t.hours}h</span>
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    {formatDate(t.date)} ·{" "}
-                    {t.workOrder?.number || t.project?.number || t.description || t.type}
-                  </p>
+            {timesheets.map((t) => {
+              const hours = t.entries.reduce((s, e) => s + e.hours, 0);
+              return (
+                <div
+                  key={t.id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 px-4 py-2.5"
+                >
+                  <div>
+                    <p className="text-sm text-slate-200">
+                      {t.user.name}{" "}
+                      <span className="tabular-nums text-teal-400">{hours}h</span>
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {formatDate(t.periodStart)} → {formatDate(t.periodEnd)} ·{" "}
+                      {t.entries.length} line{t.entries.length === 1 ? "" : "s"} ·{" "}
+                      <Link
+                        href={`/hr/timesheet/${t.id}`}
+                        className="text-sky-400 hover:underline"
+                      >
+                        View details →
+                      </Link>
+                    </p>
+                  </div>
+                  <div className="flex gap-1.5">
+                    <form action={actionDecideTimesheet}>
+                      <input type="hidden" name="id" value={t.id} />
+                      <input type="hidden" name="decision" value="APPROVED" />
+                      <Button type="submit" size="sm">
+                        Approve
+                      </Button>
+                    </form>
+                    <form action={actionDecideTimesheet}>
+                      <input type="hidden" name="id" value={t.id} />
+                      <input type="hidden" name="decision" value="REJECTED" />
+                      <Button type="submit" size="sm" variant="outline">
+                        Reject
+                      </Button>
+                    </form>
+                  </div>
                 </div>
-                <div className="flex gap-1.5">
-                  <form action={actionDecideTimeEntry}>
-                    <input type="hidden" name="id" value={t.id} />
-                    <input type="hidden" name="decision" value="APPROVED" />
-                    <Button type="submit" size="sm">
-                      Approve
-                    </Button>
-                  </form>
-                  <form action={actionDecideTimeEntry}>
-                    <input type="hidden" name="id" value={t.id} />
-                    <input type="hidden" name="decision" value="REJECTED" />
-                    <Button type="submit" size="sm" variant="outline">
-                      Reject
-                    </Button>
-                  </form>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </CardContent>
         </Card>
       )}
@@ -187,17 +229,38 @@ export default async function ApprovalsPage() {
                 key={e.id}
                 className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 px-4 py-2.5"
               >
-                <div>
-                  <p className="text-sm text-slate-200">
-                    <span className="font-mono text-sky-400">{e.number}</span>{" "}
-                    {e.title}
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    {e.user.name} · {e.lines.length} line
-                    {e.lines.length === 1 ? "" : "s"} ·{" "}
-                    {formatCurrency(e.totalAmount)}
-                  </p>
-                </div>
+                <details className="min-w-0 flex-1">
+                  <summary className="cursor-pointer [&::-webkit-details-marker]:hidden">
+                    <p className="text-sm text-slate-200">
+                      <span className="font-mono text-sky-400">{e.number}</span>{" "}
+                      {e.title}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {e.user.name} · {e.lines.length} line
+                      {e.lines.length === 1 ? "" : "s"} ·{" "}
+                      {formatCurrency(e.totalAmount)} · click for detail
+                    </p>
+                  </summary>
+                  <div className="mt-2 space-y-1 border-t border-slate-800/60 pt-2">
+                    {e.lines.map((l) => (
+                      <p
+                        key={l.id}
+                        className="flex justify-between text-xs text-slate-400"
+                      >
+                        <span>
+                          <span className="font-mono text-slate-500">
+                            {formatDate(l.date)}
+                          </span>{" "}
+                          {l.category} · {l.description}
+                          {l.receiptUrl ? " · receipt attached" : ""}
+                        </span>
+                        <span className="tabular-nums">
+                          {formatCurrency(l.amount)}
+                        </span>
+                      </p>
+                    ))}
+                  </div>
+                </details>
                 <div className="flex items-center gap-1.5">
                   <StatusBadge status={e.status} />
                   {e.status === "SUBMITTED" && (

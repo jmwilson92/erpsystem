@@ -9,8 +9,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { Landmark, TrendingUp, TrendingDown, Scale, CheckCircle2, XCircle } from "lucide-react";
-import { actionPostJournal, actionCreateAccount } from "@/app/actions";
+import {
+  actionPostJournal,
+  actionCreateAccount,
+  actionProcessTimesheet,
+  actionSavePayrollPolicy,
+  actionSaveAccountingSettings,
+} from "@/app/actions";
 import { listJournalEntries } from "@/lib/services/gaap";
+import { getPayrollPolicy, parseHolidays } from "@/lib/services/timesheets";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -26,15 +34,31 @@ export default async function AccountingPage({
   const defaultTab = Array.isArray(sp.tab) ? sp.tab[0] : sp.tab || "pl";
 
   const pack = await getGaapReportPack();
-  const [accounts, journals, projects] = await Promise.all([
-    prisma.account.findMany({ orderBy: { code: "asc" } }),
-    listJournalEntries(40),
-    prisma.project.findMany({
-      where: { status: { in: ["ACTIVE", "PLANNING"] } },
-      orderBy: { number: "asc" },
-      select: { id: true, number: true, name: true },
-    }),
-  ]);
+  const [accounts, journals, projects, payrollPolicy, acctSettings, payrollQueue] =
+    await Promise.all([
+      prisma.account.findMany({ orderBy: { code: "asc" } }),
+      listJournalEntries(40),
+      prisma.project.findMany({
+        where: { status: { in: ["ACTIVE", "PLANNING"] } },
+        orderBy: { number: "asc" },
+        select: { id: true, number: true, name: true },
+      }),
+      getPayrollPolicy(),
+      prisma.accountingSettings.upsert({
+        where: { id: "default" },
+        create: { id: "default" },
+        update: {},
+      }),
+      prisma.timesheet.findMany({
+        where: { status: { in: ["APPROVED", "PROCESSED"] } },
+        include: { user: { select: { name: true } }, entries: true },
+        orderBy: { periodStart: "desc" },
+        take: 25,
+      }),
+    ]);
+  const holidayText = parseHolidays(payrollPolicy)
+    .map((h) => `${h.date} ${h.name}`)
+    .join("\n");
 
   const {
     incomeStatement: pl,
@@ -121,6 +145,12 @@ export default async function AccountingPage({
           <TabsTrigger value="je">Journals</TabsTrigger>
           <TabsTrigger value="cost">Cost Integration</TabsTrigger>
           <TabsTrigger value="post">Post JE</TabsTrigger>
+          <TabsTrigger value="payroll">
+            Payroll
+            {payrollQueue.filter((t) => t.status === "APPROVED").length > 0
+              ? ` (${payrollQueue.filter((t) => t.status === "APPROVED").length})`
+              : ""}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="pl">
@@ -540,6 +570,191 @@ export default async function AccountingPage({
               </form>
             </CardContent>
           </Card>
+        </TabsContent>
+        <TabsContent value="payroll" className="space-y-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Payroll queue</CardTitle>
+              <p className="text-xs text-slate-500">
+                Manager-approved timesheets awaiting payroll. Processing posts
+                a payroll accrual journal entry (Dr 6000 / Cr 2100).
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-1">
+              {payrollQueue.length === 0 && (
+                <p className="py-2 text-sm text-slate-500">
+                  No approved timesheets waiting.
+                </p>
+              )}
+              {payrollQueue.map((t) => {
+                const hours = t.entries.reduce((s, e) => s + e.hours, 0);
+                const amount = t.entries.reduce(
+                  (s, e) => s + e.hours * (e.laborRate || 65),
+                  0
+                );
+                return (
+                  <div
+                    key={t.id}
+                    className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/60 px-1 py-1.5 text-sm"
+                  >
+                    <span className="flex items-center gap-3">
+                      <span className="text-slate-200">{t.user.name}</span>
+                      <span className="font-mono text-xs text-slate-500">
+                        {formatDate(t.periodStart)} → {formatDate(t.periodEnd)}
+                      </span>
+                      <Link
+                        href={`/hr/timesheet/${t.id}`}
+                        className="text-xs text-sky-400 hover:underline"
+                      >
+                        detail →
+                      </Link>
+                    </span>
+                    <span className="flex items-center gap-3">
+                      <span className="tabular-nums text-slate-400">
+                        {hours}h · {formatCurrency(amount)}
+                      </span>
+                      <StatusBadge status={t.status} />
+                      {t.status === "APPROVED" && (
+                        <form action={actionProcessTimesheet}>
+                          <input type="hidden" name="id" value={t.id} />
+                          <Button type="submit" size="sm">
+                            Process
+                          </Button>
+                        </form>
+                      )}
+                    </span>
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">
+                  Payroll & time policy
+                </CardTitle>
+                <p className="text-xs text-slate-500">
+                  Controls the timesheet period everyone files against, PTO
+                  accrual, sick time, and company holidays.
+                </p>
+              </CardHeader>
+              <CardContent>
+                <form action={actionSavePayrollPolicy} className="grid gap-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="text-xs text-slate-500">
+                      Timesheet frequency
+                      <select
+                        name="timesheetFrequency"
+                        className={selectClass}
+                        defaultValue={payrollPolicy.timesheetFrequency}
+                      >
+                        <option value="WEEKLY">Weekly</option>
+                        <option value="BIWEEKLY">Biweekly</option>
+                        <option value="SEMIMONTHLY">Semimonthly</option>
+                      </select>
+                    </label>
+                    <label className="text-xs text-slate-500">
+                      Week starts on
+                      <select
+                        name="weekStartsOn"
+                        className={selectClass}
+                        defaultValue={String(payrollPolicy.weekStartsOn)}
+                      >
+                        <option value="0">Sunday</option>
+                        <option value="1">Monday</option>
+                        <option value="6">Saturday</option>
+                      </select>
+                    </label>
+                    <label className="text-xs text-slate-500">
+                      PTO accrual (hours / period)
+                      <Input
+                        name="ptoAccrualHoursPerPeriod"
+                        type="number"
+                        min={0}
+                        step={0.5}
+                        defaultValue={payrollPolicy.ptoAccrualHoursPerPeriod}
+                      />
+                    </label>
+                    <label className="text-xs text-slate-500">
+                      Sick time (hours / year)
+                      <Input
+                        name="sickHoursPerYear"
+                        type="number"
+                        min={0}
+                        step={1}
+                        defaultValue={payrollPolicy.sickHoursPerYear}
+                      />
+                    </label>
+                  </div>
+                  <label className="text-xs text-slate-500">
+                    Company holidays (one per line: YYYY-MM-DD Name)
+                    <textarea
+                      name="holidays"
+                      rows={6}
+                      defaultValue={holidayText}
+                      className="mt-1 w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 font-mono text-xs text-slate-200"
+                    />
+                  </label>
+                  <Button type="submit" size="sm">
+                    Save payroll policy
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Accounting system</CardTitle>
+                <p className="text-xs text-slate-500">
+                  Basis and fiscal calendar for reporting.
+                </p>
+              </CardHeader>
+              <CardContent>
+                <form
+                  action={actionSaveAccountingSettings}
+                  className="grid gap-2"
+                >
+                  <label className="text-xs text-slate-500">
+                    Accounting basis
+                    <select
+                      name="basis"
+                      className={selectClass}
+                      defaultValue={acctSettings.basis}
+                    >
+                      <option value="ACCRUAL">
+                        Accrual (revenue when earned, expenses when incurred)
+                      </option>
+                      <option value="CASH">
+                        Cash (revenue and expenses when money moves)
+                      </option>
+                    </select>
+                  </label>
+                  <label className="text-xs text-slate-500">
+                    Fiscal year starts in
+                    <select
+                      name="fiscalYearStartMonth"
+                      className={selectClass}
+                      defaultValue={String(acctSettings.fiscalYearStartMonth)}
+                    >
+                      {[
+                        "January", "February", "March", "April", "May", "June",
+                        "July", "August", "September", "October", "November", "December",
+                      ].map((m, i) => (
+                        <option key={m} value={String(i + 1)}>
+                          {m}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <Button type="submit" size="sm">
+                    Save settings
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
       </Tabs>
     </div>
