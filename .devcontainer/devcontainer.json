@@ -1,0 +1,17 @@
+{
+  "name": "ForgeERP",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:22",
+  "postCreateCommand": "npm install && npm run setup",
+  "forwardPorts": [3000],
+  "portsAttributes": {
+    "3000": {
+      "label": "ForgeERP",
+      "onAutoForward": "openBrowserOnce"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": ["Prisma.prisma", "bradlc.vscode-tailwindcss"]
+    }
+  }
+}
