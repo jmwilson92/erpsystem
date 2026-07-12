@@ -103,6 +103,19 @@ export async function createPtoRequest(params: {
   hours: number;
   reason?: string;
 }) {
+  // Balance gate: can't request more PTO / sick than you've earned
+  // (pending requests reserve hours too).
+  if (["PTO", "SICK"].includes(params.type)) {
+    const { getPtoBalances } = await import("@/lib/services/timesheets");
+    const balances = await getPtoBalances(params.userId);
+    const available =
+      params.type === "PTO" ? balances.pto.available : balances.sick.available;
+    if (params.hours > available) {
+      throw new Error(
+        `Not enough ${params.type} balance: requesting ${params.hours}h with ${available}h available (accrued minus used and pending requests)`
+      );
+    }
+  }
   const pto = await prisma.ptoRequest.create({
     data: {
       userId: params.userId,
@@ -323,7 +336,18 @@ export async function getEmployeeProfile(userId: string) {
         orderBy: { uploadedAt: "desc" },
       }),
     ]);
-  return { user, ptoRequests, timeEntries, expenses, reviews, goals, documents };
+  const { getPtoBalances } = await import("@/lib/services/timesheets");
+  const balances = await getPtoBalances(userId);
+  return {
+    user,
+    ptoRequests,
+    timeEntries,
+    expenses,
+    reviews,
+    goals,
+    documents,
+    balances,
+  };
 }
 
 /** A manager's view of their direct reports. */

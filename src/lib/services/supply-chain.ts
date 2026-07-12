@@ -581,6 +581,33 @@ export async function receivePurchaseOrder(params: {
 
   await updateSupplierScorecard(po.supplierId);
 
+  // Receiving closes the payables loop: evaluated receipt settlement
+  // creates the AP voucher at PO price x received qty (3-way match)
+  // and capitalizes the inventory.
+  {
+    const receivedForBilling = receipt.lines
+      .filter((l) => l.quantityReceived > 0)
+      .map((l) => {
+        const poLine = po.lines.find((pl) => pl.id === l.poLineId);
+        return {
+          description: poLine?.description || "Received material",
+          quantity: l.quantityReceived,
+          unitCost: poLine?.unitCost || 0,
+        };
+      });
+    if (receivedForBilling.length > 0 && !params.failInspection) {
+      const { raiseApInvoiceForReceipt } = await import(
+        "@/lib/services/billing"
+      );
+      await raiseApInvoiceForReceipt({
+        purchaseOrderId: po.id,
+        receiptNumber: receipt.number,
+        received: receivedForBilling,
+        userId: params.receivedById,
+      });
+    }
+  }
+
   // Put away only lines that did NOT route to QA/TEST (they return to dock after pass)
   if (!params.failInspection && params.putawayLocationCode) {
     for (const inventoryItemId of putAwayItems) {

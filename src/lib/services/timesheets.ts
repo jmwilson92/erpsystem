@@ -851,3 +851,59 @@ export async function listMyTimesheets(userId: string) {
     take: 12,
   });
 }
+
+/**
+ * PTO / sick balances for the current year: accrual per the payroll
+ * policy minus approved usage, with pending requests reserved.
+ */
+export async function getPtoBalances(userId: string) {
+  const policy = await getPayrollPolicy();
+  const now = new Date();
+  const yearStart = new Date(now.getFullYear(), 0, 1);
+  const elapsedDays = Math.floor(
+    (startOfDay(now).getTime() - yearStart.getTime()) / DAY
+  );
+
+  let periodsElapsed: number;
+  switch (policy.timesheetFrequency) {
+    case "BIWEEKLY":
+      periodsElapsed = Math.floor(elapsedDays / 14);
+      break;
+    case "SEMIMONTHLY":
+      periodsElapsed = now.getMonth() * 2 + (now.getDate() > 15 ? 1 : 0);
+      break;
+    default: // WEEKLY
+      periodsElapsed = Math.floor(elapsedDays / 7);
+  }
+
+  const requests = await prisma.ptoRequest.findMany({
+    where: { userId, startDate: { gte: yearStart } },
+  });
+  const sum = (type: string, statuses: string[]) =>
+    requests
+      .filter((r) => r.type === type && statuses.includes(r.status))
+      .reduce((s, r) => s + r.hours, 0);
+
+  const ptoAccrued = periodsElapsed * policy.ptoAccrualHoursPerPeriod;
+  const ptoUsed = sum("PTO", ["APPROVED"]);
+  const ptoPending = sum("PTO", ["PENDING"]);
+  const sickUsed = sum("SICK", ["APPROVED"]);
+  const sickPending = sum("SICK", ["PENDING"]);
+
+  return {
+    pto: {
+      accrued: Math.round(ptoAccrued * 10) / 10,
+      used: ptoUsed,
+      pending: ptoPending,
+      available: Math.round((ptoAccrued - ptoUsed - ptoPending) * 10) / 10,
+    },
+    sick: {
+      granted: policy.sickHoursPerYear,
+      used: sickUsed,
+      pending: sickPending,
+      available:
+        Math.round((policy.sickHoursPerYear - sickUsed - sickPending) * 10) /
+        10,
+    },
+  };
+}
