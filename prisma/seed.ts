@@ -26,7 +26,7 @@ async function main() {
   // Wipe in dependency order (SQLite)
   const tables = [
     "TicketComment", "EngineeringTicket", "Sprint",
-    "TimesheetApproval", "Timesheet", "PayrollPolicy", "ReviewPolicy", "AccountingSettings", "EmployeeDocument", "EmployeeGoal", "PerformanceReview", "ExpenseLine", "ExpenseReport", "PtoRequest", "TimeEntry",
+    "CompanySettings", "TimesheetApproval", "Timesheet", "PayrollPolicy", "ReviewPolicy", "AccountingSettings", "EmployeeDocument", "EmployeeGoal", "PerformanceReview", "ExpenseLine", "ExpenseReport", "PtoRequest", "TimeEntry",
     "GfpConsumption", "GfpCheckout", "GfpAuditRecord", "GfpDocument",
     "ComplianceCheck", "GovernmentProperty",
     "VirtualAssetAssignment", "VirtualAsset",
@@ -3017,6 +3017,21 @@ async function main() {
   });
   await prisma.accountingSettings.create({
     data: { id: "default", basis: "ACCRUAL", fiscalYearStartMonth: 1 },
+  });
+  await prisma.companySettings.create({
+    data: {
+      id: "default",
+      name: "ForgeERP",
+      tagline: "Manufacturing",
+      departments: JSON.stringify([
+        "Production", "Manufacturing", "Assembly", "Machining",
+        "Engineering", "Quality", "Supply Chain", "Programs",
+        "Finance", "Human Resources", "Operations", "Executive",
+        "Configuration Management",
+      ]),
+      // Left false so the dashboard invites new companies into the wizard
+      setupCompleted: false,
+    },
   });
 
   // Dana Kim's current-week timesheet, submitted for approval

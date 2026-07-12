@@ -16,10 +16,12 @@ export function Sidebar({
   demoUsers = [],
   currentUser = null,
   badges = {},
+  company,
 }: {
   demoUsers?: DemoUser[];
   currentUser?: DemoUser | null;
   badges?: Record<string, number>;
+  company?: { name: string; tagline: string };
 }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -66,9 +68,11 @@ export function Sidebar({
         </div>
         {!collapsed && (
           <div className="flex flex-col">
-            <span className="text-sm font-bold tracking-tight text-slate-50">ForgeERP</span>
-            <span className="text-[10px] uppercase tracking-widest text-teal-500/80">
-              Manufacturing
+            <span className="max-w-[150px] truncate text-sm font-bold tracking-tight text-slate-50">
+              {company?.name || "ForgeERP"}
+            </span>
+            <span className="max-w-[150px] truncate text-[10px] uppercase tracking-widest text-teal-500/80">
+              {company?.tagline || "Manufacturing"}
             </span>
           </div>
         )}

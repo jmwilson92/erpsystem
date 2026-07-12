@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { AppShell } from "@/components/layout/app-shell";
 import { getCurrentUser, listUsers } from "@/lib/auth";
+import { prisma } from "@/lib/db";
 import { getNotificationSummary } from "@/lib/services/notifications";
 
 const geistSans = Geist({
@@ -27,9 +28,14 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   // Demo-mode identity switcher data (replace with real auth in prod)
-  const [demoUsers, currentUser] = await Promise.all([
+  const [demoUsers, currentUser, company] = await Promise.all([
     listUsers(),
     getCurrentUser(),
+    prisma.companySettings.upsert({
+      where: { id: "default" },
+      create: { id: "default" },
+      update: {},
+    }),
   ]);
   const notifications = currentUser
     ? await getNotificationSummary(currentUser)
@@ -58,6 +64,7 @@ export default async function RootLayout({
         suppressHydrationWarning
       >
         <AppShell
+          company={{ name: company.name, tagline: company.tagline }}
           notifications={notifications}
           demoUsers={shellUsers}
           currentUser={

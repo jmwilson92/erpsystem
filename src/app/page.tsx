@@ -21,6 +21,9 @@ import { DashboardCharts } from "@/components/dashboard/charts";
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
+  const setupDone = (
+    await prisma.companySettings.findUnique({ where: { id: "default" } })
+  )?.setupCompleted ?? false;
   const [
     woCounts,
     openMrb,
@@ -85,6 +88,21 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      {!setupDone && (
+        <a
+          href="/setup"
+          className="flex items-center justify-between rounded-xl border border-teal-500/40 bg-gradient-to-r from-teal-500/10 to-cyan-500/10 px-4 py-3 transition-colors hover:border-teal-400"
+        >
+          <span className="text-sm text-slate-200">
+            🚀 <span className="font-semibold">Make it yours</span> — run the
+            5-step setup wizard: company name, pay periods & overtime,
+            review cycles, and your org chart. Takes about 3 minutes.
+          </span>
+          <span className="shrink-0 rounded-lg bg-teal-500 px-3 py-1.5 text-xs font-semibold text-white">
+            Start setup →
+          </span>
+        </a>
+      )}
       <PageHeader
         title="Operations Command Center"
         description="Cross-module snapshot — production, quality, supply chain, and program health"
