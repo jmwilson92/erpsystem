@@ -544,14 +544,15 @@ async function departmentManagerFor(
   employee: { managerId: string | null }
 ): Promise<string | null> {
   if (department) {
-    const mgr = await prisma.user.findFirst({
-      where: {
-        isActive: true,
-        department: { equals: department },
-        reports: { some: { isActive: true } },
-      },
-      select: { id: true },
+    // Case-insensitive: WOs/SOs may carry "PRODUCTION" while people
+    // records say "Production" — both must route to the same manager.
+    const managers = await prisma.user.findMany({
+      where: { isActive: true, reports: { some: { isActive: true } } },
+      select: { id: true, department: true },
     });
+    const mgr = managers.find(
+      (m) => (m.department || "").toLowerCase() === department.toLowerCase()
+    );
     if (mgr) return mgr.id;
   }
   return employee.managerId;

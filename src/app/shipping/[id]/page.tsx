@@ -56,11 +56,18 @@ export default async function ShipmentDetailPage({
               : "Shipment"
         }
         actions={
-          <Link href="/shipping">
-            <Button size="sm" variant="outline">
-              All shipments
-            </Button>
-          </Link>
+          <div className="flex gap-2">
+            <Link href={`/print/packing-list/${shipment.id}`}>
+              <Button size="sm" variant="outline">
+                Print packing list
+              </Button>
+            </Link>
+            <Link href="/shipping">
+              <Button size="sm" variant="outline">
+                All shipments
+              </Button>
+            </Link>
+          </div>
         }
       />
 

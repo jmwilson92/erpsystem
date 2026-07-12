@@ -12,6 +12,7 @@ import {
 } from "@/app/actions";
 import { Plus } from "lucide-react";
 import Link from "next/link";
+import { getCompanyDepartments } from "@/lib/services/company";
 
 export const dynamic = "force-dynamic";
 
@@ -38,7 +39,7 @@ export default async function WorkOrdersPage({
   const sp = await searchParams;
   const statusFilter = pick(sp, "status");
 
-  const [workOrders, certifiedBoms, projects] = await Promise.all([
+  const [workOrders, certifiedBoms, projects, departments] = await Promise.all([
     prisma.workOrder.findMany({
       where: statusFilter ? { status: statusFilter } : undefined,
       orderBy: { createdAt: "desc" },
@@ -67,6 +68,7 @@ export default async function WorkOrdersPage({
       where: { status: { in: ["ACTIVE", "PLANNING"] } },
       orderBy: { number: "asc" },
     }),
+    getCompanyDepartments(),
   ]);
 
   const selectClass =
@@ -129,19 +131,37 @@ export default async function WorkOrdersPage({
                   </select>
                 </div>
               </div>
-              <div>
-                <label className="text-[10px] uppercase text-slate-500">
-                  Initial status
-                </label>
-                <select
-                  name="status"
-                  defaultValue="PLANNED"
-                  className={`${selectClass} mt-1`}
-                >
-                  <option value="BACKLOG">Backlog</option>
-                  <option value="PLANNED">Planned</option>
-                  <option value="RELEASED">Released</option>
-                </select>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[10px] uppercase text-slate-500">
+                    Initial status
+                  </label>
+                  <select
+                    name="status"
+                    defaultValue="PLANNED"
+                    className={`${selectClass} mt-1`}
+                  >
+                    <option value="BACKLOG">Backlog</option>
+                    <option value="PLANNED">Planned</option>
+                    <option value="RELEASED">Released</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase text-slate-500">
+                    Department (routes time approvals)
+                  </label>
+                  <select
+                    name="department"
+                    defaultValue={departments[0]}
+                    className={`${selectClass} mt-1`}
+                  >
+                    {departments.map((d) => (
+                      <option key={d} value={d}>
+                        {d}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
               <Button type="submit" size="sm">
                 <Plus className="mr-1 h-4 w-4" />
@@ -167,19 +187,37 @@ export default async function WorkOrdersPage({
                   className="mt-1"
                 />
               </div>
-              <div>
-                <label className="text-[10px] uppercase text-slate-500">
-                  Initial status
-                </label>
-                <select
-                  name="status"
-                  defaultValue="BACKLOG"
-                  className={`${selectClass} mt-1`}
-                >
-                  <option value="BACKLOG">Backlog</option>
-                  <option value="PLANNED">Planned</option>
-                  <option value="RELEASED">Released</option>
-                </select>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[10px] uppercase text-slate-500">
+                    Initial status
+                  </label>
+                  <select
+                    name="status"
+                    defaultValue="BACKLOG"
+                    className={`${selectClass} mt-1`}
+                  >
+                    <option value="BACKLOG">Backlog</option>
+                    <option value="PLANNED">Planned</option>
+                    <option value="RELEASED">Released</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase text-slate-500">
+                    Department
+                  </label>
+                  <select
+                    name="department"
+                    defaultValue={departments[0]}
+                    className={`${selectClass} mt-1`}
+                  >
+                    {departments.map((d) => (
+                      <option key={d} value={d}>
+                        {d}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
               <p className="text-xs text-slate-600">
                 No BOM / material kitting. Sign-off progress only if a general WI

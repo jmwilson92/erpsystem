@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/db";
-import { PageHeader } from "@/components/shared/page-header";
+import { getCurrentUser } from "@/lib/auth";
+import { getNotificationSummary } from "@/lib/services/notifications";
+import { getPtoBalances } from "@/lib/services/timesheets";
 import { StatCard } from "@/components/shared/stat-card";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,16 +16,33 @@ import {
   FlaskConical,
   FolderKanban,
   Shield,
+  ClipboardCheck,
+  Clock,
+  Palmtree,
+  Landmark,
 } from "lucide-react";
 import Link from "next/link";
 import { DashboardCharts } from "@/components/dashboard/charts";
+import { Sparkline } from "@/components/dashboard/sparkline";
 
 export const dynamic = "force-dynamic";
 
+const fmtMoney = (n: number) =>
+  n >= 1_000_000
+    ? `$${(n / 1_000_000).toFixed(2)}M`
+    : n >= 10_000
+      ? `$${Math.round(n / 1000).toLocaleString()}k`
+      : `$${Math.round(n).toLocaleString()}`;
+
 export default async function DashboardPage() {
+  const user = await getCurrentUser();
+  if (!user) return null;
   const setupDone = (
     await prisma.companySettings.findUnique({ where: { id: "default" } })
   )?.setupCompleted ?? false;
+
+  const now = new Date();
+  const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
   const [
     woCounts,
     openMrb,
@@ -36,6 +55,13 @@ export default async function DashboardPage() {
     suppliers,
     gfpCount,
     inspections,
+    arInvoices,
+    apInvoices,
+    recentSos,
+    cashAccount,
+    notif,
+    balances,
+    currentSheet,
   ] = await Promise.all([
     prisma.workOrder.groupBy({ by: ["status"], _count: true }),
     prisma.mrbCase.count({ where: { status: { in: ["OPEN", "IN_REVIEW"] } } }),
@@ -62,7 +88,69 @@ export default async function DashboardPage() {
     prisma.supplier.findMany({ orderBy: { overallScore: "desc" }, take: 5 }),
     prisma.governmentProperty.count({ where: { status: { not: "DISPOSED" } } }),
     prisma.inspection.groupBy({ by: ["status"], _count: true }),
+    prisma.arInvoice.findMany({
+      select: { invoiceDate: true, dueDate: true, total: true, amountPaid: true, status: true },
+    }),
+    prisma.apInvoice.findMany({
+      select: { total: true, amountPaid: true, status: true },
+    }),
+    prisma.salesOrder.findMany({
+      where: { orderDate: { gte: sixMonthsAgo } },
+      include: { lines: true },
+    }),
+    prisma.account.findFirst({ where: { code: "1000" } }),
+    getNotificationSummary(user),
+    getPtoBalances(user.id),
+    prisma.timesheet.findFirst({
+      where: { userId: user.id, periodStart: { lte: now }, periodEnd: { gte: now } },
+    }),
   ]);
+
+  // ---- Financial pulse: 6-month sparklines + open balances ----
+  const months: { key: string; label: string }[] = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push({
+      key: `${d.getFullYear()}-${d.getMonth()}`,
+      label: d.toLocaleString("en-US", { month: "short" }),
+    });
+  }
+  const monthKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}`;
+  const revenueByMonth = months.map((m) => ({
+    label: m.label,
+    value: Math.round(
+      arInvoices
+        .filter((i) => monthKey(i.invoiceDate) === m.key)
+        .reduce((s, i) => s + i.total, 0)
+    ),
+  }));
+  const bookingsByMonth = months.map((m) => ({
+    label: m.label,
+    value: Math.round(
+      recentSos
+        .filter((s) => monthKey(s.orderDate) === m.key)
+        .reduce((s, so) => s + so.lines.reduce((t, l) => t + l.quantity * l.unitPrice, 0), 0)
+    ),
+  }));
+  const openArList = arInvoices.filter((i) => i.status === "OPEN" || i.status === "PARTIAL");
+  const openAr = openArList.reduce((s, i) => s + i.total - i.amountPaid, 0);
+  const overdueAr = openArList
+    .filter((i) => (i.dueDate ?? i.invoiceDate) < now)
+    .reduce((s, i) => s + i.total - i.amountPaid, 0);
+  const openAp = apInvoices
+    .filter((i) => i.status === "OPEN" || i.status === "PARTIAL")
+    .reduce((s, i) => s + i.total - i.amountPaid, 0);
+  const revenue6mo = revenueByMonth.reduce((s, m) => s + m.value, 0);
+  const bookings6mo = bookingsByMonth.reduce((s, m) => s + m.value, 0);
+
+  // ---- Personal chips ----
+  const firstName = user.name.split(" ")[0];
+  const hour = now.getHours();
+  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+  const approvalsWaiting = notif.badges["/approvals"] || 0;
+  const sheetStatus = currentSheet
+    ? currentSheet.status.replace(/_/g, " ").toLowerCase()
+    : "not started";
 
   const statusMap = Object.fromEntries(woCounts.map((w) => [w.status, w._count]));
   const activeWos =
@@ -103,10 +191,52 @@ export default async function DashboardPage() {
           </span>
         </a>
       )}
-      <PageHeader
-        title="Operations Command Center"
-        description="Cross-module snapshot — production, quality, supply chain, and program health"
-      />
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="text-xs uppercase tracking-wider text-slate-500">
+            {now.toLocaleDateString("en-US", {
+              weekday: "long",
+              month: "long",
+              day: "numeric",
+            })}
+          </p>
+          <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-50">
+            {greeting}, {firstName}
+          </h1>
+          <p className="mt-1 text-sm text-slate-400">
+            Production, quality, supply chain, and money — at a glance.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href="/approvals"
+            className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-xs transition-colors ${
+              approvalsWaiting > 0
+                ? "border-amber-500/40 bg-amber-500/10 text-amber-300 hover:border-amber-400"
+                : "border-slate-800 text-slate-400 hover:border-slate-700"
+            }`}
+          >
+            <ClipboardCheck className="h-3.5 w-3.5" />
+            {approvalsWaiting > 0
+              ? `${approvalsWaiting} approval${approvalsWaiting === 1 ? "" : "s"} waiting`
+              : "Approvals clear"}
+          </Link>
+          <Link
+            href="/hr/timesheet"
+            className="flex items-center gap-2 rounded-xl border border-slate-800 px-3 py-2 text-xs text-slate-400 transition-colors hover:border-slate-700"
+          >
+            <Clock className="h-3.5 w-3.5 text-sky-400" />
+            Timesheet: <span className="text-slate-200">{sheetStatus}</span>
+          </Link>
+          <Link
+            href="/hr"
+            className="flex items-center gap-2 rounded-xl border border-slate-800 px-3 py-2 text-xs text-slate-400 transition-colors hover:border-slate-700"
+          >
+            <Palmtree className="h-3.5 w-3.5 text-teal-400" />
+            <span className="text-slate-200">{balances.pto.available}h</span> PTO available
+          </Link>
+        </div>
+      </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
@@ -137,6 +267,57 @@ export default async function DashboardPage() {
           icon={TrendingUp}
           accent={yieldPct >= 95 ? "emerald" : "amber"}
         />
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Card className="overflow-hidden">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-medium uppercase tracking-wider text-slate-400">
+                Revenue billed · 6 mo
+              </p>
+              <Landmark className="h-4 w-4 text-teal-400" />
+            </div>
+            <p className="mt-1 text-xl font-bold tabular-nums text-slate-50">
+              {fmtMoney(revenue6mo)}
+            </p>
+            <Sparkline data={revenueByMonth} color="#14b8a6" prefix="$" />
+          </CardContent>
+        </Card>
+        <Card className="overflow-hidden">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-medium uppercase tracking-wider text-slate-400">
+                Bookings · 6 mo
+              </p>
+              <TrendingUp className="h-4 w-4 text-sky-400" />
+            </div>
+            <p className="mt-1 text-xl font-bold tabular-nums text-slate-50">
+              {fmtMoney(bookings6mo)}
+            </p>
+            <Sparkline data={bookingsByMonth} color="#38bdf8" prefix="$" />
+          </CardContent>
+        </Card>
+        <Link href="/accounting?tab=ar">
+          <StatCard
+            title="Open Receivables"
+            value={fmtMoney(openAr)}
+            subtitle={
+              overdueAr > 0 ? `${fmtMoney(overdueAr)} past due` : "Nothing past due"
+            }
+            icon={Landmark}
+            accent={overdueAr > 0 ? "amber" : "emerald"}
+          />
+        </Link>
+        <Link href="/accounting?tab=ap">
+          <StatCard
+            title="Cash · Open Payables"
+            value={fmtMoney(cashAccount?.balance || 0)}
+            subtitle={`${fmtMoney(openAp)} owed to suppliers`}
+            icon={ShoppingCart}
+            accent="violet"
+          />
+        </Link>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">

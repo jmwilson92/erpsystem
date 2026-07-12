@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useState } from "react";
+import { usePathname } from "next/navigation";
 import { Sidebar } from "./sidebar";
 import { Header } from "./header";
 import { CommandPalette } from "./command-palette";
@@ -37,6 +38,12 @@ function ShellInner({
 }) {
   const [cmdOpen, setCmdOpen] = useState(false);
   const { theme } = useTheme();
+  const pathname = usePathname();
+
+  // Print documents render on a bare white canvas — no chrome.
+  if (pathname?.startsWith("/print")) {
+    return <>{children}</>;
+  }
 
   return (
     <div className="flex h-screen overflow-hidden bg-background text-foreground">
