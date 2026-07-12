@@ -256,16 +256,22 @@ export async function getPendingApprovals(user: {
     ? undefined
     : { in: persona.reportIds };
 
-  const [ptoRequests, timesheets, expenses] = await Promise.all([
+  const [ptoRequests, timesheetApprovals, expenses] = await Promise.all([
     prisma.ptoRequest.findMany({
       where: { status: "PENDING", ...(scope ? { userId: scope } : {}) },
       include: { user: true },
       orderBy: { createdAt: "asc" },
     }),
-    prisma.timesheet.findMany({
-      where: { status: "SUBMITTED", ...(scope ? { userId: scope } : {}) },
-      include: { user: true, entries: true },
-      orderBy: { periodStart: "asc" },
+    prisma.timesheetApproval.findMany({
+      where: {
+        status: "PENDING",
+        timesheet: { status: "SUBMITTED" },
+        ...(persona.isHrAdmin ? {} : { approverId: user.id }),
+      },
+      include: {
+        timesheet: { include: { user: true, entries: true } },
+      },
+      orderBy: { createdAt: "asc" },
     }),
     prisma.expenseReport.findMany({
       where: {
@@ -276,7 +282,7 @@ export async function getPendingApprovals(user: {
       orderBy: { createdAt: "asc" },
     }),
   ]);
-  return { persona, ptoRequests, timesheets, expenses };
+  return { persona, ptoRequests, timesheetApprovals, expenses };
 }
 
 /** Everything an employee sees on their own HR profile. */

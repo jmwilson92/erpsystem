@@ -132,6 +132,22 @@ export default async function NewSalesOrderPage({
                 <Input name="customerPo" placeholder="Customer PO #" className="mt-1 h-9" />
               </div>
               <div>
+                <label className="text-xs text-slate-500">
+                  Owning department (routes direct-charge time approvals)
+                </label>
+                <select
+                  name="department"
+                  defaultValue="PRODUCTION"
+                  className="mt-1 flex h-9 w-full rounded-md border border-slate-700 bg-slate-950 px-2 text-sm text-slate-200"
+                >
+                  {["PRODUCTION", "MANUFACTURING", "ENGINEERING", "QUALITY", "PROGRAMS", "OPERATIONS"].map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
                 <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                   Payment terms
                 </label>

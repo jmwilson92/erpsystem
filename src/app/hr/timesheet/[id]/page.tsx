@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import {
-  actionDecideTimesheet,
+  actionDecideTimesheetApproval,
   actionProcessTimesheet,
 } from "@/app/actions";
 
@@ -113,38 +113,73 @@ export default async function TimesheetDetailPage({
         </CardContent>
       </Card>
 
-      {canDecide && sheet.status === "SUBMITTED" && (
-        <Card className="border-amber-500/30">
+      {sheet.approvals.length > 0 && sheet.status !== "OPEN" && (
+        <Card className={sheet.status === "SUBMITTED" ? "border-amber-500/30" : undefined}>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Manager decision</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-wrap items-center gap-2">
-            <form action={actionDecideTimesheet}>
-              <input type="hidden" name="id" value={sheet.id} />
-              <input type="hidden" name="decision" value="APPROVED" />
-              <Button type="submit" size="sm">
-                Approve timesheet
-              </Button>
-            </form>
-            <form
-              action={actionDecideTimesheet}
-              className="flex flex-wrap items-center gap-2"
-            >
-              <input type="hidden" name="id" value={sheet.id} />
-              <input type="hidden" name="decision" value="REJECTED" />
-              <Input
-                name="notes"
-                placeholder="Rejection reason…"
-                className="max-w-xs"
-              />
-              <Button type="submit" size="sm" variant="outline">
-                Reject
-              </Button>
-            </form>
-            <p className="w-full text-[11px] text-slate-500">
-              Approval posts labor cost to work orders / projects and queues
-              the sheet for payroll processing in Accounting.
+            <CardTitle className="text-base">Approval routing</CardTitle>
+            <p className="text-xs text-slate-500">
+              Project/WBS charges route to the PM, direct charges to the
+              department manager, HR time to HR. All buckets must approve.
             </p>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {sheet.approvals.map((a) => (
+              <div
+                key={a.id}
+                className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/60 px-1 py-1.5 text-sm"
+              >
+                <span>
+                  <span className="text-slate-200">{a.label}</span>{" "}
+                  <span className="tabular-nums text-xs text-slate-500">
+                    {a.hours}h
+                  </span>
+                  <span className="ml-2 text-xs text-slate-500">
+                    → {a.approver?.name || "unassigned"}
+                  </span>
+                  {a.notes && (
+                    <span className="ml-2 text-xs text-rose-400">
+                      {a.notes}
+                    </span>
+                  )}
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <StatusBadge status={a.status} />
+                  {a.status === "PENDING" &&
+                    sheet.status === "SUBMITTED" &&
+                    (a.approverId === me.id || canDecide) && (
+                      <>
+                        <form action={actionDecideTimesheetApproval}>
+                          <input type="hidden" name="approvalId" value={a.id} />
+                          <input type="hidden" name="decision" value="APPROVED" />
+                          <Button type="submit" size="sm" className="h-7">
+                            Approve
+                          </Button>
+                        </form>
+                        <form
+                          action={actionDecideTimesheetApproval}
+                          className="flex items-center gap-1"
+                        >
+                          <input type="hidden" name="approvalId" value={a.id} />
+                          <input type="hidden" name="decision" value="REJECTED" />
+                          <Input
+                            name="notes"
+                            placeholder="Reason…"
+                            className="h-7 w-32 text-xs"
+                          />
+                          <Button
+                            type="submit"
+                            size="sm"
+                            variant="outline"
+                            className="h-7"
+                          >
+                            Reject
+                          </Button>
+                        </form>
+                      </>
+                    )}
+                </span>
+              </div>
+            ))}
           </CardContent>
         </Card>
       )}

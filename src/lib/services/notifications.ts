@@ -33,8 +33,12 @@ export async function getNotificationSummary(user: {
       prisma.ptoRequest.count({
         where: { status: "PENDING", ...(scope ? { userId: scope } : {}) },
       }),
-      prisma.timesheet.count({
-        where: { status: "SUBMITTED", ...(scope ? { userId: scope } : {}) },
+      prisma.timesheetApproval.count({
+        where: {
+          status: "PENDING",
+          timesheet: { status: "SUBMITTED" },
+          ...(persona.isHrAdmin ? {} : { approverId: user.id }),
+        },
       }),
       prisma.expenseReport.count({
         where: {

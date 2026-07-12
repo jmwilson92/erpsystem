@@ -80,6 +80,7 @@ export type SalesDocumentLineInput = {
 };
 
 export type SalesDocumentInput = {
+  department?: string;
   customerId: string;
   requiredDate: Date;
   shipDate?: Date;
@@ -141,6 +142,7 @@ export async function createSalesOrder(params: SalesDocumentInput) {
   const so = await prisma.salesOrder.create({
     data: {
       number,
+      department: params.department || "PRODUCTION",
       customerId: params.customerId,
       status: "OPEN",
       requiredDate: params.requiredDate,
