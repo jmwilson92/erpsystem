@@ -11,7 +11,6 @@
  */
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
-import { canDecideFor } from "@/lib/services/hr";
 import { userHasPermission } from "@/lib/auth";
 
 const DEFAULT_LABOR_RATE = 65; // $/hr for shop/overhead time without a rate
@@ -350,6 +349,21 @@ export async function submitTimesheet(params: { id: string; userId: string }) {
   if (sheet.entries.length === 0) {
     throw new Error("Add at least one entry before submitting");
   }
+  {
+    const policy = await getPayrollPolicy();
+    const dayTotals = new Map<string, number>();
+    for (const e of sheet.entries) {
+      const k = e.date.toISOString().slice(0, 10);
+      dayTotals.set(k, (dayTotals.get(k) || 0) + e.hours);
+    }
+    for (const [day, total] of dayTotals) {
+      if (total > policy.maxHoursPerDay) {
+        throw new Error(
+          `${day} has ${total}h — company policy caps a day at ${policy.maxHoursPerDay}h`
+        );
+      }
+    }
+  }
   await prisma.timeEntry.updateMany({
     where: { timesheetId: sheet.id },
     data: { status: "SUBMITTED" },
@@ -358,6 +372,7 @@ export async function submitTimesheet(params: { id: string; userId: string }) {
     where: { id: sheet.id },
     data: { status: "SUBMITTED", submittedAt: new Date() },
   });
+  await buildApprovalBuckets(sheet.id);
   await logAudit({
     entityType: "Timesheet",
     entityId: sheet.id,
@@ -370,57 +385,378 @@ export async function submitTimesheet(params: { id: string; userId: string }) {
   return updated;
 }
 
-export async function decideTimesheet(params: {
-  id: string;
+/** Hour types that count as worked time for overtime math. */
+const WORKED_TYPES = ["REGULAR", "OT", "OVERHEAD", "ENG_SCAN"];
+const HR_TYPES = ["PTO", "SICK", "HOLIDAY", "OVERHEAD"];
+
+export type PayClassification = {
+  regular: number;
+  overtime: number;
+  doubletime: number;
+  nonWorked: number; // PTO / sick / holiday — paid straight
+};
+
+/**
+ * Split a sheet's hours into regular / OT / double-OT per the payroll
+ * policy: daily thresholds first, then weekly OT on whatever is still
+ * classified regular. PTO/sick/holiday never generate overtime.
+ */
+export function classifyHours(
+  policy: {
+    otAfterDailyHours: number;
+    dtAfterDailyHours: number;
+    otAfterWeeklyHours: number;
+  },
+  entries: { date: Date; hours: number; type: string }[]
+): PayClassification {
+  const byDay = new Map<string, number>();
+  let nonWorked = 0;
+  for (const e of entries) {
+    if (!WORKED_TYPES.includes(e.type)) {
+      nonWorked += e.hours;
+      continue;
+    }
+    const k = startOfDay(e.date).toISOString();
+    byDay.set(k, (byDay.get(k) || 0) + e.hours);
+  }
+  let regular = 0;
+  let overtime = 0;
+  let doubletime = 0;
+  for (const total of byDay.values()) {
+    const dt = Math.max(0, total - policy.dtAfterDailyHours);
+    const ot = Math.max(0, Math.min(total, policy.dtAfterDailyHours) - policy.otAfterDailyHours);
+    doubletime += dt;
+    overtime += ot;
+    regular += total - dt - ot;
+  }
+  // Weekly OT: regular hours beyond the weekly threshold promote to OT
+  if (regular > policy.otAfterWeeklyHours) {
+    overtime += regular - policy.otAfterWeeklyHours;
+    regular = policy.otAfterWeeklyHours;
+  }
+  return { regular, overtime, doubletime, nonWorked };
+}
+
+export type GridRow = {
+  type: string;
+  workOrderId: string | null;
+  projectId: string | null;
+  wbsElementId: string | null;
+  /** ISO date (yyyy-mm-dd) -> hours */
+  hours: Record<string, number>;
+};
+
+/**
+ * Save the whole timecard grid: DRAFT entries are replaced by the grid
+ * contents. Enforces the daily cap and the no-future-work rule.
+ */
+export async function saveTimecardGrid(params: {
+  userId: string;
+  sheetId: string;
+  rows: GridRow[];
+}) {
+  const [sheet, policy] = await Promise.all([
+    prisma.timesheet.findUniqueOrThrow({ where: { id: params.sheetId } }),
+    getPayrollPolicy(),
+  ]);
+  if (sheet.userId !== params.userId) {
+    throw new Error("You can only edit your own timecard");
+  }
+  if (!["OPEN", "REJECTED"].includes(sheet.status)) {
+    throw new Error(`Timecard is ${sheet.status} — it can no longer be edited`);
+  }
+
+  const today = startOfDay(new Date());
+  const dayTotals = new Map<string, number>();
+  const creates: {
+    date: Date;
+    hours: number;
+    type: string;
+    workOrderId: string | null;
+    projectId: string | null;
+    wbsElementId: string | null;
+  }[] = [];
+
+  for (const row of params.rows) {
+    const type = row.type.toUpperCase();
+    for (const [iso, raw] of Object.entries(row.hours)) {
+      const hours = Number(raw);
+      if (!hours || hours <= 0) continue;
+      const date = startOfDay(new Date(iso + "T00:00:00"));
+      if (Number.isNaN(date.getTime())) continue;
+      if (date < sheet.periodStart || date > sheet.periodEnd) {
+        throw new Error(`${iso} is outside this pay period`);
+      }
+      if (date > today && !NON_WORK_TYPES.includes(type)) {
+        throw new Error(
+          `Work time on ${iso} is in the future — only PTO / sick / holiday may be future-dated`
+        );
+      }
+      dayTotals.set(iso, (dayTotals.get(iso) || 0) + hours);
+      creates.push({
+        date,
+        hours,
+        type,
+        workOrderId: row.workOrderId || null,
+        projectId: row.projectId || null,
+        wbsElementId: row.wbsElementId || null,
+      });
+    }
+  }
+  for (const [iso, total] of dayTotals) {
+    if (total > policy.maxHoursPerDay) {
+      throw new Error(
+        `${iso} has ${total}h — company policy caps a day at ${policy.maxHoursPerDay}h`
+      );
+    }
+  }
+
+  await prisma.timeEntry.deleteMany({
+    where: { timesheetId: sheet.id, status: "DRAFT" },
+  });
+  for (const c of creates) {
+    await prisma.timeEntry.create({
+      data: {
+        userId: sheet.userId,
+        timesheetId: sheet.id,
+        status: "DRAFT",
+        laborRate: DEFAULT_LABOR_RATE,
+        ...c,
+      },
+    });
+  }
+  await logAudit({
+    entityType: "Timesheet",
+    entityId: sheet.id,
+    action: "GRID_SAVED",
+    userId: params.userId,
+    metadata: { lines: creates.length },
+  });
+  return prisma.timesheet.findUniqueOrThrow({
+    where: { id: sheet.id },
+    include: { entries: true },
+  });
+}
+
+/** Find who approves direct charges for a department. */
+async function departmentManagerFor(
+  department: string | null,
+  employee: { managerId: string | null }
+): Promise<string | null> {
+  if (department) {
+    const mgr = await prisma.user.findFirst({
+      where: {
+        isActive: true,
+        department: { equals: department },
+        reports: { some: { isActive: true } },
+      },
+      select: { id: true },
+    });
+    if (mgr) return mgr.id;
+  }
+  return employee.managerId;
+}
+
+/**
+ * Build the routed approval buckets for a submitted sheet:
+ * PROJECT (per project) -> the project's PM; DIRECT (per department)
+ * -> that department's manager; HR (sick/holiday/PTO/overhead) -> HR.
+ */
+async function buildApprovalBuckets(sheetId: string) {
+  const sheet = await prisma.timesheet.findUniqueOrThrow({
+    where: { id: sheetId },
+    include: {
+      user: { select: { id: true, managerId: true, department: true } },
+      entries: {
+        include: {
+          workOrder: { select: { number: true, department: true } },
+          project: {
+            select: { id: true, number: true, projectManagerId: true },
+          },
+        },
+      },
+    },
+  });
+  await prisma.timesheetApproval.deleteMany({ where: { timesheetId: sheetId } });
+
+  type Bucket = {
+    category: string;
+    refId: string | null;
+    label: string;
+    hours: number;
+    approverId: string | null;
+  };
+  const buckets = new Map<string, Bucket>();
+  const add = (key: string, b: Omit<Bucket, "hours">, hours: number) => {
+    const cur = buckets.get(key);
+    if (cur) cur.hours += hours;
+    else buckets.set(key, { ...b, hours });
+  };
+
+  const hrApprover =
+    (
+      await prisma.user.findFirst({
+        where: { isActive: true, role: "HR" },
+        select: { id: true },
+      })
+    )?.id || sheet.user.managerId;
+
+  for (const e of sheet.entries) {
+    if (HR_TYPES.includes(e.type)) {
+      add(
+        "HR",
+        {
+          category: "HR",
+          refId: null,
+          label: "HR time (PTO / sick / holiday / overhead)",
+          approverId: hrApprover,
+        },
+        e.hours
+      );
+    } else if (e.projectId && e.project) {
+      add(
+        `P:${e.projectId}`,
+        {
+          category: "PROJECT",
+          refId: e.projectId,
+          label: `Project ${e.project.number}`,
+          approverId: e.project.projectManagerId || sheet.user.managerId,
+        },
+        e.hours
+      );
+    } else {
+      const dept =
+        e.workOrder?.department || sheet.user.department || "GENERAL";
+      // Resolved below (needs a query per distinct department)
+      add(
+        `D:${dept}`,
+        {
+          category: "DIRECT",
+          refId: dept,
+          label: `${dept} direct charge${e.workOrder ? "s" : "s"}`,
+          approverId: null,
+        },
+        e.hours
+      );
+    }
+  }
+  for (const [key, b] of buckets) {
+    if (b.category === "DIRECT") {
+      b.approverId = await departmentManagerFor(b.refId, sheet.user);
+    }
+    void key;
+  }
+  for (const b of buckets.values()) {
+    await prisma.timesheetApproval.create({
+      data: {
+        timesheetId: sheetId,
+        category: b.category,
+        refId: b.refId,
+        label: b.label,
+        hours: Math.round(b.hours * 100) / 100,
+        approverId: b.approverId,
+      },
+    });
+  }
+}
+
+/** Finalize an all-buckets-approved sheet: cost out with OT multipliers. */
+async function finalizeApprovedTimesheet(sheetId: string) {
+  const [sheet, policy] = await Promise.all([
+    prisma.timesheet.findUniqueOrThrow({
+      where: { id: sheetId },
+      include: { entries: true },
+    }),
+    getPayrollPolicy(),
+  ]);
+  const cls = classifyHours(policy, sheet.entries);
+  const worked = cls.regular + cls.overtime + cls.doubletime;
+  // Blend the OT premium across worked entries proportionally
+  const blend =
+    worked > 0
+      ? (cls.regular +
+          cls.overtime * policy.otMultiplier +
+          cls.doubletime * policy.dtMultiplier) /
+        worked
+      : 1;
+  for (const e of sheet.entries) {
+    const rate = e.laborRate || DEFAULT_LABOR_RATE;
+    const mult = WORKED_TYPES.includes(e.type) ? blend : 1;
+    await prisma.timeEntry.update({
+      where: { id: e.id },
+      data: {
+        status: "APPROVED",
+        laborRate: rate,
+        costAmount: Math.round(e.hours * rate * mult * 100) / 100,
+      },
+    });
+  }
+  return prisma.timesheet.update({
+    where: { id: sheetId },
+    data: { status: "APPROVED", approvedAt: new Date() },
+  });
+}
+
+/** Decide one routed approval bucket. */
+export async function decideTimesheetApproval(params: {
+  approvalId: string;
   decision: "APPROVED" | "REJECTED";
   approver: { id: string; role: string };
   notes?: string;
 }) {
-  const sheet = await prisma.timesheet.findUniqueOrThrow({
-    where: { id: params.id },
-    include: { entries: true },
+  const approval = await prisma.timesheetApproval.findUniqueOrThrow({
+    where: { id: params.approvalId },
+    include: { timesheet: true },
   });
-  if (sheet.status !== "SUBMITTED") {
-    throw new Error(`Timesheet is ${sheet.status}, not awaiting approval`);
+  if (approval.status !== "PENDING") {
+    throw new Error(`This bucket is already ${approval.status}`);
   }
-  const ok = await canDecideFor(params.approver, sheet.userId, "hr.time.decide");
-  if (!ok) throw new Error("Not authorized to decide this timesheet");
+  const isAssignee = approval.approverId === params.approver.id;
+  const isAdmin =
+    params.approver.role === "ADMIN" ||
+    (await userHasPermission(params.approver.id, "hr.admin"));
+  if (!isAssignee && !isAdmin) {
+    throw new Error("This approval is routed to someone else");
+  }
 
-  if (params.decision === "APPROVED") {
-    // Labor cost posts on approval (default rate when none was set)
-    for (const e of sheet.entries) {
-      const rate = e.laborRate || DEFAULT_LABOR_RATE;
-      await prisma.timeEntry.update({
-        where: { id: e.id },
-        data: {
-          status: "APPROVED",
-          laborRate: rate,
-          costAmount: e.hours * rate,
-        },
-      });
-    }
-  } else {
-    await prisma.timeEntry.updateMany({
-      where: { timesheetId: sheet.id },
-      data: { status: "DRAFT" },
-    });
-  }
-  const updated = await prisma.timesheet.update({
-    where: { id: sheet.id },
+  await prisma.timesheetApproval.update({
+    where: { id: approval.id },
     data: {
       status: params.decision,
-      approvedById: params.approver.id,
-      approvedAt: params.decision === "APPROVED" ? new Date() : null,
-      notes: params.notes?.trim() || sheet.notes,
+      notes: params.notes?.trim() || null,
+      decidedAt: new Date(),
+      approverId: approval.approverId || params.approver.id,
     },
   });
   await logAudit({
     entityType: "Timesheet",
-    entityId: sheet.id,
-    action: `TIMESHEET_${params.decision}`,
+    entityId: approval.timesheetId,
+    action: `BUCKET_${params.decision}`,
     userId: params.approver.id,
+    metadata: { bucket: approval.label },
   });
-  return updated;
+
+  if (params.decision === "REJECTED") {
+    await prisma.timeEntry.updateMany({
+      where: { timesheetId: approval.timesheetId },
+      data: { status: "DRAFT" },
+    });
+    return prisma.timesheet.update({
+      where: { id: approval.timesheetId },
+      data: {
+        status: "REJECTED",
+        notes: params.notes?.trim() || approval.timesheet.notes,
+      },
+    });
+  }
+
+  const remaining = await prisma.timesheetApproval.count({
+    where: { timesheetId: approval.timesheetId, status: { not: "APPROVED" } },
+  });
+  if (remaining === 0) {
+    return finalizeApprovedTimesheet(approval.timesheetId);
+  }
+  return approval.timesheet;
 }
 
 /** Accounting: process an approved sheet for payroll (accrual JE). */
@@ -439,8 +775,10 @@ export async function processTimesheet(params: {
     throw new Error(`Timesheet is ${sheet.status}, not ready for payroll`);
   }
 
+  // Entries were costed with the blended OT premium at approval time
   const amount = sheet.entries.reduce(
-    (s, e) => s + e.hours * (e.laborRate || DEFAULT_LABOR_RATE),
+    (s, e) =>
+      s + (e.costAmount || e.hours * (e.laborRate || DEFAULT_LABOR_RATE)),
     0
   );
   let journalEntryId: string | null = null;
@@ -494,7 +832,12 @@ export async function getTimesheetDetail(id: string) {
         include: {
           workOrder: { select: { id: true, number: true } },
           project: { select: { id: true, number: true } },
+          wbsElement: { select: { id: true, code: true } },
         },
+      },
+      approvals: {
+        include: { approver: { select: { name: true } } },
+        orderBy: { category: "asc" },
       },
     },
   });

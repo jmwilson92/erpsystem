@@ -1107,6 +1107,66 @@ export default async function AccountingPage({
                         defaultValue={payrollPolicy.sickHoursPerYear}
                       />
                     </label>
+                    <label className="text-xs text-slate-500">
+                      Overtime after (hours / day)
+                      <Input
+                        name="otAfterDailyHours"
+                        type="number"
+                        min={0}
+                        step={0.5}
+                        defaultValue={payrollPolicy.otAfterDailyHours}
+                      />
+                    </label>
+                    <label className="text-xs text-slate-500">
+                      Double time after (hours / day)
+                      <Input
+                        name="dtAfterDailyHours"
+                        type="number"
+                        min={0}
+                        step={0.5}
+                        defaultValue={payrollPolicy.dtAfterDailyHours}
+                      />
+                    </label>
+                    <label className="text-xs text-slate-500">
+                      Overtime after (hours / week)
+                      <Input
+                        name="otAfterWeeklyHours"
+                        type="number"
+                        min={0}
+                        step={1}
+                        defaultValue={payrollPolicy.otAfterWeeklyHours}
+                      />
+                    </label>
+                    <label className="text-xs text-slate-500">
+                      Max hours / day (hard cap)
+                      <Input
+                        name="maxHoursPerDay"
+                        type="number"
+                        min={1}
+                        step={0.5}
+                        defaultValue={payrollPolicy.maxHoursPerDay}
+                      />
+                    </label>
+                    <label className="text-xs text-slate-500">
+                      OT multiplier
+                      <Input
+                        name="otMultiplier"
+                        type="number"
+                        min={1}
+                        step={0.1}
+                        defaultValue={payrollPolicy.otMultiplier}
+                      />
+                    </label>
+                    <label className="text-xs text-slate-500">
+                      Double-time multiplier
+                      <Input
+                        name="dtMultiplier"
+                        type="number"
+                        min={1}
+                        step={0.1}
+                        defaultValue={payrollPolicy.dtMultiplier}
+                      />
+                    </label>
                   </div>
                   <label className="text-xs text-slate-500">
                     Company holidays (one per line: YYYY-MM-DD Name)

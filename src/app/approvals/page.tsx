@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import {
   actionDecidePto,
-  actionDecideTimesheet,
+  actionDecideTimesheetApproval,
   actionAdvanceExpense,
 } from "@/app/actions";
 import { CalendarCheck, Clock, Receipt, ShoppingCart } from "lucide-react";
@@ -20,7 +20,7 @@ export default async function ApprovalsPage() {
   const user = await getCurrentUser();
   if (!user) return null;
 
-  const [{ persona, ptoRequests, timesheets, expenses }, openPrs] =
+  const [{ persona, ptoRequests, timesheetApprovals, expenses }, openPrs] =
     await Promise.all([
       getPendingApprovals(user),
       prisma.purchaseRequest.count({ where: { status: "SUBMITTED" } }),
@@ -33,7 +33,9 @@ export default async function ApprovalsPage() {
       : "your direct reports — none assigned to you";
 
   const empty =
-    ptoRequests.length === 0 && timesheets.length === 0 && expenses.length === 0;
+    ptoRequests.length === 0 &&
+    timesheetApprovals.length === 0 &&
+    expenses.length === 0;
 
   return (
     <div className="space-y-6">
@@ -56,8 +58,10 @@ export default async function ApprovalsPage() {
           <CardContent className="flex items-center gap-3 p-4">
             <Clock className="h-5 w-5 text-sky-400" />
             <div>
-              <p className="text-xl font-bold tabular-nums">{timesheets.length}</p>
-              <p className="text-xs text-slate-500">Timesheets</p>
+              <p className="text-xl font-bold tabular-nums">
+                {timesheetApprovals.length}
+              </p>
+              <p className="text-xs text-slate-500">Timecard buckets</p>
             </div>
           </CardContent>
         </Card>
@@ -166,45 +170,59 @@ export default async function ApprovalsPage() {
         </Card>
       )}
 
-      {timesheets.length > 0 && (
+      {timesheetApprovals.length > 0 && (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Timesheets</CardTitle>
+            <CardTitle className="text-base">Timecard approvals</CardTitle>
+            <p className="text-xs text-slate-500">
+              Charges are routed by type: project/WBS time to the PM, direct
+              charges to the department manager, PTO/sick/holiday/overhead to
+              HR. The timecard finalizes when every bucket approves.
+            </p>
           </CardHeader>
           <CardContent className="space-y-2">
-            {timesheets.map((t) => {
-              const hours = t.entries.reduce((s, e) => s + e.hours, 0);
+            {timesheetApprovals.map((a) => {
+              const hours = a.timesheet.entries.reduce(
+                (s, e) => s + e.hours,
+                0
+              );
               return (
                 <div
-                  key={t.id}
+                  key={a.id}
                   className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 px-4 py-2.5"
                 >
                   <div>
                     <p className="text-sm text-slate-200">
-                      {t.user.name}{" "}
-                      <span className="tabular-nums text-teal-400">{hours}h</span>
+                      {a.timesheet.user.name}{" "}
+                      <span className="text-xs text-slate-500">
+                        · {a.label} ·{" "}
+                        <span className="tabular-nums text-teal-400">
+                          {a.hours}h
+                        </span>{" "}
+                        of {hours}h total
+                      </span>
                     </p>
                     <p className="text-xs text-slate-500">
-                      {formatDate(t.periodStart)} → {formatDate(t.periodEnd)} ·{" "}
-                      {t.entries.length} line{t.entries.length === 1 ? "" : "s"} ·{" "}
+                      {formatDate(a.timesheet.periodStart)} →{" "}
+                      {formatDate(a.timesheet.periodEnd)} ·{" "}
                       <Link
-                        href={`/hr/timesheet/${t.id}`}
+                        href={`/hr/timesheet/${a.timesheetId}`}
                         className="text-sky-400 hover:underline"
                       >
-                        View details →
+                        View timecard →
                       </Link>
                     </p>
                   </div>
                   <div className="flex gap-1.5">
-                    <form action={actionDecideTimesheet}>
-                      <input type="hidden" name="id" value={t.id} />
+                    <form action={actionDecideTimesheetApproval}>
+                      <input type="hidden" name="approvalId" value={a.id} />
                       <input type="hidden" name="decision" value="APPROVED" />
                       <Button type="submit" size="sm">
                         Approve
                       </Button>
                     </form>
-                    <form action={actionDecideTimesheet}>
-                      <input type="hidden" name="id" value={t.id} />
+                    <form action={actionDecideTimesheetApproval}>
+                      <input type="hidden" name="approvalId" value={a.id} />
                       <input type="hidden" name="decision" value="REJECTED" />
                       <Button type="submit" size="sm" variant="outline">
                         Reject

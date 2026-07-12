@@ -6,23 +6,18 @@ import {
   getOrCreateTimesheet,
   listMyTimesheets,
   parseHolidays,
+  periodDays,
+  classifyHours,
 } from "@/lib/services/timesheets";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { TimecardGrid } from "@/components/hr/timecard-grid";
 import { formatDate } from "@/lib/utils";
-import {
-  actionAddTimesheetEntry,
-  actionRemoveTimesheetEntry,
-  actionSubmitTimesheet,
-} from "@/app/actions";
+import { actionSubmitTimesheet } from "@/app/actions";
 
 export const dynamic = "force-dynamic";
-
-const selectClass =
-  "flex h-9 w-full rounded-md border border-slate-700 bg-slate-950 px-2 text-sm text-slate-200";
 
 const FREQ_LABEL: Record<string, string> = {
   WEEKLY: "Weekly",
@@ -36,48 +31,50 @@ export default async function MyTimesheetPage() {
 
   const policy = await getPayrollPolicy();
   const current = await getOrCreateTimesheet(user.id, new Date());
-  const [sheet, history, workOrders, projects] = await Promise.all([
-    prisma.timesheet.findUniqueOrThrow({
-      where: { id: current.id },
-      include: {
-        entries: {
-          orderBy: { date: "asc" },
-          include: {
-            workOrder: { select: { number: true } },
-            project: { select: { number: true } },
+  const [sheet, history, workOrders, projects, wbsElements] =
+    await Promise.all([
+      prisma.timesheet.findUniqueOrThrow({
+        where: { id: current.id },
+        include: {
+          entries: { orderBy: { date: "asc" } },
+          approvals: { include: { approver: { select: { name: true } } } },
+        },
+      }),
+      listMyTimesheets(user.id),
+      prisma.workOrder.findMany({
+        where: {
+          status: {
+            in: ["PLANNED", "RELEASED", "IN_PROGRESS", "KITTED", "READY_TO_KIT"],
           },
         },
-      },
-    }),
-    listMyTimesheets(user.id),
-    prisma.workOrder.findMany({
-      where: { status: { in: ["RELEASED", "IN_PROGRESS", "KITTED"] } },
-      select: { id: true, number: true, description: true },
-      orderBy: { number: "asc" },
-      take: 50,
-    }),
-    prisma.project.findMany({
-      where: { status: { in: ["ACTIVE", "PLANNING"] } },
-      select: { id: true, number: true, name: true },
-      orderBy: { number: "asc" },
-    }),
-  ]);
+        select: { id: true, number: true, department: true },
+        orderBy: { number: "asc" },
+        take: 60,
+      }),
+      prisma.project.findMany({
+        where: { status: { in: ["ACTIVE", "PLANNING"] } },
+        select: { id: true, number: true, name: true },
+        orderBy: { number: "asc" },
+      }),
+      prisma.wbsElement.findMany({
+        where: { project: { status: { in: ["ACTIVE", "PLANNING"] } } },
+        select: { id: true, code: true, name: true, projectId: true },
+        orderBy: { code: "asc" },
+      }),
+    ]);
 
   const editable = ["OPEN", "REJECTED"].includes(sheet.status);
-  const totals = sheet.entries.reduce(
-    (acc, e) => {
-      acc.total += e.hours;
-      acc.byType[e.type] = (acc.byType[e.type] || 0) + e.hours;
-      return acc;
-    },
-    { total: 0, byType: {} as Record<string, number> }
+  const days = periodDays(sheet.periodStart, sheet.periodEnd).map((d) =>
+    d.toISOString().slice(0, 10)
   );
+  const cls = classifyHours(policy, sheet.entries);
+  const total = sheet.entries.reduce((s, e) => s + e.hours, 0);
   const holidays = parseHolidays(policy);
 
   return (
     <div className="space-y-6">
       <PageHeader
-        title="My Timesheet"
+        title="My Timecard"
         description={`${FREQ_LABEL[policy.timesheetFrequency] || policy.timesheetFrequency} periods · ${formatDate(sheet.periodStart)} → ${formatDate(sheet.periodEnd)}`}
         actions={
           <Link href="/hr">
@@ -91,137 +88,86 @@ export default async function MyTimesheetPage() {
       <div className="flex flex-wrap items-center gap-3">
         <StatusBadge status={sheet.status} />
         <span className="text-sm text-slate-400">
-          {totals.total}h logged
-          {Object.entries(totals.byType).length > 0 && (
-            <span className="text-xs text-slate-500">
-              {" "}
-              ·{" "}
-              {Object.entries(totals.byType)
-                .map(([t, h]) => `${t.replace(/_/g, " ")} ${h}h`)
-                .join(" · ")}
-            </span>
-          )}
+          {total}h ·{" "}
+          <span className="tabular-nums">
+            {cls.regular} reg
+            {cls.overtime > 0 && (
+              <span className="text-amber-400"> · {cls.overtime} OT</span>
+            )}
+            {cls.doubletime > 0 && (
+              <span className="text-rose-400"> · {cls.doubletime} DT</span>
+            )}
+            {cls.nonWorked > 0 && ` · ${cls.nonWorked} PTO/hol/sick`}
+          </span>
         </span>
         {sheet.status === "REJECTED" && sheet.notes && (
-          <span className="text-xs text-rose-400">
-            Rejected: {sheet.notes}
-          </span>
+          <span className="text-xs text-rose-400">Rejected: {sheet.notes}</span>
         )}
       </div>
 
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">Period entries</CardTitle>
+          <CardTitle className="text-base">Timecard</CardTitle>
           <p className="text-xs text-slate-500">
-            Scanning into a job files time here automatically. Add manual
-            lines for overhead, sick, holiday, or PTO. Work time can&apos;t be
-            future-dated; PTO/holiday can (within this period).
+            One row per charge code — work order (direct), project / WBS, or
+            overhead / PTO / sick / holiday. Job scans add time here
+            automatically; approved PTO and company holidays pre-fill.
           </p>
         </CardHeader>
-        <CardContent className="space-y-1">
-          {sheet.entries.length === 0 && (
-            <p className="py-3 text-sm text-slate-500">
-              No entries yet this period.
-            </p>
-          )}
-          {sheet.entries.map((e) => (
-            <div
-              key={e.id}
-              className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/60 px-1 py-1.5 text-sm"
-            >
-              <span className="flex items-center gap-3">
-                <span className="w-24 font-mono text-xs text-slate-500">
-                  {formatDate(e.date)}
-                </span>
-                <StatusBadge status={e.type} className="text-[10px]" />
-                <span className="text-slate-300">
-                  {e.workOrder?.number ||
-                    e.project?.number ||
-                    e.description ||
-                    "—"}
-                </span>
-              </span>
-              <span className="flex items-center gap-3">
-                <span className="tabular-nums text-teal-400">{e.hours}h</span>
-                {editable && (
-                  <form action={actionRemoveTimesheetEntry}>
-                    <input type="hidden" name="entryId" value={e.id} />
-                    <button
-                      type="submit"
-                      className="text-xs text-slate-600 hover:text-rose-400"
-                      title="Remove entry"
-                    >
-                      ✕
-                    </button>
-                  </form>
-                )}
-              </span>
-            </div>
-          ))}
-
-          {editable && (
-            <form
-              action={actionAddTimesheetEntry}
-              className="mt-3 grid gap-2 border-t border-slate-800 pt-3 sm:grid-cols-3 lg:grid-cols-6"
-            >
-              <Input
-                name="date"
-                type="date"
-                required
-                min={sheet.periodStart.toISOString().slice(0, 10)}
-                max={sheet.periodEnd.toISOString().slice(0, 10)}
-              />
-              <select name="type" className={selectClass} defaultValue="REGULAR">
-                <option value="REGULAR">Regular (direct)</option>
-                <option value="OVERHEAD">Overhead</option>
-                <option value="OT">Overtime</option>
-                <option value="SICK">Sick</option>
-                <option value="HOLIDAY">Holiday</option>
-                <option value="PTO">PTO</option>
-              </select>
-              <select name="workOrderId" className={selectClass} defaultValue="">
-                <option value="">No work order</option>
-                {workOrders.map((wo) => (
-                  <option key={wo.id} value={wo.id}>
-                    {wo.number}
-                  </option>
-                ))}
-              </select>
-              <select name="projectId" className={selectClass} defaultValue="">
-                <option value="">No project</option>
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.number}
-                  </option>
-                ))}
-              </select>
-              <Input
-                name="hours"
-                type="number"
-                min={0.25}
-                max={24}
-                step={0.25}
-                required
-                placeholder="Hours"
-              />
-              <Button type="submit" size="sm">
-                Add line
-              </Button>
-              <Input
-                name="description"
-                placeholder="Notes (e.g. shop cleanup, training)…"
-                className="sm:col-span-3 lg:col-span-6"
-              />
-            </form>
-          )}
-
+        <CardContent>
+          <TimecardGrid
+            sheetId={sheet.id}
+            days={days}
+            editable={editable}
+            entries={sheet.entries.map((e) => ({
+              id: e.id,
+              date: e.date.toISOString().slice(0, 10),
+              hours: e.hours,
+              type: e.type,
+              workOrderId: e.workOrderId,
+              projectId: e.projectId,
+              wbsElementId: e.wbsElementId,
+            }))}
+            options={{ workOrders, projects, wbsElements }}
+            policy={{
+              maxHoursPerDay: policy.maxHoursPerDay,
+              otAfterDailyHours: policy.otAfterDailyHours,
+              dtAfterDailyHours: policy.dtAfterDailyHours,
+            }}
+          />
           {editable && sheet.entries.length > 0 && (
             <form action={actionSubmitTimesheet} className="pt-3">
               <input type="hidden" name="id" value={sheet.id} />
               <Button type="submit" size="sm">
-                Submit timesheet for approval
+                Submit timecard for approval
               </Button>
+              <p className="mt-1 text-[11px] text-slate-500">
+                Submitting routes each charge type to its approver: project
+                time → the PM, direct charges → the department manager,
+                PTO/sick/holiday/overhead → HR.
+              </p>
             </form>
+          )}
+          {sheet.approvals.length > 0 && sheet.status !== "OPEN" && (
+            <div className="mt-4 border-t border-slate-800 pt-3">
+              <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                Approval routing
+              </p>
+              {sheet.approvals.map((a) => (
+                <p
+                  key={a.id}
+                  className="flex items-center justify-between py-0.5 text-xs text-slate-400"
+                >
+                  <span>
+                    {a.label} · {a.hours}h → {a.approver?.name || "unassigned"}
+                    {a.notes ? (
+                      <span className="text-rose-400"> — {a.notes}</span>
+                    ) : null}
+                  </span>
+                  <StatusBadge status={a.status} className="text-[9px]" />
+                </p>
+              ))}
+            </div>
           )}
         </CardContent>
       </Card>
@@ -229,7 +175,7 @@ export default async function MyTimesheetPage() {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Past timesheets</CardTitle>
+            <CardTitle className="text-base">Past timecards</CardTitle>
           </CardHeader>
           <CardContent className="space-y-1">
             {history
@@ -259,7 +205,7 @@ export default async function MyTimesheetPage() {
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Company policy</CardTitle>
+            <CardTitle className="text-base">Company time policy</CardTitle>
           </CardHeader>
           <CardContent className="space-y-1.5 text-sm text-slate-400">
             <p>
@@ -269,16 +215,24 @@ export default async function MyTimesheetPage() {
               </span>
             </p>
             <p>
+              Overtime after{" "}
+              <span className="text-slate-200">{policy.otAfterDailyHours}h/day</span>{" "}
+              or{" "}
+              <span className="text-slate-200">
+                {policy.otAfterWeeklyHours}h/week
+              </span>{" "}
+              ({policy.otMultiplier}×) · double time after{" "}
+              <span className="text-slate-200">{policy.dtAfterDailyHours}h/day</span>{" "}
+              ({policy.dtMultiplier}×) · hard cap{" "}
+              <span className="text-slate-200">{policy.maxHoursPerDay}h/day</span>
+            </p>
+            <p>
               PTO accrual:{" "}
               <span className="text-slate-200">
                 {policy.ptoAccrualHoursPerPeriod}h / period
-              </span>
-            </p>
-            <p>
-              Sick time:{" "}
-              <span className="text-slate-200">
-                {policy.sickHoursPerYear}h / year
-              </span>
+              </span>{" "}
+              · sick:{" "}
+              <span className="text-slate-200">{policy.sickHoursPerYear}h / year</span>
             </p>
             {holidays.length > 0 && (
               <div className="pt-1">
@@ -294,7 +248,7 @@ export default async function MyTimesheetPage() {
               </div>
             )}
             <p className="pt-1 text-[11px] text-slate-600">
-              Set by Accounting under Accounting → Payroll.
+              Configured by Accounting / HR under Accounting → Payroll.
             </p>
           </CardContent>
         </Card>

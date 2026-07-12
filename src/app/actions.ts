@@ -892,6 +892,8 @@ export async function actionCreateTaskWo(formData: FormData): Promise<void> {
   const wo = await createWorkOrder({
     type: "TASK_ONLY",
     description: description || "Task-only work order",
+    department:
+      ((formData.get("department") as string) || "").trim() || undefined,
     createdById: user?.id,
     workCenter: "ASM-01",
     workInstructionIds: wi ? [wi.id] : [],
@@ -1883,6 +1885,8 @@ export async function actionCreateSalesOrder(formData: FormData): Promise<void> 
 
   const so = await createSalesOrder({
     ...parsed,
+    department:
+      ((formData.get("department") as string) || "").trim() || undefined,
     createdById: user?.id,
   });
 
@@ -4818,14 +4822,16 @@ export async function actionSubmitTimesheet(
   revalidatePath("/approvals");
 }
 
-export async function actionDecideTimesheet(
+export async function actionDecideTimesheetApproval(
   formData: FormData
 ): Promise<void> {
-  const { decideTimesheet } = await import("@/lib/services/timesheets");
+  const { decideTimesheetApproval } = await import(
+    "@/lib/services/timesheets"
+  );
   const user = await getCurrentUser();
   if (!user) return;
-  await decideTimesheet({
-    id: formData.get("id") as string,
+  await decideTimesheetApproval({
+    approvalId: formData.get("approvalId") as string,
     decision:
       (formData.get("decision") as string) === "REJECTED"
         ? "REJECTED"
@@ -4836,6 +4842,24 @@ export async function actionDecideTimesheet(
   revalidatePath("/approvals");
   revalidatePath("/hr/timesheet");
   revalidatePath("/accounting");
+}
+
+export async function actionSaveTimecardGrid(
+  formData: FormData
+): Promise<void> {
+  const { saveTimecardGrid } = await import("@/lib/services/timesheets");
+  const user = await getCurrentUser();
+  if (!user) return;
+  const sheetId = formData.get("sheetId") as string;
+  const rowsRaw = (formData.get("rows") as string) || "[]";
+  let rows;
+  try {
+    rows = JSON.parse(rowsRaw);
+  } catch {
+    throw new Error("Bad grid payload");
+  }
+  await saveTimecardGrid({ userId: user.id, sheetId, rows });
+  revalidatePath("/hr/timesheet");
 }
 
 export async function actionProcessTimesheet(
@@ -4885,6 +4909,12 @@ export async function actionSavePayrollPolicy(
       weekStartsOn: Math.min(6, Math.max(0, Number(formData.get("weekStartsOn") || 1))),
       ptoAccrualHoursPerPeriod: Math.max(0, Number(formData.get("ptoAccrualHoursPerPeriod") || 0)),
       sickHoursPerYear: Math.max(0, Number(formData.get("sickHoursPerYear") || 0)),
+      maxHoursPerDay: Math.max(1, Number(formData.get("maxHoursPerDay") || 14)),
+      otAfterDailyHours: Math.max(0, Number(formData.get("otAfterDailyHours") || 8)),
+      dtAfterDailyHours: Math.max(0, Number(formData.get("dtAfterDailyHours") || 12)),
+      otAfterWeeklyHours: Math.max(0, Number(formData.get("otAfterWeeklyHours") || 40)),
+      otMultiplier: Math.max(1, Number(formData.get("otMultiplier") || 1.5)),
+      dtMultiplier: Math.max(1, Number(formData.get("dtMultiplier") || 2)),
       holidays: JSON.stringify(holidays),
       updatedById: user?.id,
     },

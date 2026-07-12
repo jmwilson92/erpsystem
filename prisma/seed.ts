@@ -26,7 +26,7 @@ async function main() {
   // Wipe in dependency order (SQLite)
   const tables = [
     "TicketComment", "EngineeringTicket", "Sprint",
-    "Timesheet", "PayrollPolicy", "ReviewPolicy", "AccountingSettings", "EmployeeDocument", "EmployeeGoal", "PerformanceReview", "ExpenseLine", "ExpenseReport", "PtoRequest", "TimeEntry",
+    "TimesheetApproval", "Timesheet", "PayrollPolicy", "ReviewPolicy", "AccountingSettings", "EmployeeDocument", "EmployeeGoal", "PerformanceReview", "ExpenseLine", "ExpenseReport", "PtoRequest", "TimeEntry",
     "GfpConsumption", "GfpCheckout", "GfpAuditRecord", "GfpDocument",
     "ComplianceCheck", "GovernmentProperty",
     "VirtualAssetAssignment", "VirtualAsset",
@@ -3038,6 +3038,22 @@ async function main() {
     await prisma.timeEntry.updateMany({
       where: { userId: tech2.id, status: "SUBMITTED" },
       data: { timesheetId: sheet.id },
+    });
+    // Routed approval bucket: Dana's entries are direct charges, so the
+    // department manager (her supervisor) approves them.
+    const danaHours = await prisma.timeEntry.aggregate({
+      where: { timesheetId: sheet.id },
+      _sum: { hours: true },
+    });
+    await prisma.timesheetApproval.create({
+      data: {
+        timesheetId: sheet.id,
+        category: "DIRECT",
+        refId: tech2.department || "Machining",
+        label: `${tech2.department || "Machining"} direct charges`,
+        hours: danaHours._sum.hours || 0,
+        approverId: prodSup.id,
+      },
     });
   }
 

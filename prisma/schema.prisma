@@ -43,6 +43,7 @@ model User {
   goals               EmployeeGoal[]
   employeeDocuments   EmployeeDocument[]
   timesheets          Timesheet[]
+  timesheetApprovals  TimesheetApproval[]
   assignedWorkOrders  WorkOrder[]              @relation("WOAssignee")
   createdWorkOrders   WorkOrder[]              @relation("WOCreator")
   stepSignOffs        WorkInstructionSignOff[]
@@ -1383,6 +1384,8 @@ model WbsElement {
   @@index([parentId])
   @@index([code])
   @@index([kind])
+  timeEntries     TimeEntry[]
+
 }
 
 // ── Campaign → Saga → Task (Jira-like, PMO + Engineering) ─────
@@ -2780,6 +2783,8 @@ model SalesOrder {
   customer      Customer @relation(fields: [customerId], references: [id])
   // OPEN → PLANNED → IN_PRODUCTION → READY_TO_SHIP → SHIPPED → CLOSED
   status        String   @default("OPEN")
+  /// Owning department — routes direct-charge timecard approvals
+  department    String   @default("PRODUCTION")
   orderDate     DateTime @default(now())
   requiredDate  DateTime? // customer due date
   shipDate      DateTime? // requested / planned ship date
@@ -3291,6 +3296,9 @@ model TimeEntry {
   type        String   @default("REGULAR") // REGULAR, OT, OVERHEAD, PTO, SICK, HOLIDAY, ENG_SCAN
   timesheetId String?
   timesheet   Timesheet? @relation(fields: [timesheetId], references: [id], onDelete: SetNull)
+  /// Optional WBS element for project labor distribution
+  wbsElementId String?
+  wbsElement   WbsElement? @relation(fields: [wbsElementId], references: [id], onDelete: SetNull)
   description String?
   status      String   @default("SUBMITTED") // DRAFT, SUBMITTED, APPROVED, REJECTED
   laborRate   Float    @default(0) // optional $/hr for cost rollup
@@ -3390,6 +3398,13 @@ model PayrollPolicy {
   periodAnchor             DateTime @default(now())
   ptoAccrualHoursPerPeriod Float    @default(4)
   sickHoursPerYear         Float    @default(40)
+  /// Labor rules: hard cap per day, and where OT / double-OT start
+  maxHoursPerDay           Float    @default(14)
+  otAfterDailyHours        Float    @default(8)
+  dtAfterDailyHours        Float    @default(12)
+  otAfterWeeklyHours       Float    @default(40)
+  otMultiplier             Float    @default(1.5)
+  dtMultiplier             Float    @default(2.0)
   holidays                 String?  // JSON [{date:"2026-12-25", name:"Christmas"}]
   updatedById              String?
   updatedAt                DateTime @updatedAt
@@ -3435,9 +3450,32 @@ model Timesheet {
   updatedAt     DateTime @updatedAt
 
   entries       TimeEntry[]
+  approvals     TimesheetApproval[]
 
   @@unique([userId, periodStart])
   @@index([status])
+}
+
+/// One approval bucket per timesheet submission: PROJECT charges go to
+/// the project's PM, DIRECT (WO / department) charges to the department
+/// manager, HR (sick / holiday / PTO / overhead) to HR. The sheet
+/// finalizes when every bucket approves.
+model TimesheetApproval {
+  id          String    @id @default(cuid())
+  timesheetId String
+  timesheet   Timesheet @relation(fields: [timesheetId], references: [id], onDelete: Cascade)
+  category    String    // PROJECT, DIRECT, HR
+  refId       String?   // projectId (PROJECT) or department name (DIRECT)
+  label       String    // human-readable bucket description
+  hours       Float     @default(0)
+  approverId  String?
+  approver    User?     @relation(fields: [approverId], references: [id], onDelete: SetNull)
+  status      String    @default("PENDING") // PENDING, APPROVED, REJECTED
+  notes       String?
+  decidedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([approverId, status])
 }
 
 model EmployeeDocument {
