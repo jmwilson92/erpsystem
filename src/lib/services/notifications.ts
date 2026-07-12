@@ -28,7 +28,7 @@ export async function getNotificationSummary(user: {
   const persona = await getHrPersona(user);
   const scope = persona.isHrAdmin ? undefined : { in: persona.reportIds };
 
-  const [pto, time, expenses, pmAlerts, mrbOpen, canPmo, canMrb] =
+  const [pto, time, expenses, pmAlerts, mrbOpen, canPmo, canMrb, myReviews, theirReviews] =
     await Promise.all([
       prisma.ptoRequest.count({
         where: { status: "PENDING", ...(scope ? { userId: scope } : {}) },
@@ -46,6 +46,24 @@ export async function getNotificationSummary(user: {
       prisma.mrbCase.count({ where: { status: { in: ["OPEN", "IN_REVIEW"] } } }),
       userCanView(user.id, "pmo"),
       userCanView(user.id, "mrb"),
+      prisma.performanceReview.count({
+        where: {
+          employeeId: user.id,
+          OR: [
+            { status: "SELF_REVIEW" },
+            { status: "AWAITING_SIGNOFF", employeeSignedAt: null },
+          ],
+        },
+      }),
+      prisma.performanceReview.count({
+        where: {
+          reviewerId: user.id,
+          OR: [
+            { status: "IN_PROGRESS" },
+            { status: "AWAITING_SIGNOFF", managerSignedAt: null },
+          ],
+        },
+      }),
     ]);
 
   const approvals = pto + time + expenses;
@@ -62,6 +80,14 @@ export async function getNotificationSummary(user: {
   }
   if (canMrb && mrbOpen > 0) {
     items.push({ label: "Open MRB cases", count: mrbOpen, href: "/mrb" });
+  }
+  const reviewActions = myReviews + theirReviews;
+  if (reviewActions > 0) {
+    items.push({
+      label: "Reviews needing your input",
+      count: reviewActions,
+      href: "/hr",
+    });
   }
 
   return {
