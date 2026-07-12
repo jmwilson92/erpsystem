@@ -107,6 +107,11 @@ export default async function PoDetailPage({
                 </Button>
               </form>
             )}
+            <Link href={`/print/po/${po.id}`}>
+              <Button size="sm" variant="outline">
+                Print view
+              </Button>
+            </Link>
             <PoPdfActions data={pdfData} />
           </div>
         }

@@ -8,6 +8,7 @@ import { CompanyLetterhead } from "@/components/sales/document-header";
 import { SalesLineItemsEditor } from "@/components/sales/line-items-editor";
 import { actionCreateSalesOrder } from "@/app/actions";
 import { getCustomerCreditSnapshot } from "@/lib/services/credit";
+import { getCompanyDepartments } from "@/lib/services/company";
 import Link from "next/link";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
@@ -19,7 +20,7 @@ export default async function NewSalesOrderPage({
   searchParams: Promise<{ customerId?: string }>;
 }) {
   const sp = await searchParams;
-  const [customers, parts] = await Promise.all([
+  const [customers, parts, departments] = await Promise.all([
     prisma.customer.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
     // Prefer sellable assemblies / make items; include certified-BOM flag via join
     prisma.part.findMany({
@@ -33,6 +34,7 @@ export default async function NewSalesOrderPage({
         },
       },
     }),
+    getCompanyDepartments(),
   ]);
 
   // Sort: assemblies with certified BOM first, then other make, then buy
@@ -137,10 +139,10 @@ export default async function NewSalesOrderPage({
                 </label>
                 <select
                   name="department"
-                  defaultValue="PRODUCTION"
+                  defaultValue={departments[0]}
                   className="mt-1 flex h-9 w-full rounded-md border border-slate-700 bg-slate-950 px-2 text-sm text-slate-200"
                 >
-                  {["PRODUCTION", "MANUFACTURING", "ENGINEERING", "QUALITY", "PROGRAMS", "OPERATIONS"].map((d) => (
+                  {departments.map((d) => (
                     <option key={d} value={d}>
                       {d}
                     </option>

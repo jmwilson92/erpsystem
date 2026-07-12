@@ -799,6 +799,8 @@ export async function actionCreateWoFromBom(formData: FormData): Promise<void> {
     sourceType: "BOM",
     // Only attach project when user explicitly selected one
     projectId,
+    department:
+      ((formData.get("department") as string) || "").trim() || undefined,
     createdById: user?.id,
     workCenter: "ASM-01",
     status,

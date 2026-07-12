@@ -50,11 +50,18 @@ export default async function TimesheetDetailPage({
         title={`Timesheet — ${sheet.user.name}`}
         description={`${formatDate(sheet.periodStart)} → ${formatDate(sheet.periodEnd)}${sheet.user.manager ? ` · Manager: ${sheet.user.manager.name}` : ""}`}
         actions={
-          <Link href={isOwner ? "/hr/timesheet" : "/approvals"}>
-            <Button size="sm" variant="outline">
-              Back
-            </Button>
-          </Link>
+          <div className="flex gap-2">
+            <Link href={`/print/timesheet/${sheet.id}`}>
+              <Button size="sm" variant="outline">
+                Print view
+              </Button>
+            </Link>
+            <Link href={isOwner ? "/hr/timesheet" : "/approvals"}>
+              <Button size="sm" variant="outline">
+                Back
+              </Button>
+            </Link>
+          </div>
         }
       />
 
