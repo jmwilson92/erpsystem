@@ -3420,6 +3420,19 @@ model ReviewPolicy {
   updatedAt          DateTime @updatedAt
 }
 
+/// Company identity & onboarding state (single row, id="default").
+/// The setup wizard fills this in; the shell wears the company name.
+model CompanySettings {
+  id             String   @id @default("default")
+  name           String   @default("ForgeERP")
+  tagline        String   @default("Manufacturing")
+  /// JSON [string] — departments used for org chart + charge routing
+  departments    String?
+  setupCompleted Boolean  @default(false)
+  updatedById    String?
+  updatedAt      DateTime @updatedAt
+}
+
 /// Accounting system configuration (single row, id="default").
 model AccountingSettings {
   id                    String   @id @default("default")

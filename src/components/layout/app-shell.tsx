@@ -14,6 +14,8 @@ export type DemoUser = {
   title: string | null;
 };
 
+export type ShellCompany = { name: string; tagline: string };
+
 export type ShellNotifications = {
   total: number;
   items: { label: string; count: number; href: string }[];
@@ -25,11 +27,13 @@ function ShellInner({
   demoUsers,
   currentUser,
   notifications,
+  company,
 }: {
   children: React.ReactNode;
   demoUsers: DemoUser[];
   currentUser: DemoUser | null;
   notifications: ShellNotifications;
+  company: ShellCompany;
 }) {
   const [cmdOpen, setCmdOpen] = useState(false);
   const { theme } = useTheme();
@@ -45,6 +49,7 @@ function ShellInner({
           demoUsers={demoUsers}
           currentUser={currentUser}
           badges={notifications.badges}
+          company={company}
         />
       </Suspense>
       <div className="flex min-w-0 flex-1 flex-col">
@@ -71,11 +76,13 @@ export function AppShell({
   demoUsers,
   currentUser,
   notifications,
+  company,
 }: {
   children: React.ReactNode;
   demoUsers: DemoUser[];
   currentUser: DemoUser | null;
   notifications: ShellNotifications;
+  company: ShellCompany;
 }) {
   return (
     <ThemeProvider>
@@ -83,6 +90,7 @@ export function AppShell({
         demoUsers={demoUsers}
         currentUser={currentUser}
         notifications={notifications}
+        company={company}
       >
         {children}
       </ShellInner>

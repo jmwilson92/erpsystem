@@ -5137,3 +5137,91 @@ export async function actionCreateExpenseEntry(
   revalidatePath("/accounting");
   redirect("/accounting?tab=je");
 }
+
+// ─────────────────────────────────────────────────────────────
+// Setup wizard (plug-and-play onboarding)
+// ─────────────────────────────────────────────────────────────
+
+export async function actionSaveCompanyProfile(
+  formData: FormData
+): Promise<void> {
+  const user = await getCurrentUser();
+  const name = ((formData.get("name") as string) || "").trim();
+  if (!name) return;
+  const departments = ((formData.get("departments") as string) || "")
+    .split("\n")
+    .map((d) => d.trim())
+    .filter(Boolean);
+  await prisma.companySettings.upsert({
+    where: { id: "default" },
+    create: { id: "default", name },
+    update: {
+      name,
+      tagline: ((formData.get("tagline") as string) || "").trim() || "Manufacturing",
+      departments: departments.length ? JSON.stringify(departments) : null,
+      updatedById: user?.id,
+    },
+  });
+  await logAudit({
+    entityType: "CompanySettings",
+    entityId: "default",
+    action: "COMPANY_PROFILE_SAVED",
+    userId: user?.id,
+  });
+  revalidatePath("/", "layout");
+}
+
+export async function actionWizardAddPerson(
+  formData: FormData
+): Promise<void> {
+  const name = ((formData.get("name") as string) || "").trim();
+  const email = ((formData.get("email") as string) || "").trim().toLowerCase();
+  if (!name || !email) return;
+  const existing = await prisma.user.findUnique({ where: { email } });
+  if (existing) {
+    // Update role/department/manager instead of failing
+    await prisma.user.update({
+      where: { id: existing.id },
+      data: {
+        name,
+        role: ((formData.get("role") as string) || existing.role).trim(),
+        title: ((formData.get("title") as string) || "").trim() || existing.title,
+        department:
+          ((formData.get("department") as string) || "").trim() ||
+          existing.department,
+        managerId: ((formData.get("managerId") as string) || "").trim() || null,
+      },
+    });
+  } else {
+    await prisma.user.create({
+      data: {
+        name,
+        email,
+        role: ((formData.get("role") as string) || "OPERATOR").trim(),
+        title: ((formData.get("title") as string) || "").trim() || null,
+        department: ((formData.get("department") as string) || "").trim() || null,
+        managerId: ((formData.get("managerId") as string) || "").trim() || null,
+        isActive: true,
+      },
+    });
+  }
+  revalidatePath("/setup");
+  revalidatePath("/hr");
+}
+
+export async function actionCompleteSetup(): Promise<void> {
+  const user = await getCurrentUser();
+  await prisma.companySettings.upsert({
+    where: { id: "default" },
+    create: { id: "default", setupCompleted: true },
+    update: { setupCompleted: true, updatedById: user?.id },
+  });
+  await logAudit({
+    entityType: "CompanySettings",
+    entityId: "default",
+    action: "SETUP_COMPLETED",
+    userId: user?.id,
+  });
+  revalidatePath("/", "layout");
+  redirect("/");
+}
