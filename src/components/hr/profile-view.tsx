@@ -37,8 +37,16 @@ export function ProfileView({
 }: {
   profile: Awaited<ReturnType<typeof getEmployeeProfile>>;
 }) {
-  const { user, ptoRequests, timeEntries, expenses, reviews, goals, documents } =
-    profile;
+  const {
+    user,
+    ptoRequests,
+    timeEntries,
+    expenses,
+    reviews,
+    goals,
+    documents,
+    balances,
+  } = profile;
   const skills = parseJsonArray(user.skills);
   const certs = parseJsonArray<{ name: string; expires: string }>(
     user.certifications
@@ -296,6 +304,27 @@ export function ProfileView({
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">My time off</CardTitle>
+            <div className="flex flex-wrap gap-2 pt-1">
+              <span className="rounded-lg bg-teal-500/10 px-2.5 py-1 text-xs ring-1 ring-teal-500/30">
+                <span className="font-semibold tabular-nums text-teal-400">
+                  {balances.pto.available}h
+                </span>{" "}
+                <span className="text-slate-400">PTO available</span>
+                <span className="ml-1 text-[10px] text-slate-500">
+                  ({balances.pto.accrued} accrued − {balances.pto.used} used
+                  {balances.pto.pending ? ` − ${balances.pto.pending} pending` : ""})
+                </span>
+              </span>
+              <span className="rounded-lg bg-amber-500/10 px-2.5 py-1 text-xs ring-1 ring-amber-500/30">
+                <span className="font-semibold tabular-nums text-amber-400">
+                  {balances.sick.available}h
+                </span>{" "}
+                <span className="text-slate-400">sick available</span>
+                <span className="ml-1 text-[10px] text-slate-500">
+                  of {balances.sick.granted}/yr
+                </span>
+              </span>
+            </div>
           </CardHeader>
           <CardContent className="space-y-3">
             <form action={actionRequestPto} className="grid gap-2 sm:grid-cols-5">

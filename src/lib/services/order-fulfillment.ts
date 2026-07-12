@@ -2125,6 +2125,18 @@ export async function shipSalesOrder(params: {
     data: { status: "SHIPPED" },
   });
 
+  // Shipping closes the revenue loop: raise the AR invoice and post
+  // revenue / COGS journals automatically.
+  {
+    const { raiseArInvoiceForShipment } = await import(
+      "@/lib/services/billing"
+    );
+    await raiseArInvoiceForShipment({
+      salesOrderId: so.id,
+      userId: params.userId,
+    });
+  }
+
   await logAudit({
     entityType: "SalesOrder",
     entityId: so.id,
