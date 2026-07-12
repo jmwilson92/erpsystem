@@ -40,6 +40,8 @@ export async function receivePurchaseOrder(params: {
     functionalDocs?: { url: string; fileName?: string; caption?: string }[];
   }[];
   receivedById?: string;
+  /** Dock person explicitly attested the visual/count/documentation check. */
+  receivingAck?: boolean;
   packingSlip?: string;
   notes?: string;
   failInspection?: boolean; // demo hook to force inspection failure
@@ -492,38 +494,46 @@ export async function receivePurchaseOrder(params: {
     } else {
       // Bypass test WC — standard receiving inspection + putaway
       const inspCount = await prisma.inspection.count();
+      // No GD&T/functional required: the DOCK acceptance is the only
+      // inspection, and it is only "signed" when the receiver actually
+      // attested to it (receivingAck). Otherwise it stays PENDING with
+      // the visual characteristic unattested — never fabricated as PASS.
+      const acked = params.receivingAck === true;
+      const docCount = paperDocs.filter((d) =>
+        ["PACKING_LIST", "COC", "MATERIAL_CERT"].includes(d.docType)
+      ).length;
       const inspection = await prisma.inspection.create({
         data: {
           number: `INSP-${String(inspCount + 1).padStart(5, "0")}`,
           type: "RECEIVING",
-          status: "PASSED",
+          status: acked ? "PASSED" : "PENDING",
           partId: line.partId,
           purchaseOrderId: po.id,
           receiptId: receipt.id,
           inventoryItemId: invItem.id,
           lotNumber: line.lotNumber,
           quantity: line.quantityReceived,
-          quantityPassed: line.quantityReceived,
+          quantityPassed: acked ? line.quantityReceived : 0,
           quantityFailed: 0,
-          inspectorId: params.receivedById,
-          completedAt: new Date(),
+          inspectorId: acked ? params.receivedById : null,
+          completedAt: acked ? new Date() : null,
           plannedPutawayCode: params.putawayLocationCode,
-          notes: `Standard receive (no GD&T/functional required) — putaway ${params.putawayLocationCode || ""}`,
+          notes: acked
+            ? `Dock acceptance attested by receiver — putaway ${params.putawayLocationCode || ""}`
+            : "Dock acceptance NOT attested — awaiting receiver sign-off",
           results: {
             create: [
               {
-                characteristic: "Visual",
-                specification: "No damage, correct P/N",
-                measuredValue: "OK",
-                result: "PASS",
+                characteristic: "Visual condition",
+                specification: "No damage, correct P/N, count matches",
+                measuredValue: acked ? "Attested by receiver" : "Not attested",
+                result: acked ? "PASS" : "NA",
               },
               {
                 characteristic: "Documentation",
                 specification: "Packing list / CoC / material certs",
-                measuredValue: `${paperDocs.filter((d) =>
-                  ["PACKING_LIST", "COC", "MATERIAL_CERT"].includes(d.docType)
-                ).length} doc(s)`,
-                result: "PASS",
+                measuredValue: `${docCount} doc(s)`,
+                result: docCount > 0 ? "PASS" : "NA",
               },
               {
                 characteristic: "Photo documentation",
@@ -536,7 +546,7 @@ export async function receivePurchaseOrder(params: {
         },
       });
       primaryInspectionId = inspection.id;
-      putAwayItems.push(invItem.id);
+      if (acked) putAwayItems.push(invItem.id);
 
       await recordTrace({
         eventType: "INSPECTION",
@@ -545,14 +555,22 @@ export async function receivePurchaseOrder(params: {
         quantity: line.quantityReceived,
         purchaseOrderId: po.id,
         inspectionId: inspection.id,
-        notes: `Receiving ${inspection.number}: PASSED (test bypass)`,
+        notes: acked
+          ? `Receiving ${inspection.number}: dock acceptance attested`
+          : `Receiving ${inspection.number}: awaiting receiver sign-off`,
         userId: params.receivedById,
       });
     }
 
     inspectionResults.push({
       inspectionId: primaryInspectionId,
-      status: fail ? "FAILED" : routedToTest ? "PENDING_TEST" : "PASSED",
+      status: fail
+        ? "FAILED"
+        : routedToTest
+          ? "PENDING_TEST"
+          : params.receivingAck === true
+            ? "PASSED"
+            : "PENDING",
       ncrId,
       mrbId,
       inventoryItemId: invItem.id,
@@ -652,6 +670,7 @@ export async function receiveGfpTraveler(params: {
     functionalDocs?: { url: string; fileName?: string; caption?: string }[];
   }[];
   receivedById?: string;
+  receivingAck?: boolean;
   packingSlip?: string;
   notes?: string;
   putawayLocationCode?: string;
@@ -917,30 +936,33 @@ export async function receiveGfpTraveler(params: {
       if (routed.deferPutaway) testRouted.push(invItem.id);
       else putAwayItems.push(invItem.id);
     } else {
-      putAwayItems.push(invItem.id);
+      const acked = params.receivingAck === true;
+      if (acked) putAwayItems.push(invItem.id);
       const inspCount = await prisma.inspection.count();
       await prisma.inspection.create({
         data: {
           number: `INSP-${String(inspCount + 1).padStart(5, "0")}`,
           type: "RECEIVING",
-          status: "PASSED",
+          status: acked ? "PASSED" : "PENDING",
           partId: line.partId,
           receiptId: receipt.id,
           inventoryItemId: invItem.id,
           lotNumber: line.lotNumber,
           quantity: line.quantityReceived,
-          quantityPassed: line.quantityReceived,
-          inspectorId: params.receivedById,
-          completedAt: new Date(),
+          quantityPassed: acked ? line.quantityReceived : 0,
+          inspectorId: acked ? params.receivedById : null,
+          completedAt: acked ? new Date() : null,
           plannedPutawayCode: params.putawayLocationCode,
-          notes: "GFP customer receive — standard path",
+          notes: acked
+            ? "GFP customer receive — dock acceptance attested"
+            : "GFP customer receive — awaiting receiver sign-off",
           results: {
             create: [
               {
-                characteristic: "Documentation",
+                characteristic: "Documentation (DD1149)",
                 specification: "DD1149 required for GFP",
-                measuredValue: "DD1149 on file",
-                result: "PASS",
+                measuredValue: acked ? "Verified by receiver" : "Not attested",
+                result: acked ? "PASS" : "NA",
               },
             ],
           },
