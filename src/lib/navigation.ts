@@ -1,6 +1,7 @@
 import {
   Clock,
   Rocket,
+  FileBarChart,
   LayoutDashboard,
   Factory,
   ClipboardList,
@@ -121,6 +122,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Programs & Business",
     items: [
+      { href: "/reports", label: "Reports", icon: FileBarChart, keywords: ["export", "csv", "aging", "valuation", "wip", "print"] },
       { href: "/leadership", label: "Leadership", icon: Crown, keywords: ["executive", "senior", "strategy"] },
       { href: "/pmo", label: "PMO", icon: FolderKanban, keywords: ["programs", "projects", "wbs", "evm", "spi", "cpi"] },
       { href: "/pmo/pi", label: "PI Planning", icon: CalendarRange, keywords: ["program increment", "safe", "sprint"] },
