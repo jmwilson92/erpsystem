@@ -72,6 +72,9 @@ export function ReceiveForm({
 
   const needsQa = openLines.some((l) => l.requiresGdtInspection);
   const needsTest = openLines.some((l) => l.requiresFunctionalTest);
+  const anyBypassLine = openLines.some(
+    (l) => !l.requiresGdtInspection && !l.requiresFunctionalTest
+  );
   const anyRouteInspect = needsQa || needsTest;
   // Gov prop only on GFP receiving travelers (not PO dock)
   const gfpContext = isGfpTraveler;
@@ -85,6 +88,7 @@ export function ReceiveForm({
     return stockLocations[0]?.code || "";
   });
   const [failInspection, setFailInspection] = useState(false);
+  const [receivingAck, setReceivingAck] = useState(false);
   const [notes, setNotes] = useState("");
   const [packingSlip, setPackingSlip] = useState("");
   const [photos, setPhotos] = useState<FileDoc[]>([]);
@@ -160,6 +164,14 @@ export function ReceiveForm({
       setError("Select where this material will be stocked (putaway location).");
       return;
     }
+    // Standard (test-bypass) receipts require the receiver to actually
+    // attest the dock inspection — no auto sign-off.
+    if (!failInspection && anyBypassLine && !receivingAck) {
+      setError(
+        "Confirm the dock inspection (count, condition, correct part) before receiving standard material."
+      );
+      return;
+    }
     if (needsDd1149 && !failInspection && dd1149Docs.length === 0) {
       setError("DD Form 1149 is required on GFP receiving travelers.");
       return;
@@ -174,6 +186,7 @@ export function ReceiveForm({
     fd.set("travelerId", travelerId);
     if (isGfpTraveler) fd.set("isGfpTraveler", "true");
     fd.set("failInspection", failInspection ? "true" : "false");
+    fd.set("receivingAck", receivingAck ? "true" : "false");
     if (putaway) fd.set("putawayLocationCode", putaway);
     if (packingSlip) fd.set("packingSlip", packingSlip);
     if (notes) fd.set("notes", notes);
@@ -536,6 +549,26 @@ export function ReceiveForm({
           placeholder="Dock notes, damage, carrier, etc."
         />
       </div>
+
+      {anyBypassLine && !failInspection && (
+        <label className="flex items-start gap-2 rounded-lg border border-teal-500/30 bg-teal-500/5 px-3 py-2 text-sm text-slate-200">
+          <input
+            type="checkbox"
+            checked={receivingAck}
+            onChange={(e) => setReceivingAck(e.target.checked)}
+            className="mt-0.5 rounded border-slate-600"
+          />
+          <span>
+            I have inspected the received material — quantity matches, correct
+            part number, no visible damage — and I am signing off the dock
+            acceptance.
+            <span className="mt-0.5 block text-[11px] text-slate-500">
+              Required for standard (no GD&amp;T / functional) material.
+              Nothing is auto-signed on your behalf.
+            </span>
+          </span>
+        </label>
+      )}
 
       <label className="flex items-center gap-2 text-sm text-rose-300/90">
         <input

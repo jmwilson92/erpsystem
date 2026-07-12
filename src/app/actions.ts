@@ -104,6 +104,9 @@ export async function actionReceivePo(formData: FormData): Promise<void> {
   const packingSlip =
     ((formData.get("packingSlip") as string) || "").trim() || undefined;
   const notes = ((formData.get("notes") as string) || "").trim() || undefined;
+  const receivingAck =
+    formData.get("receivingAck") === "true" ||
+    formData.get("receivingAck") === "on";
   const user = await getCurrentUser();
 
   const po = await prisma.purchaseOrder.findUnique({
@@ -228,6 +231,7 @@ export async function actionReceivePo(formData: FormData): Promise<void> {
       travelerId,
       lines: gfpLines,
       receivedById: user?.id,
+      receivingAck,
       putawayLocationCode: putawayLocationCode,
       packingSlip,
       notes,
@@ -275,6 +279,7 @@ export async function actionReceivePo(formData: FormData): Promise<void> {
     travelerId,
     lines,
     receivedById: user?.id,
+    receivingAck,
     failInspection,
     putawayLocationCode: failInspection ? undefined : putawayLocationCode,
     packingSlip,
