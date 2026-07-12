@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -6,10 +7,17 @@ import { Input } from "@/components/ui/input";
 import { formatCurrency, formatDate, parseJsonArray } from "@/lib/utils";
 import { certExpiryTone, type getEmployeeProfile } from "@/lib/services/hr";
 import {
+  parseReviewQuestions,
+  parseSelfRatings,
+} from "@/lib/services/review-cycles";
+import {
   actionRequestPto,
   actionUpdateGoalProgress,
   actionCreateEmployeeGoal,
   actionAdvanceExpense,
+  actionAddEmployeeDocument,
+  actionSubmitSelfReview,
+  actionSignOffReview,
 } from "@/app/actions";
 import { FileText, Award, ShieldCheck, GraduationCap, File } from "lucide-react";
 
@@ -86,18 +94,106 @@ export function ProfileView({
 
       {upcoming.length > 0 && (
         <Card className="border-sky-500/30">
-          <CardContent className="p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-sky-400">
-              Upcoming reviews
-            </p>
-            <div className="mt-1 space-y-1">
-              {upcoming.map((r) => (
-                <p key={r.id} className="text-sm text-slate-300">
-                  {r.period} · with {r.reviewer.name} ·{" "}
-                  <StatusBadge status={r.status} />
-                </p>
-              ))}
+          <CardContent className="space-y-4 p-4">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-wide text-sky-400">
+                Open reviews
+              </p>
+              <Link
+                href={`/hr/person/${user.id}`}
+                className="text-xs text-sky-400 hover:underline"
+              >
+                Full person page →
+              </Link>
             </div>
+            {upcoming.map((r) => {
+              const questions = parseReviewQuestions({ questions: r.questions });
+              const self = parseSelfRatings(r.selfRatings);
+              return (
+                <div
+                  key={r.id}
+                  className="space-y-2 rounded-lg border border-slate-800 p-3"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-sm text-slate-300">
+                      {r.period} · with {r.reviewer.name}
+                      {r.dueDate ? ` · due ${formatDate(r.dueDate)}` : ""}
+                    </p>
+                    <StatusBadge status={r.status} />
+                  </div>
+
+                  {["SELF_REVIEW", "DRAFT"].includes(r.status) &&
+                    questions.length > 0 && (
+                      <form
+                        action={actionSubmitSelfReview}
+                        className="space-y-2 rounded border border-sky-500/20 bg-sky-500/5 p-3"
+                      >
+                        <input type="hidden" name="reviewId" value={r.id} />
+                        <p className="text-xs font-medium text-sky-400">
+                          Complete your self-assessment
+                        </p>
+                        {questions.map((q, i) => (
+                          <div key={i} className="space-y-1">
+                            <input type="hidden" name="question" value={q} />
+                            <p className="text-xs text-slate-300">{q}</p>
+                            <div className="flex gap-2">
+                              <select
+                                name="rating"
+                                className={selectClass}
+                                defaultValue="3"
+                              >
+                                {[1, 2, 3, 4, 5].map((n) => (
+                                  <option key={n} value={n}>
+                                    {n}/5
+                                  </option>
+                                ))}
+                              </select>
+                              <Input
+                                name="comment"
+                                placeholder="Comment"
+                                className="h-9 flex-1 text-xs"
+                              />
+                            </div>
+                          </div>
+                        ))}
+                        <Button type="submit" size="sm">
+                          Submit self-review
+                        </Button>
+                      </form>
+                    )}
+
+                  {self.length > 0 && (
+                    <div className="space-y-0.5 text-xs text-slate-500">
+                      {self.map((s, i) => (
+                        <div key={i} className="flex justify-between">
+                          <span>{s.question}</span>
+                          <span className="text-teal-400">{s.rating}/5</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {["IN_PROGRESS", "AWAITING_SIGNOFF"].includes(r.status) &&
+                    !r.employeeSignedAt && (
+                      <form action={actionSignOffReview}>
+                        <input type="hidden" name="reviewId" value={r.id} />
+                        <input type="hidden" name="role" value="EMPLOYEE" />
+                        <Button type="submit" size="sm" variant="outline">
+                          Sign off on review
+                        </Button>
+                      </form>
+                    )}
+                  {r.employeeSignedAt && (
+                    <p className="text-[11px] text-emerald-400">
+                      You signed off {formatDate(r.employeeSignedAt)}
+                      {r.managerSignedAt
+                        ? ` · manager signed ${formatDate(r.managerSignedAt)}`
+                        : " · waiting on manager"}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
           </CardContent>
         </Card>
       )}
@@ -258,6 +354,28 @@ export function ProfileView({
                 </div>
               );
             })}
+            <form
+              action={actionAddEmployeeDocument}
+              className="grid gap-2 border-t border-slate-800 pt-2 sm:grid-cols-3"
+            >
+              <input type="hidden" name="userId" value={user.id} />
+              <Input name="title" required placeholder="Document title" className="text-xs" />
+              <select name="kind" className={selectClass} defaultValue="GENERAL">
+                <option value="GENERAL">General</option>
+                <option value="CERTIFICATION">Certification</option>
+                <option value="POLICY_ACK">Policy ack</option>
+                <option value="TRAINING">Training</option>
+              </select>
+              <Button type="submit" size="sm">
+                Attach document
+              </Button>
+              <Input
+                name="url"
+                placeholder="URL (optional)"
+                className="text-xs sm:col-span-2"
+              />
+              <Input name="note" placeholder="Note" className="text-xs" />
+            </form>
             {certs.length > 0 && (
               <div className="border-t border-slate-800 pt-2">
                 <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">

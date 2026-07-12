@@ -117,7 +117,29 @@ export async function getGaapReportPack() {
   };
 }
 
-/** Post a simple balanced journal (GAAP double-entry). */
+async function applyJournalBalances(
+  lines: { accountId: string; debit: number; credit: number }[]
+) {
+  for (const line of lines) {
+    const acct = await prisma.account.findUnique({
+      where: { id: line.accountId },
+    });
+    if (!acct) continue;
+    const delta = ["ASSET", "EXPENSE", "COGS"].includes(acct.type)
+      ? (line.debit || 0) - (line.credit || 0)
+      : (line.credit || 0) - (line.debit || 0);
+    await prisma.account.update({
+      where: { id: acct.id },
+      data: { balance: { increment: delta } },
+    });
+  }
+}
+
+/**
+ * Create a balanced journal. System sources (PAYROLL, AP, AR, …) post
+ * immediately. Manual entries default to PENDING_APPROVAL until approved.
+ * status: DRAFT | PENDING_APPROVAL | POSTED
+ */
 export async function postJournal(params: {
   description: string;
   lines: {
@@ -132,6 +154,8 @@ export async function postJournal(params: {
   projectId?: string;
   chargeCode?: string;
   createdById?: string;
+  /** Force status. Default: MANUAL → PENDING_APPROVAL, else POSTED. */
+  status?: "DRAFT" | "PENDING_APPROVAL" | "POSTED";
   attachments?: {
     url: string;
     fileName?: string;
@@ -149,19 +173,23 @@ export async function postJournal(params: {
   if (params.lines.length < 2) {
     throw new Error("Journal needs at least two lines");
   }
+  const source = params.source || "MANUAL";
+  const status =
+    params.status ||
+    (source === "MANUAL" ? "PENDING_APPROVAL" : "POSTED");
   const count = await prisma.journalEntry.count();
   const number = `JE-${String(count + 1).padStart(5, "0")}`;
   const je = await prisma.journalEntry.create({
     data: {
       number,
       description: params.description,
-      status: "POSTED",
-      source: params.source || "MANUAL",
+      status,
+      source,
       sourceId: params.sourceId,
       projectId: params.projectId,
       chargeCode: params.chargeCode,
       createdById: params.createdById,
-      postedAt: new Date(),
+      postedAt: status === "POSTED" ? new Date() : null,
       lines: {
         create: params.lines.map((l) => ({
           accountId: l.accountId,
@@ -186,32 +214,245 @@ export async function postJournal(params: {
     include: { lines: true, attachments: true },
   });
 
-  // Update account balances (assets/expenses increase with debit)
-  for (const line of je.lines) {
-    const acct = await prisma.account.findUnique({
-      where: { id: line.accountId },
-    });
-    if (!acct) continue;
-    const delta =
-      ["ASSET", "EXPENSE", "COGS"].includes(acct.type)
-        ? (line.debit || 0) - (line.credit || 0)
-        : (line.credit || 0) - (line.debit || 0);
-    await prisma.account.update({
-      where: { id: acct.id },
-      data: { balance: { increment: delta } },
-    });
+  if (status === "POSTED") {
+    await applyJournalBalances(je.lines);
   }
 
   return je;
 }
 
-export async function listJournalEntries(take = 50) {
+/** Approve a pending journal — posts balances. */
+export async function approveJournal(params: {
+  id: string;
+  approvedById?: string | null;
+}) {
+  const je = await prisma.journalEntry.findUniqueOrThrow({
+    where: { id: params.id },
+    include: { lines: true },
+  });
+  if (je.status === "POSTED") return je;
+  if (!["PENDING_APPROVAL", "DRAFT"].includes(je.status)) {
+    throw new Error(`Cannot approve journal in status ${je.status}`);
+  }
+  const updated = await prisma.journalEntry.update({
+    where: { id: je.id },
+    data: { status: "POSTED", postedAt: new Date() },
+    include: { lines: true, attachments: true },
+  });
+  await applyJournalBalances(updated.lines);
+  return updated;
+}
+
+export async function voidJournal(params: {
+  id: string;
+  voidedById?: string | null;
+}) {
+  const je = await prisma.journalEntry.findUniqueOrThrow({
+    where: { id: params.id },
+    include: { lines: true },
+  });
+  if (je.status === "VOID") return je;
+  if (je.status === "POSTED") {
+    // Reverse balances
+    await applyJournalBalances(
+      je.lines.map((l) => ({
+        accountId: l.accountId,
+        debit: l.credit,
+        credit: l.debit,
+      }))
+    );
+  }
+  return prisma.journalEntry.update({
+    where: { id: je.id },
+    data: { status: "VOID" },
+  });
+}
+
+export async function listJournalEntries(opts?: {
+  take?: number;
+  from?: Date | null;
+  to?: Date | null;
+  status?: string | null;
+}) {
+  const take = opts?.take ?? 80;
+  const dateFilter =
+    opts?.from || opts?.to
+      ? {
+          date: {
+            ...(opts.from ? { gte: opts.from } : {}),
+            ...(opts.to ? { lte: opts.to } : {}),
+          },
+        }
+      : {};
   return prisma.journalEntry.findMany({
-    orderBy: { createdAt: "desc" },
+    where: {
+      ...dateFilter,
+      ...(opts?.status ? { status: opts.status } : {}),
+    },
+    orderBy: [{ date: "desc" }, { createdAt: "desc" }],
     take,
     include: {
       lines: { include: { account: true } },
       attachments: true,
     },
+  });
+}
+
+/** Record a customer receipt against an AR invoice. */
+export async function recordArPayment(params: {
+  invoiceId: string;
+  amount: number;
+  method?: string;
+  reference?: string | null;
+  paymentDate?: Date;
+  userId?: string | null;
+}) {
+  if (params.amount <= 0) throw new Error("Payment amount must be positive");
+  const inv = await prisma.arInvoice.findUniqueOrThrow({
+    where: { id: params.invoiceId },
+  });
+  if (["PAID", "VOID"].includes(inv.status)) {
+    throw new Error(`Invoice ${inv.number} is ${inv.status}`);
+  }
+  const amountPaid = Math.min(inv.total, inv.amountPaid + params.amount);
+  const status =
+    amountPaid >= inv.total - 0.001
+      ? "PAID"
+      : amountPaid > 0
+        ? "PARTIAL"
+        : inv.status;
+
+  const payment = await prisma.arPayment.create({
+    data: {
+      invoiceId: inv.id,
+      amount: params.amount,
+      method: params.method || "CHECK",
+      reference: params.reference || null,
+      paymentDate: params.paymentDate || new Date(),
+    },
+  });
+  await prisma.arInvoice.update({
+    where: { id: inv.id },
+    data: { amountPaid, status },
+  });
+
+  // Cash-side JE: Dr Cash / Cr AR
+  const cash = await prisma.account.findFirst({ where: { code: "1000" } });
+  const ar = await prisma.account.findFirst({ where: { code: "1100" } });
+  if (cash && ar && cash.id !== ar.id) {
+    await postJournal({
+      description: `AR receipt ${inv.number}`,
+      source: "AR",
+      sourceId: payment.id,
+      createdById: params.userId || undefined,
+      status: "POSTED",
+      lines: [
+        { accountId: cash.id, debit: params.amount, memo: inv.number },
+        { accountId: ar.id, credit: params.amount, memo: inv.number },
+      ],
+    });
+  }
+  return payment;
+}
+
+/** Record a vendor payment against an AP invoice. */
+export async function recordApPayment(params: {
+  invoiceId: string;
+  amount: number;
+  method?: string;
+  reference?: string | null;
+  paymentDate?: Date;
+  userId?: string | null;
+}) {
+  if (params.amount <= 0) throw new Error("Payment amount must be positive");
+  const inv = await prisma.apInvoice.findUniqueOrThrow({
+    where: { id: params.invoiceId },
+  });
+  if (["PAID", "VOID"].includes(inv.status)) {
+    throw new Error(`Invoice ${inv.number} is ${inv.status}`);
+  }
+  const amountPaid = Math.min(inv.total, inv.amountPaid + params.amount);
+  const status =
+    amountPaid >= inv.total - 0.001
+      ? "PAID"
+      : amountPaid > 0
+        ? "PARTIAL"
+        : inv.status;
+
+  const payment = await prisma.apPayment.create({
+    data: {
+      invoiceId: inv.id,
+      amount: params.amount,
+      method: params.method || "ACH",
+      reference: params.reference || null,
+      paymentDate: params.paymentDate || new Date(),
+    },
+  });
+  await prisma.apInvoice.update({
+    where: { id: inv.id },
+    data: { amountPaid, status },
+  });
+
+  const cash = await prisma.account.findFirst({ where: { code: "1000" } });
+  const ap = await prisma.account.findFirst({ where: { code: "2000" } });
+  if (cash && ap) {
+    await postJournal({
+      description: `AP payment ${inv.number}`,
+      source: "AP",
+      sourceId: payment.id,
+      createdById: params.userId || undefined,
+      status: "POSTED",
+      lines: [
+        { accountId: ap.id, debit: params.amount, memo: inv.number },
+        { accountId: cash.id, credit: params.amount, memo: inv.number },
+      ],
+    });
+  }
+  return payment;
+}
+
+/** Quick expense journal: Dr expense account / Cr cash or payable. */
+export async function createExpenseEntry(params: {
+  description: string;
+  expenseAccountId: string;
+  creditAccountId: string;
+  amount: number;
+  receiptUrl?: string | null;
+  receiptFileName?: string | null;
+  chargeCode?: string | null;
+  projectId?: string | null;
+  createdById?: string | null;
+  submitForApproval?: boolean;
+}) {
+  if (params.amount <= 0) throw new Error("Amount must be positive");
+  const attachments = params.receiptUrl
+    ? [
+        {
+          url: params.receiptUrl,
+          fileName: params.receiptFileName || "receipt",
+          docType: "RECEIPT",
+        },
+      ]
+    : undefined;
+  return postJournal({
+    description: params.description,
+    source: "EXPENSE",
+    projectId: params.projectId || undefined,
+    chargeCode: params.chargeCode || undefined,
+    createdById: params.createdById || undefined,
+    status: params.submitForApproval === false ? "POSTED" : "PENDING_APPROVAL",
+    attachments,
+    lines: [
+      {
+        accountId: params.expenseAccountId,
+        debit: params.amount,
+        chargeCode: params.chargeCode || undefined,
+      },
+      {
+        accountId: params.creditAccountId,
+        credit: params.amount,
+        chargeCode: params.chargeCode || undefined,
+      },
+    ],
   });
 }

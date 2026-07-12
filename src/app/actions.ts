@@ -3910,9 +3910,11 @@ export async function actionPostJournal(formData: FormData): Promise<void> {
       docType: "RECEIPT",
     });
   }
+  const postNow = (formData.get("postNow") as string) === "true";
   await postJournal({
     description,
     source: "MANUAL",
+    status: postNow ? "POSTED" : "PENDING_APPROVAL",
     projectId: ((formData.get("projectId") as string) || "").trim() || undefined,
     chargeCode: ((formData.get("chargeCode") as string) || "").trim() || undefined,
     createdById: user?.id,
@@ -3931,7 +3933,7 @@ export async function actionPostJournal(formData: FormData): Promise<void> {
     ],
   });
   revalidatePath("/accounting");
-  redirect("/accounting?tab=je");
+  redirect(postNow ? "/accounting?tab=je" : "/accounting?tab=je&pending=1");
 }
 
 export async function actionUpdateEngSprint(
@@ -4574,8 +4576,12 @@ export async function actionSavePerformanceReview(
   const { upsertPerformanceReview, canDecideFor } = await import(
     "@/lib/services/hr"
   );
+  const { saveManagerReviewNotes } = await import(
+    "@/lib/services/review-cycles"
+  );
   const user = await getCurrentUser();
   if (!user) return;
+  const reviewId = ((formData.get("id") as string) || "").trim();
   const employeeId = formData.get("employeeId") as string;
   const ok = await canDecideFor(
     { id: user.id, role: user.role },
@@ -4584,18 +4590,36 @@ export async function actionSavePerformanceReview(
   );
   if (!ok) throw new Error("Not authorized to review this employee");
   const ratingRaw = (formData.get("overallRating") as string) || "";
-  await upsertPerformanceReview({
-    id: ((formData.get("id") as string) || "").trim() || undefined,
-    employeeId,
-    reviewerId: user.id,
-    period: ((formData.get("period") as string) || "").trim(),
-    status: ((formData.get("status") as string) || "DRAFT").trim(),
-    overallRating: ratingRaw ? Number(ratingRaw) : null,
-    strengths: (formData.get("strengths") as string) || null,
-    improvements: (formData.get("improvements") as string) || null,
-    careerNotes: (formData.get("careerNotes") as string) || null,
-  });
+  const readyForSignoff =
+    (formData.get("readyForSignoff") as string) === "true" ||
+    (formData.get("status") as string) === "AWAITING_SIGNOFF";
+
+  if (reviewId) {
+    await saveManagerReviewNotes({
+      reviewId,
+      manager: { id: user.id, role: user.role },
+      overallRating: ratingRaw ? Number(ratingRaw) : null,
+      strengths: (formData.get("strengths") as string) || null,
+      improvements: (formData.get("improvements") as string) || null,
+      careerNotes: (formData.get("careerNotes") as string) || null,
+      readyForSignoff,
+    });
+  } else {
+    await upsertPerformanceReview({
+      employeeId,
+      reviewerId: user.id,
+      period: ((formData.get("period") as string) || "").trim(),
+      status: readyForSignoff
+        ? "AWAITING_SIGNOFF"
+        : ((formData.get("status") as string) || "IN_PROGRESS").trim(),
+      overallRating: ratingRaw ? Number(ratingRaw) : null,
+      strengths: (formData.get("strengths") as string) || null,
+      improvements: (formData.get("improvements") as string) || null,
+      careerNotes: (formData.get("careerNotes") as string) || null,
+    });
+  }
   revalidatePath("/hr");
+  revalidatePath(`/hr/person/${employeeId}`);
 }
 
 export async function actionCreateEmployeeGoal(
@@ -4628,19 +4652,29 @@ export async function actionCreateEmployeeGoal(
     createdById: user.id,
   });
   revalidatePath("/hr");
+  revalidatePath(`/hr/person/${forUserId}`);
 }
 
 export async function actionAddEmployeeDocument(
   formData: FormData
 ): Promise<void> {
   const { userHasPermission } = await import("@/lib/auth");
+  const { canDecideFor } = await import("@/lib/services/hr");
   const user = await getCurrentUser();
   if (!user) return;
-  const ok = await userHasPermission(user.id, "hr.docs.manage");
-  if (!ok) throw new Error("Not authorized to manage employee documents");
   const userId = ((formData.get("userId") as string) || "").trim();
   const title = ((formData.get("title") as string) || "").trim();
   if (!userId || !title) return;
+  const isSelf = userId === user.id;
+  const isHrDocs = await userHasPermission(user.id, "hr.docs.manage");
+  const isManager = await canDecideFor(
+    { id: user.id, role: user.role },
+    userId,
+    "hr.docs.manage"
+  );
+  if (!isSelf && !isHrDocs && !isManager) {
+    throw new Error("Not authorized to manage employee documents");
+  }
   await prisma.employeeDocument.create({
     data: {
       userId,
@@ -4658,6 +4692,7 @@ export async function actionAddEmployeeDocument(
     metadata: { title },
   });
   revalidatePath("/hr");
+  revalidatePath(`/hr/person/${userId}`);
 }
 
 export async function actionCreatePermissionGroup(
@@ -4895,4 +4930,175 @@ export async function actionSaveAccountingSettings(
     userId: user?.id,
   });
   revalidatePath("/accounting");
+}
+
+// ─────────────────────────────────────────────────────────────
+// Review cycles
+// ─────────────────────────────────────────────────────────────
+
+export async function actionSaveReviewPolicy(
+  formData: FormData
+): Promise<void> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const { saveReviewPolicy } = await import("@/lib/services/review-cycles");
+  const user = await getCurrentUser();
+  if (!(await userHasPermission(user?.id, "hr.admin"))) {
+    throw new Error("Only HR administration may edit review policy");
+  }
+  const rawQuestions = ((formData.get("questions") as string) || "")
+    .split("\n")
+    .map((q) => q.trim())
+    .filter(Boolean);
+  await saveReviewPolicy({
+    frequencyMonths: Number(formData.get("frequencyMonths") || 12),
+    selfReviewLeadDays: Number(formData.get("selfReviewLeadDays") || 30),
+    questions: rawQuestions,
+    updatedById: user?.id,
+  });
+  revalidatePath("/hr");
+}
+
+export async function actionOpenDueReviewCycles(): Promise<void> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const { openDueReviewCycles } = await import("@/lib/services/review-cycles");
+  const user = await getCurrentUser();
+  if (!(await userHasPermission(user?.id, "hr.admin"))) {
+    throw new Error("Only HR administration may open review cycles");
+  }
+  await openDueReviewCycles({ actorId: user?.id });
+  revalidatePath("/hr");
+}
+
+export async function actionSubmitSelfReview(
+  formData: FormData
+): Promise<void> {
+  const { submitSelfReview } = await import("@/lib/services/review-cycles");
+  const user = await getCurrentUser();
+  if (!user) return;
+  const reviewId = formData.get("reviewId") as string;
+  const questions = formData.getAll("question").map(String);
+  const ratings = formData.getAll("rating").map(String);
+  const comments = formData.getAll("comment").map(String);
+  await submitSelfReview({
+    reviewId,
+    employeeId: user.id,
+    ratings: questions.map((q, i) => ({
+      question: q,
+      rating: Number(ratings[i] || 3),
+      comment: comments[i] || undefined,
+    })),
+  });
+  revalidatePath("/hr");
+  revalidatePath(`/hr/person/${user.id}`);
+}
+
+export async function actionSignOffReview(formData: FormData): Promise<void> {
+  const { signOffReview } = await import("@/lib/services/review-cycles");
+  const user = await getCurrentUser();
+  if (!user) return;
+  const reviewId = formData.get("reviewId") as string;
+  const role =
+    (formData.get("role") as string) === "MANAGER" ? "MANAGER" : "EMPLOYEE";
+  const review = await signOffReview({
+    reviewId,
+    user: { id: user.id, role: user.role },
+    role,
+  });
+  revalidatePath("/hr");
+  revalidatePath(`/hr/person/${review.employeeId}`);
+}
+
+// ─────────────────────────────────────────────────────────────
+// Accounting: JE approval, AR/AP payments, expenses
+// ─────────────────────────────────────────────────────────────
+
+export async function actionApproveJournal(
+  formData: FormData
+): Promise<void> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const { approveJournal } = await import("@/lib/services/gaap");
+  const user = await getCurrentUser();
+  if (!(await userHasPermission(user?.id, "accounting.journal.post"))) {
+    throw new Error("Not authorized to approve journals");
+  }
+  await approveJournal({
+    id: formData.get("id") as string,
+    approvedById: user?.id,
+  });
+  revalidatePath("/accounting");
+}
+
+export async function actionVoidJournal(formData: FormData): Promise<void> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const { voidJournal } = await import("@/lib/services/gaap");
+  const user = await getCurrentUser();
+  if (!(await userHasPermission(user?.id, "accounting.journal.post"))) {
+    throw new Error("Not authorized to void journals");
+  }
+  await voidJournal({ id: formData.get("id") as string, voidedById: user?.id });
+  revalidatePath("/accounting");
+}
+
+export async function actionRecordArPayment(
+  formData: FormData
+): Promise<void> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const { recordArPayment } = await import("@/lib/services/gaap");
+  const user = await getCurrentUser();
+  if (!(await userHasPermission(user?.id, "accounting.journal.post"))) {
+    throw new Error("Not authorized to record AR payments");
+  }
+  await recordArPayment({
+    invoiceId: formData.get("invoiceId") as string,
+    amount: Number(formData.get("amount") || 0),
+    method: ((formData.get("method") as string) || "CHECK").trim(),
+    reference: ((formData.get("reference") as string) || "").trim() || null,
+    userId: user?.id,
+  });
+  revalidatePath("/accounting");
+}
+
+export async function actionRecordApPayment(
+  formData: FormData
+): Promise<void> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const { recordApPayment } = await import("@/lib/services/gaap");
+  const user = await getCurrentUser();
+  if (!(await userHasPermission(user?.id, "accounting.journal.post"))) {
+    throw new Error("Not authorized to record AP payments");
+  }
+  await recordApPayment({
+    invoiceId: formData.get("invoiceId") as string,
+    amount: Number(formData.get("amount") || 0),
+    method: ((formData.get("method") as string) || "ACH").trim(),
+    reference: ((formData.get("reference") as string) || "").trim() || null,
+    userId: user?.id,
+  });
+  revalidatePath("/accounting");
+}
+
+export async function actionCreateExpenseEntry(
+  formData: FormData
+): Promise<void> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const { createExpenseEntry } = await import("@/lib/services/gaap");
+  const user = await getCurrentUser();
+  if (!(await userHasPermission(user?.id, "accounting.journal.post"))) {
+    throw new Error("Not authorized to create expenses");
+  }
+  await createExpenseEntry({
+    description: ((formData.get("description") as string) || "").trim(),
+    expenseAccountId: formData.get("expenseAccountId") as string,
+    creditAccountId: formData.get("creditAccountId") as string,
+    amount: Number(formData.get("amount") || 0),
+    receiptUrl: ((formData.get("receiptUrl") as string) || "").trim() || null,
+    receiptFileName:
+      ((formData.get("receiptFileName") as string) || "").trim() || null,
+    chargeCode: ((formData.get("chargeCode") as string) || "").trim() || null,
+    projectId: ((formData.get("projectId") as string) || "").trim() || null,
+    createdById: user?.id,
+    submitForApproval: (formData.get("postNow") as string) !== "true",
+  });
+  revalidatePath("/accounting");
+  redirect("/accounting?tab=je");
 }

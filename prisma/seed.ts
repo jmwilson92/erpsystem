@@ -2924,13 +2924,22 @@ async function main() {
     ],
   });
 
-  // ── Upcoming / in-flight reviews ───────────────────────────
+  // ── Upcoming / in-flight reviews (self-assessment window open) ──
+  const reviewQs = JSON.stringify([
+    "How well did you meet your goals this period?",
+    "What accomplishment are you most proud of?",
+    "Where do you need more support or training?",
+    "How would you rate your collaboration with the team?",
+    "What should your goals be for the next period?",
+  ]);
   await prisma.performanceReview.create({
     data: {
       employeeId: tech1.id,
       reviewerId: prodSup.id,
       period: "2026-Q3",
-      status: "DRAFT",
+      status: "SELF_REVIEW",
+      dueDate: daysFromNow(25),
+      questions: reviewQs,
     },
   });
   await prisma.performanceReview.create({
@@ -2938,8 +2947,21 @@ async function main() {
       employeeId: tech2.id,
       reviewerId: prodSup.id,
       period: "2026-Q2",
-      status: "IN_PROGRESS",
+      status: "AWAITING_SIGNOFF",
+      dueDate: daysFromNow(10),
+      questions: reviewQs,
+      selfRatings: JSON.stringify([
+        { question: "How well did you meet your goals this period?", rating: 4, comment: "Hit setup time targets" },
+        { question: "What accomplishment are you most proud of?", rating: 5, comment: "First-pass yield on housing lot" },
+        { question: "Where do you need more support or training?", rating: 3, comment: "5-axis programming" },
+        { question: "How would you rate your collaboration with the team?", rating: 4 },
+        { question: "What should your goals be for the next period?", rating: 4, comment: "Lead a junior machinist" },
+      ]),
+      selfSubmittedAt: daysAgo(5),
+      overallRating: 4.1,
       strengths: "Strong CNC setup times; quality-first mindset",
+      improvements: "Document setup sheets more thoroughly",
+      careerNotes: "Candidate for lead machinist track",
     },
   });
 

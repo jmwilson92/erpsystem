@@ -2625,7 +2625,7 @@ model JournalEntry {
   number      String   @unique
   date        DateTime @default(now())
   description String
-  status      String   @default("DRAFT") // DRAFT, POSTED, VOID
+  status      String   @default("DRAFT") // DRAFT, PENDING_APPROVAL, POSTED, VOID
   source      String?  // MANUAL, AP, AR, PAYROLL, INVENTORY, WO
   sourceId    String?
   postedAt    DateTime?

@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { getGaapReportPack } from "@/lib/services/gaap";
+import { getGaapReportPack, listJournalEntries } from "@/lib/services/gaap";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { StatCard } from "@/components/shared/stat-card";
@@ -8,15 +8,26 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { Landmark, TrendingUp, TrendingDown, Scale, CheckCircle2, XCircle } from "lucide-react";
+import {
+  Landmark,
+  TrendingUp,
+  TrendingDown,
+  Scale,
+  CheckCircle2,
+  XCircle,
+} from "lucide-react";
 import {
   actionPostJournal,
   actionCreateAccount,
   actionProcessTimesheet,
   actionSavePayrollPolicy,
   actionSaveAccountingSettings,
+  actionApproveJournal,
+  actionVoidJournal,
+  actionRecordArPayment,
+  actionRecordApPayment,
+  actionCreateExpenseEntry,
 } from "@/app/actions";
-import { listJournalEntries } from "@/lib/services/gaap";
 import { getPayrollPolicy, parseHolidays } from "@/lib/services/timesheets";
 import Link from "next/link";
 
@@ -25,37 +36,95 @@ export const dynamic = "force-dynamic";
 const selectClass =
   "flex h-9 w-full rounded-md border border-slate-700 bg-slate-950 px-2 text-sm text-slate-200";
 
+function pick(
+  sp: Record<string, string | string[] | undefined>,
+  key: string
+): string {
+  const v = sp[key];
+  return Array.isArray(v) ? v[0] || "" : v || "";
+}
+
+function startOfDay(d: Date) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+function endOfDay(d: Date) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
+}
+
 export default async function AccountingPage({
   searchParams,
 }: {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const sp = searchParams ? await searchParams : {};
-  const defaultTab = Array.isArray(sp.tab) ? sp.tab[0] : sp.tab || "pl";
+  const defaultTab = pick(sp, "tab") || "pl";
+  const periodFrom = pick(sp, "from");
+  const periodTo = pick(sp, "to");
+  const jeStatus = pick(sp, "jeStatus");
+
+  const fromDate = periodFrom ? startOfDay(new Date(periodFrom)) : null;
+  const toDate = periodTo ? endOfDay(new Date(periodTo)) : null;
+  const validFrom =
+    fromDate && !Number.isNaN(fromDate.getTime()) ? fromDate : null;
+  const validTo = toDate && !Number.isNaN(toDate.getTime()) ? toDate : null;
 
   const pack = await getGaapReportPack();
-  const [accounts, journals, projects, payrollPolicy, acctSettings, payrollQueue] =
-    await Promise.all([
-      prisma.account.findMany({ orderBy: { code: "asc" } }),
-      listJournalEntries(40),
-      prisma.project.findMany({
-        where: { status: { in: ["ACTIVE", "PLANNING"] } },
-        orderBy: { number: "asc" },
-        select: { id: true, number: true, name: true },
-      }),
-      getPayrollPolicy(),
-      prisma.accountingSettings.upsert({
-        where: { id: "default" },
-        create: { id: "default" },
-        update: {},
-      }),
-      prisma.timesheet.findMany({
-        where: { status: { in: ["APPROVED", "PROCESSED"] } },
-        include: { user: { select: { name: true } }, entries: true },
-        orderBy: { periodStart: "desc" },
-        take: 25,
-      }),
-    ]);
+  const [
+    accounts,
+    journals,
+    projects,
+    payrollPolicy,
+    acctSettings,
+    payrollQueue,
+    arList,
+    apList,
+  ] = await Promise.all([
+    prisma.account.findMany({ orderBy: { code: "asc" } }),
+    listJournalEntries({
+      take: 100,
+      from: validFrom,
+      to: validTo,
+      status: jeStatus || null,
+    }),
+    prisma.project.findMany({
+      where: { status: { in: ["ACTIVE", "PLANNING"] } },
+      orderBy: { number: "asc" },
+      select: { id: true, number: true, name: true },
+    }),
+    getPayrollPolicy(),
+    prisma.accountingSettings.upsert({
+      where: { id: "default" },
+      create: { id: "default" },
+      update: {},
+    }),
+    prisma.timesheet.findMany({
+      where: { status: { in: ["APPROVED", "PROCESSED"] } },
+      include: { user: { select: { name: true } }, entries: true },
+      orderBy: { periodStart: "desc" },
+      take: 25,
+    }),
+    prisma.arInvoice.findMany({
+      include: { customer: true, payments: true },
+      orderBy: { invoiceDate: "desc" },
+      take: 80,
+    }),
+    prisma.apInvoice.findMany({
+      include: { purchaseOrder: true, payments: true, supplier: true },
+      orderBy: { invoiceDate: "desc" },
+      take: 80,
+    }),
+  ]);
+
+  const inPeriod = (d: Date | null | undefined) => {
+    if (!d) return true;
+    if (validFrom && d < validFrom) return false;
+    if (validTo && d > validTo) return false;
+    return true;
+  };
+
+  const arFiltered = arList.filter((i) => inPeriod(i.invoiceDate));
+  const apFiltered = apList.filter((i) => inPeriod(i.invoiceDate));
+
   const holidayText = parseHolidays(payrollPolicy)
     .map((h) => `${h.date} ${h.name}`)
     .join("\n");
@@ -70,10 +139,79 @@ export default async function AccountingPage({
 
   const directCodes = accounts.filter((a) => a.chargeCodeType === "DIRECT");
   const indirectCodes = accounts.filter((a) => a.chargeCodeType === "INDIRECT");
+  const expenseAccounts = accounts.filter((a) =>
+    ["EXPENSE", "COGS"].includes(a.type)
+  );
+  const cashOrAp = accounts.filter((a) =>
+    ["ASSET", "LIABILITY"].includes(a.type)
+  );
+  const pendingJe = journals.filter((j) => j.status === "PENDING_APPROVAL");
+
+  const periodQs = new URLSearchParams();
+  if (periodFrom) periodQs.set("from", periodFrom);
+  if (periodTo) periodQs.set("to", periodTo);
+  const periodSuffix = periodQs.toString() ? `&${periodQs.toString()}` : "";
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Accounting" />
+      <PageHeader
+        title="Accounting"
+        description={`${acctSettings.basis} basis · FY starts month ${acctSettings.fiscalYearStartMonth}`}
+      />
+
+      {/* Period filter bar */}
+      <Card>
+        <CardContent className="flex flex-wrap items-end gap-3 p-3">
+          <form className="flex flex-wrap items-end gap-2" method="get">
+            <input type="hidden" name="tab" value={defaultTab} />
+            <label className="text-xs text-slate-500">
+              From
+              <Input
+                name="from"
+                type="date"
+                defaultValue={periodFrom}
+                className="h-8 w-36"
+              />
+            </label>
+            <label className="text-xs text-slate-500">
+              To
+              <Input
+                name="to"
+                type="date"
+                defaultValue={periodTo}
+                className="h-8 w-36"
+              />
+            </label>
+            {defaultTab === "je" && (
+              <label className="text-xs text-slate-500">
+                JE status
+                <select
+                  name="jeStatus"
+                  className={`${selectClass} h-8`}
+                  defaultValue={jeStatus}
+                >
+                  <option value="">All</option>
+                  <option value="PENDING_APPROVAL">Pending approval</option>
+                  <option value="POSTED">Posted</option>
+                  <option value="DRAFT">Draft</option>
+                  <option value="VOID">Void</option>
+                </select>
+              </label>
+            )}
+            <Button type="submit" size="sm" className="h-8">
+              Apply period
+            </Button>
+            {(periodFrom || periodTo || jeStatus) && (
+              <Button asChild size="sm" variant="outline" className="h-8">
+                <Link href={`/accounting?tab=${defaultTab}`}>Clear</Link>
+              </Button>
+            )}
+          </form>
+          <p className="text-[11px] text-slate-600">
+            Filters AR / AP / Journals line lists. Reports below use full books.
+          </p>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
@@ -132,6 +270,14 @@ export default async function AccountingPage({
           Trial balance Dr {formatCurrency(tb.debit)} / Cr{" "}
           {formatCurrency(tb.credit)}
         </span>
+        {pendingJe.length > 0 && (
+          <Link
+            href={`/accounting?tab=je&jeStatus=PENDING_APPROVAL${periodSuffix}`}
+            className="inline-flex items-center gap-1 rounded-full border border-amber-800 px-2.5 py-1 text-amber-400 hover:bg-amber-500/10"
+          >
+            {pendingJe.length} JE awaiting approval
+          </Link>
+        )}
       </div>
 
       <Tabs defaultValue={defaultTab || "pl"}>
@@ -142,9 +288,12 @@ export default async function AccountingPage({
           <TabsTrigger value="ar">AR</TabsTrigger>
           <TabsTrigger value="ap">AP</TabsTrigger>
           <TabsTrigger value="coa">Chart of Accounts</TabsTrigger>
-          <TabsTrigger value="je">Journals</TabsTrigger>
+          <TabsTrigger value="je">
+            Journals{pendingJe.length ? ` (${pendingJe.length})` : ""}
+          </TabsTrigger>
           <TabsTrigger value="cost">Cost Integration</TabsTrigger>
           <TabsTrigger value="post">Post JE</TabsTrigger>
+          <TabsTrigger value="expense">Expenses</TabsTrigger>
           <TabsTrigger value="payroll">
             Payroll
             {payrollQueue.filter((t) => t.status === "APPROVED").length > 0
@@ -167,7 +316,9 @@ export default async function AccountingPage({
               <Section title="Cost of goods sold" rows={pl.cogsAccounts} />
               <div className="flex justify-between border-t border-slate-800 pt-2">
                 <span className="text-slate-400">Gross profit</span>
-                <span className="tabular-nums">{formatCurrency(pl.grossProfit)}</span>
+                <span className="tabular-nums">
+                  {formatCurrency(pl.grossProfit)}
+                </span>
               </div>
               <Section title="Operating expenses" rows={pl.expenseAccounts} />
               <div className="mt-2 flex justify-between border-t border-slate-700 pt-3 text-lg font-semibold">
@@ -218,25 +369,28 @@ export default async function AccountingPage({
         <TabsContent value="tb">
           <Card>
             <CardHeader>
-              <CardTitle>Trial Balance (posted journal lines)</CardTitle>
+              <CardTitle>Trial Balance</CardTitle>
             </CardHeader>
             <CardContent>
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-left text-xs uppercase text-slate-500">
-                    <th className="pb-2">Code</th>
-                    <th className="pb-2">Account</th>
-                    <th className="pb-2">Type</th>
-                    <th className="pb-2 text-right">Balance</th>
+                  <tr className="border-b border-slate-800 text-left text-xs text-slate-500">
+                    <th className="py-1.5">Code</th>
+                    <th className="py-1.5">Account</th>
+                    <th className="py-1.5">Type</th>
+                    <th className="py-1.5 text-right">Balance</th>
                   </tr>
                 </thead>
                 <tbody>
                   {accounts.map((a) => (
-                    <tr key={a.id} className="border-t border-slate-800/60">
-                      <td className="py-1.5 font-mono text-teal-400">{a.code}</td>
-                      <td className="py-1.5 text-slate-300">{a.name}</td>
-                      <td className="py-1.5 text-slate-500">{a.type}</td>
-                      <td className="py-1.5 text-right tabular-nums">
+                    <tr
+                      key={a.id}
+                      className="border-b border-slate-900/80 text-[13px]"
+                    >
+                      <td className="py-1 font-mono text-teal-400">{a.code}</td>
+                      <td className="py-1 text-slate-300">{a.name}</td>
+                      <td className="py-1 text-slate-500">{a.type}</td>
+                      <td className="py-1 text-right tabular-nums">
                         {formatCurrency(a.balance)}
                       </td>
                     </tr>
@@ -247,83 +401,395 @@ export default async function AccountingPage({
           </Card>
         </TabsContent>
 
-        <TabsContent value="ar" className="space-y-2">
-          {arAp.ar.map((inv) => (
-            <Card key={inv.id}>
-              <CardContent className="flex items-center justify-between p-4">
-                <div>
-                  <span className="font-mono text-teal-400">{inv.number}</span>
-                  <span className="ml-2 text-sm text-slate-400">
-                    {inv.customer.name}
-                  </span>
-                  <p className="text-xs text-slate-500">
-                    {formatDate(inv.invoiceDate)} · Due {formatDate(inv.dueDate)}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <p className="font-semibold tabular-nums">
-                    {formatCurrency(inv.total)}
-                  </p>
-                  <StatusBadge status={inv.status} />
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+        {/* Dense AR ledger */}
+        <TabsContent value="ar">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">
+                Accounts receivable
+                <span className="ml-2 text-xs font-normal text-slate-500">
+                  {arFiltered.length} invoices
+                </span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="grid grid-cols-[7rem_1fr_5.5rem_5.5rem_5rem_4.5rem_minmax(10rem,1fr)] gap-x-2 border-b border-slate-800 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                <span>Invoice</span>
+                <span>Customer</span>
+                <span>Date</span>
+                <span className="text-right">Total</span>
+                <span className="text-right">Paid</span>
+                <span>Status</span>
+                <span>Record payment</span>
+              </div>
+              {arFiltered.map((inv) => {
+                const open = inv.total - inv.amountPaid;
+                return (
+                  <div
+                    key={inv.id}
+                    className="grid grid-cols-[7rem_1fr_5.5rem_5.5rem_5rem_4.5rem_minmax(10rem,1fr)] items-center gap-x-2 border-b border-slate-900/70 px-3 py-1 text-[12px] hover:bg-slate-900/40"
+                  >
+                    <span className="font-mono text-teal-400">{inv.number}</span>
+                    <span className="truncate text-slate-300">
+                      {inv.customer.name}
+                    </span>
+                    <span className="text-slate-500">
+                      {formatDate(inv.invoiceDate)}
+                    </span>
+                    <span className="text-right tabular-nums">
+                      {formatCurrency(inv.total)}
+                    </span>
+                    <span className="text-right tabular-nums text-slate-400">
+                      {formatCurrency(inv.amountPaid)}
+                    </span>
+                    <StatusBadge status={inv.status} />
+                    <div>
+                      {open > 0.01 && !["VOID", "PAID"].includes(inv.status) ? (
+                        <form
+                          action={actionRecordArPayment}
+                          className="flex items-center gap-1"
+                        >
+                          <input type="hidden" name="invoiceId" value={inv.id} />
+                          <Input
+                            name="amount"
+                            type="number"
+                            step="0.01"
+                            min="0.01"
+                            defaultValue={open.toFixed(2)}
+                            className="h-7 w-20 text-[11px]"
+                          />
+                          <select
+                            name="method"
+                            className="h-7 rounded border border-slate-700 bg-slate-950 px-1 text-[10px]"
+                            defaultValue="CHECK"
+                          >
+                            <option value="CHECK">Check</option>
+                            <option value="ACH">ACH</option>
+                            <option value="WIRE">Wire</option>
+                            <option value="CARD">Card</option>
+                          </select>
+                          <Button type="submit" size="sm" className="h-7 text-[10px]">
+                            Pay
+                          </Button>
+                        </form>
+                      ) : (
+                        <span className="text-[11px] text-slate-600">—</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+              {arFiltered.length === 0 && (
+                <p className="p-4 text-sm text-slate-500">No AR in period.</p>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
 
-        <TabsContent value="ap" className="space-y-2">
-          {arAp.ap.map((inv) => (
-            <Card key={inv.id}>
-              <CardContent className="flex items-center justify-between p-4">
-                <div>
-                  <span className="font-mono text-amber-400">{inv.number}</span>
-                  <span className="ml-2 text-sm text-slate-400">
-                    {inv.purchaseOrder?.number || "Manual"}
-                  </span>
-                  <p className="text-xs text-slate-500">
-                    {formatDate(inv.invoiceDate)}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <p className="font-semibold tabular-nums">
-                    {formatCurrency(inv.total)}
-                  </p>
-                  <StatusBadge status={inv.status} />
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+        {/* Dense AP ledger */}
+        <TabsContent value="ap">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">
+                Accounts payable
+                <span className="ml-2 text-xs font-normal text-slate-500">
+                  {apFiltered.length} invoices
+                </span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="grid grid-cols-[7rem_1fr_5.5rem_5.5rem_5rem_4.5rem_minmax(10rem,1fr)] gap-x-2 border-b border-slate-800 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                <span>Invoice</span>
+                <span>Supplier / PO</span>
+                <span>Date</span>
+                <span className="text-right">Total</span>
+                <span className="text-right">Paid</span>
+                <span>Status</span>
+                <span>Record payment</span>
+              </div>
+              {apFiltered.map((inv) => {
+                const open = inv.total - inv.amountPaid;
+                return (
+                  <div
+                    key={inv.id}
+                    className="grid grid-cols-[7rem_1fr_5.5rem_5.5rem_5rem_4.5rem_minmax(10rem,1fr)] items-center gap-x-2 border-b border-slate-900/70 px-3 py-1 text-[12px] hover:bg-slate-900/40"
+                  >
+                    <span className="font-mono text-amber-400">{inv.number}</span>
+                    <span className="truncate text-slate-300">
+                      {inv.supplier?.name ||
+                        inv.purchaseOrder?.number ||
+                        "Manual"}
+                    </span>
+                    <span className="text-slate-500">
+                      {formatDate(inv.invoiceDate)}
+                    </span>
+                    <span className="text-right tabular-nums">
+                      {formatCurrency(inv.total)}
+                    </span>
+                    <span className="text-right tabular-nums text-slate-400">
+                      {formatCurrency(inv.amountPaid)}
+                    </span>
+                    <StatusBadge status={inv.status} />
+                    <div>
+                      {open > 0.01 && !["VOID", "PAID"].includes(inv.status) ? (
+                        <form
+                          action={actionRecordApPayment}
+                          className="flex items-center gap-1"
+                        >
+                          <input type="hidden" name="invoiceId" value={inv.id} />
+                          <Input
+                            name="amount"
+                            type="number"
+                            step="0.01"
+                            min="0.01"
+                            defaultValue={open.toFixed(2)}
+                            className="h-7 w-20 text-[11px]"
+                          />
+                          <select
+                            name="method"
+                            className="h-7 rounded border border-slate-700 bg-slate-950 px-1 text-[10px]"
+                            defaultValue="ACH"
+                          >
+                            <option value="ACH">ACH</option>
+                            <option value="CHECK">Check</option>
+                            <option value="WIRE">Wire</option>
+                            <option value="CARD">Card</option>
+                          </select>
+                          <Button type="submit" size="sm" className="h-7 text-[10px]">
+                            Pay
+                          </Button>
+                        </form>
+                      ) : (
+                        <span className="text-[11px] text-slate-600">—</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+              {apFiltered.length === 0 && (
+                <p className="p-4 text-sm text-slate-500">No AP in period.</p>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
 
-        <TabsContent value="je" className="space-y-2">
-          {tb.journals.map((je) => (
-            <Card key={je.id}>
-              <CardContent className="p-4">
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-sm text-sky-400">{je.number}</span>
-                  <StatusBadge status={je.status} />
-                  <span className="text-xs text-slate-500">
-                    {formatDate(je.date)}
-                  </span>
+        <TabsContent value="coa">
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">
+                  Create account / charge code
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <form
+                  action={actionCreateAccount}
+                  className="grid gap-2 sm:grid-cols-2"
+                >
+                  <Input name="code" required placeholder="Code e.g. 6100" />
+                  <Input name="name" required placeholder="Account name" />
+                  <select
+                    name="type"
+                    className={selectClass}
+                    defaultValue="EXPENSE"
+                  >
+                    {["ASSET", "LIABILITY", "EQUITY", "REVENUE", "EXPENSE", "COGS"].map(
+                      (t) => (
+                        <option key={t} value={t}>
+                          {t}
+                        </option>
+                      )
+                    )}
+                  </select>
+                  <select
+                    name="chargeCodeType"
+                    className={selectClass}
+                    defaultValue=""
+                  >
+                    <option value="">— Charge type —</option>
+                    <option value="DIRECT">DIRECT</option>
+                    <option value="INDIRECT">INDIRECT</option>
+                  </select>
+                  <Input
+                    name="chargeCode"
+                    placeholder="Charge code e.g. DIR-ENG"
+                  />
+                  <Input
+                    name="description"
+                    placeholder="Description"
+                    className="sm:col-span-2"
+                  />
+                  <Button type="submit" size="sm">
+                    Create account
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">
+                  Chart of accounts · Direct {directCodes.length} / Indirect{" "}
+                  {indirectCodes.length}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="max-h-96 overflow-y-auto p-0">
+                <div className="grid grid-cols-[4rem_1fr_5rem_5.5rem] gap-x-2 border-b border-slate-800 px-3 py-1 text-[10px] font-semibold uppercase text-slate-500">
+                  <span>Code</span>
+                  <span>Name</span>
+                  <span>Type</span>
+                  <span className="text-right">Balance</span>
                 </div>
-                <p className="text-sm text-slate-300">{je.description}</p>
-                <div className="mt-2 space-y-1 text-xs">
-                  {je.lines.map((l) => (
-                    <div key={l.id} className="flex justify-between text-slate-500">
-                      <span>
-                        {l.account.code} {l.account.name}
+                {accounts.map((a) => (
+                  <div
+                    key={a.id}
+                    className="grid grid-cols-[4rem_1fr_5rem_5.5rem] gap-x-2 border-b border-slate-900/70 px-3 py-0.5 text-[12px]"
+                  >
+                    <span className="font-mono text-teal-400">{a.code}</span>
+                    <span className="truncate text-slate-300">
+                      {a.name}
+                      {a.chargeCode && (
+                        <span className="ml-1 font-mono text-[10px] text-slate-600">
+                          {a.chargeCode}
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-slate-500">
+                      {a.chargeCodeType || a.type}
+                    </span>
+                    <span className="text-right font-mono tabular-nums text-slate-400">
+                      {formatCurrency(a.balance)}
+                    </span>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
+        {/* Dense notebook-style JE ledger */}
+        <TabsContent value="je">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">
+                Journal entries
+                <span className="ml-2 text-xs font-normal text-slate-500">
+                  notebook line items · {journals.length} shown
+                </span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="grid grid-cols-[5.5rem_4.5rem_5rem_1fr_5.5rem_5.5rem_7rem] gap-x-2 border-b border-slate-800 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                <span>JE #</span>
+                <span>Date</span>
+                <span>Status</span>
+                <span>Description / line</span>
+                <span className="text-right">Debit</span>
+                <span className="text-right">Credit</span>
+                <span>Actions</span>
+              </div>
+              {journals.map((je) => {
+                const totalDr = je.lines.reduce((s, l) => s + l.debit, 0);
+                return (
+                  <div key={je.id} className="border-b border-slate-800/80">
+                    <div className="grid grid-cols-[5.5rem_4.5rem_5rem_1fr_5.5rem_5.5rem_7rem] items-center gap-x-2 bg-slate-900/30 px-3 py-1 text-[12px]">
+                      <span className="font-mono text-sky-400">{je.number}</span>
+                      <span className="text-slate-500">
+                        {formatDate(je.date)}
                       </span>
-                      <span>
-                        {l.debit > 0
-                          ? `Dr ${formatCurrency(l.debit)}`
-                          : `Cr ${formatCurrency(l.credit)}`}
+                      <StatusBadge status={je.status} />
+                      <span className="truncate text-slate-200">
+                        {je.description}
+                        {je.source && (
+                          <span className="ml-1 text-[10px] text-slate-600">
+                            [{je.source}]
+                          </span>
+                        )}
+                      </span>
+                      <span className="text-right font-mono tabular-nums text-slate-400">
+                        {formatCurrency(totalDr)}
+                      </span>
+                      <span className="text-right font-mono tabular-nums text-slate-400">
+                        {formatCurrency(totalDr)}
+                      </span>
+                      <span className="flex gap-1">
+                        {["PENDING_APPROVAL", "DRAFT"].includes(je.status) && (
+                          <form action={actionApproveJournal}>
+                            <input type="hidden" name="id" value={je.id} />
+                            <Button
+                              type="submit"
+                              size="sm"
+                              className="h-6 px-1.5 text-[10px]"
+                            >
+                              Approve
+                            </Button>
+                          </form>
+                        )}
+                        {je.status !== "VOID" && (
+                          <form action={actionVoidJournal}>
+                            <input type="hidden" name="id" value={je.id} />
+                            <Button
+                              type="submit"
+                              size="sm"
+                              variant="outline"
+                              className="h-6 px-1.5 text-[10px]"
+                            >
+                              Void
+                            </Button>
+                          </form>
+                        )}
                       </span>
                     </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                    {je.lines.map((l) => (
+                      <div
+                        key={l.id}
+                        className="grid grid-cols-[5.5rem_4.5rem_5rem_1fr_5.5rem_5.5rem_7rem] gap-x-2 px-3 py-0.5 text-[11px] text-slate-500"
+                      >
+                        <span />
+                        <span />
+                        <span />
+                        <span className="pl-4 font-mono">
+                          {l.account.code}{" "}
+                          <span className="font-sans text-slate-400">
+                            {l.account.name}
+                          </span>
+                          {l.memo ? (
+                            <span className="text-slate-600"> — {l.memo}</span>
+                          ) : null}
+                        </span>
+                        <span className="text-right font-mono tabular-nums">
+                          {l.debit > 0 ? formatCurrency(l.debit) : ""}
+                        </span>
+                        <span className="text-right font-mono tabular-nums">
+                          {l.credit > 0 ? formatCurrency(l.credit) : ""}
+                        </span>
+                        <span />
+                      </div>
+                    ))}
+                    {je.attachments?.length > 0 && (
+                      <div className="flex flex-wrap gap-2 px-3 pb-1 pl-[calc(5.5rem+4.5rem+5rem+0.75rem)]">
+                        {je.attachments.map((a) => (
+                          <a
+                            key={a.id}
+                            href={a.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-[10px] text-sky-400 hover:underline"
+                          >
+                            📎 {a.fileName || a.docType || "receipt"}
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {journals.length === 0 && (
+                <p className="p-4 text-sm text-slate-500">
+                  No journal entries for this filter.
+                </p>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="cost">
@@ -382,138 +848,15 @@ export default async function AccountingPage({
           </div>
         </TabsContent>
 
-        <TabsContent value="coa">
-          <div className="grid gap-4 lg:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Create account / charge code</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <form action={actionCreateAccount} className="grid gap-2 sm:grid-cols-2">
-                  <Input name="code" required placeholder="Code e.g. 6100" />
-                  <Input name="name" required placeholder="Account name" />
-                  <select name="type" className={selectClass} defaultValue="EXPENSE">
-                    {["ASSET", "LIABILITY", "EQUITY", "REVENUE", "EXPENSE", "COGS"].map(
-                      (t) => (
-                        <option key={t} value={t}>
-                          {t}
-                        </option>
-                      )
-                    )}
-                  </select>
-                  <select name="chargeCodeType" className={selectClass} defaultValue="">
-                    <option value="">— Charge type —</option>
-                    <option value="DIRECT">DIRECT</option>
-                    <option value="INDIRECT">INDIRECT</option>
-                  </select>
-                  <Input name="chargeCode" placeholder="Charge code e.g. DIR-ENG" />
-                  <Input name="description" placeholder="Description" className="sm:col-span-2" />
-                  <Button type="submit" size="sm">
-                    Create account
-                  </Button>
-                </form>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">
-                  Charge codes · Direct {directCodes.length} / Indirect{" "}
-                  {indirectCodes.length}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="max-h-72 space-y-1 overflow-y-auto text-xs">
-                {accounts.map((a) => (
-                  <div
-                    key={a.id}
-                    className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-900 py-1"
-                  >
-                    <span>
-                      <span className="font-mono text-teal-400">{a.code}</span>{" "}
-                      {a.name}
-                      {a.chargeCodeType && (
-                        <StatusBadge status={a.chargeCodeType} />
-                      )}
-                      {a.chargeCode && (
-                        <span className="ml-1 font-mono text-slate-500">
-                          {a.chargeCode}
-                        </span>
-                      )}
-                    </span>
-                    <span className="font-mono tabular-nums text-slate-400">
-                      {formatCurrency(a.balance)}
-                    </span>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="je">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Recent journal entries</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {journals.map((je) => (
-                <div
-                  key={je.id}
-                  className="rounded-lg border border-slate-800 p-3 text-sm"
-                >
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-mono text-teal-400">{je.number}</span>
-                    <StatusBadge status={je.status} />
-                    {je.chargeCode && (
-                      <span className="font-mono text-xs text-slate-500">
-                        {je.chargeCode}
-                      </span>
-                    )}
-                    <span className="text-xs text-slate-500">
-                      {formatDate(je.postedAt || je.createdAt)}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-slate-300">{je.description}</p>
-                  <ul className="mt-2 space-y-0.5 text-xs text-slate-500">
-                    {je.lines.map((l) => (
-                      <li key={l.id} className="flex justify-between gap-4">
-                        <span>
-                          {l.account.code} {l.account.name}
-                        </span>
-                        <span className="font-mono">
-                          Dr {formatCurrency(l.debit)} / Cr{" "}
-                          {formatCurrency(l.credit)}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                  {je.attachments?.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                      {je.attachments.map((a) => (
-                        <a
-                          key={a.id}
-                          href={a.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="rounded border border-slate-700 px-2 py-0.5 text-sky-400"
-                        >
-                          {a.fileName || a.docType || "Attachment"}
-                        </a>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-              {!journals.length && (
-                <p className="text-sm text-slate-500">No journals posted yet.</p>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
         <TabsContent value="post">
           <Card>
             <CardHeader>
-              <CardTitle>Post balanced journal entry (double-entry)</CardTitle>
+              <CardTitle>Submit journal entry (double-entry)</CardTitle>
+              <p className="text-xs text-slate-500">
+                Manual journals go to approval before posting balances. Check
+                &quot;Post immediately&quot; only when you have authority to skip
+                the queue.
+              </p>
             </CardHeader>
             <CardContent>
               <form action={actionPostJournal} className="grid max-w-xl gap-2">
@@ -564,13 +907,90 @@ export default async function AccountingPage({
                   name="receiptFileName"
                   placeholder="Receipt file name"
                 />
+                <label className="flex items-center gap-2 text-xs text-slate-400">
+                  <input type="checkbox" name="postNow" value="true" />
+                  Post immediately (skip approval)
+                </label>
                 <Button type="submit" size="sm">
-                  Post journal
+                  Submit for approval
                 </Button>
               </form>
             </CardContent>
           </Card>
         </TabsContent>
+
+        <TabsContent value="expense">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">
+                Expense / credit-card entry
+              </CardTitle>
+              <p className="text-xs text-slate-500">
+                Dr expense · Cr cash or credit-card payable. Attach receipt URL.
+                Defaults to approval queue.
+              </p>
+            </CardHeader>
+            <CardContent>
+              <form
+                action={actionCreateExpenseEntry}
+                className="grid max-w-xl gap-2"
+              >
+                <Input
+                  name="description"
+                  required
+                  placeholder="Expense description e.g. AWS invoice, team lunch"
+                />
+                <select
+                  name="expenseAccountId"
+                  required
+                  className={selectClass}
+                >
+                  <option value="">Expense account…</option>
+                  {expenseAccounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.code} {a.name}
+                    </option>
+                  ))}
+                </select>
+                <select name="creditAccountId" required className={selectClass}>
+                  <option value="">Credit (cash / CC payable)…</option>
+                  {cashOrAp.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.code} {a.name}
+                    </option>
+                  ))}
+                </select>
+                <Input
+                  name="amount"
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  required
+                  placeholder="Amount"
+                />
+                <Input name="chargeCode" placeholder="Charge code" />
+                <select name="projectId" className={selectClass}>
+                  <option value="">— Project (optional) —</option>
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.number} {p.name}
+                    </option>
+                  ))}
+                </select>
+                <Input name="receiptUrl" placeholder="Receipt URL" />
+                <Input name="receiptFileName" placeholder="Receipt file name" />
+                <label className="flex items-center gap-2 text-xs text-slate-400">
+                  <input type="checkbox" name="postNow" value="true" />
+                  Post immediately
+                </label>
+                <Button type="submit" size="sm">
+                  Submit expense
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         <TabsContent value="payroll" className="space-y-4">
           <Card>
             <CardHeader className="pb-2">
@@ -580,9 +1000,9 @@ export default async function AccountingPage({
                 a payroll accrual journal entry (Dr 6000 / Cr 2100).
               </p>
             </CardHeader>
-            <CardContent className="space-y-1">
+            <CardContent className="space-y-0 p-0">
               {payrollQueue.length === 0 && (
-                <p className="py-2 text-sm text-slate-500">
+                <p className="p-4 text-sm text-slate-500">
                   No approved timesheets waiting.
                 </p>
               )}
@@ -595,16 +1015,16 @@ export default async function AccountingPage({
                 return (
                   <div
                     key={t.id}
-                    className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/60 px-1 py-1.5 text-sm"
+                    className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-900/70 px-3 py-1 text-[12px]"
                   >
                     <span className="flex items-center gap-3">
                       <span className="text-slate-200">{t.user.name}</span>
-                      <span className="font-mono text-xs text-slate-500">
+                      <span className="font-mono text-[11px] text-slate-500">
                         {formatDate(t.periodStart)} → {formatDate(t.periodEnd)}
                       </span>
                       <Link
                         href={`/hr/timesheet/${t.id}`}
-                        className="text-xs text-sky-400 hover:underline"
+                        className="text-[11px] text-sky-400 hover:underline"
                       >
                         detail →
                       </Link>
@@ -617,7 +1037,7 @@ export default async function AccountingPage({
                       {t.status === "APPROVED" && (
                         <form action={actionProcessTimesheet}>
                           <input type="hidden" name="id" value={t.id} />
-                          <Button type="submit" size="sm">
+                          <Button type="submit" size="sm" className="h-7">
                             Process
                           </Button>
                         </form>
@@ -739,8 +1159,18 @@ export default async function AccountingPage({
                       defaultValue={String(acctSettings.fiscalYearStartMonth)}
                     >
                       {[
-                        "January", "February", "March", "April", "May", "June",
-                        "July", "August", "September", "October", "November", "December",
+                        "January",
+                        "February",
+                        "March",
+                        "April",
+                        "May",
+                        "June",
+                        "July",
+                        "August",
+                        "September",
+                        "October",
+                        "November",
+                        "December",
                       ].map((m, i) => (
                         <option key={m} value={String(i + 1)}>
                           {m}
@@ -777,7 +1207,10 @@ function Section({
         <p className="text-xs text-slate-600">No accounts</p>
       )}
       {rows.map((r) => (
-        <div key={r.id} className="flex justify-between py-0.5 text-sm">
+        <div
+          key={r.id}
+          className="flex justify-between border-b border-slate-900/50 py-0.5 text-sm"
+        >
           <span className="text-slate-400">
             <span className="font-mono text-teal-500/80">{r.code}</span> {r.name}
           </span>

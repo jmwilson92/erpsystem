@@ -54,10 +54,23 @@ export function TeamView({
               <CardHeader className="pb-2">
                 <div className="flex items-start justify-between">
                   <div>
-                    <CardTitle className="text-base">{r.name}</CardTitle>
+                    <CardTitle className="text-base">
+                      <Link
+                        href={`/hr/person/${r.id}`}
+                        className="hover:text-teal-400 hover:underline"
+                      >
+                        {r.name}
+                      </Link>
+                    </CardTitle>
                     <p className="text-xs text-slate-500">
                       {r.title} · {r.department}
                     </p>
+                    <Link
+                      href={`/hr/person/${r.id}`}
+                      className="mt-1 inline-block text-[11px] text-sky-400 hover:underline"
+                    >
+                      Open person page →
+                    </Link>
                   </div>
                   <div className="flex gap-1">
                     {r.ptoRequests.length > 0 && (
@@ -194,13 +207,18 @@ export function TeamView({
                   </form>
                 </details>
 
-                <p className="text-[11px] text-slate-600">
-                  {r.performanceReviews.length} review
-                  {r.performanceReviews.length === 1 ? "" : "s"} on record
-                  {latestCompleted?.completedAt
-                    ? ` · last completed ${formatDate(latestCompleted.completedAt)}`
-                    : ""}
-                </p>
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] text-slate-600">
+                    {r.performanceReviews.length} review
+                    {r.performanceReviews.length === 1 ? "" : "s"} on record
+                    {latestCompleted?.completedAt
+                      ? ` · last completed ${formatDate(latestCompleted.completedAt)}`
+                      : ""}
+                  </p>
+                  <Button asChild size="sm" variant="outline" className="h-7 text-[11px]">
+                    <Link href={`/hr/person/${r.id}`}>Reviews & docs</Link>
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           );

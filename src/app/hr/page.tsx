@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import {
@@ -6,6 +7,11 @@ import {
   getTeamOverview,
   certExpiryTone,
 } from "@/lib/services/hr";
+import {
+  getReviewPolicy,
+  openDueReviewCycles,
+  parseReviewQuestions,
+} from "@/lib/services/review-cycles";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { StatCard } from "@/components/shared/stat-card";
@@ -24,6 +30,8 @@ import {
   actionAdvanceExpense,
   actionUpdateGoalProgress,
   actionAddEmployeeDocument,
+  actionSaveReviewPolicy,
+  actionOpenDueReviewCycles,
 } from "@/app/actions";
 import { Users2, Clock, Calendar, Target } from "lucide-react";
 
@@ -43,42 +51,50 @@ export default async function HrPage() {
   if (!me) return null;
 
   const persona = await getHrPersona(me);
+
+  // Auto-open self-review forms that fall inside the lead window.
+  if (persona.isHrAdmin || persona.isManager) {
+    await openDueReviewCycles({ actorId: me.id });
+  }
+
   const [profile, team] = await Promise.all([
     getEmployeeProfile(me.id),
     persona.isManager ? getTeamOverview(me.id) : Promise.resolve([]),
   ]);
 
   // Company-wide data only loads for HR administration.
-  const [users, timeEntries, pto, expenses, reviews, goals] = persona.isHrAdmin
-    ? await Promise.all([
-        prisma.user.findMany({
-          where: { isActive: true },
-          orderBy: { name: "asc" },
-          include: { manager: { select: { name: true } } },
-        }),
-        prisma.timeEntry.findMany({
-          orderBy: { date: "desc" },
-          include: { user: true, workOrder: true, project: true },
-          take: 20,
-        }),
-        prisma.ptoRequest.findMany({
-          orderBy: { createdAt: "desc" },
-          include: { user: true },
-        }),
-        prisma.expenseReport.findMany({
-          orderBy: { createdAt: "desc" },
-          include: { user: true, lines: true },
-        }),
-        prisma.performanceReview.findMany({
-          include: { employee: true, reviewer: true },
-          orderBy: { createdAt: "desc" },
-        }),
-        prisma.employeeGoal.findMany({
-          where: { status: "ACTIVE" },
-          include: { user: true },
-        }),
-      ])
-    : [[], [], [], [], [], []];
+  const [users, timeEntries, pto, expenses, reviews, goals, reviewPolicy] =
+    persona.isHrAdmin
+      ? await Promise.all([
+          prisma.user.findMany({
+            where: { isActive: true },
+            orderBy: { name: "asc" },
+            include: { manager: { select: { id: true, name: true } } },
+          }),
+          prisma.timeEntry.findMany({
+            orderBy: { date: "desc" },
+            include: { user: true, workOrder: true, project: true },
+            take: 20,
+          }),
+          prisma.ptoRequest.findMany({
+            orderBy: { createdAt: "desc" },
+            include: { user: true },
+          }),
+          prisma.expenseReport.findMany({
+            orderBy: { createdAt: "desc" },
+            include: { user: true, lines: true },
+          }),
+          prisma.performanceReview.findMany({
+            include: { employee: true, reviewer: true },
+            orderBy: { createdAt: "desc" },
+          }),
+          prisma.employeeGoal.findMany({
+            where: { status: "ACTIVE" },
+            include: { user: true },
+          }),
+          getReviewPolicy(),
+        ])
+      : [[], [], [], [], [], [], null];
 
   const pendingTime = timeEntries.filter((t) => t.status === "SUBMITTED");
   const pendingPto = pto.filter((p) => p.status === "PENDING");
@@ -195,7 +211,12 @@ export default async function HrPage() {
                       <CardContent className="p-4">
                         <div className="flex items-start justify-between">
                           <div>
-                            <p className="font-semibold text-slate-100">{u.name}</p>
+                            <Link
+                              href={`/hr/person/${u.id}`}
+                              className="font-semibold text-slate-100 hover:text-teal-400 hover:underline"
+                            >
+                              {u.name}
+                            </Link>
                             <p className="text-xs text-slate-500">
                               {u.title} · {u.department}
                             </p>
@@ -204,6 +225,12 @@ export default async function HrPage() {
                                 Mgr: {u.manager.name}
                               </p>
                             )}
+                            <Link
+                              href={`/hr/person/${u.id}`}
+                              className="mt-1 inline-block text-[11px] text-sky-400 hover:underline"
+                            >
+                              Profile →
+                            </Link>
                           </div>
                           <StatusBadge status={u.role} />
                         </div>
@@ -458,98 +485,179 @@ export default async function HrPage() {
               ))}
             </TabsContent>
 
-            <TabsContent value="reviews" className="grid gap-4 lg:grid-cols-2">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Performance Reviews</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {reviews.map((r) => {
-                    const suggestions = parseJsonArray(r.aiSuggestions);
-                    return (
-                      <div
-                        key={r.id}
-                        className="rounded-lg border border-slate-800 p-3 text-sm"
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="font-medium text-slate-200">
-                            {r.employee.name}
-                          </span>
-                          <span className="flex items-center gap-2">
-                            {r.overallRating ? (
-                              <span className="text-teal-400">{r.overallRating}/5</span>
-                            ) : (
-                              <StatusBadge status={r.status} />
-                            )}
-                          </span>
-                        </div>
-                        <p className="text-xs text-slate-500">
-                          {r.period} · by {r.reviewer.name}
-                        </p>
-                        {r.strengths && (
-                          <p className="mt-1 text-xs text-slate-400">{r.strengths}</p>
-                        )}
-                        {suggestions.length > 0 && (
-                          <div className="mt-2 rounded bg-violet-500/10 p-2">
-                            <p className="text-[10px] font-medium uppercase text-violet-400">
-                              AI Development Suggestions
-                            </p>
-                            <ul className="mt-1 space-y-0.5 text-xs text-violet-200/80">
-                              {suggestions.map((s) => (
-                                <li key={s}>• {s}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
+            <TabsContent value="reviews" className="space-y-4">
+              {reviewPolicy && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base">
+                      Review cycle policy
+                    </CardTitle>
+                    <p className="text-xs text-slate-500">
+                      Frequency, lead time for self-assessment, and company
+                      questions pushed to employees.
+                    </p>
+                  </CardHeader>
+                  <CardContent>
+                    <form
+                      action={actionSaveReviewPolicy}
+                      className="grid gap-2 lg:grid-cols-2"
+                    >
+                      <label className="text-xs text-slate-500">
+                        Frequency (months)
+                        <Input
+                          name="frequencyMonths"
+                          type="number"
+                          min={1}
+                          max={36}
+                          defaultValue={reviewPolicy.frequencyMonths}
+                        />
+                      </label>
+                      <label className="text-xs text-slate-500">
+                        Self-review lead days
+                        <Input
+                          name="selfReviewLeadDays"
+                          type="number"
+                          min={1}
+                          max={90}
+                          defaultValue={reviewPolicy.selfReviewLeadDays}
+                        />
+                      </label>
+                      <label className="text-xs text-slate-500 lg:col-span-2">
+                        Review questions (one per line)
+                        <textarea
+                          name="questions"
+                          rows={6}
+                          defaultValue={parseReviewQuestions(
+                            reviewPolicy
+                          ).join("\n")}
+                          className="mt-1 w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 text-sm text-slate-200"
+                        />
+                      </label>
+                      <div className="lg:col-span-2">
+                        <Button type="submit" size="sm">
+                          Save policy
+                        </Button>
                       </div>
-                    );
-                  })}
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader>
-                  <CardTitle>Active Goals</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {goals.map((g) => (
-                    <div key={g.id}>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-slate-200">{g.title}</span>
-                        <span className="text-xs text-slate-500">{g.user.name}</span>
-                      </div>
-                      <Progress value={g.progress} className="mt-1 h-1.5" />
-                      <div className="mt-1 flex items-center justify-between gap-2">
-                        <p className="text-[11px] text-slate-500">
-                          {g.category} · {g.progress}%
-                          {g.targetDate ? ` · due ${formatDate(g.targetDate)}` : ""}
-                        </p>
-                        <form
-                          action={actionUpdateGoalProgress}
-                          className="flex items-center gap-1"
+                    </form>
+                    <form action={actionOpenDueReviewCycles} className="mt-2">
+                      <Button type="submit" size="sm" variant="outline">
+                        Open due cycles now
+                      </Button>
+                    </form>
+                  </CardContent>
+                </Card>
+              )}
+
+              <div className="grid gap-4 lg:grid-cols-2">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Performance Reviews</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-1">
+                    {reviews.map((r) => {
+                      const suggestions = parseJsonArray(r.aiSuggestions);
+                      return (
+                        <div
+                          key={r.id}
+                          className="border-b border-slate-900 py-1.5 text-sm"
                         >
-                          <input type="hidden" name="id" value={g.id} />
-                          <Input
-                            name="progress"
-                            type="number"
-                            min={0}
-                            max={100}
-                            defaultValue={g.progress}
-                            className="h-7 w-16 text-xs"
-                          />
-                          <Button
-                            type="submit"
-                            size="sm"
-                            variant="outline"
-                            className="h-7"
+                          <div className="flex items-center justify-between gap-2">
+                            <Link
+                              href={`/hr/person/${r.employeeId}`}
+                              className="font-medium text-slate-200 hover:text-teal-400 hover:underline"
+                            >
+                              {r.employee.name}
+                            </Link>
+                            <span className="flex items-center gap-2">
+                              {r.overallRating ? (
+                                <span className="tabular-nums text-teal-400">
+                                  {r.overallRating}/5
+                                </span>
+                              ) : (
+                                <StatusBadge status={r.status} />
+                              )}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-500">
+                            {r.period} · by {r.reviewer.name}
+                            {r.employeeSignedAt && r.managerSignedAt
+                              ? " · dual signed"
+                              : ""}
+                          </p>
+                          {r.strengths && (
+                            <p className="mt-0.5 text-xs text-slate-400">
+                              {r.strengths}
+                            </p>
+                          )}
+                          {suggestions.length > 0 && (
+                            <div className="mt-1 rounded bg-violet-500/10 p-1.5">
+                              <p className="text-[10px] font-medium uppercase text-violet-400">
+                                AI suggestions
+                              </p>
+                              <ul className="text-xs text-violet-200/80">
+                                {suggestions.map((s) => (
+                                  <li key={s}>• {s}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Active Goals</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {goals.map((g) => (
+                      <div key={g.id}>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-slate-200">{g.title}</span>
+                          <Link
+                            href={`/hr/person/${g.userId}`}
+                            className="text-xs text-sky-400 hover:underline"
                           >
-                            Update
-                          </Button>
-                        </form>
+                            {g.user.name}
+                          </Link>
+                        </div>
+                        <Progress value={g.progress} className="mt-1 h-1.5" />
+                        <div className="mt-1 flex items-center justify-between gap-2">
+                          <p className="text-[11px] text-slate-500">
+                            {g.category} · {g.progress}%
+                            {g.targetDate
+                              ? ` · due ${formatDate(g.targetDate)}`
+                              : ""}
+                          </p>
+                          <form
+                            action={actionUpdateGoalProgress}
+                            className="flex items-center gap-1"
+                          >
+                            <input type="hidden" name="id" value={g.id} />
+                            <Input
+                              name="progress"
+                              type="number"
+                              min={0}
+                              max={100}
+                              defaultValue={g.progress}
+                              className="h-7 w-16 text-xs"
+                            />
+                            <Button
+                              type="submit"
+                              size="sm"
+                              variant="outline"
+                              className="h-7"
+                            >
+                              Update
+                            </Button>
+                          </form>
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
+                    ))}
+                  </CardContent>
+                </Card>
+              </div>
             </TabsContent>
           </>
         )}
