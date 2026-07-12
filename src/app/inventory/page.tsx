@@ -468,7 +468,15 @@ export default async function InventoryPage({
                   <td className="px-3 py-2 text-right tabular-nums text-orange-400">
                     {item.quantityQuarantine || "—"}
                     {item.mrbCase && (
-                      <p className="text-[10px]">{item.mrbCase.number}</p>
+                      <p className="text-[10px]">
+                        <Link
+                          href="/mrb?filter=all"
+                          title={`Held by ${item.mrbCase.number} — material quarantined pending board disposition`}
+                          className="text-rose-400 hover:underline"
+                        >
+                          {item.mrbCase.number} ⓘ
+                        </Link>
+                      </p>
                     )}
                   </td>
                   <td className="px-3 py-2 font-mono text-xs text-slate-500">

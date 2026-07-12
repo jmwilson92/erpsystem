@@ -116,16 +116,22 @@ export default async function SalesOrderDetailPage({
       <div className="flex flex-wrap gap-2">
         <StatusBadge status={so.status} />
         {so.depositRequired && (
-          <span className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-300">
-            Deposit {so.depositStatus === "RECEIVED" || so.depositStatus === "WAIVED"
-              ? so.depositStatus.toLowerCase()
-              : "required — ship blocked"}
-          </span>
+          <StatusBadge
+            status={
+              so.depositStatus === "RECEIVED" || so.depositStatus === "WAIVED"
+                ? `DEPOSIT ${so.depositStatus}`
+                : "DEPOSIT REQUIRED"
+            }
+            hint={`This order pushed ${so.customer.name} over their credit limit — a ${formatCurrency(so.depositAmount)} deposit gates shipment. Click for the customer's credit profile.`}
+            href={`/customers/${so.customerId}`}
+          />
         )}
         {so.creditHold && (
-          <span className="rounded border border-red-500/40 bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-300">
-            Credit hold
-          </span>
+          <StatusBadge
+            status="CREDIT_HOLD"
+            hint={`${so.customer.name} exceeded their credit limit including this order — deposit ${so.depositStatus || "PENDING"}. Click for the customer's credit profile.`}
+            href={`/customers/${so.customerId}`}
+          />
         )}
         {so.isFob && (
           <span className="rounded border border-slate-700 px-2 py-0.5 text-xs text-slate-400">

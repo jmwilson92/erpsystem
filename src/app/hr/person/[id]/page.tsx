@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
-import { formatCurrency, formatDate, parseJsonArray } from "@/lib/utils";
+import { formatDate, parseJsonArray } from "@/lib/utils";
 import {
   actionAddEmployeeDocument,
   actionCreateEmployeeGoal,
