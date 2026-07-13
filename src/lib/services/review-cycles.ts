@@ -333,7 +333,7 @@ export async function canViewPerson(
 }
 
 export async function getPersonPage(personId: string) {
-  const [profile, timesheets, openReviews] = await Promise.all([
+  const [profile, timesheets, openReviews, allFeedback] = await Promise.all([
     (async () => {
       const { getEmployeeProfile } = await import("@/lib/services/hr");
       return getEmployeeProfile(personId);
@@ -355,8 +355,14 @@ export async function getPersonPage(personId: string) {
       },
       orderBy: { createdAt: "desc" },
     }),
+    // Managers/HR see everything, including MANAGER_ONLY notes
+    prisma.feedbackNote.findMany({
+      where: { aboutUserId: personId },
+      orderBy: { createdAt: "desc" },
+      include: { author: { select: { name: true, title: true } } },
+    }),
   ]);
-  return { ...profile, timesheets, openReviews };
+  return { ...profile, timesheets, openReviews, feedback: allFeedback };
 }
 
 export function parseSelfRatings(

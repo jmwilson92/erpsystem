@@ -192,7 +192,7 @@ export async function processAiQuery(query: string): Promise<string> {
 
   // Default overview
   return [
-    `I'm the **ForgeERP Assistant** (local mode). Here's a plant snapshot:`,
+    `I'm the **ForgeRP Assistant** (local mode). Here's a plant snapshot:`,
     ``,
     `| Area | Status |`,
     `|---|---|`,
@@ -220,7 +220,7 @@ async function callGrok(query: string): Promise<string> {
       messages: [
         {
           role: "system",
-          content: `You are ForgeERP AI assistant for a high-reliability manufacturing plant. Be concise, action-oriented, and cite module names. Live context JSON: ${JSON.stringify(ctx)}`,
+          content: `You are ForgeRP AI assistant for a high-reliability manufacturing plant. Be concise, action-oriented, and cite module names. Live context JSON: ${JSON.stringify(ctx)}`,
         },
         { role: "user", content: query },
       ],

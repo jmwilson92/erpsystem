@@ -30,7 +30,7 @@ export default async function PrintPurchaseOrderPage({
   return (
     <PrintFrame>
       <DocHeader
-        company={company?.name || "ForgeERP"}
+        company={company?.name || "ForgeRP"}
         tagline={company?.tagline}
         title="Purchase Order"
         number={po.number}
@@ -60,7 +60,7 @@ export default async function PrintPurchaseOrderPage({
             Ship to
           </p>
           <p className="mt-1 whitespace-pre-line">
-            {po.shipToAddress || `${company?.name || "ForgeERP"} Receiving Dock`}
+            {po.shipToAddress || `${company?.name || "ForgeRP"} Receiving Dock`}
           </p>
           {po.project ? (
             <p className="mt-2 text-neutral-600">

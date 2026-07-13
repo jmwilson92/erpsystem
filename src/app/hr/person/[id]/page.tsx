@@ -18,11 +18,14 @@ import { Progress } from "@/components/ui/progress";
 import { formatDate, parseJsonArray } from "@/lib/utils";
 import {
   actionAddEmployeeDocument,
+  actionAddFeedbackNote,
+  actionAddTrainingRecord,
+  actionAttachTrainingEvidence,
   actionCreateEmployeeGoal,
+  actionGoalCheckIn,
   actionSavePerformanceReview,
   actionSignOffReview,
   actionSubmitSelfReview,
-  actionUpdateGoalProgress,
 } from "@/app/actions";
 
 export const dynamic = "force-dynamic";
@@ -55,7 +58,17 @@ export default async function PersonPage({
     persona.isHrAdmin ||
     (await canDecideFor({ id: me.id, role: me.role }, id, "hr.docs.manage"));
 
-  const { user, reviews, goals, documents, timesheets, openReviews } = person;
+  const {
+    user,
+    reviews,
+    goals,
+    documents,
+    timesheets,
+    openReviews,
+    training,
+    feedback,
+    balances,
+  } = person;
   const skills = parseJsonArray(user.skills);
   const certs = parseJsonArray<{ name: string; expires: string }>(
     user.certifications
@@ -99,6 +112,27 @@ export default async function PersonPage({
                 )}
               </div>
               <StatusBadge status={user.role} />
+            </div>
+            <div className="flex flex-wrap gap-2 border-t border-slate-800 pt-3">
+              <span className="rounded-lg border border-teal-500/30 bg-teal-500/10 px-2.5 py-1.5 text-xs text-teal-300">
+                <span className="font-semibold tabular-nums">
+                  {balances.pto.available}h
+                </span>{" "}
+                PTO available
+                <span className="ml-1 text-teal-500/70">
+                  ({balances.pto.accrued}h accrued · {balances.pto.used}h used
+                  {balances.pto.pending ? ` · ${balances.pto.pending}h pending` : ""})
+                </span>
+              </span>
+              <span className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-xs text-amber-300">
+                <span className="font-semibold tabular-nums">
+                  {balances.sick.available}h
+                </span>{" "}
+                sick available
+                <span className="ml-1 text-amber-500/70">
+                  of {balances.sick.granted}h/yr
+                </span>
+              </span>
             </div>
             {skills.length > 0 && (
               <div className="flex flex-wrap gap-1">
@@ -368,45 +402,300 @@ export default async function PersonPage({
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Goals</CardTitle>
+            <CardTitle className="text-base">Goals & check-ins</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-4">
+            {activeGoals.length === 0 && (
+              <p className="text-sm text-slate-500">No active goals.</p>
+            )}
             {activeGoals.map((g) => (
-              <div key={g.id}>
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-200">{g.title}</span>
-                  <span className="text-xs text-slate-500">{g.progress}%</span>
+              <div
+                key={g.id}
+                className="rounded-lg border border-slate-800 p-3 space-y-2"
+              >
+                <div className="flex justify-between gap-2 text-sm">
+                  <div className="min-w-0">
+                    <p className="text-slate-200">{g.title}</p>
+                    <p className="text-[11px] text-slate-500">
+                      {g.category || "GOAL"}
+                      {g.targetDate ? ` · target ${formatDate(g.targetDate)}` : ""}
+                      {g.alignedTo ? (
+                        <span className="text-violet-400">
+                          {" "}
+                          · aligns to “{g.alignedTo}”
+                        </span>
+                      ) : null}
+                    </p>
+                  </div>
+                  <span className="shrink-0 text-xs tabular-nums text-teal-400">
+                    {g.progress}%
+                  </span>
                 </div>
-                <Progress value={g.progress} className="mt-0.5 h-1" />
+                <Progress value={g.progress} className="h-1" />
+                {g.checkIns.length > 0 && (
+                  <div className="space-y-1 border-t border-slate-900 pt-2">
+                    {g.checkIns.slice(0, 3).map((c) => (
+                      <p key={c.id} className="text-[11px] text-slate-500">
+                        <span className="tabular-nums text-slate-400">
+                          {c.progress}%
+                        </span>{" "}
+                        · {c.author?.name || "—"} · {formatDate(c.createdAt)}
+                        {c.note ? (
+                          <span className="text-slate-400"> — {c.note}</span>
+                        ) : null}
+                      </p>
+                    ))}
+                  </div>
+                )}
                 {(isSelf || canManage) && (
-                  <form
-                    action={actionUpdateGoalProgress}
-                    className="mt-1 flex gap-1"
-                  >
-                    <input type="hidden" name="id" value={g.id} />
+                  <form action={actionGoalCheckIn} className="flex gap-1.5">
+                    <input type="hidden" name="goalId" value={g.id} />
                     <Input
                       name="progress"
                       type="number"
                       min={0}
                       max={100}
                       defaultValue={g.progress}
-                      className="h-7 w-16 text-xs"
+                      className="h-8 w-16 text-xs"
                     />
-                    <Button type="submit" size="sm" variant="outline" className="h-7">
-                      Update
+                    <Input
+                      name="note"
+                      placeholder="Check-in note…"
+                      className="h-8 flex-1 text-xs"
+                    />
+                    <Button type="submit" size="sm" variant="outline" className="h-8">
+                      Check in
                     </Button>
                   </form>
                 )}
               </div>
             ))}
-            {canManage && (
-              <form action={actionCreateEmployeeGoal} className="flex gap-1.5">
+            {(canManage || isSelf) && (
+              <form
+                action={actionCreateEmployeeGoal}
+                className="grid gap-1.5 border-t border-slate-800 pt-3 sm:grid-cols-2"
+              >
                 <input type="hidden" name="userId" value={id} />
-                <Input name="title" required placeholder="New goal…" className="h-8" />
-                <input type="hidden" name="category" value="PERFORMANCE" />
+                <Input
+                  name="title"
+                  required
+                  placeholder="New goal…"
+                  className="h-8 sm:col-span-2"
+                />
+                <select name="category" className={`${selectClass} h-8`} defaultValue="PERFORMANCE">
+                  <option value="PERFORMANCE">Performance</option>
+                  <option value="SKILL">Skill</option>
+                  <option value="CAREER">Career</option>
+                  <option value="CERTIFICATION">Certification</option>
+                </select>
+                <Input name="targetDate" type="date" className="h-8" />
+                <Input
+                  name="alignedTo"
+                  placeholder="Aligns to company objective (optional)"
+                  className="h-8"
+                />
                 <Button type="submit" size="sm" variant="outline" className="h-8">
-                  Add
+                  Add goal
                 </Button>
+              </form>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Training & qualifications</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {training.length === 0 && (
+              <p className="text-sm text-slate-500">No training on file.</p>
+            )}
+            {training.map((t) => {
+              let attachments: { name: string; url: string }[] = [];
+              try {
+                const parsed = JSON.parse(t.attachments || "[]");
+                if (Array.isArray(parsed)) attachments = parsed;
+              } catch {
+                // ignore malformed attachment JSON
+              }
+              return (
+                <div
+                  key={t.id}
+                  className="rounded-lg border border-slate-800 px-3 py-2"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm text-slate-200">{t.name}</span>
+                    <StatusBadge status={t.status} />
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    {t.type.replace(/_/g, " ")}
+                    {t.provider ? ` · ${t.provider}` : ""}
+                    {t.completedAt ? ` · completed ${formatDate(t.completedAt)}` : ""}
+                    {t.expiresAt ? ` · expires ${formatDate(t.expiresAt)}` : ""}
+                    {t.notes ? ` · ${t.notes}` : ""}
+                  </p>
+                  {attachments.length > 0 && (
+                    <div className="mt-1 flex flex-wrap gap-1.5">
+                      {attachments.map((a, i) => (
+                        <a
+                          key={i}
+                          href={a.url || "#"}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-sky-400 hover:underline"
+                        >
+                          📎 {a.name}
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                  {canDocs && (
+                    <form
+                      action={actionAttachTrainingEvidence}
+                      className="mt-1.5 flex gap-1.5"
+                    >
+                      <input type="hidden" name="recordId" value={t.id} />
+                      <Input
+                        name="name"
+                        placeholder="Attachment name"
+                        className="h-7 text-xs"
+                      />
+                      <Input
+                        name="url"
+                        placeholder="URL"
+                        className="h-7 flex-1 text-xs"
+                      />
+                      <Button
+                        type="submit"
+                        size="sm"
+                        variant="outline"
+                        className="h-7"
+                      >
+                        Attach
+                      </Button>
+                    </form>
+                  )}
+                </div>
+              );
+            })}
+            {canDocs && (
+              <form
+                action={actionAddTrainingRecord}
+                className="grid gap-1.5 border-t border-slate-800 pt-3 sm:grid-cols-2"
+              >
+                <input type="hidden" name="userId" value={id} />
+                <Input
+                  name="name"
+                  required
+                  placeholder="Training / certification name…"
+                  className="h-8 sm:col-span-2"
+                />
+                <select name="type" className={`${selectClass} h-8`} defaultValue="COURSE">
+                  <option value="COURSE">Course</option>
+                  <option value="CERTIFICATION">Certification</option>
+                  <option value="COMPLIANCE">Compliance</option>
+                  <option value="SAFETY">Safety</option>
+                  <option value="ON_THE_JOB">On the job</option>
+                </select>
+                <select name="status" className={`${selectClass} h-8`} defaultValue="COMPLETED">
+                  <option value="COMPLETED">Completed</option>
+                  <option value="IN_PROGRESS">In progress</option>
+                  <option value="SCHEDULED">Scheduled</option>
+                </select>
+                <Input name="completedAt" type="date" className="h-8" title="Completed on" />
+                <Input name="expiresAt" type="date" className="h-8" title="Expires on" />
+                <Input
+                  name="attachmentName"
+                  placeholder="Attachment name (optional)"
+                  className="h-8"
+                />
+                <Input
+                  name="attachmentUrl"
+                  placeholder="Attachment URL (optional)"
+                  className="h-8"
+                />
+                <Button type="submit" size="sm" className="h-8 sm:col-span-2">
+                  Add training record
+                </Button>
+              </form>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Continuous feedback</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {feedback.length === 0 && (
+              <p className="text-sm text-slate-500">
+                No feedback yet — praise and coaching notes land here between
+                review cycles.
+              </p>
+            )}
+            {feedback.map((f) => (
+              <div
+                key={f.id}
+                className={`rounded-lg border px-3 py-2 ${
+                  f.kind === "PRAISE"
+                    ? "border-emerald-500/25 bg-emerald-500/5"
+                    : f.kind === "COACHING"
+                      ? "border-amber-500/25 bg-amber-500/5"
+                      : "border-slate-800"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2 text-[11px]">
+                  <span
+                    className={
+                      f.kind === "PRAISE"
+                        ? "font-semibold text-emerald-400"
+                        : f.kind === "COACHING"
+                          ? "font-semibold text-amber-400"
+                          : "font-semibold text-slate-400"
+                    }
+                  >
+                    {f.kind}
+                    {f.visibility === "MANAGER_ONLY" ? " · manager-only" : ""}
+                  </span>
+                  <span className="text-slate-500">
+                    {f.author?.name || "—"} · {formatDate(f.createdAt)}
+                  </span>
+                </div>
+                <p className="mt-1 text-sm text-slate-300">{f.body}</p>
+              </div>
+            ))}
+            {canManage && (
+              <form
+                action={actionAddFeedbackNote}
+                className="grid gap-1.5 border-t border-slate-800 pt-3"
+              >
+                <input type="hidden" name="aboutUserId" value={id} />
+                <Textarea
+                  name="body"
+                  required
+                  rows={2}
+                  placeholder={`Leave feedback for ${user.name.split(" ")[0]}…`}
+                />
+                <div className="flex gap-1.5">
+                  <select name="kind" className={`${selectClass} h-8`} defaultValue="PRAISE">
+                    <option value="PRAISE">Praise</option>
+                    <option value="COACHING">Coaching</option>
+                    <option value="NOTE">Note</option>
+                  </select>
+                  <select
+                    name="visibility"
+                    className={`${selectClass} h-8`}
+                    defaultValue="SHARED"
+                  >
+                    <option value="SHARED">Shared with employee</option>
+                    <option value="MANAGER_ONLY">Manager-only</option>
+                  </select>
+                  <Button type="submit" size="sm" className="h-8">
+                    Post
+                  </Button>
+                </div>
               </form>
             )}
           </CardContent>

@@ -26,7 +26,7 @@ export function createBrandedPdf(docType: PdfDocType, title: string) {
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(16);
   doc.setFont("helvetica", "bold");
-  doc.text("ForgeERP", margin, 32);
+  doc.text("ForgeRP", margin, 32);
   doc.setFontSize(10);
   doc.setFont("helvetica", "normal");
   doc.setTextColor(148, 163, 184);
@@ -91,7 +91,7 @@ export function generateWorkOrderTravelerPdf(data: {
     );
   }
   pdf.gap(16);
-  pdf.line("Configuration controlled document — ForgeERP", {
+  pdf.line("Configuration controlled document — ForgeRP", {
     size: 8,
     color: [148, 163, 184],
   });
@@ -285,7 +285,7 @@ export function generatePurchaseOrderPdf(data: PurchaseOrderPdfData) {
   doc.setFontSize(8);
   doc.setTextColor(148, 163, 184);
   doc.text(
-    "Please acknowledge this PO and confirm delivery date. Configuration controlled — ForgeERP.",
+    "Please acknowledge this PO and confirm delivery date. Configuration controlled — ForgeRP.",
     margin,
     y
   );

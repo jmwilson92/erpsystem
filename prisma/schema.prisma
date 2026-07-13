@@ -1,4 +1,4 @@
-// ForgeERP — Manufacturing ERP Schema
+// ForgeRP — Manufacturing ERP Schema
 // SQLite for zero-config local dev; switch to PostgreSQL via docker-compose
 
 generator client {
@@ -41,6 +41,10 @@ model User {
   performanceReviews  PerformanceReview[]      @relation("ReviewSubject")
   reviewsGiven        PerformanceReview[]      @relation("Reviewer")
   goals               EmployeeGoal[]
+  goalCheckIns        GoalCheckIn[]            @relation("GoalCheckInAuthor")
+  feedbackReceived    FeedbackNote[]           @relation("FeedbackAbout")
+  feedbackGiven       FeedbackNote[]           @relation("FeedbackAuthor")
+  trainingRecords     TrainingRecord[]
   employeeDocuments   EmployeeDocument[]
   timesheets          Timesheet[]
   timesheetApprovals  TimesheetApproval[]
@@ -3384,8 +3388,67 @@ model EmployeeGoal {
   targetDate  DateTime?
   progress    Float    @default(0)
   category    String?  // SKILL, CAREER, PERFORMANCE, CERTIFICATION
+  /// Optional company objective this goal rolls up to
+  alignedTo   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  checkIns    GoalCheckIn[]
+}
+
+/// Progress check-in on a goal: a dated note + progress snapshot from
+/// the employee or their manager, building the goal's history trail.
+model GoalCheckIn {
+  id        String       @id @default(cuid())
+  goalId    String
+  goal      EmployeeGoal @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  authorId  String?
+  author    User?        @relation("GoalCheckInAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  /// Progress snapshot at check-in time (0-100)
+  progress  Float
+  note      String?
+  createdAt DateTime     @default(now())
+
+  @@index([goalId])
+}
+
+/// Continuous feedback between review cycles — praise or coaching
+/// notes that land on the employee's profile as they happen.
+model FeedbackNote {
+  id          String   @id @default(cuid())
+  aboutUserId String
+  aboutUser   User     @relation("FeedbackAbout", fields: [aboutUserId], references: [id], onDelete: Cascade)
+  authorId    String?
+  author      User?    @relation("FeedbackAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  kind        String   @default("PRAISE") // PRAISE, COACHING, NOTE
+  /// SHARED = employee sees it; MANAGER_ONLY = managers/HR only
+  visibility  String   @default("SHARED")
+  body        String
+  createdAt   DateTime @default(now())
+
+  @@index([aboutUserId])
+}
+
+/// Training & qualification record with attachable evidence
+/// (certificates, sign-off sheets) — not just a course name.
+model TrainingRecord {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  type        String   @default("COURSE") // COURSE, CERTIFICATION, COMPLIANCE, SAFETY, ON_THE_JOB
+  provider    String?
+  status      String   @default("COMPLETED") // SCHEDULED, IN_PROGRESS, COMPLETED, EXPIRED
+  completedAt DateTime?
+  expiresAt   DateTime?
+  /// JSON [{name,url}] — attached certificates / evidence
+  attachments String?
+  notes       String?
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
 }
 
 /// Company-wide payroll & timesheet policy (single row, id="default").
@@ -3424,7 +3487,7 @@ model ReviewPolicy {
 /// The setup wizard fills this in; the shell wears the company name.
 model CompanySettings {
   id             String   @id @default("default")
-  name           String   @default("ForgeERP")
+  name           String   @default("ForgeRP")
   tagline        String   @default("Manufacturing")
   /// JSON [string] — departments used for org chart + charge routing
   departments    String?
