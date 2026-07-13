@@ -25,10 +25,34 @@ export default async function BomPage({
   const q = pick(sp, "q").trim();
   const status = pick(sp, "status");
   const structure = pick(sp, "structure");
+  const productId = pick(sp, "product");
+
+  // Products for the filter dropdown; when one is chosen, constrain BOMs to
+  // its top-level part plus every part linked to the product.
+  const products = await prisma.product.findMany({
+    orderBy: { name: "asc" },
+    select: {
+      id: true,
+      name: true,
+      code: true,
+      topLevelPartId: true,
+      partLinks: { select: { partId: true } },
+    },
+  });
+  let productPartIds: string[] | null = null;
+  if (productId) {
+    const prod = products.find((p) => p.id === productId);
+    if (prod) {
+      productPartIds = [
+        ...(prod.topLevelPartId ? [prod.topLevelPartId] : []),
+        ...prod.partLinks.map((l) => l.partId),
+      ];
+    }
+  }
 
   const where: Prisma.BomHeaderWhereInput = {};
   if (status) where.status = status;
-  if (q || structure) {
+  if (q || structure || productPartIds) {
     where.part = {
       ...(q
         ? {
@@ -40,6 +64,7 @@ export default async function BomPage({
           }
         : {}),
       ...(structure ? { itemStructure: structure } : {}),
+      ...(productPartIds ? { id: { in: productPartIds.length ? productPartIds : ["__none__"] } } : {}),
     };
   }
 
@@ -55,7 +80,7 @@ export default async function BomPage({
 
   const selectClass =
     "flex h-9 w-full rounded-md border border-slate-700 bg-slate-950 px-2 text-sm text-slate-200";
-  const hasFilters = Boolean(q || status || structure);
+  const hasFilters = Boolean(q || status || structure || productId);
 
   return (
     <div className="space-y-6">
@@ -119,6 +144,17 @@ export default async function BomPage({
               <option value="SUB_ASSEMBLY">Sub-assembly</option>
               <option value="RAW_MATERIAL">Raw material</option>
               <option value="N_A">N/A</option>
+            </select>
+          </div>
+          <div>
+            <select name="product" defaultValue={productId} className={selectClass}>
+              <option value="">All products</option>
+              {products.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.code ? `${p.code} — ` : ""}
+                  {p.name}
+                </option>
+              ))}
             </select>
           </div>
         </div>
