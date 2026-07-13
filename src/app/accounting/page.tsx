@@ -29,6 +29,8 @@ import {
 } from "@/app/actions";
 import { getPayrollPolicy, parseHolidays } from "@/lib/services/timesheets";
 import { HolidayPicker } from "@/components/accounting/holiday-picker";
+import { PayrollTab } from "@/components/accounting/payroll-tab";
+import { BankingTab } from "@/components/accounting/banking-tab";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -300,6 +302,7 @@ export default async function AccountingPage({
               ? ` (${payrollQueue.filter((t) => t.status === "APPROVED").length})`
               : ""}
           </TabsTrigger>
+          <TabsTrigger value="banking">Banking</TabsTrigger>
         </TabsList>
 
         <TabsContent value="pl">
@@ -992,23 +995,7 @@ export default async function AccountingPage({
         </TabsContent>
 
         <TabsContent value="payroll" className="space-y-4">
-          <Card className="border-teal-900/40 bg-gradient-to-r from-teal-500/5 to-transparent">
-            <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
-              <div>
-                <p className="text-sm font-medium text-slate-200">
-                  Payroll runs in its own module now
-                </p>
-                <p className="text-xs text-slate-500">
-                  {payrollQueue.filter((t) => t.status === "APPROVED").length}{" "}
-                  approved timecard(s) ready to process. Policy below still lives
-                  here.
-                </p>
-              </div>
-              <Link href="/accounting/payroll">
-                <Button size="sm">Open Payroll →</Button>
-              </Link>
-            </CardContent>
-          </Card>
+          <PayrollTab />
 
           <div className="grid gap-4 lg:grid-cols-2">
             <Card>
@@ -1203,6 +1190,10 @@ export default async function AccountingPage({
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+        <TabsContent value="banking" className="space-y-4">
+          <BankingTab selectedId={pick(sp, "acct")} />
         </TabsContent>
       </Tabs>
     </div>
