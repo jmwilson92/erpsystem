@@ -14,6 +14,83 @@ export type HrPersona = {
   reportIds: string[];
 };
 
+export type ComplianceItem = {
+  kind: "REVIEW_OVERDUE" | "REVIEW_DUE_SOON" | "TRAINING_EXPIRED" | "TRAINING_EXPIRING";
+  userId: string;
+  employeeName: string;
+  label: string;
+  dueDate: Date | null;
+  daysOut: number; // negative = overdue/expired
+  href: string;
+};
+
+/**
+ * People-compliance engine: surfaces overdue/soon-due performance
+ * reviews and expired/expiring training. Scoped to the viewer — HR
+ * admins see everyone, managers see their reports. Feeds the HR
+ * report and the notification bell.
+ */
+export async function getComplianceItems(user: {
+  id: string;
+  role: string;
+}): Promise<ComplianceItem[]> {
+  const persona = await getHrPersona(user);
+  if (!persona.isHrAdmin && !persona.isManager) return [];
+  const scope = persona.isHrAdmin ? undefined : persona.reportIds;
+  const now = Date.now();
+  const soon = 30 * 86_400_000;
+
+  const [reviews, training] = await Promise.all([
+    prisma.performanceReview.findMany({
+      where: {
+        status: { not: "COMPLETED" },
+        dueDate: { not: null, lte: new Date(now + soon) },
+        ...(scope ? { employeeId: { in: scope } } : {}),
+      },
+      include: { employee: { select: { name: true } } },
+    }),
+    prisma.trainingRecord.findMany({
+      where: {
+        expiresAt: { not: null, lte: new Date(now + soon) },
+        status: { not: "IN_PROGRESS" },
+        ...(scope ? { userId: { in: scope } } : {}),
+      },
+      include: { user: { select: { name: true } } },
+    }),
+  ]);
+
+  const items: ComplianceItem[] = [];
+  for (const r of reviews) {
+    if (!r.dueDate) continue;
+    const days = Math.floor((r.dueDate.getTime() - now) / 86_400_000);
+    items.push({
+      kind: days < 0 ? "REVIEW_OVERDUE" : "REVIEW_DUE_SOON",
+      userId: r.employeeId,
+      employeeName: r.employee.name,
+      label: `${r.period} review — ${r.status.replace(/_/g, " ").toLowerCase()}`,
+      dueDate: r.dueDate,
+      daysOut: days,
+      href: `/hr/person/${r.employeeId}`,
+    });
+  }
+  for (const t of training) {
+    if (!t.expiresAt) continue;
+    const days = Math.floor((t.expiresAt.getTime() - now) / 86_400_000);
+    items.push({
+      kind: days < 0 ? "TRAINING_EXPIRED" : "TRAINING_EXPIRING",
+      userId: t.userId,
+      employeeName: t.user.name,
+      label: `${t.name} (${t.type.replace(/_/g, " ").toLowerCase()})`,
+      dueDate: t.expiresAt,
+      daysOut: days,
+      href: `/hr/person/${t.userId}`,
+    });
+  }
+  // Most-overdue first
+  items.sort((a, b) => a.daysOut - b.daysOut);
+  return items;
+}
+
 /** Resolve what the current user may see in the HR module. */
 export async function getHrPersona(user: {
   id: string;

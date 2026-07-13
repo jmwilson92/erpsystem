@@ -5,6 +5,7 @@ import {
   getHrPersona,
   getEmployeeProfile,
   getTeamOverview,
+  getComplianceItems,
   certExpiryTone,
 } from "@/lib/services/hr";
 import {
@@ -29,7 +30,6 @@ import {
   actionDecideTimeEntry,
   actionAdvanceExpense,
   actionUpdateGoalProgress,
-  actionAddEmployeeDocument,
   actionSaveReviewPolicy,
   actionOpenDueReviewCycles,
 } from "@/app/actions";
@@ -46,7 +46,13 @@ const certToneClass: Record<ReturnType<typeof certExpiryTone>, string> = {
   ok: "text-slate-500",
 };
 
-export default async function HrPage() {
+export default async function HrPage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const sp = searchParams ? await searchParams : {};
+  const tabParam = (Array.isArray(sp.tab) ? sp.tab[0] : sp.tab) || "";
   const me = await getCurrentUser();
   if (!me) return null;
 
@@ -57,10 +63,14 @@ export default async function HrPage() {
     await openDueReviewCycles({ actorId: me.id });
   }
 
-  const [profile, team] = await Promise.all([
+  const [profile, team, complianceItems] = await Promise.all([
     getEmployeeProfile(me.id),
     persona.isManager ? getTeamOverview(me.id) : Promise.resolve([]),
+    persona.isManager || persona.isHrAdmin
+      ? getComplianceItems(me)
+      : Promise.resolve([]),
   ]);
+  const overdueCount = complianceItems.filter((c) => c.daysOut < 0).length;
 
   // Company-wide data only loads for HR administration.
   const [users, timeEntries, pto, expenses, reviews, goals, reviewPolicy] =
@@ -105,11 +115,21 @@ export default async function HrPage() {
       .map((c) => ({ user: u.name, ...c }))
   );
 
-  const defaultTab = persona.isHrAdmin
-    ? "people"
-    : persona.isManager
-      ? "team"
-      : "profile";
+  const allowedTabs = new Set(
+    [
+      "profile",
+      persona.isManager ? "team" : "",
+      persona.isManager || persona.isHrAdmin ? "compliance" : "",
+      ...(persona.isHrAdmin ? ["people", "time", "pto", "expenses", "reviews"] : []),
+    ].filter(Boolean)
+  );
+  const defaultTab = allowedTabs.has(tabParam)
+    ? tabParam
+    : persona.isHrAdmin
+      ? "people"
+      : persona.isManager
+        ? "team"
+        : "profile";
 
   const description = persona.isHrAdmin
     ? "HR administration — people, time, PTO, expenses, reviews"
@@ -165,6 +185,11 @@ export default async function HrPage() {
           {persona.isManager && (
             <TabsTrigger value="team">My Team ({team.length})</TabsTrigger>
           )}
+          {(persona.isManager || persona.isHrAdmin) && (
+            <TabsTrigger value="compliance">
+              Compliance{overdueCount > 0 ? ` (${overdueCount})` : ""}
+            </TabsTrigger>
+          )}
           {persona.isHrAdmin && (
             <>
               <TabsTrigger value="people">People</TabsTrigger>
@@ -179,6 +204,62 @@ export default async function HrPage() {
             </>
           )}
         </TabsList>
+
+        {(persona.isManager || persona.isHrAdmin) && (
+          <TabsContent value="compliance" className="space-y-2">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">
+                  Training & review compliance
+                </CardTitle>
+                <p className="text-xs text-slate-500">
+                  Overdue and soon-due performance reviews and expiring
+                  certifications for {persona.isHrAdmin ? "the company" : "your team"}.
+                  Overdue items also alert on the bell.
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-1">
+                {complianceItems.length === 0 && (
+                  <p className="py-4 text-center text-sm text-slate-500">
+                    Everything current. 🎉
+                  </p>
+                )}
+                {complianceItems.map((c, i) => {
+                  const overdue = c.daysOut < 0;
+                  return (
+                    <Link
+                      key={i}
+                      href={c.href}
+                      className="flex items-center justify-between gap-2 rounded-lg border border-slate-800 px-3 py-2 text-sm hover:border-slate-700"
+                    >
+                      <span className="min-w-0">
+                        <span className="text-slate-200">{c.employeeName}</span>
+                        <span className="ml-2 text-xs text-slate-500">
+                          {c.label}
+                        </span>
+                      </span>
+                      <span
+                        className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                          overdue
+                            ? "bg-rose-500/15 text-rose-300"
+                            : "bg-amber-500/15 text-amber-300"
+                        }`}
+                      >
+                        {c.kind.startsWith("TRAINING")
+                          ? overdue
+                            ? "EXPIRED"
+                            : `expires ${Math.abs(c.daysOut)}d`
+                          : overdue
+                            ? `${Math.abs(c.daysOut)}d overdue`
+                            : `due ${c.daysOut}d`}
+                      </span>
+                    </Link>
+                  );
+                })}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
 
         <TabsContent value="profile">
           <ProfileView profile={profile} />
@@ -268,37 +349,11 @@ export default async function HrPage() {
                 })}
               </div>
 
-              <Card className="border-slate-800">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base">Add employee document</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <form
-                    action={actionAddEmployeeDocument}
-                    className="grid gap-2 sm:grid-cols-5"
-                  >
-                    <select name="userId" required className={selectClass}>
-                      {users.map((u) => (
-                        <option key={u.id} value={u.id}>
-                          {u.name}
-                        </option>
-                      ))}
-                    </select>
-                    <Input name="title" required placeholder="Document title" />
-                    <select name="kind" className={selectClass} defaultValue="GENERAL">
-                      <option value="GENERAL">General</option>
-                      <option value="OFFER_LETTER">Offer letter</option>
-                      <option value="CERTIFICATION">Certification</option>
-                      <option value="POLICY_ACK">Policy ack</option>
-                      <option value="TRAINING">Training</option>
-                    </select>
-                    <Input name="note" placeholder="Note (optional)" />
-                    <Button type="submit" size="sm">
-                      Add document
-                    </Button>
-                  </form>
-                </CardContent>
-              </Card>
+              <p className="text-xs text-slate-500">
+                Documents are added from each person&apos;s own page — open a
+                team member above to attach offer letters, certifications, or
+                training records.
+              </p>
             </TabsContent>
 
             <TabsContent value="time" className="space-y-2">
