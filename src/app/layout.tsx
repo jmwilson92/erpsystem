@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ForgeERP — Manufacturing ERP",
+  title: "ForgeRP — Manufacturing ERP",
   description:
     "Integrated manufacturing ERP: shop floor execution, CM, supply chain, MRB, EVM, and compliance.",
 };

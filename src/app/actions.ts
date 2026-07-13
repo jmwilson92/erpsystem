@@ -4660,6 +4660,7 @@ export async function actionCreateEmployeeGoal(
     category: ((formData.get("category") as string) || "SKILL").trim(),
     targetDate: target && !Number.isNaN(target.getTime()) ? target : null,
     description: (formData.get("description") as string) || null,
+    alignedTo: ((formData.get("alignedTo") as string) || "").trim() || null,
     createdById: user.id,
   });
   revalidatePath("/hr");
@@ -4704,6 +4705,168 @@ export async function actionAddEmployeeDocument(
   });
   revalidatePath("/hr");
   revalidatePath(`/hr/person/${userId}`);
+}
+
+export async function actionAddTrainingRecord(
+  formData: FormData
+): Promise<void> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const { canDecideFor } = await import("@/lib/services/hr");
+  const user = await getCurrentUser();
+  if (!user) return;
+  const userId = ((formData.get("userId") as string) || "").trim();
+  const name = ((formData.get("name") as string) || "").trim();
+  if (!userId || !name) return;
+  const isSelf = userId === user.id;
+  const isHr = await userHasPermission(user.id, "hr.docs.manage");
+  const isManager = await canDecideFor(
+    { id: user.id, role: user.role },
+    userId,
+    "hr.docs.manage"
+  );
+  if (!isSelf && !isHr && !isManager) {
+    throw new Error("Not authorized to manage training records");
+  }
+  const attachName = ((formData.get("attachmentName") as string) || "").trim();
+  const attachUrl = ((formData.get("attachmentUrl") as string) || "").trim();
+  const completedAtRaw = ((formData.get("completedAt") as string) || "").trim();
+  const expiresAtRaw = ((formData.get("expiresAt") as string) || "").trim();
+  await prisma.trainingRecord.create({
+    data: {
+      userId,
+      name,
+      type: ((formData.get("type") as string) || "COURSE").trim(),
+      provider: ((formData.get("provider") as string) || "").trim() || null,
+      status: ((formData.get("status") as string) || "COMPLETED").trim(),
+      completedAt: completedAtRaw ? new Date(completedAtRaw) : null,
+      expiresAt: expiresAtRaw ? new Date(expiresAtRaw) : null,
+      notes: ((formData.get("notes") as string) || "").trim() || null,
+      attachments:
+        attachUrl || attachName
+          ? JSON.stringify([{ name: attachName || "Attachment", url: attachUrl }])
+          : null,
+      createdById: user.id,
+    },
+  });
+  await logAudit({
+    entityType: "TrainingRecord",
+    entityId: userId,
+    action: "TRAINING_ADDED",
+    userId: user.id,
+    metadata: { name },
+  });
+  revalidatePath("/hr");
+  revalidatePath(`/hr/person/${userId}`);
+}
+
+export async function actionAttachTrainingEvidence(
+  formData: FormData
+): Promise<void> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const { canDecideFor } = await import("@/lib/services/hr");
+  const user = await getCurrentUser();
+  if (!user) return;
+  const recordId = ((formData.get("recordId") as string) || "").trim();
+  const url = ((formData.get("url") as string) || "").trim();
+  const name = ((formData.get("name") as string) || "").trim();
+  if (!recordId || (!url && !name)) return;
+  const record = await prisma.trainingRecord.findUnique({
+    where: { id: recordId },
+  });
+  if (!record) return;
+  const isSelf = record.userId === user.id;
+  const isHr = await userHasPermission(user.id, "hr.docs.manage");
+  const isManager = await canDecideFor(
+    { id: user.id, role: user.role },
+    record.userId,
+    "hr.docs.manage"
+  );
+  if (!isSelf && !isHr && !isManager) {
+    throw new Error("Not authorized to attach training evidence");
+  }
+  let list: { name: string; url: string }[] = [];
+  try {
+    const parsed = JSON.parse(record.attachments || "[]");
+    if (Array.isArray(parsed)) list = parsed;
+  } catch {
+    // start fresh on malformed data
+  }
+  list.push({ name: name || "Attachment", url });
+  await prisma.trainingRecord.update({
+    where: { id: recordId },
+    data: { attachments: JSON.stringify(list) },
+  });
+  revalidatePath("/hr");
+  revalidatePath(`/hr/person/${record.userId}`);
+}
+
+export async function actionGoalCheckIn(formData: FormData): Promise<void> {
+  const { canDecideFor } = await import("@/lib/services/hr");
+  const user = await getCurrentUser();
+  if (!user) return;
+  const goalId = ((formData.get("goalId") as string) || "").trim();
+  const progress = Math.min(100, Math.max(0, Number(formData.get("progress") || 0)));
+  const note = ((formData.get("note") as string) || "").trim() || null;
+  if (!goalId) return;
+  const goal = await prisma.employeeGoal.findUnique({ where: { id: goalId } });
+  if (!goal) return;
+  const isSelf = goal.userId === user.id;
+  const isManager = await canDecideFor(
+    { id: user.id, role: user.role },
+    goal.userId,
+    "hr.goal.manage"
+  );
+  if (!isSelf && !isManager) {
+    throw new Error("Not authorized to check in on this goal");
+  }
+  await prisma.goalCheckIn.create({
+    data: { goalId, authorId: user.id, progress, note },
+  });
+  await prisma.employeeGoal.update({
+    where: { id: goalId },
+    data: {
+      progress,
+      status: progress >= 100 ? "COMPLETED" : goal.status,
+    },
+  });
+  revalidatePath("/hr");
+  revalidatePath(`/hr/person/${goal.userId}`);
+}
+
+export async function actionAddFeedbackNote(
+  formData: FormData
+): Promise<void> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const { canDecideFor } = await import("@/lib/services/hr");
+  const user = await getCurrentUser();
+  if (!user) return;
+  const aboutUserId = ((formData.get("aboutUserId") as string) || "").trim();
+  const body = ((formData.get("body") as string) || "").trim();
+  if (!aboutUserId || !body) return;
+  const isHr = await userHasPermission(user.id, "hr.review.manage");
+  const isManager = await canDecideFor(
+    { id: user.id, role: user.role },
+    aboutUserId,
+    "hr.review.manage"
+  );
+  if (!isHr && !isManager) {
+    throw new Error("Not authorized to leave feedback for this person");
+  }
+  await prisma.feedbackNote.create({
+    data: {
+      aboutUserId,
+      authorId: user.id,
+      kind: ((formData.get("kind") as string) || "PRAISE").trim(),
+      visibility:
+        ((formData.get("visibility") as string) || "SHARED").trim() ===
+        "MANAGER_ONLY"
+          ? "MANAGER_ONLY"
+          : "SHARED",
+      body,
+    },
+  });
+  revalidatePath("/hr");
+  revalidatePath(`/hr/person/${aboutUserId}`);
 }
 
 export async function actionCreatePermissionGroup(

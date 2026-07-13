@@ -12,10 +12,11 @@ import {
 } from "@/lib/services/review-cycles";
 import {
   actionRequestPto,
-  actionUpdateGoalProgress,
+  actionGoalCheckIn,
   actionCreateEmployeeGoal,
   actionAdvanceExpense,
   actionAddEmployeeDocument,
+  actionAddTrainingRecord,
   actionSubmitSelfReview,
   actionSignOffReview,
 } from "@/app/actions";
@@ -45,6 +46,8 @@ export function ProfileView({
     reviews,
     goals,
     documents,
+    training,
+    feedback,
     balances,
   } = profile;
   const skills = parseJsonArray(user.skills);
@@ -223,28 +226,38 @@ export function ProfileView({
                   <span className="text-xs text-slate-500">{g.category}</span>
                 </div>
                 <Progress value={g.progress} className="mt-1 h-1.5" />
-                <div className="mt-1 flex items-center justify-between gap-2">
-                  <p className="text-[11px] text-slate-500">
-                    {g.progress}%{g.targetDate ? ` · due ${formatDate(g.targetDate)}` : ""}
+                <p className="mt-1 text-[11px] text-slate-500">
+                  {g.progress}%{g.targetDate ? ` · due ${formatDate(g.targetDate)}` : ""}
+                  {g.alignedTo ? (
+                    <span className="text-violet-400"> · aligns to “{g.alignedTo}”</span>
+                  ) : null}
+                </p>
+                {g.checkIns.length > 0 && (
+                  <p className="text-[11px] text-slate-600">
+                    Last check-in: {g.checkIns[0].progress}% ·{" "}
+                    {formatDate(g.checkIns[0].createdAt)}
+                    {g.checkIns[0].note ? ` — ${g.checkIns[0].note}` : ""}
                   </p>
-                  <form
-                    action={actionUpdateGoalProgress}
-                    className="flex items-center gap-1"
-                  >
-                    <input type="hidden" name="id" value={g.id} />
-                    <Input
-                      name="progress"
-                      type="number"
-                      min={0}
-                      max={100}
-                      defaultValue={g.progress}
-                      className="h-7 w-16 text-xs"
-                    />
-                    <Button type="submit" size="sm" variant="outline" className="h-7">
-                      Update
-                    </Button>
-                  </form>
-                </div>
+                )}
+                <form action={actionGoalCheckIn} className="mt-1 flex gap-1">
+                  <input type="hidden" name="goalId" value={g.id} />
+                  <Input
+                    name="progress"
+                    type="number"
+                    min={0}
+                    max={100}
+                    defaultValue={g.progress}
+                    className="h-7 w-16 text-xs"
+                  />
+                  <Input
+                    name="note"
+                    placeholder="Check-in note…"
+                    className="h-7 flex-1 text-xs"
+                  />
+                  <Button type="submit" size="sm" variant="outline" className="h-7">
+                    Check in
+                  </Button>
+                </form>
               </div>
             ))}
             <form
@@ -351,6 +364,133 @@ export function ProfileView({
                   {p.type} · {formatDate(p.startDate)} → {formatDate(p.endDate)} · {p.hours}h
                 </span>
                 <StatusBadge status={p.status} />
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+
+        {/* Training & qualifications */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">My training</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {training.length === 0 && (
+              <p className="text-sm text-slate-500">No training on file.</p>
+            )}
+            {training.map((t) => {
+              let attachments: { name: string; url: string }[] = [];
+              try {
+                const parsed = JSON.parse(t.attachments || "[]");
+                if (Array.isArray(parsed)) attachments = parsed;
+              } catch {
+                // ignore malformed attachment JSON
+              }
+              return (
+                <div
+                  key={t.id}
+                  className="rounded-lg border border-slate-800 px-3 py-2"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm text-slate-200">{t.name}</span>
+                    <StatusBadge status={t.status} />
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    {t.type.replace(/_/g, " ")}
+                    {t.provider ? ` · ${t.provider}` : ""}
+                    {t.expiresAt ? ` · expires ${formatDate(t.expiresAt)}` : ""}
+                  </p>
+                  {attachments.length > 0 && (
+                    <div className="mt-1 flex flex-wrap gap-1.5">
+                      {attachments.map((a, i) => (
+                        <a
+                          key={i}
+                          href={a.url || "#"}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-sky-400 hover:underline"
+                        >
+                          📎 {a.name}
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            <form
+              action={actionAddTrainingRecord}
+              className="grid gap-2 border-t border-slate-800 pt-2 sm:grid-cols-3"
+            >
+              <input type="hidden" name="userId" value={user.id} />
+              <Input
+                name="name"
+                required
+                placeholder="Training name…"
+                className="text-xs sm:col-span-2"
+              />
+              <select name="type" className={selectClass} defaultValue="COURSE">
+                <option value="COURSE">Course</option>
+                <option value="CERTIFICATION">Certification</option>
+                <option value="COMPLIANCE">Compliance</option>
+                <option value="SAFETY">Safety</option>
+              </select>
+              <Input
+                name="attachmentName"
+                placeholder="Attachment name (optional)"
+                className="text-xs"
+              />
+              <Input
+                name="attachmentUrl"
+                placeholder="Attachment URL (optional)"
+                className="text-xs"
+              />
+              <Button type="submit" size="sm">
+                Add training
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+
+        {/* Feedback for me */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Feedback for me</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {feedback.length === 0 && (
+              <p className="text-sm text-slate-500">
+                Nothing yet — praise and coaching from your manager lands here.
+              </p>
+            )}
+            {feedback.map((f) => (
+              <div
+                key={f.id}
+                className={`rounded-lg border px-3 py-2 ${
+                  f.kind === "PRAISE"
+                    ? "border-emerald-500/25 bg-emerald-500/5"
+                    : f.kind === "COACHING"
+                      ? "border-amber-500/25 bg-amber-500/5"
+                      : "border-slate-800"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2 text-[11px]">
+                  <span
+                    className={
+                      f.kind === "PRAISE"
+                        ? "font-semibold text-emerald-400"
+                        : f.kind === "COACHING"
+                          ? "font-semibold text-amber-400"
+                          : "font-semibold text-slate-400"
+                    }
+                  >
+                    {f.kind}
+                  </span>
+                  <span className="text-slate-500">
+                    {f.author?.name || "—"} · {formatDate(f.createdAt)}
+                  </span>
+                </div>
+                <p className="mt-1 text-sm text-slate-300">{f.body}</p>
               </div>
             ))}
           </CardContent>

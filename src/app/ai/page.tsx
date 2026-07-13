@@ -26,7 +26,7 @@ export default function AiPage() {
     {
       role: "assistant",
       content:
-        "Welcome to **ForgeERP AI**. I can summarize production, quality/MRB, suppliers, value stream, projects, and goals. Ask anything — or set `XAI_API_KEY` for live Grok.",
+        "Welcome to **ForgeRP AI**. I can summarize production, quality/MRB, suppliers, value stream, projects, and goals. Ask anything — or set `XAI_API_KEY` for live Grok.",
     },
   ]);
   const [pending, startTransition] = useTransition();

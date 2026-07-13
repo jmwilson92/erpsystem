@@ -330,12 +330,30 @@ export async function getEmployeeProfile(userId: string) {
       prisma.employeeGoal.findMany({
         where: { userId },
         orderBy: [{ status: "asc" }, { targetDate: "asc" }],
+        include: {
+          checkIns: {
+            orderBy: { createdAt: "desc" },
+            include: { author: { select: { name: true } } },
+          },
+        },
       }),
       prisma.employeeDocument.findMany({
         where: { userId },
         orderBy: { uploadedAt: "desc" },
       }),
     ]);
+  const [training, feedback] = await Promise.all([
+    prisma.trainingRecord.findMany({
+      where: { userId },
+      orderBy: [{ status: "asc" }, { completedAt: "desc" }],
+    }),
+    // Employees see only feedback shared with them
+    prisma.feedbackNote.findMany({
+      where: { aboutUserId: userId, visibility: "SHARED" },
+      orderBy: { createdAt: "desc" },
+      include: { author: { select: { name: true, title: true } } },
+    }),
+  ]);
   const { getPtoBalances } = await import("@/lib/services/timesheets");
   const balances = await getPtoBalances(userId);
   return {
@@ -346,6 +364,8 @@ export async function getEmployeeProfile(userId: string) {
     reviews,
     goals,
     documents,
+    training,
+    feedback,
     balances,
   };
 }
@@ -420,6 +440,7 @@ export async function createEmployeeGoal(params: {
   category?: string;
   targetDate?: Date | null;
   description?: string | null;
+  alignedTo?: string | null;
   createdById?: string | null;
 }) {
   const goal = await prisma.employeeGoal.create({
@@ -429,6 +450,7 @@ export async function createEmployeeGoal(params: {
       category: params.category || "SKILL",
       targetDate: params.targetDate || null,
       description: params.description?.trim() || null,
+      alignedTo: params.alignedTo?.trim() || null,
       status: "ACTIVE",
       progress: 0,
     },

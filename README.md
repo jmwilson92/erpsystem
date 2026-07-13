@@ -1,4 +1,4 @@
-# ForgeERP
+# ForgeRP
 
 **Integrated manufacturing ERP** for high-reliability environments (aerospace, defense, precision assembly). Built as a single cohesive **Next.js 15** application with full **day/night theming** (navy/slate night mode, crisp white day mode), teal/amber status accents, shop-floor tablet support, and large-screen information radiators.
 
@@ -125,7 +125,7 @@ flowchart TB
   end
 
   subgraph Data["Prisma + SQLite / PostgreSQL"]
-    DB[(ForgeERP DB)]
+    DB[(ForgeRP DB)]
   end
 
   RSC --> Domain

@@ -1,5 +1,5 @@
 /**
- * ForgeERP rich seed data — demonstrates all integrated manufacturing flows.
+ * ForgeRP rich seed data — demonstrates all integrated manufacturing flows.
  */
 import { PrismaClient } from "@prisma/client";
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
@@ -21,12 +21,12 @@ function daysFromNow(n: number) {
 }
 
 async function main() {
-  console.log("🔥 Seeding ForgeERP...");
+  console.log("🔥 Seeding ForgeRP...");
 
   // Wipe in dependency order (SQLite)
   const tables = [
     "TicketComment", "EngineeringTicket", "Sprint",
-    "CompanySettings", "TimesheetApproval", "Timesheet", "PayrollPolicy", "ReviewPolicy", "AccountingSettings", "EmployeeDocument", "EmployeeGoal", "PerformanceReview", "ExpenseLine", "ExpenseReport", "PtoRequest", "TimeEntry",
+    "CompanySettings", "TimesheetApproval", "Timesheet", "PayrollPolicy", "ReviewPolicy", "AccountingSettings", "EmployeeDocument", "TrainingRecord", "FeedbackNote", "GoalCheckIn", "EmployeeGoal", "PerformanceReview", "ExpenseLine", "ExpenseReport", "PtoRequest", "TimeEntry",
     "GfpConsumption", "GfpCheckout", "GfpAuditRecord", "GfpDocument",
     "ComplianceCheck", "GovernmentProperty",
     "VirtualAssetAssignment", "VirtualAsset",
@@ -2924,6 +2924,72 @@ async function main() {
     ],
   });
 
+  // ── Training records (with attachable evidence) ────────────
+  await prisma.trainingRecord.createMany({
+    data: [
+      {
+        userId: tech1.id, name: "IPC-A-610 Class 3 Acceptance", type: "CERTIFICATION",
+        provider: "IPC EDGE", status: "COMPLETED", completedAt: daysAgo(200), expiresAt: daysFromNow(530),
+        attachments: JSON.stringify([{ name: "IPC-A-610 certificate.pdf", url: "https://files.example/ipc-610-tech1.pdf" }]),
+        createdById: hrMgr.id,
+      },
+      {
+        userId: tech1.id, name: "ESD awareness refresher", type: "COMPLIANCE",
+        status: "COMPLETED", completedAt: daysAgo(30), expiresAt: daysFromNow(335),
+        createdById: hrMgr.id,
+      },
+      {
+        userId: tech1.id, name: "Forklift operator", type: "SAFETY",
+        status: "EXPIRED", completedAt: daysAgo(1200), expiresAt: daysAgo(105),
+        notes: "Renewal needed before next warehouse rotation",
+        createdById: prodSup.id,
+      },
+      {
+        userId: tech2.id, name: "CMM operator level 1", type: "COURSE",
+        provider: "Hexagon", status: "COMPLETED", completedAt: daysAgo(400),
+        attachments: JSON.stringify([{ name: "CMM-L1 completion.pdf", url: "https://files.example/cmm-l1-tech2.pdf" }]),
+        createdById: hrMgr.id,
+      },
+      {
+        userId: tech2.id, name: "5-axis programming fundamentals", type: "COURSE",
+        provider: "Mastercam U", status: "IN_PROGRESS",
+        createdById: prodSup.id,
+      },
+      {
+        userId: inspector.id, name: "GD&T Level II", type: "CERTIFICATION",
+        status: "COMPLETED", completedAt: daysAgo(300), expiresAt: daysFromNow(430),
+        attachments: JSON.stringify([{ name: "GDT-II certificate.pdf", url: "https://files.example/gdt2-inspector.pdf" }]),
+        createdById: hrMgr.id,
+      },
+    ],
+  });
+
+  // ── Goal check-ins + continuous feedback ───────────────────
+  const assemblerGoal = await prisma.employeeGoal.findFirst({
+    where: { userId: tech1.id, title: "Earn Assembler III" },
+  });
+  if (assemblerGoal) {
+    await prisma.employeeGoal.update({
+      where: { id: assemblerGoal.id },
+      data: { alignedTo: "Grow bench strength for Block 5 ramp" },
+    });
+    await prisma.goalCheckIn.createMany({
+      data: [
+        { goalId: assemblerGoal.id, authorId: tech1.id, progress: 25, note: "Completed soldering module; scheduling harness practical", createdAt: daysAgo(60) },
+        { goalId: assemblerGoal.id, authorId: prodSup.id, progress: 45, note: "Practical passed first try — pair with Dana on cable prep next", createdAt: daysAgo(30) },
+        { goalId: assemblerGoal.id, authorId: tech1.id, progress: 60, note: "Cable prep signed off; written exam left", createdAt: daysAgo(7) },
+      ],
+    });
+  }
+  await prisma.feedbackNote.createMany({
+    data: [
+      { aboutUserId: tech1.id, authorId: prodSup.id, kind: "PRAISE", body: "Caught a reversed connector on SWO-00002 before pot & cure — saved a rework loop.", createdAt: daysAgo(12) },
+      { aboutUserId: tech1.id, authorId: qualityMgr.id, kind: "PRAISE", body: "Torque log discipline is the best on the floor. Zero findings in the last audit.", createdAt: daysAgo(40) },
+      { aboutUserId: tech2.id, authorId: prodSup.id, kind: "COACHING", body: "Setup sheets need photos of the fixture state — next machinist can't reproduce from notes alone.", createdAt: daysAgo(9) },
+      { aboutUserId: tech2.id, authorId: prodSup.id, kind: "NOTE", visibility: "MANAGER_ONLY", body: "Discussed lead-machinist track; revisit after Q3 review.", createdAt: daysAgo(5) },
+    ],
+  });
+
   // ── Upcoming / in-flight reviews (self-assessment window open) ──
   const reviewQs = JSON.stringify([
     "How well did you meet your goals this period?",
@@ -3021,7 +3087,7 @@ async function main() {
   await prisma.companySettings.create({
     data: {
       id: "default",
-      name: "ForgeERP",
+      name: "ForgeRP",
       tagline: "Manufacturing",
       departments: JSON.stringify([
         "Production", "Manufacturing", "Assembly", "Machining",
@@ -3108,7 +3174,7 @@ async function main() {
     ],
   });
 
-  console.log("✅ ForgeERP seed complete — all modules linked.");
+  console.log("✅ ForgeRP seed complete — all modules linked.");
 }
 
 main()
