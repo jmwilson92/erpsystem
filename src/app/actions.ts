@@ -4833,6 +4833,44 @@ export async function actionGoalCheckIn(formData: FormData): Promise<void> {
   revalidatePath(`/hr/person/${goal.userId}`);
 }
 
+export async function actionImportData(
+  _prev: import("@/lib/services/data-import").ImportResult | null,
+  formData: FormData
+): Promise<import("@/lib/services/data-import").ImportResult> {
+  const { runImport } = await import("@/lib/services/data-import");
+  const { userHasPermission } = await import("@/lib/auth");
+  const user = await getCurrentUser();
+  if (!user || !(await userHasPermission(user.id, "admin.users.manage"))) {
+    return {
+      created: 0,
+      updated: 0,
+      skipped: 0,
+      total: 0,
+      errors: [{ row: 0, message: "Not authorized to import data (needs admin.users.manage)." }],
+    };
+  }
+  const entityRaw = ((formData.get("entity") as string) || "").trim();
+  const entity = (["parts", "customers", "suppliers", "people"] as const).find(
+    (e) => e === entityRaw
+  );
+  const text = ((formData.get("text") as string) || "").trim();
+  if (!entity || !text) {
+    return {
+      created: 0,
+      updated: 0,
+      skipped: 0,
+      total: 0,
+      errors: [{ row: 0, message: "Pick a data type and paste your rows first." }],
+    };
+  }
+  const result = await runImport({ entity, text, userId: user.id });
+  revalidatePath("/items");
+  revalidatePath("/customers");
+  revalidatePath("/suppliers");
+  revalidatePath("/hr");
+  return result;
+}
+
 export async function actionStartTestDrive(): Promise<void> {
   const { cookies } = await import("next/headers");
   const { randomUUID } = await import("crypto");
