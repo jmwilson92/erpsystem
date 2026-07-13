@@ -517,6 +517,10 @@ export async function createDocumentEcr(params: {
     caption?: string | null;
     isPrimary?: boolean;
   }[];
+  /** Drawing defines a BOM — auto-create an in-work BOM for bomPartId and
+   *  block release until it is certified */
+  includesBom?: boolean;
+  bomPartId?: string | null;
   priority?: string;
   userId?: string;
 }) {
@@ -678,6 +682,65 @@ export async function createDocumentEcr(params: {
     }
   }
 
+  // ── Drawing includes a BOM: ensure an in-work BOM exists for the part ──
+  const includesBom = !!params.includesBom;
+  let bomPartId: string | null = null;
+  let bomHeaderId: string | null = null;
+  let bomAutoCreated = false;
+  if (includesBom) {
+    if (!params.bomPartId) {
+      throw new Error(
+        "Select the item this drawing's BOM builds (includes-BOM drawings need a part)"
+      );
+    }
+    const bomPart = await prisma.part.findUnique({
+      where: { id: params.bomPartId },
+      select: { id: true, partNumber: true },
+    });
+    if (!bomPart) throw new Error("BOM part not found");
+    bomPartId = bomPart.id;
+
+    // Reuse an existing in-work BOM; otherwise auto-create a prototype rev
+    const inWork = await prisma.bomHeader.findFirst({
+      where: {
+        partId: bomPart.id,
+        status: { in: ["DRAFT", "PROTOTYPE", "IN_REVIEW"] },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    if (inWork) {
+      bomHeaderId = inWork.id;
+    } else {
+      const existingRevs = await prisma.bomHeader.findMany({
+        where: { partId: bomPart.id },
+        select: { revision: true },
+      });
+      let nextRev = "A";
+      if (existingRevs.length > 0) {
+        const letters = existingRevs
+          .map((r) => r.revision)
+          .filter((r) => /^[A-Z]$/.test(r))
+          .sort();
+        const last = letters[letters.length - 1];
+        nextRev = last
+          ? String.fromCharCode(last.charCodeAt(0) + 1)
+          : `R${existingRevs.length + 1}`;
+      }
+      const { createBomRevision } = await import("@/lib/services/bom");
+      const created = await createBomRevision({
+        partId: bomPart.id,
+        revision: nextRev,
+        asPrototype: true,
+        description: `In-work BOM from drawing ECR — ${
+          params.documentNumber || documentNumber || "drawing"
+        }`,
+        userId: params.userId,
+      });
+      bomHeaderId = created.id;
+      bomAutoCreated = true;
+    }
+  }
+
   const count = await prisma.changeRequest.count();
   const number = `ECR-${String(count + 1).padStart(5, "0")}`;
 
@@ -717,6 +780,9 @@ export async function createDocumentEcr(params: {
       documentDescription,
       documentAttachments:
         attachments.length > 0 ? serializeEcrAttachments(attachments) : null,
+      includesBom,
+      bomPartId,
+      bomHeaderId,
     },
   });
 
@@ -740,6 +806,9 @@ export async function createDocumentEcr(params: {
       productName,
       isDocumentUpdate,
       status: "SUBMITTED",
+      includesBom,
+      bomHeaderId,
+      bomAutoCreated,
     },
   });
 
@@ -847,6 +916,26 @@ export async function releaseDocumentEcr(params: {
     throw new Error("ECR missing document number / title / revision");
   }
 
+  // ── Includes-BOM gate: drawing cannot release until its BOM is certified ──
+  if (cr.includesBom) {
+    const gateBom = cr.bomHeaderId
+      ? await prisma.bomHeader.findUnique({
+          where: { id: cr.bomHeaderId },
+          include: { part: { select: { partNumber: true } } },
+        })
+      : null;
+    if (!gateBom) {
+      throw new Error(
+        "This drawing includes a BOM but no BOM is linked — link or create the BOM before release"
+      );
+    }
+    if (gateBom.status !== "CERTIFIED") {
+      throw new Error(
+        `Release blocked — this drawing includes a BOM. BOM ${gateBom.part.partNumber} Rev ${gateBom.revision} is ${gateBom.status}; certify it first.`
+      );
+    }
+  }
+
   const releaseFolder = await prisma.cmFolder.findUnique({
     where: { id: params.releaseFolderId },
   });
@@ -912,6 +1001,8 @@ export async function releaseDocumentEcr(params: {
       isArchived: false,
       supersedesId: previous?.id || null,
       createdById: params.userId || null,
+      partId: cr.bomPartId || null,
+      bomHeaderId: cr.includesBom ? cr.bomHeaderId : null,
     },
   });
 

@@ -149,7 +149,7 @@ export default async function CmPage({
   await ensureAdminFolder();
   await ensureDefaultNumberSchemes();
 
-  const [crs, wis, boms, folders, currentFolder, documents, cmUsers, libraryDocs, numberSchemes, numberRequests, numberRegistry, assignedNumbers] =
+  const [crs, wis, boms, folders, currentFolder, documents, cmUsers, libraryDocs, numberSchemes, numberRequests, numberRegistry, assignedNumbers, bomParts] =
     await Promise.all([
       prisma.changeRequest.findMany({
         orderBy: { createdAt: "desc" },
@@ -259,6 +259,12 @@ export default async function CmPage({
         limit: 500,
       }),
       listAvailableNumbersForEcr(),
+      prisma.part.findMany({
+        where: { isActive: true, sourcingMethod: { not: "PURCHASE" } },
+        orderBy: { partNumber: "asc" },
+        take: 500,
+        select: { id: true, partNumber: true, description: true },
+      }),
     ]);
 
   const userIds = [
@@ -585,6 +591,7 @@ export default async function CmPage({
             }))}
             adminFolderId={adminRoot?.id || null}
             libraryDocs={libraryDocs}
+            bomParts={bomParts}
             assignedNumbers={assignedNumbers.map((n) => ({
               id: n.id,
               number: n.number,

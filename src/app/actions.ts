@@ -1569,6 +1569,10 @@ export async function actionCreateDocumentEcr(
     documentDescription:
       ((formData.get("documentDescription") as string) || "").trim() || null,
     attachments,
+    includesBom:
+      formData.get("includesBom") === "on" ||
+      formData.get("includesBom") === "true",
+    bomPartId: ((formData.get("bomPartId") as string) || "").trim() || null,
     priority: ((formData.get("priority") as string) || "NORMAL").trim(),
     userId: user?.id,
   });

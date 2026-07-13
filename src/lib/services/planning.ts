@@ -98,94 +98,124 @@ export async function generateMaterialRequisitionFromForecast(params: {
     shortQty: number;
     action: string;
     parentPartId?: string | null;
+    level: number;
     notes?: string;
   };
 
   const drafts: MrsLineDraft[] = [];
+  const MAX_DEPTH = 10;
+  // Stock is netted across the whole run: once a demand line consumes
+  // on-hand, later lines for the same part see only what's left.
+  const stockCache = new Map<string, number>();
+  const allocated = new Map<string, number>();
 
-  for (const fl of forecast.lines) {
-    const onHand = await getAvailableQty(fl.partId);
-    const need = Math.max(0, fl.quantity - onHand);
-    if (need <= 0) {
+  /**
+   * Recursively net a part's demand against stock. Shortfalls on buildable
+   * parts (certified BOM, not pure PURCHASE) explode into their component
+   * needs — nested sub-BOMs explode all the way down.
+   */
+  async function explode(
+    partId: string,
+    partNumber: string,
+    sourcingMethod: string,
+    qtyNeeded: number,
+    parentPartId: string | null,
+    level: number,
+    chain: Set<string>
+  ): Promise<void> {
+    if (!stockCache.has(partId)) {
+      stockCache.set(partId, await getAvailableQty(partId));
+    }
+    const used = allocated.get(partId) || 0;
+    const onHand = Math.max(0, (stockCache.get(partId) || 0) - used);
+    allocated.set(partId, used + Math.min(onHand, qtyNeeded));
+    const short = Math.max(0, qtyNeeded - onHand);
+
+    if (short <= 0) {
       drafts.push({
-        partId: fl.partId,
-        requiredQty: fl.quantity,
+        partId,
+        requiredQty: qtyNeeded,
         onHandQty: onHand,
         shortQty: 0,
         action: "STOCK",
-        notes: `Forecast ${fl.quantity} covered by on-hand ${onHand}`,
+        parentPartId,
+        level,
+        notes:
+          level === 0
+            ? `Forecast ${qtyNeeded} covered by on-hand ${onHand}`
+            : `Component — covered by stock`,
       });
-      continue;
+      return;
     }
 
-    // Prefer BUILD if certified BOM exists and part is not pure PURCHASE
-    const certifiedBom = await prisma.bomHeader.findFirst({
-      where: { partId: fl.partId, status: "CERTIFIED" },
-      orderBy: { revision: "desc" },
-      include: { lines: { include: { componentPart: true } } },
+    const certifiedBom =
+      sourcingMethod === "PURCHASE"
+        ? null
+        : await prisma.bomHeader.findFirst({
+            where: { partId, status: "CERTIFIED" },
+            orderBy: { revision: "desc" },
+            include: { lines: { include: { componentPart: true } } },
+          });
+
+    if (!certifiedBom) {
+      drafts.push({
+        partId,
+        requiredQty: qtyNeeded,
+        onHandQty: onHand,
+        shortQty: short,
+        action: "BUY",
+        parentPartId,
+        level,
+        notes:
+          level === 0
+            ? `No certified BOM / purchase item — buy ${short}`
+            : `Purchase short (L${level})`,
+      });
+      return;
+    }
+
+    drafts.push({
+      partId,
+      requiredQty: qtyNeeded,
+      onHandQty: onHand,
+      shortQty: short,
+      action: "BUILD",
+      parentPartId,
+      level,
+      notes:
+        level === 0
+          ? `Build ${short} of ${partNumber} (need ${qtyNeeded}, on-hand ${onHand})`
+          : `Sub-assembly build ${short} (L${level})`,
     });
 
-    const canBuild =
-      !!certifiedBom && fl.part.sourcingMethod !== "PURCHASE";
+    if (level >= MAX_DEPTH) return;
 
-    if (canBuild && certifiedBom) {
-      drafts.push({
-        partId: fl.partId,
-        requiredQty: need,
-        onHandQty: onHand,
-        shortQty: need,
-        action: "BUILD",
-        notes: `Build ${need} of ${fl.part.partNumber} (forecast ${fl.quantity}, on-hand ${onHand})`,
-      });
-
-      // Component netting for kit / buy
-      for (const bl of certifiedBom.lines) {
-        const compNeed = bl.quantity * need;
-        const compOnHand = await getAvailableQty(bl.componentPartId);
-        const compShort = Math.max(0, compNeed - compOnHand);
-        if (compShort <= 0) {
-          drafts.push({
-            partId: bl.componentPartId,
-            requiredQty: compNeed,
-            onHandQty: compOnHand,
-            shortQty: 0,
-            action: "STOCK",
-            parentPartId: fl.partId,
-            notes: `Component for ${fl.part.partNumber} — covered by stock`,
-          });
-        } else {
-          // Sub-assembly with BOM? BUILD else BUY
-          const subBom = await prisma.bomHeader.findFirst({
-            where: {
-              partId: bl.componentPartId,
-              status: "CERTIFIED",
-            },
-          });
-          const buildComp =
-            !!subBom && bl.componentPart.sourcingMethod !== "PURCHASE";
-          drafts.push({
-            partId: bl.componentPartId,
-            requiredQty: compNeed,
-            onHandQty: compOnHand,
-            shortQty: compShort,
-            action: buildComp ? "BUILD" : "BUY",
-            parentPartId: fl.partId,
-            notes: buildComp
-              ? `Sub-assembly short for ${fl.part.partNumber}`
-              : `Purchase short for ${fl.part.partNumber} kit`,
-          });
-        }
-      }
-    } else {
-      drafts.push({
-        partId: fl.partId,
-        requiredQty: need,
-        onHandQty: onHand,
-        shortQty: need,
-        action: "BUY",
-        notes: `No certified BOM / purchase item — buy ${need}`,
-      });
+    for (const bl of certifiedBom.lines) {
+      if (chain.has(bl.componentPartId)) continue; // cycle guard
+      const nextChain = new Set(chain);
+      nextChain.add(partId);
+      await explode(
+        bl.componentPartId,
+        bl.componentPart.partNumber,
+        bl.componentPart.sourcingMethod,
+        bl.quantity * short,
+        partId,
+        level + 1,
+        nextChain
+      );
     }
+  }
+
+  for (const fl of forecast.lines) {
+    await explode(
+      fl.partId,
+      fl.part.partNumber,
+      fl.part.sourcingMethod,
+      fl.quantity,
+      null,
+      0,
+      new Set([fl.partId])
+    );
   }
 
   // Collapse duplicate part lines (sum shorts, prefer BUILD > BUY > STOCK)
@@ -206,6 +236,7 @@ export async function generateMaterialRequisitionFromForecast(params: {
     existing.requiredQty += d.requiredQty;
     existing.shortQty += d.shortQty;
     existing.onHandQty = Math.min(existing.onHandQty, d.onHandQty);
+    existing.level = Math.min(existing.level, d.level);
     if ((actionRank[d.action] ?? 9) < (actionRank[existing.action] ?? 9)) {
       existing.action = d.action;
     }
@@ -230,6 +261,7 @@ export async function generateMaterialRequisitionFromForecast(params: {
           shortQty: d.shortQty,
           action: d.action,
           parentPartId: d.parentPartId || null,
+          level: d.level,
           notes: d.notes || null,
         })),
       },

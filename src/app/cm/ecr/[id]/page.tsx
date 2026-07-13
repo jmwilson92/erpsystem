@@ -276,7 +276,7 @@ export default async function EcrDetailPage({
                 </Link>
               </p>
             )}
-            {cr.bomHeader && (
+            {cr.bomHeader && !cr.includesBom && (
               <p className="text-sm">
                 <Link
                   href={`/bom/${cr.bomHeader.id}`}
@@ -286,6 +286,40 @@ export default async function EcrDetailPage({
                   {cr.bomHeader.revision}
                 </Link>
               </p>
+            )}
+            {cr.includesBom && (
+              <div
+                className={`rounded-xl border p-3 text-sm ${
+                  cr.bomHeader?.status === "CERTIFIED"
+                    ? "border-emerald-900/50 bg-emerald-500/5"
+                    : "border-amber-900/50 bg-amber-500/5"
+                }`}
+              >
+                <p className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium text-slate-200">
+                    Drawing includes a BOM
+                  </span>
+                  {cr.bomHeader ? (
+                    <>
+                      <Link
+                        href={`/bom/${cr.bomHeader.id}`}
+                        className="text-sky-400 hover:underline"
+                      >
+                        {cr.bomHeader.part.partNumber} Rev{" "}
+                        {cr.bomHeader.revision}
+                      </Link>
+                      <StatusBadge status={cr.bomHeader.status} />
+                    </>
+                  ) : (
+                    <span className="text-rose-400">No BOM linked</span>
+                  )}
+                </p>
+                <p className="mt-1 text-[11px] text-slate-500">
+                  {cr.bomHeader?.status === "CERTIFIED"
+                    ? "BOM certified — drawing can be released."
+                    : "Release is blocked until this BOM is certified in the BOM module."}
+                </p>
+              </div>
             )}
 
             <dl className="grid gap-2 border-t border-slate-800 pt-3 text-xs sm:grid-cols-2">
@@ -485,6 +519,17 @@ export default async function EcrDetailPage({
                 </div>
               )}
 
+              {showRelease &&
+                cr.includesBom &&
+                cr.bomHeader?.status !== "CERTIFIED" && (
+                  <div className="rounded-lg border border-amber-900/50 bg-amber-500/5 p-2.5 text-[11px] text-amber-300">
+                    Release blocked — the included BOM
+                    {cr.bomHeader
+                      ? ` (${cr.bomHeader.part.partNumber} Rev ${cr.bomHeader.revision}, ${cr.bomHeader.status})`
+                      : ""}{" "}
+                    must be certified first.
+                  </div>
+                )}
               {showRelease && (
                 <form
                   action={actionReleaseDocumentEcr}

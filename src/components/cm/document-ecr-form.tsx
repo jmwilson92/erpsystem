@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Paperclip, FileText, X } from "lucide-react";
+import { ToggleSwitch } from "@/components/ui/toggle-switch";
+import { Paperclip, FileText, X, Layers } from "lucide-react";
 
 type ProductFolder = {
   id: string;
@@ -52,6 +53,7 @@ export function DocumentEcrForm({
   adminFolderId,
   libraryDocs,
   assignedNumbers = [],
+  bomParts = [],
 }: {
   productFolders: ProductFolder[];
   adminFolderId: string | null;
@@ -59,6 +61,8 @@ export function DocumentEcrForm({
   libraryDocs: DocHit[];
   /** Controlled numbers from master list available for new ECRs */
   assignedNumbers?: AssignedNumber[];
+  /** Buildable items selectable when the drawing includes a BOM */
+  bomParts?: { id: string; partNumber: string; description: string }[];
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -73,6 +77,8 @@ export function DocumentEcrForm({
   const [fileName, setFileName] = useState("");
   const [description, setDescription] = useState("");
   const [productFolderId, setProductFolderId] = useState("");
+  const [includesBom, setIncludesBom] = useState(false);
+  const [bomPartId, setBomPartId] = useState("");
   const [attachments, setAttachments] = useState<
     { url: string; fileName: string; caption: string }[]
   >([]);
@@ -414,6 +420,50 @@ export function DocumentEcrForm({
               <option value="OTHER">Other</option>
             </select>
           </div>
+
+          {docType === "DRAWING" && (
+            <div className="sm:col-span-2 rounded-xl border border-violet-900/40 bg-violet-500/5 p-3">
+              <div className="flex items-center gap-2">
+                <Layers className="h-4 w-4 text-violet-400" />
+                <ToggleSwitch
+                  checked={includesBom}
+                  onChange={(v) => setIncludesBom(v)}
+                  label="Drawing includes a BOM"
+                />
+              </div>
+              <input
+                type="hidden"
+                name="includesBom"
+                value={includesBom ? "true" : ""}
+              />
+              {includesBom && (
+                <div className="mt-2">
+                  <label className="text-[10px] uppercase text-slate-500">
+                    Item this BOM builds *
+                  </label>
+                  <select
+                    name="bomPartId"
+                    required
+                    className={`${selectClass} mt-1`}
+                    value={bomPartId}
+                    onChange={(e) => setBomPartId(e.target.value)}
+                  >
+                    <option value="">— Select item —</option>
+                    {bomParts.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.partNumber} — {p.description}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    An in-work BOM is created (or linked) for this item. The
+                    drawing cannot be released into the library until that BOM
+                    is certified.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Attach drawing files */}
           <div className="sm:col-span-2 rounded-md border border-slate-800 bg-slate-950/40 p-3">
