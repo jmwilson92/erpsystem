@@ -4,9 +4,11 @@ import "./globals.css";
 import { cookies } from "next/headers";
 import { AppShell } from "@/components/layout/app-shell";
 import { SandboxBanner } from "@/components/layout/sandbox-banner";
+import { FlashToast } from "@/components/layout/flash-toast";
 import { getCurrentUser, listUsers } from "@/lib/auth";
 import { prisma, SANDBOX_COOKIE } from "@/lib/db";
 import { getNotificationSummary } from "@/lib/services/notifications";
+import { readFlashToast } from "@/lib/flash";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -44,6 +46,7 @@ export default async function RootLayout({
     : { total: 0, items: [], badges: {} };
   const jar = await cookies();
   const inSandbox = Boolean(jar.get(SANDBOX_COOKIE)?.value);
+  const flash = await readFlashToast();
   const shellUsers = demoUsers.map((u) => ({
     id: u.id,
     name: u.name,
@@ -83,6 +86,9 @@ export default async function RootLayout({
           }
         >
           {inSandbox && <SandboxBanner />}
+          {flash && (
+            <FlashToast message={flash.m} kind={flash.k} stamp={flash.t} />
+          )}
           {children}
         </AppShell>
       </body>
