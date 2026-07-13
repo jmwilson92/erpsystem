@@ -28,6 +28,7 @@ import {
   actionCreateExpenseEntry,
 } from "@/app/actions";
 import { getPayrollPolicy, parseHolidays } from "@/lib/services/timesheets";
+import { HolidayPicker } from "@/components/accounting/holiday-picker";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -1128,15 +1129,12 @@ export default async function AccountingPage({
                       />
                     </label>
                   </div>
-                  <label className="text-xs text-slate-500">
-                    Company holidays (one per line: YYYY-MM-DD Name)
-                    <textarea
-                      name="holidays"
-                      rows={6}
-                      defaultValue={holidayText}
-                      className="mt-1 w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 font-mono text-xs text-slate-200"
-                    />
-                  </label>
+                  <div>
+                    <p className="text-xs font-medium text-slate-400">
+                      Company holidays
+                    </p>
+                    <HolidayPicker initialText={holidayText} />
+                  </div>
                   <Button type="submit" size="sm">
                     Save payroll policy
                   </Button>
