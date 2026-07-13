@@ -86,6 +86,16 @@ export default async function ItemsPage({
                 Print labels
               </Button>
             </Link>
+            <a href="/api/export?entity=parts">
+              <Button size="sm" variant="outline">
+                Export CSV
+              </Button>
+            </a>
+            <Link href="/admin/import">
+              <Button size="sm" variant="outline">
+                Import
+              </Button>
+            </Link>
             <Link href="/items/new">
               <Button size="sm">
                 <Plus className="mr-1 h-4 w-4" />

@@ -76,6 +76,20 @@ export default async function SuppliersPage({
       <PageHeader
         title="Approved Supplier List"
         description="ASL line items — open a supplier for POs, invoices, QMS certs, and scorecard"
+        actions={
+          <div className="flex gap-2">
+            <a href="/api/export?entity=suppliers">
+              <Button size="sm" variant="outline">
+                Export CSV
+              </Button>
+            </a>
+            <Link href="/admin/import">
+              <Button size="sm" variant="outline">
+                Import
+              </Button>
+            </Link>
+          </div>
+        }
       />
 
       <Card className="border-slate-800">

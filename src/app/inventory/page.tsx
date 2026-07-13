@@ -146,6 +146,11 @@ export default async function InventoryPage({
                 Print bin labels
               </Button>
             </Link>
+            <a href="/api/export?entity=inventory">
+              <Button size="sm" variant="outline">
+                Export CSV
+              </Button>
+            </a>
             {kanbanShortages.length > 0 && (
               <form action={actionRunKanbanReplenishment}>
                 <Button type="submit" size="sm" variant="secondary">
