@@ -44,9 +44,10 @@ export default async function WorkCentersPage() {
                 <p className="text-xs text-slate-600">No stations yet</p>
               )}
               {list.map((c) => (
-                <div
+                <Link
                   key={c.id}
-                  className="rounded border border-slate-800 px-3 py-2 text-sm"
+                  href={`/workcenters/${c.id}`}
+                  className="block rounded border border-slate-800 px-3 py-2 text-sm transition-colors hover:border-teal-500/40 hover:bg-slate-900/50"
                 >
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-mono text-teal-400">{c.code}</span>
@@ -58,7 +59,7 @@ export default async function WorkCentersPage() {
                     Cap {c.capacityHoursPerDay}h/d · eff{" "}
                     {Math.round(c.efficiency * 100)}%
                   </p>
-                </div>
+                </Link>
               ))}
             </CardContent>
           </Card>
