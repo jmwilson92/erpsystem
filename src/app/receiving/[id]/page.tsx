@@ -286,6 +286,25 @@ export default async function ReceivingTravelerDetailPage({
         po.status !== "CLOSED" &&
         po.status !== "CANCELLED"));
 
+  // Functional-test procedures called out for parts on this receipt.
+  const functionalTestPartIds = displayLines
+    .filter((l) => l.requiresFunctionalTest && l.partId)
+    .map((l) => l.partId as string);
+  const functionalTestCallouts = functionalTestPartIds.length
+    ? await prisma.part.findMany({
+        where: {
+          id: { in: functionalTestPartIds },
+          functionalTestProcedureId: { not: null },
+        },
+        select: {
+          partNumber: true,
+          functionalTestProcedure: {
+            select: { id: true, number: true, revision: true, title: true, status: true },
+          },
+        },
+      })
+    : [];
+
   const canCompleteStock = traveler.status === "READY_TO_STOCK";
   const inInspection = traveler.status === "IN_INSPECTION";
   const isComplete = ["COMPLETE", "CLOSED"].includes(traveler.status);
@@ -522,6 +541,34 @@ export default async function ReceivingTravelerDetailPage({
           </div>
         }
       />
+
+      {functionalTestCallouts.length > 0 && (
+        <div className="rounded-xl border border-sky-500/30 bg-sky-500/5 p-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-sky-400">
+            Functional test required — run the called-out procedure
+          </p>
+          <div className="mt-1.5 space-y-1">
+            {functionalTestCallouts.map((c) =>
+              c.functionalTestProcedure ? (
+                <Link
+                  key={c.functionalTestProcedure.id}
+                  href="/test-procedures"
+                  className="flex flex-wrap items-center gap-2 text-sm text-slate-300 hover:text-sky-300"
+                >
+                  <span className="font-mono text-teal-400">{c.partNumber}</span>
+                  <span className="text-slate-500">→</span>
+                  <span className="font-mono text-xs text-sky-400">
+                    {c.functionalTestProcedure.number} Rev{" "}
+                    {c.functionalTestProcedure.revision}
+                  </span>
+                  <span>{c.functionalTestProcedure.title}</span>
+                  <StatusBadge status={c.functionalTestProcedure.status} />
+                </Link>
+              ) : null
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-2">
         <StatusBadge status={traveler.status} />

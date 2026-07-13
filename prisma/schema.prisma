@@ -54,6 +54,7 @@ model User {
   createdWorkOrders   WorkOrder[]              @relation("WOCreator")
   stepSignOffs        WorkInstructionSignOff[]
   wiCreated           WorkInstruction[]        @relation("WICreator")
+  testProceduresCreated TestProcedure[]        @relation("TestProcCreator")
   approvals           Approval[]
   engTicketsAssigned  EngineeringTicket[]      @relation("TicketAssignee")
   engTicketsCreated   EngineeringTicket[]      @relation("TicketCreator")
@@ -225,6 +226,9 @@ model Part {
   // Receiving inspection requirements (item card — not BOM)
   requiresGdtInspection   Boolean @default(false)
   requiresFunctionalTest  Boolean @default(false)
+  /// Test procedure called out when this part requires a functional test at receiving
+  functionalTestProcedureId String?
+  functionalTestProcedure   TestProcedure? @relation("PartFunctionalTest", fields: [functionalTestProcedureId], references: [id])
   // Inventory policy / replenishment (item card)
   isKanban        Boolean @default(false) // min/max kanban refill
   minStock        Float   @default(0)     // reorder when on-hand ≤ min
@@ -244,6 +248,7 @@ model Part {
   poLines         PurchaseOrderLine[]
   workOrders      WorkOrder[]
   workInstructions WorkInstruction[]
+  testProcedures  TestProcedure[]   @relation("TestProcPart")
   ncrs            NonConformance[]
   serials         SerialNumber[]
   lots            Lot[]
@@ -387,6 +392,60 @@ model WorkInstruction {
   @@index([bomHeaderId])
 }
 
+/// A CM-controlled test procedure (ATP, functional test, burn-in, etc.).
+/// Work-instruction steps and receiving functional-test requirements call
+/// these out by reference so the released, revision-controlled procedure
+/// is the single source of truth.
+model TestProcedure {
+  id             String   @id @default(cuid())
+  number         String
+  revision       String   @default("A")
+  title          String
+  /// FUNCTIONAL | ATP | BURN_IN | ENVIRONMENTAL | INSPECTION
+  category       String   @default("FUNCTIONAL")
+  status         String   @default("DRAFT") // DRAFT, CM_REVIEW, RELEASED, OBSOLETE
+  partId         String?
+  part           Part?    @relation("TestProcPart", fields: [partId], references: [id])
+  equipment      String?  // required test equipment / station
+  purpose        String?
+  acceptanceCriteria String?
+  createdById    String?
+  createdBy      User?    @relation("TestProcCreator", fields: [createdById], references: [id])
+  releasedAt     DateTime?
+  releasedById   String?
+  isLocked       Boolean  @default(false)
+  supersedesId   String?
+  supersedes     TestProcedure?  @relation("TpRevisionChain", fields: [supersedesId], references: [id])
+  supersededBy   TestProcedure[] @relation("TpRevisionChain")
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  steps          TestProcedureStep[]
+  wiSteps        WorkInstructionStep[]
+  functionalForParts Part[] @relation("PartFunctionalTest")
+
+  @@unique([number, revision])
+  @@index([status])
+  @@index([partId])
+}
+
+model TestProcedureStep {
+  id              String  @id @default(cuid())
+  testProcedureId String
+  testProcedure   TestProcedure @relation(fields: [testProcedureId], references: [id], onDelete: Cascade)
+  stepNumber      Int
+  parameter       String  // what is measured (e.g. "Idle current draw")
+  method          String? // how (e.g. "DMM in series, 28VDC applied")
+  spec            String? // nominal / target
+  minValue        Float?
+  maxValue        Float?
+  units           String?
+  sortOrder       Int     @default(0)
+
+  @@index([testProcedureId])
+}
+
 model WorkInstructionStep {
   id                  String  @id @default(cuid())
   workInstructionId   String
@@ -419,6 +478,9 @@ model WorkInstructionStep {
   drawingLinks        String? // JSON array
   requiresSignOff     Boolean @default(true)
   sortOrder           Int     @default(0)
+  /// Optional: this step calls out a released Test Procedure
+  testProcedureId     String?
+  testProcedure       TestProcedure? @relation(fields: [testProcedureId], references: [id], onDelete: SetNull)
 
   signOffs            WorkInstructionSignOff[]
   woStepCompletions   WorkOrderStepCompletion[]

@@ -57,6 +57,7 @@ async function main() {
     "CmDocument", "CmFolder", "CmBoardMember", "ChangeRequestComment", "ChangeRequest",
     "WorkOrderStatusHistory", "WorkOrderStepCompletion", "WorkOrderInstruction", "WorkOrder",
     "WorkInstructionSignOff", "WorkInstructionStep", "WorkInstruction",
+    "TestProcedureStep", "TestProcedure",
     "PartVendor", "BomLine", "BomHeader", "Part",
     "UomConversion", "UomUnit",
     // ensure clean suppliers even if FK order was partial
@@ -3266,6 +3267,58 @@ async function main() {
       { entityType: "WorkOrderStep", entityId: wo1.id, action: "SIGN_OFF", userId: tech1.id, metadata: JSON.stringify({ step: 1 }) },
     ],
   });
+
+  // ── Test procedures (CM-controlled) — parts exist by now ───
+  const acmPart = await prisma.part.findFirst({ where: { partNumber: { contains: "ASM-1000" } } });
+  await prisma.testProcedure.create({
+    data: {
+      number: "TP-00001",
+      revision: "A",
+      title: "Avionics Control Module — Acceptance Test (ATP)",
+      category: "ATP",
+      status: "RELEASED",
+      isLocked: true,
+      releasedAt: daysAgo(30),
+      partId: acmPart?.id,
+      equipment: "ATE Station 2, 28VDC supply, DMM (Fluke 87V)",
+      purpose: "Verify ACM meets electrical acceptance criteria before ship.",
+      acceptanceCriteria: "All parameters within spec; no anomalies.",
+      steps: {
+        create: [
+          { stepNumber: 1, parameter: "Idle current draw", method: "DMM in series, 28VDC applied", spec: "≤ 250 mA", minValue: 0, maxValue: 250, units: "mA", sortOrder: 0 },
+          { stepNumber: 2, parameter: "Output voltage — CH1", method: "DMM at J3-4 ref J3-1", spec: "5.0 ±0.1 V", minValue: 4.9, maxValue: 5.1, units: "VDC", sortOrder: 1 },
+          { stepNumber: 3, parameter: "Bus comm BIT", method: "Run built-in test, read status", spec: "PASS", sortOrder: 2 },
+        ],
+      },
+    },
+  });
+  const conPart = await prisma.part.findFirst({ where: { partNumber: { contains: "CON-4400" } } });
+  if (conPart) {
+    const funcTp = await prisma.testProcedure.create({
+      data: {
+        number: "TP-00002",
+        revision: "A",
+        title: "Circular Connector — Incoming Functional Check",
+        category: "FUNCTIONAL",
+        status: "RELEASED",
+        isLocked: true,
+        releasedAt: daysAgo(20),
+        partId: conPart.id,
+        equipment: "Continuity tester, pin gauge",
+        steps: {
+          create: [
+            { stepNumber: 1, parameter: "Pin continuity (all)", method: "Continuity tester pin-to-pin", spec: "< 1 Ω", minValue: 0, maxValue: 1, units: "Ω", sortOrder: 0 },
+            { stepNumber: 2, parameter: "Insertion force", method: "Mate with gauge, measure", spec: "≤ 5 lbf", minValue: 0, maxValue: 5, units: "lbf", sortOrder: 1 },
+          ],
+        },
+      },
+    });
+    await prisma.part.update({
+      where: { id: conPart.id },
+      data: { requiresFunctionalTest: true, functionalTestProcedureId: funcTp.id },
+    });
+  }
+  console.log("  ✓ test procedures (ATP + functional)");
 
   console.log("✅ ForgeRP seed complete — all modules linked.");
 }
