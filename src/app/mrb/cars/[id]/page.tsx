@@ -36,6 +36,16 @@ export default async function CarDetailPage({
 
   const d = disposition;
   const mrb = d.mrbCase;
+
+  // Return-to-supplier CARs auto-pull the linked return shipment so the
+  // corrective action carries the logistics record with it.
+  const returnShipment =
+    d.disposition === "RETURN_TO_SUPPLIER"
+      ? await prisma.shipment.findFirst({
+          where: { mrbCaseId: mrb.id },
+          orderBy: { createdAt: "desc" },
+        })
+      : null;
   const closed = ["CLOSED", "VERIFIED"].includes(
     (d.carStatus || "").toUpperCase()
   );
@@ -142,6 +152,68 @@ export default async function CarDetailPage({
             )}
           </CardContent>
         </Card>
+
+        {d.disposition === "RETURN_TO_SUPPLIER" && (
+          <Card className="border-sky-900/40">
+            <CardHeader>
+              <CardTitle className="text-base">Return shipment</CardTitle>
+              <p className="text-xs text-slate-500">
+                Auto-pulled from Shipping for this return-to-supplier CAR.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm">
+              {returnShipment ? (
+                <>
+                  <Row
+                    label="Shipment #"
+                    value={returnShipment.number}
+                    href={`/shipping/${returnShipment.id}`}
+                  />
+                  <Row label="Status" value={returnShipment.status} />
+                  <Row
+                    label="Date packed"
+                    value={
+                      returnShipment.packedAt
+                        ? formatDate(returnShipment.packedAt)
+                        : returnShipment.packingListVerified
+                          ? "Packing list verified"
+                          : "Not yet packed"
+                    }
+                  />
+                  <Row
+                    label="Date shipped"
+                    value={
+                      returnShipment.shipDate
+                        ? formatDate(returnShipment.shipDate)
+                        : "Not yet shipped"
+                    }
+                  />
+                  <Row
+                    label="Carrier / method"
+                    value={returnShipment.carrier || "—"}
+                  />
+                  <Row
+                    label="Tracking #"
+                    value={returnShipment.trackingNumber || "—"}
+                  />
+                  <div className="pt-1">
+                    <Link
+                      href={`/print/packing-list/${returnShipment.id}`}
+                      className="text-teal-400 hover:underline"
+                    >
+                      Print return packing list →
+                    </Link>
+                  </div>
+                </>
+              ) : (
+                <p className="text-slate-500">
+                  No return shipment found yet. It is created automatically
+                  when the disposition is recorded — check the Shipping module.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader>
