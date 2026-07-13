@@ -127,6 +127,11 @@ export default async function WorkOrderDetailPage({
               qrDataUrl={qrDataUrl}
               qrPayload={qrPayload}
             />
+            <Link href={`/print/labels?kind=wo&ids=${wo.id}`}>
+              <Button size="sm" variant="outline">
+                Barcode label
+              </Button>
+            </Link>
             {wo.bomHeader && (
               <form
                 action={actionPlanWoMaterials}
