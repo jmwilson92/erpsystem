@@ -26,7 +26,7 @@ async function main() {
   // Wipe in dependency order (SQLite)
   const tables = [
     "TicketComment", "EngineeringTicket", "Sprint",
-    "CompanySettings", "TimesheetApproval", "Timesheet", "PayrollPolicy", "ReviewPolicy", "AccountingSettings", "EmployeeDocument", "TrainingRecord", "FeedbackNote", "GoalCheckIn", "EmployeeGoal", "PerformanceReview", "ExpenseLine", "ExpenseReport", "PtoRequest", "TimeEntry",
+    "CompanySettings", "TimesheetApproval", "Timesheet", "PayrollPolicy", "ReviewPolicy", "AccountingSettings", "EmployeeDocument", "TrainingRequirement", "TrainingRecord", "FeedbackNote", "GoalCheckIn", "EmployeeGoal", "PerformanceReview", "ExpenseLine", "ExpenseReport", "PtoRequest", "TimeEntry",
     "GfpConsumption", "GfpCheckout", "GfpAuditRecord", "GfpDocument",
     "ComplianceCheck", "GovernmentProperty",
     "VirtualAssetAssignment", "VirtualAsset",
@@ -3053,6 +3053,29 @@ async function main() {
         userId: inspector.id, name: "GD&T Level II", type: "CERTIFICATION",
         status: "COMPLETED", completedAt: daysAgo(300), expiresAt: daysFromNow(430),
         attachments: JSON.stringify([{ name: "GDT-II certificate.pdf", url: "https://files.example/gdt2-inspector.pdf" }]),
+        createdById: hrMgr.id,
+      },
+    ],
+  });
+
+  // ── Recurring training cycles (compliance matrix drives HR alerts) ──
+  await prisma.trainingRequirement.createMany({
+    data: [
+      {
+        name: "Forklift operator", type: "SAFETY", frequencyMonths: 12,
+        department: "Assembly",
+        description: "Annual forklift certification for warehouse rotations",
+        createdById: hrMgr.id,
+      },
+      {
+        name: "ESD awareness refresher", type: "COMPLIANCE", frequencyMonths: 12,
+        department: "Assembly",
+        description: "Annual ESD handling refresher for electronics benches",
+        createdById: hrMgr.id,
+      },
+      {
+        name: "Annual safety training", type: "SAFETY", frequencyMonths: 12,
+        description: "Company-wide OSHA general awareness",
         createdById: hrMgr.id,
       },
     ],
