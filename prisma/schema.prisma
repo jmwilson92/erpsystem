@@ -425,6 +425,7 @@ model TestProcedure {
   steps          TestProcedureStep[]
   wiSteps        WorkInstructionStep[]
   functionalForParts Part[] @relation("PartFunctionalTest")
+  verifiesRequirements Requirement[] @relation("ReqVerifiedByTp")
 
   @@unique([number, revision])
   @@index([status])
@@ -1112,6 +1113,7 @@ model Product {
   documentLinks   ProductDocument[]
   variants        ProductVariant[]
   requirements    ProductRequirement[]
+  systemRequirements Requirement[] @relation("ProductSystemReqs")
   milestones      ProductMilestone[]
   // PMO links — development programs/projects that build this product
   projectLinks    ProjectProduct[]
@@ -1355,6 +1357,7 @@ model Project {
   workOrders      WorkOrder[]
   purchaseOrders  PurchaseOrder[]
   purchaseRequests PurchaseRequest[]
+  systemRequirements Requirement[] @relation("ProjectSystemReqs")
   members         ProjectMember[]
   timeEntries     TimeEntry[]
   cmFolders       CmFolder[]
@@ -1546,6 +1549,7 @@ model Saga {
   engSprint       EngSprint? @relation(fields: [engSprintId], references: [id], onDelete: SetNull)
   engTasks        EngTask[]
   timeEntries     TimeEntry[]
+  requirementTraces RequirementTrace[]
   // Cross-lane dependencies
   blockedBy       EngDependency[] @relation("DepTargetSaga")
   blocking        EngDependency[] @relation("DepSourceSaga")
@@ -1557,6 +1561,69 @@ model Saga {
   @@index([status])
   @@index([engSprintId])
   @@index([businessPriorityId])
+}
+
+// ═══════════════════════════════════════════════════════════════
+// REQUIREMENTS — JAMA-style hierarchy with trace links into the
+// engineering boards (tasks / sagas) and verification via TPs
+// ═══════════════════════════════════════════════════════════════
+
+model Requirement {
+  id          String   @id @default(cuid())
+  number      String   @unique // REQ-00001
+  title       String
+  /// The controlled "shall" statement
+  statement   String
+  rationale   String?
+  /// SYSTEM | FUNCTIONAL | PERFORMANCE | INTERFACE | ENVIRONMENTAL | SAFETY | REGULATORY | OTHER
+  category    String   @default("FUNCTIONAL")
+  /// DRAFT | IN_REVIEW | APPROVED | VERIFIED | WAIVED | OBSOLETE
+  status      String   @default("DRAFT")
+  priority    String   @default("NORMAL") // LOW | NORMAL | HIGH | CRITICAL
+  /// TEST | ANALYSIS | INSPECTION | DEMONSTRATION
+  verificationMethod String?
+  /// Where it came from — customer SOW, standard, internal…
+  source      String?
+  parentId    String?
+  parent      Requirement?  @relation("ReqTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children    Requirement[] @relation("ReqTree")
+  productId   String?
+  product     Product? @relation("ProductSystemReqs", fields: [productId], references: [id], onDelete: SetNull)
+  projectId   String?
+  project     Project? @relation("ProjectSystemReqs", fields: [projectId], references: [id], onDelete: SetNull)
+  /// Test procedure that verifies this requirement (method TEST)
+  testProcedureId String?
+  testProcedure   TestProcedure? @relation("ReqVerifiedByTp", fields: [testProcedureId], references: [id], onDelete: SetNull)
+  verifiedAt  DateTime?
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  traces      RequirementTrace[]
+
+  @@index([status])
+  @@index([category])
+  @@index([parentId])
+  @@index([productId])
+  @@index([projectId])
+}
+
+/// Trace link from a requirement to engineering work (task or saga/swim lane).
+model RequirementTrace {
+  id            String   @id @default(cuid())
+  requirementId String
+  requirement   Requirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  engTaskId     String?
+  engTask       EngTask? @relation(fields: [engTaskId], references: [id], onDelete: Cascade)
+  sagaId        String?
+  saga          Saga?    @relation(fields: [sagaId], references: [id], onDelete: Cascade)
+  note          String?
+  createdById   String?
+  createdAt     DateTime @default(now())
+
+  @@index([requirementId])
+  @@index([engTaskId])
+  @@index([sagaId])
 }
 
 /// Engineering task / subtask under a saga (or loose under campaign / product).
@@ -1611,6 +1678,7 @@ model EngTask {
   blockedBy       EngDependency[] @relation("DepTargetTask")
   blocking        EngDependency[] @relation("DepSourceTask")
   assets          Asset[]
+  requirementTraces RequirementTrace[]
 
   @@index([projectId])
   @@index([productId])

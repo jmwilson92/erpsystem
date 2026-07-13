@@ -49,6 +49,19 @@ export default async function EngTaskDetailPage({
         },
       },
       engSprint: { select: { id: true, name: true, status: true, quarterId: true } },
+      requirementTraces: {
+        include: {
+          requirement: {
+            select: {
+              id: true,
+              number: true,
+              title: true,
+              status: true,
+              verificationMethod: true,
+            },
+          },
+        },
+      },
       children: { orderBy: { number: "asc" } },
       parent: { select: { id: true, number: true, name: true } },
       productionIssue: {
@@ -259,6 +272,29 @@ export default async function EngTaskDetailPage({
             {openScans
               .map((s) => userMap[s.userId] || s.userId.slice(0, 6))
               .join(", ")}
+          </CardContent>
+        </Card>
+      )}
+
+      {task.requirementTraces.length > 0 && (
+        <Card className="border-violet-900/40">
+          <CardContent className="flex flex-wrap items-center gap-2 p-3 text-sm">
+            <span className="text-xs font-semibold uppercase tracking-wider text-violet-300">
+              Implements requirements
+            </span>
+            {task.requirementTraces.map((rt) => (
+              <Link
+                key={rt.id}
+                href="/requirements"
+                className="flex items-center gap-1.5 rounded-full border border-violet-700/50 px-2 py-0.5 text-[11px]"
+              >
+                <span className="font-mono text-violet-300">
+                  {rt.requirement.number}
+                </span>
+                <span className="text-slate-400">{rt.requirement.title}</span>
+                <StatusBadge status={rt.requirement.status} />
+              </Link>
+            ))}
           </CardContent>
         </Card>
       )}
