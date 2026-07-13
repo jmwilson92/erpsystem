@@ -728,8 +728,17 @@ export default async function AccountingPage({
                           </form>
                         )}
                         {je.status !== "VOID" && (
-                          <form action={actionVoidJournal}>
+                          <form
+                            action={actionVoidJournal}
+                            className="flex gap-1"
+                          >
                             <input type="hidden" name="id" value={je.id} />
+                            <input
+                              name="reason"
+                              required
+                              placeholder="Void reason"
+                              className="h-6 w-28 rounded-md border border-slate-700 bg-slate-950 px-1.5 text-[10px] text-slate-200"
+                            />
                             <Button
                               type="submit"
                               size="sm"

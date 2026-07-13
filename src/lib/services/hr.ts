@@ -317,9 +317,13 @@ export async function canDecideFor(
 export async function decidePtoRequest(params: {
   id: string;
   decision: "APPROVED" | "REJECTED";
+  decisionNotes?: string | null;
   userId?: string | null;
   approver?: { id: string; role: string } | null;
 }) {
+  if (params.decision === "REJECTED" && !params.decisionNotes?.trim()) {
+    throw new Error("A rejection reason is required");
+  }
   if (params.approver) {
     const existing = await prisma.ptoRequest.findUniqueOrThrow({
       where: { id: params.id },
@@ -337,6 +341,7 @@ export async function decidePtoRequest(params: {
     data: {
       status: params.decision,
       approvedById: params.userId || null,
+      decisionNotes: params.decisionNotes?.trim() || null,
     },
   });
   await logAudit({
@@ -402,9 +407,13 @@ export async function createPtoRequest(params: {
 export async function decideTimeEntry(params: {
   id: string;
   decision: "APPROVED" | "REJECTED";
+  decisionNotes?: string | null;
   userId?: string | null;
   approver?: { id: string; role: string } | null;
 }) {
+  if (params.decision === "REJECTED" && !params.decisionNotes?.trim()) {
+    throw new Error("A rejection reason is required");
+  }
   const existing = await prisma.timeEntry.findUniqueOrThrow({
     where: { id: params.id },
   });
@@ -420,6 +429,7 @@ export async function decideTimeEntry(params: {
     where: { id: params.id },
     data: {
       status: params.decision,
+      decisionNotes: params.decisionNotes?.trim() || null,
       // Labor cost posts to the WO/project rollup only on approval.
       costAmount:
         params.decision === "APPROVED"
@@ -448,9 +458,13 @@ const EXPENSE_TRANSITIONS: Record<string, string[]> = {
 export async function advanceExpenseReport(params: {
   id: string;
   status: string;
+  decisionNotes?: string | null;
   userId?: string | null;
   approver?: { id: string; role: string } | null;
 }) {
+  if (params.status === "REJECTED" && !params.decisionNotes?.trim()) {
+    throw new Error("A rejection reason is required");
+  }
   const existing = await prisma.expenseReport.findUniqueOrThrow({
     where: { id: params.id },
   });
@@ -473,6 +487,10 @@ export async function advanceExpenseReport(params: {
     where: { id: params.id },
     data: {
       status: params.status,
+      decisionNotes:
+        params.status === "REJECTED"
+          ? params.decisionNotes?.trim() || null
+          : existing.decisionNotes,
       submittedAt:
         params.status === "SUBMITTED" ? new Date() : existing.submittedAt,
     },

@@ -3,6 +3,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ToggleField } from "@/components/ui/toggle-field";
 import { actionSaveUomUnit, actionSaveUomConversion } from "@/app/actions";
 import Link from "next/link";
 
@@ -116,15 +117,9 @@ export default async function UomMasterPage() {
                 </label>
                 <Input name="sortOrder" type="number" defaultValue={0} className="mt-1" />
               </div>
-              <label className="flex items-center gap-2 text-sm text-slate-400">
-                <input
-                  type="checkbox"
-                  name="isActive"
-                  defaultChecked
-                  className="rounded border-slate-600"
-                />
-                Active
-              </label>
+              <div className="flex items-end pb-1.5">
+                <ToggleField name="isActive" defaultChecked label="Active" />
+              </div>
               <div className="flex items-end">
                 <Button type="submit" size="sm">
                   Save unit

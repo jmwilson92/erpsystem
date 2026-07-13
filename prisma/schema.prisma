@@ -2883,6 +2883,8 @@ model JournalEntry {
   date        DateTime @default(now())
   description String
   status      String   @default("DRAFT") // DRAFT, PENDING_APPROVAL, POSTED, VOID
+  /// Required when voiding a journal
+  voidReason  String?
   source      String?  // MANUAL, AP, AR, PAYROLL, INVENTORY, WO
   sourceId    String?
   postedAt    DateTime?
@@ -3555,6 +3557,8 @@ model TimeEntry {
   wbsElement   WbsElement? @relation(fields: [wbsElementId], references: [id], onDelete: SetNull)
   description String?
   status      String   @default("SUBMITTED") // DRAFT, SUBMITTED, APPROVED, REJECTED
+  /// Approver's note — required when rejecting
+  decisionNotes String?
   laborRate   Float    @default(0) // optional $/hr for cost rollup
   costAmount  Float    @default(0) // hours * rate when posted
   createdAt   DateTime @default(now())
@@ -3575,6 +3579,8 @@ model PtoRequest {
   hours       Float
   status      String   @default("PENDING") // PENDING, APPROVED, REJECTED, CANCELLED
   reason      String?
+  /// Approver's note — required when rejecting
+  decisionNotes String?
   approvedById String?
   createdAt   DateTime @default(now())
 }
@@ -3587,6 +3593,8 @@ model ExpenseReport {
   title       String
   status      String   @default("DRAFT") // DRAFT, SUBMITTED, APPROVED, REJECTED, PAID
   totalAmount Float    @default(0)
+  /// Approver's note — required when rejecting
+  decisionNotes String?
   submittedAt DateTime?
   createdAt   DateTime @default(now())
 

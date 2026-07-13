@@ -4,6 +4,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ToggleField } from "@/components/ui/toggle-field";
 import { scoreRatingColor, cn } from "@/lib/utils";
 import { getAslPolicy } from "@/lib/services/asl";
 import { actionUpdateAslPolicy } from "@/app/actions";
@@ -107,33 +108,21 @@ export default async function SuppliersPage({
               ASL), or blocked entirely if trial is off.
             </p>
             <div className="flex flex-wrap gap-4 text-sm">
-              <label className="flex items-center gap-2 text-slate-300">
-                <input
-                  type="checkbox"
-                  name="requireIso9001"
-                  defaultChecked={policy.requireIso9001}
-                  className="accent-teal-500"
-                />
-                Require ISO 9001
-              </label>
-              <label className="flex items-center gap-2 text-slate-300">
-                <input
-                  type="checkbox"
-                  name="requireAs9100d"
-                  defaultChecked={policy.requireAs9100d}
-                  className="accent-teal-500"
-                />
-                Require AS9100D
-              </label>
-              <label className="flex items-center gap-2 text-slate-300">
-                <input
-                  type="checkbox"
-                  name="allowTrialOrders"
-                  defaultChecked={policy.allowTrialOrders}
-                  className="accent-teal-500"
-                />
-                Allow trial orders (conditional ASL)
-              </label>
+              <ToggleField
+                name="requireIso9001"
+                defaultChecked={policy.requireIso9001}
+                label="Require ISO 9001"
+              />
+              <ToggleField
+                name="requireAs9100d"
+                defaultChecked={policy.requireAs9100d}
+                label="Require AS9100D"
+              />
+              <ToggleField
+                name="allowTrialOrders"
+                defaultChecked={policy.allowTrialOrders}
+                label="Allow trial orders (conditional ASL)"
+              />
               <div className="flex items-center gap-2">
                 <label className="text-xs text-slate-500">Trial limit</label>
                 <Input

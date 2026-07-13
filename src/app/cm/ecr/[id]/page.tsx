@@ -472,7 +472,10 @@ export default async function EcrDetailPage({
                                   Approve
                                 </Button>
                               </form>
-                              <form action={actionVoteCm}>
+                              <form
+                                action={actionVoteCm}
+                                className="flex gap-1"
+                              >
                                 <input
                                   type="hidden"
                                   name="memberId"
@@ -487,6 +490,12 @@ export default async function EcrDetailPage({
                                   type="hidden"
                                   name="returnTo"
                                   value={returnTo}
+                                />
+                                <input
+                                  name="comments"
+                                  required
+                                  placeholder="Reason (required)"
+                                  className="h-8 w-32 rounded-lg border border-slate-700 bg-slate-950 px-2 text-xs text-slate-200"
                                 />
                                 <Button
                                   type="submit"

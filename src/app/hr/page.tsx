@@ -575,9 +575,15 @@ export default async function HrPage({
                             Approve
                           </Button>
                         </form>
-                        <form action={actionDecideTimeEntry}>
+                        <form action={actionDecideTimeEntry} className="flex gap-1">
                           <input type="hidden" name="id" value={t.id} />
                           <input type="hidden" name="decision" value="REJECTED" />
+                          <Input
+                            name="decisionNotes"
+                            required
+                            placeholder="Reason (required)"
+                            className="h-8 w-36 text-xs"
+                          />
                           <Button type="submit" size="sm" variant="outline">
                             Reject
                           </Button>
@@ -648,9 +654,15 @@ export default async function HrPage({
                               Approve
                             </Button>
                           </form>
-                          <form action={actionDecidePto}>
+                          <form action={actionDecidePto} className="flex gap-1">
                             <input type="hidden" name="id" value={p.id} />
                             <input type="hidden" name="decision" value="REJECTED" />
+                            <Input
+                              name="decisionNotes"
+                              required
+                              placeholder="Reason (required)"
+                              className="h-8 w-36 text-xs"
+                            />
                             <Button type="submit" size="sm" variant="outline">
                               Reject
                             </Button>
@@ -697,9 +709,15 @@ export default async function HrPage({
                                 Approve
                               </Button>
                             </form>
-                            <form action={actionAdvanceExpense}>
+                            <form action={actionAdvanceExpense} className="flex gap-1">
                               <input type="hidden" name="id" value={e.id} />
                               <input type="hidden" name="status" value="REJECTED" />
+                              <Input
+                                name="decisionNotes"
+                                required
+                                placeholder="Reason (required)"
+                                className="h-8 w-36 text-xs"
+                              />
                               <Button type="submit" size="sm" variant="outline">
                                 Reject
                               </Button>

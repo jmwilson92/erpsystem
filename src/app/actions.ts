@@ -1597,7 +1597,10 @@ function cmReturnTo(formData: FormData, fallback = "/cm?tab=submissions") {
 export async function actionVoteCm(formData: FormData) {
   const memberId = formData.get("memberId") as string;
   const vote = formData.get("vote") as string;
-  const comments = (formData.get("comments") as string) || undefined;
+  const comments = ((formData.get("comments") as string) || "").trim() || undefined;
+  if (vote === "REJECT" && !comments) {
+    throw new Error("A rejection reason is required");
+  }
   // Approvers may vote; CM can also vote if on board. Same controls for every seat.
   const user = await getCurrentUser();
 
@@ -4427,9 +4430,13 @@ export async function actionDecideGfpConsumption(
   const user = await getCurrentUser("PM");
   if (!user) throw new Error("No user");
   const { decideGfpConsumption } = await import("@/lib/services/gfp");
+  const approve = formData.get("approve") === "true";
+  if (!approve && !((formData.get("approvalNotes") as string) || "").trim()) {
+    throw new Error("A denial reason is required");
+  }
   await decideGfpConsumption({
     consumptionId: formData.get("consumptionId") as string,
-    approve: formData.get("approve") === "true",
+    approve,
     approvedById: user.id,
     approvalNotes:
       ((formData.get("approvalNotes") as string) || "").trim() || undefined,
@@ -4691,15 +4698,21 @@ export async function actionQueueShipmentAndOpen(
 export async function actionDecidePto(formData: FormData): Promise<void> {
   const { decidePtoRequest } = await import("@/lib/services/hr");
   const user = await getCurrentUser();
+  const decision =
+    (formData.get("decision") as string) === "REJECTED"
+      ? "REJECTED"
+      : "APPROVED";
   await decidePtoRequest({
     id: formData.get("id") as string,
-    decision:
-      (formData.get("decision") as string) === "REJECTED"
-        ? "REJECTED"
-        : "APPROVED",
+    decision,
+    decisionNotes:
+      ((formData.get("decisionNotes") as string) || "").trim() || null,
     userId: user?.id,
     approver: user ? { id: user.id, role: user.role } : null,
   });
+  await flashToast(
+    decision === "REJECTED" ? "PTO request rejected" : "PTO request approved"
+  );
   revalidatePath("/hr");
   revalidatePath("/approvals");
 }
@@ -4728,15 +4741,21 @@ export async function actionRequestPto(formData: FormData): Promise<void> {
 export async function actionDecideTimeEntry(formData: FormData): Promise<void> {
   const { decideTimeEntry } = await import("@/lib/services/hr");
   const user = await getCurrentUser();
+  const decision =
+    (formData.get("decision") as string) === "REJECTED"
+      ? "REJECTED"
+      : "APPROVED";
   await decideTimeEntry({
     id: formData.get("id") as string,
-    decision:
-      (formData.get("decision") as string) === "REJECTED"
-        ? "REJECTED"
-        : "APPROVED",
+    decision,
+    decisionNotes:
+      ((formData.get("decisionNotes") as string) || "").trim() || null,
     userId: user?.id,
     approver: user ? { id: user.id, role: user.role } : null,
   });
+  await flashToast(
+    decision === "REJECTED" ? "Time entry rejected" : "Time entry approved"
+  );
   revalidatePath("/hr");
   revalidatePath("/approvals");
 }
@@ -4744,12 +4763,16 @@ export async function actionDecideTimeEntry(formData: FormData): Promise<void> {
 export async function actionAdvanceExpense(formData: FormData): Promise<void> {
   const { advanceExpenseReport } = await import("@/lib/services/hr");
   const user = await getCurrentUser();
+  const status = ((formData.get("status") as string) || "").trim();
   await advanceExpenseReport({
     id: formData.get("id") as string,
-    status: ((formData.get("status") as string) || "").trim(),
+    status,
+    decisionNotes:
+      ((formData.get("decisionNotes") as string) || "").trim() || null,
     userId: user?.id,
     approver: user ? { id: user.id, role: user.role } : null,
   });
+  await flashToast(`Expense report ${status.toLowerCase()}`);
   revalidatePath("/hr");
   revalidatePath("/approvals");
 }
@@ -5813,7 +5836,12 @@ export async function actionVoidJournal(formData: FormData): Promise<void> {
   if (!(await userHasPermission(user?.id, "accounting.journal.post"))) {
     throw new Error("Not authorized to void journals");
   }
-  await voidJournal({ id: formData.get("id") as string, voidedById: user?.id });
+  await voidJournal({
+    id: formData.get("id") as string,
+    reason: ((formData.get("reason") as string) || "").trim() || null,
+    voidedById: user?.id,
+  });
+  await flashToast("Journal voided");
   revalidatePath("/accounting");
 }
 

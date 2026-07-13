@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { actionDecidePto, actionAdvanceExpense } from "@/app/actions";
 import { CalendarCheck, Clock, Receipt, ShoppingCart } from "lucide-react";
@@ -130,9 +131,15 @@ export default async function ApprovalsPage() {
                       Approve
                     </Button>
                   </form>
-                  <form action={actionDecidePto}>
+                  <form action={actionDecidePto} className="flex gap-1">
                     <input type="hidden" name="id" value={p.id} />
                     <input type="hidden" name="decision" value="REJECTED" />
+                    <Input
+                      name="decisionNotes"
+                      required
+                      placeholder="Reason (required)"
+                      className="h-8 w-40 text-xs"
+                    />
                     <Button type="submit" size="sm" variant="outline">
                       Reject
                     </Button>
@@ -246,9 +253,15 @@ export default async function ApprovalsPage() {
                           Approve
                         </Button>
                       </form>
-                      <form action={actionAdvanceExpense}>
+                      <form action={actionAdvanceExpense} className="flex gap-1">
                         <input type="hidden" name="id" value={e.id} />
                         <input type="hidden" name="status" value="REJECTED" />
+                        <Input
+                          name="decisionNotes"
+                          required
+                          placeholder="Reason (required)"
+                          className="h-8 w-36 text-xs"
+                        />
                         <Button type="submit" size="sm" variant="outline">
                           Reject
                         </Button>
