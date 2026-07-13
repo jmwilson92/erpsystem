@@ -1,17 +1,15 @@
 import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth";
 import { getPendingApprovals } from "@/lib/services/hr";
+import { getTimecardReviewQueue } from "@/lib/services/timesheets";
+import { TimecardReviewQueue } from "@/components/hr/timecard-review-queue";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import {
-  actionDecidePto,
-  actionDecideTimesheetApproval,
-  actionAdvanceExpense,
-} from "@/app/actions";
+import { actionDecidePto, actionAdvanceExpense } from "@/app/actions";
 import { CalendarCheck, Clock, Receipt, ShoppingCart } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -20,11 +18,19 @@ export default async function ApprovalsPage() {
   const user = await getCurrentUser();
   if (!user) return null;
 
-  const [{ persona, ptoRequests, timesheetApprovals, expenses }, openPrs] =
+  const [{ persona, ptoRequests, timesheetApprovals, expenses }, openPrs, timecardQueue] =
     await Promise.all([
       getPendingApprovals(user),
       prisma.purchaseRequest.count({ where: { status: "SUBMITTED" } }),
+      getTimecardReviewQueue(user),
     ]);
+
+  // Serialize dates for the client queue component.
+  const queueForClient = timecardQueue.map((i) => ({
+    ...i,
+    periodStart: i.periodStart.toISOString(),
+    periodEnd: i.periodEnd.toISOString(),
+  }));
 
   const scopeLabel = persona.isHrAdmin
     ? "all employees (HR administration)"
@@ -34,7 +40,7 @@ export default async function ApprovalsPage() {
 
   const empty =
     ptoRequests.length === 0 &&
-    timesheetApprovals.length === 0 &&
+    queueForClient.length === 0 &&
     expenses.length === 0;
 
   return (
@@ -59,9 +65,9 @@ export default async function ApprovalsPage() {
             <Clock className="h-5 w-5 text-sky-400" />
             <div>
               <p className="text-xl font-bold tabular-nums">
-                {timesheetApprovals.length}
+                {queueForClient.length}
               </p>
-              <p className="text-xs text-slate-500">Timecard buckets</p>
+              <p className="text-xs text-slate-500">Timecards to review</p>
             </div>
           </CardContent>
         </Card>
@@ -170,70 +176,20 @@ export default async function ApprovalsPage() {
         </Card>
       )}
 
-      {timesheetApprovals.length > 0 && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Timecard approvals</CardTitle>
+      {queueForClient.length > 0 && (
+        <div className="space-y-2">
+          <div>
+            <h2 className="text-base font-semibold text-slate-100">
+              Timecards to review
+            </h2>
             <p className="text-xs text-slate-500">
-              Charges are routed by type: project/WBS time to the PM, direct
-              charges to the department manager, PTO/sick/holiday/overhead to
-              HR. The timecard finalizes when every bucket approves.
+              One row per direct report&apos;s submitted timecard. Click a name
+              to open the full sheet. Approve or reject right here — rejection
+              needs a reason. Clear the whole queue for a little surprise.
             </p>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {timesheetApprovals.map((a) => {
-              const hours = a.timesheet.entries.reduce(
-                (s, e) => s + e.hours,
-                0
-              );
-              return (
-                <div
-                  key={a.id}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 px-4 py-2.5"
-                >
-                  <div>
-                    <p className="text-sm text-slate-200">
-                      {a.timesheet.user.name}{" "}
-                      <span className="text-xs text-slate-500">
-                        · {a.label} ·{" "}
-                        <span className="tabular-nums text-teal-400">
-                          {a.hours}h
-                        </span>{" "}
-                        of {hours}h total
-                      </span>
-                    </p>
-                    <p className="text-xs text-slate-500">
-                      {formatDate(a.timesheet.periodStart)} →{" "}
-                      {formatDate(a.timesheet.periodEnd)} ·{" "}
-                      <Link
-                        href={`/hr/timesheet/${a.timesheetId}`}
-                        className="text-sky-400 hover:underline"
-                      >
-                        View timecard →
-                      </Link>
-                    </p>
-                  </div>
-                  <div className="flex gap-1.5">
-                    <form action={actionDecideTimesheetApproval}>
-                      <input type="hidden" name="approvalId" value={a.id} />
-                      <input type="hidden" name="decision" value="APPROVED" />
-                      <Button type="submit" size="sm">
-                        Approve
-                      </Button>
-                    </form>
-                    <form action={actionDecideTimesheetApproval}>
-                      <input type="hidden" name="approvalId" value={a.id} />
-                      <input type="hidden" name="decision" value="REJECTED" />
-                      <Button type="submit" size="sm" variant="outline">
-                        Reject
-                      </Button>
-                    </form>
-                  </div>
-                </div>
-              );
-            })}
-          </CardContent>
-        </Card>
+          </div>
+          <TimecardReviewQueue items={queueForClient} />
+        </div>
       )}
 
       {expenses.length > 0 && (

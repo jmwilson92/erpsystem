@@ -5086,6 +5086,41 @@ export async function actionDecideTimesheetApproval(
   revalidatePath("/accounting");
 }
 
+/**
+ * Decide all of the reviewer's buckets on one timecard at once, for the
+ * line-item approval queue. Returns the remaining queue count so the UI
+ * can fire confetti when it hits zero.
+ */
+export async function actionReviewTimecard(input: {
+  timesheetId: string;
+  decision: "APPROVED" | "REJECTED";
+  notes?: string;
+}): Promise<{ ok: boolean; remaining: number; error?: string }> {
+  const { decideReviewerBucketsForTimesheet } = await import(
+    "@/lib/services/timesheets"
+  );
+  const user = await getCurrentUser();
+  if (!user) return { ok: false, remaining: 0, error: "Not signed in" };
+  try {
+    const { remaining } = await decideReviewerBucketsForTimesheet({
+      timesheetId: input.timesheetId,
+      decision: input.decision,
+      approver: { id: user.id, role: user.role },
+      notes: input.notes,
+    });
+    revalidatePath("/approvals");
+    revalidatePath("/hr/timesheet");
+    revalidatePath("/accounting");
+    return { ok: true, remaining };
+  } catch (e) {
+    return {
+      ok: false,
+      remaining: -1,
+      error: e instanceof Error ? e.message : "Decision failed",
+    };
+  }
+}
+
 export async function actionSaveTimecardGrid(
   formData: FormData
 ): Promise<void> {
