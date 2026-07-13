@@ -324,7 +324,13 @@ export default async function SetupWizardPage({
             <p className="text-xs text-slate-500">
               Managers drive approvals (PTO, timecards, reviews). Add leaders
               first, then their reports. Fine-grained access lives in Roles &
-              Permissions.
+              Permissions. Have a spreadsheet already?{" "}
+              <Link
+                href="/admin/import"
+                className="text-teal-400 hover:underline"
+              >
+                Bulk-import people, items, customers, and suppliers →
+              </Link>
             </p>
           </CardHeader>
           <CardContent className="space-y-4">
