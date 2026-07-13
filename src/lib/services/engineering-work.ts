@@ -1135,6 +1135,11 @@ export async function getDisciplineBoard(discipline: string) {
                 orderBy: { number: "asc" },
               },
               product: { select: { id: true, code: true, name: true } },
+              requirementTraces: {
+                select: {
+                  requirement: { select: { number: true, status: true } },
+                },
+              },
               productionIssue: {
                 select: {
                   id: true,

@@ -57,7 +57,7 @@ async function main() {
     "CmDocument", "CmFolder", "CmBoardMember", "ChangeRequestComment", "ChangeRequest",
     "WorkOrderStatusHistory", "WorkOrderStepCompletion", "WorkOrderInstruction", "WorkOrder",
     "WorkInstructionSignOff", "WorkInstructionStep", "WorkInstruction",
-    "TestProcedureStep", "TestProcedure",
+    "TestProcedureStep", "TestProcedure", "RequirementTrace", "Requirement",
     "PartVendor", "BomLine", "BomHeader", "Part",
     "UomConversion", "UomUnit",
     // ensure clean suppliers even if FK order was partial
@@ -3342,6 +3342,72 @@ async function main() {
     });
   }
   console.log("  ✓ test procedures (ATP + functional)");
+
+  // ── Requirements (JAMA-style) traced into the engineering boards ──
+  {
+    const tsk2 = await prisma.engTask.findUnique({ where: { number: "TSK-0002" } });
+    const sagaSysRow = await prisma.saga.findFirst({ where: { discipline: "SYSTEMS" } });
+    const atpTp = await prisma.testProcedure.findFirst({ where: { number: "TP-00001" } });
+    const prod = await prisma.product.findFirst();
+
+    const reqSys = await prisma.requirement.create({
+      data: {
+        number: "REQ-00001",
+        title: "Operating temperature range",
+        statement: "The assembly shall operate continuously from -40 °C to +71 °C without performance degradation.",
+        rationale: "Contract environmental spec (MIL-STD-810H tailored)",
+        category: "ENVIRONMENTAL",
+        status: "APPROVED",
+        priority: "CRITICAL",
+        verificationMethod: "TEST",
+        source: "Customer SOW §3.2.1",
+        productId: prod?.id,
+        testProcedureId: atpTp?.id,
+        createdById: engLead.id,
+      },
+    });
+    const reqChild = await prisma.requirement.create({
+      data: {
+        number: "REQ-00002",
+        title: "Thermal analysis load cases",
+        statement: "Thermal FEA shall demonstrate ≥ 10 °C margin at the hottest component under worst-case ambient.",
+        category: "PERFORMANCE",
+        status: "VERIFIED",
+        verificationMethod: "ANALYSIS",
+        parentId: reqSys.id,
+        productId: prod?.id,
+        verifiedAt: daysAgo(12),
+        createdById: engLead.id,
+      },
+    });
+    await prisma.requirement.create({
+      data: {
+        number: "REQ-00003",
+        title: "Housing sealing",
+        statement: "The housing shall maintain IP67 sealing after 500 mate/demate cycles.",
+        category: "FUNCTIONAL",
+        status: "DRAFT",
+        priority: "HIGH",
+        source: "Internal derived",
+        productId: prod?.id,
+        createdById: engLead.id,
+      },
+    });
+    if (sagaSysRow) {
+      await prisma.requirementTrace.create({
+        data: { requirementId: reqSys.id, sagaId: sagaSysRow.id, createdById: engLead.id },
+      });
+      await prisma.requirementTrace.create({
+        data: { requirementId: reqChild.id, sagaId: sagaSysRow.id, createdById: engLead.id },
+      });
+    }
+    if (tsk2) {
+      await prisma.requirementTrace.create({
+        data: { requirementId: reqSys.id, engTaskId: tsk2.id, createdById: engLead.id },
+      });
+    }
+    console.log("  ✓ requirements (traced to eng board)");
+  }
 
   console.log("✅ ForgeRP seed complete — all modules linked.");
 }

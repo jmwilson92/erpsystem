@@ -64,6 +64,7 @@ export type BoardTask = {
   }[];
   children?: { id: string; number: string; name: string; status: string }[];
   productionIssue?: { number: string } | null;
+  requirementTraces?: { requirement: { number: string; status: string } }[];
 };
 
 export type BoardSaga = {
@@ -531,6 +532,24 @@ export function LaneBoard({
                               {t.product && (
                                 <p className="text-[10px] text-teal-500/90">
                                   Product {t.product.code}
+                                </p>
+                              )}
+                              {(t.requirementTraces?.length || 0) > 0 && (
+                                <p className="mt-0.5 flex flex-wrap gap-1">
+                                  {t.requirementTraces!.map((rt) => (
+                                    <Link
+                                      key={rt.requirement.number}
+                                      href="/requirements"
+                                      onClick={(e) => e.stopPropagation()}
+                                      className={`rounded-full border px-1.5 py-px font-mono text-[9px] ${
+                                        rt.requirement.status === "VERIFIED"
+                                          ? "border-emerald-700/50 text-emerald-400"
+                                          : "border-violet-700/50 text-violet-300"
+                                      }`}
+                                    >
+                                      {rt.requirement.number}
+                                    </Link>
+                                  ))}
                                 </p>
                               )}
                               {t.assigneeId && (

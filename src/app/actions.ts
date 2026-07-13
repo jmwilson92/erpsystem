@@ -969,6 +969,103 @@ export async function actionRemoveMrsLine(formData: FormData): Promise<void> {
   revalidatePath(`/planning/mrs/${mrsId}`);
 }
 
+// ── Requirements (JAMA-style) ──────────────────────────────────
+
+async function requireReqEditor() {
+  const { userHasPermission } = await import("@/lib/auth");
+  const user = await getCurrentUser();
+  if (!user) throw new Error("Sign in required");
+  const ok =
+    user.role === "ADMIN" ||
+    (await userHasPermission(user.id, "engineering.task.create"));
+  if (!ok) throw new Error("Not authorized to manage requirements");
+  return user;
+}
+
+export async function actionCreateRequirement(
+  formData: FormData
+): Promise<void> {
+  const user = await requireReqEditor();
+  const { createRequirement } = await import("@/lib/services/requirements");
+  const req = await createRequirement({
+    title: (formData.get("title") as string) || "",
+    statement: (formData.get("statement") as string) || "",
+    rationale: ((formData.get("rationale") as string) || "").trim() || null,
+    category: ((formData.get("category") as string) || "").trim() || undefined,
+    priority: ((formData.get("priority") as string) || "").trim() || undefined,
+    verificationMethod:
+      ((formData.get("verificationMethod") as string) || "").trim() || null,
+    source: ((formData.get("source") as string) || "").trim() || null,
+    parentId: ((formData.get("parentId") as string) || "").trim() || null,
+    productId: ((formData.get("productId") as string) || "").trim() || null,
+    projectId: ((formData.get("projectId") as string) || "").trim() || null,
+    testProcedureId:
+      ((formData.get("testProcedureId") as string) || "").trim() || null,
+    userId: user.id,
+  });
+  await flashToast(`Requirement ${req.number} created`);
+  revalidatePath("/requirements");
+}
+
+export async function actionUpdateRequirementStatus(
+  formData: FormData
+): Promise<void> {
+  const user = await requireReqEditor();
+  const { updateRequirementStatus } = await import(
+    "@/lib/services/requirements"
+  );
+  await updateRequirementStatus({
+    requirementId: formData.get("requirementId") as string,
+    status: (formData.get("status") as string) || "DRAFT",
+    verificationMethod:
+      ((formData.get("verificationMethod") as string) || "").trim() ||
+      undefined,
+    testProcedureId:
+      formData.has("testProcedureId")
+        ? ((formData.get("testProcedureId") as string) || "").trim() || null
+        : undefined,
+    userId: user.id,
+  });
+  await flashToast("Requirement updated");
+  revalidatePath("/requirements");
+}
+
+export async function actionLinkRequirementWork(
+  formData: FormData
+): Promise<void> {
+  const user = await requireReqEditor();
+  const { linkRequirementToWork } = await import(
+    "@/lib/services/requirements"
+  );
+  const target = ((formData.get("target") as string) || "").trim();
+  const [kind, targetId] = target.split(":");
+  await linkRequirementToWork({
+    requirementId: formData.get("requirementId") as string,
+    engTaskId: kind === "task" ? targetId : null,
+    sagaId: kind === "saga" ? targetId : null,
+    userId: user.id,
+  });
+  await flashToast("Requirement traced to engineering work");
+  revalidatePath("/requirements");
+  revalidatePath("/engineering");
+}
+
+export async function actionRemoveRequirementTrace(
+  formData: FormData
+): Promise<void> {
+  const user = await requireReqEditor();
+  const { removeRequirementTrace } = await import(
+    "@/lib/services/requirements"
+  );
+  await removeRequirementTrace({
+    traceId: formData.get("traceId") as string,
+    userId: user.id,
+  });
+  await flashToast("Trace removed");
+  revalidatePath("/requirements");
+  revalidatePath("/engineering");
+}
+
 export async function actionCreateTaskWo(formData: FormData): Promise<void> {
   const description = formData.get("description") as string;
   const status = ((formData.get("status") as string) || "BACKLOG").trim();

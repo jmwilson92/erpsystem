@@ -1,5 +1,6 @@
 import {
   Clock,
+  ListChecks,
   Rocket,
   FileBarChart,
   LayoutDashboard,
@@ -92,6 +93,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Engineering & PLM",
     items: [
       { href: "/engineering", label: "Engineering", icon: Briefcase, keywords: ["tasks", "board", "disciplines"] },
+      { href: "/requirements", label: "Requirements", icon: ListChecks, keywords: ["jama", "trace", "verification", "shall", "coverage", "system requirements"] },
       { href: "/items", label: "Items", icon: Package, keywords: ["item master", "part number", "item cards"] },
       { href: "/bom", label: "BOMs", icon: Layers, keywords: ["bill of materials", "where used", "revision"] },
       { href: "/products", label: "Products (PLM)", icon: Package2, keywords: ["product lifecycle", "catalog"] },
