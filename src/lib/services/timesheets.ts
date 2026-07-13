@@ -760,6 +760,111 @@ export async function decideTimesheetApproval(params: {
   return approval.timesheet;
 }
 
+export type TimecardReviewItem = {
+  timesheetId: string;
+  employeeName: string;
+  employeeTitle: string | null;
+  department: string | null;
+  periodStart: Date;
+  periodEnd: Date;
+  totalHours: number;
+  myBuckets: { id: string; label: string; hours: number }[];
+  myHours: number;
+};
+
+/**
+ * A reviewer's timecard queue, grouped one row per submitted timesheet
+ * (not per bucket) — the line-item list the approvals page renders.
+ */
+export async function getTimecardReviewQueue(user: {
+  id: string;
+  role: string;
+}): Promise<TimecardReviewItem[]> {
+  const isHrAdmin =
+    user.role === "ADMIN" || (await userHasPermission(user.id, "hr.admin"));
+
+  const buckets = await prisma.timesheetApproval.findMany({
+    where: {
+      status: "PENDING",
+      timesheet: { status: "SUBMITTED" },
+      ...(isHrAdmin ? {} : { approverId: user.id }),
+    },
+    include: {
+      timesheet: {
+        include: {
+          user: { select: { name: true, title: true, department: true } },
+          entries: { select: { hours: true } },
+        },
+      },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
+  const bySheet = new Map<string, TimecardReviewItem>();
+  for (const b of buckets) {
+    let item = bySheet.get(b.timesheetId);
+    if (!item) {
+      item = {
+        timesheetId: b.timesheetId,
+        employeeName: b.timesheet.user.name,
+        employeeTitle: b.timesheet.user.title,
+        department: b.timesheet.user.department,
+        periodStart: b.timesheet.periodStart,
+        periodEnd: b.timesheet.periodEnd,
+        totalHours: b.timesheet.entries.reduce((s, e) => s + e.hours, 0),
+        myBuckets: [],
+        myHours: 0,
+      };
+      bySheet.set(b.timesheetId, item);
+    }
+    item.myBuckets.push({ id: b.id, label: b.label, hours: b.hours });
+    item.myHours += b.hours;
+  }
+  return [...bySheet.values()];
+}
+
+/**
+ * Decide every bucket on a timesheet that is routed to this reviewer,
+ * in one shot. Returns how many timecards remain in the reviewer's
+ * queue afterward (so the UI can celebrate an empty queue).
+ */
+export async function decideReviewerBucketsForTimesheet(params: {
+  timesheetId: string;
+  decision: "APPROVED" | "REJECTED";
+  approver: { id: string; role: string };
+  notes?: string;
+}): Promise<{ remaining: number }> {
+  if (params.decision === "REJECTED" && !params.notes?.trim()) {
+    throw new Error("A rejection reason is required.");
+  }
+  const isHrAdmin =
+    params.approver.role === "ADMIN" ||
+    (await userHasPermission(params.approver.id, "hr.admin"));
+
+  const myBuckets = await prisma.timesheetApproval.findMany({
+    where: {
+      timesheetId: params.timesheetId,
+      status: "PENDING",
+      ...(isHrAdmin ? {} : { approverId: params.approver.id }),
+    },
+    select: { id: true },
+  });
+
+  for (const b of myBuckets) {
+    await decideTimesheetApproval({
+      approvalId: b.id,
+      decision: params.decision,
+      approver: params.approver,
+      notes: params.notes,
+    });
+    // A rejection rejects the whole sheet; stop after the first.
+    if (params.decision === "REJECTED") break;
+  }
+
+  const queue = await getTimecardReviewQueue(params.approver);
+  return { remaining: queue.length };
+}
+
 /** Accounting: process an approved sheet for payroll (accrual JE). */
 export async function processTimesheet(params: {
   id: string;
