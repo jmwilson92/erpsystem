@@ -3623,6 +3623,26 @@ model TrainingRecord {
   @@index([userId])
 }
 
+/// Recurring training cycle definition — who must complete what, how often.
+/// The compliance engine matches these (by name) against TrainingRecords to
+/// surface MISSING / OVERDUE / DUE SOON gaps per employee.
+model TrainingRequirement {
+  id              String   @id @default(cuid())
+  name            String
+  description     String?
+  type            String   @default("COMPLIANCE") // COURSE, CERTIFICATION, COMPLIANCE, SAFETY, ON_THE_JOB
+  /// Months between completions (0 = one-time, never recurs)
+  frequencyMonths Int      @default(12)
+  /// Limit to one department (null = whole company)
+  department      String?
+  isActive        Boolean  @default(true)
+  createdById     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([isActive])
+}
+
 /// Company-wide payroll & timesheet policy (single row, id="default").
 /// Accounting owns this: pay period shape, PTO/sick accrual, holidays.
 model PayrollPolicy {

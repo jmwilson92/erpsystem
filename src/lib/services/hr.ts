@@ -15,7 +15,13 @@ export type HrPersona = {
 };
 
 export type ComplianceItem = {
-  kind: "REVIEW_OVERDUE" | "REVIEW_DUE_SOON" | "TRAINING_EXPIRED" | "TRAINING_EXPIRING";
+  kind:
+    | "REVIEW_OVERDUE"
+    | "REVIEW_DUE_SOON"
+    | "TRAINING_EXPIRED"
+    | "TRAINING_EXPIRING"
+    | "TRAINING_MISSING"
+    | "TRAINING_OVERDUE";
   userId: string;
   employeeName: string;
   label: string;
@@ -23,6 +29,153 @@ export type ComplianceItem = {
   daysOut: number; // negative = overdue/expired
   href: string;
 };
+
+export type TrainingGapStatus = "MISSING" | "OVERDUE" | "DUE_SOON" | "CURRENT";
+
+export type TrainingGap = {
+  requirementId: string;
+  requirementName: string;
+  requirementType: string;
+  frequencyMonths: number;
+  userId: string;
+  employeeName: string;
+  department: string | null;
+  status: TrainingGapStatus;
+  /** Next completion due (null for MISSING / one-time CURRENT) */
+  dueDate: Date | null;
+  daysOut: number | null;
+  /** True when the due date came from the record's own expiresAt (already
+   *  surfaced by the expiring-training query — used to dedupe alerts) */
+  fromRecordExpiry: boolean;
+};
+
+function addMonths(d: Date, months: number): Date {
+  const out = new Date(d);
+  out.setMonth(out.getMonth() + months);
+  return out;
+}
+
+/**
+ * Recurring-training compliance matrix: every active TrainingRequirement ×
+ * every applicable active employee, matched (by name, case-insensitive)
+ * against their latest completed TrainingRecord.
+ */
+export async function getTrainingMatrix(
+  scopeUserIds?: string[]
+): Promise<TrainingGap[]> {
+  const [requirements, employees] = await Promise.all([
+    prisma.trainingRequirement.findMany({
+      where: { isActive: true },
+      orderBy: { name: "asc" },
+    }),
+    prisma.user.findMany({
+      where: {
+        isActive: true,
+        ...(scopeUserIds ? { id: { in: scopeUserIds } } : {}),
+      },
+      select: { id: true, name: true, department: true },
+      orderBy: { name: "asc" },
+    }),
+  ]);
+  if (requirements.length === 0 || employees.length === 0) return [];
+
+  const records = await prisma.trainingRecord.findMany({
+    where: {
+      status: { in: ["COMPLETED", "EXPIRED"] },
+      ...(scopeUserIds ? { userId: { in: scopeUserIds } } : {}),
+    },
+    select: {
+      userId: true,
+      name: true,
+      completedAt: true,
+      expiresAt: true,
+    },
+    orderBy: { completedAt: "desc" },
+  });
+  // Latest record per (user, training name)
+  const latest = new Map<string, (typeof records)[number]>();
+  for (const r of records) {
+    const key = `${r.userId}:${r.name.trim().toLowerCase()}`;
+    if (!latest.has(key)) latest.set(key, r);
+  }
+
+  const now = Date.now();
+  const soon = 30 * 86_400_000;
+  const gaps: TrainingGap[] = [];
+
+  for (const req of requirements) {
+    const reqKey = req.name.trim().toLowerCase();
+    const applicable = req.department
+      ? employees.filter(
+          (e) =>
+            (e.department || "").toLowerCase() ===
+            req.department!.toLowerCase()
+        )
+      : employees;
+
+    for (const emp of applicable) {
+      const rec = latest.get(`${emp.id}:${reqKey}`);
+      const base = {
+        requirementId: req.id,
+        requirementName: req.name,
+        requirementType: req.type,
+        frequencyMonths: req.frequencyMonths,
+        userId: emp.id,
+        employeeName: emp.name,
+        department: emp.department,
+      };
+      if (!rec || !rec.completedAt) {
+        gaps.push({
+          ...base,
+          status: "MISSING",
+          dueDate: null,
+          daysOut: null,
+          fromRecordExpiry: false,
+        });
+        continue;
+      }
+      const due =
+        rec.expiresAt ||
+        (req.frequencyMonths > 0
+          ? addMonths(rec.completedAt, req.frequencyMonths)
+          : null);
+      if (!due) {
+        gaps.push({
+          ...base,
+          status: "CURRENT",
+          dueDate: null,
+          daysOut: null,
+          fromRecordExpiry: false,
+        });
+        continue;
+      }
+      const daysOut = Math.floor((due.getTime() - now) / 86_400_000);
+      gaps.push({
+        ...base,
+        status:
+          daysOut < 0 ? "OVERDUE" : daysOut * 86_400_000 < soon ? "DUE_SOON" : "CURRENT",
+        dueDate: due,
+        daysOut,
+        fromRecordExpiry: !!rec.expiresAt,
+      });
+    }
+  }
+
+  // Worst first: MISSING, then most-overdue
+  const rank: Record<TrainingGapStatus, number> = {
+    MISSING: 0,
+    OVERDUE: 1,
+    DUE_SOON: 2,
+    CURRENT: 3,
+  };
+  gaps.sort(
+    (a, b) =>
+      rank[a.status] - rank[b.status] ||
+      (a.daysOut ?? 0) - (b.daysOut ?? 0) ||
+      a.employeeName.localeCompare(b.employeeName)
+  );
+  return gaps;
+}
 
 /**
  * People-compliance engine: surfaces overdue/soon-due performance
@@ -86,6 +239,38 @@ export async function getComplianceItems(user: {
       href: `/hr/person/${t.userId}`,
     });
   }
+
+  // Recurring-requirement gaps: never-completed + overdue cycles. Items whose
+  // due date came from a record's own expiresAt are already covered above.
+  try {
+    const gaps = await getTrainingMatrix(scope);
+    for (const g of gaps) {
+      if (g.status === "MISSING") {
+        items.push({
+          kind: "TRAINING_MISSING",
+          userId: g.userId,
+          employeeName: g.employeeName,
+          label: `${g.requirementName} — required, never completed`,
+          dueDate: null,
+          daysOut: -1,
+          href: `/hr/person/${g.userId}`,
+        });
+      } else if (g.status === "OVERDUE" && !g.fromRecordExpiry) {
+        items.push({
+          kind: "TRAINING_OVERDUE",
+          userId: g.userId,
+          employeeName: g.employeeName,
+          label: `${g.requirementName} — cycle overdue (every ${g.frequencyMonths} mo)`,
+          dueDate: g.dueDate,
+          daysOut: g.daysOut ?? -1,
+          href: `/hr/person/${g.userId}`,
+        });
+      }
+    }
+  } catch {
+    /* matrix is best-effort — never break compliance list */
+  }
+
   // Most-overdue first
   items.sort((a, b) => a.daysOut - b.daysOut);
   return items;

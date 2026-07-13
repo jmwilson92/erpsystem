@@ -4742,7 +4742,24 @@ export async function actionAddTrainingRecord(
   const attachName = ((formData.get("attachmentName") as string) || "").trim();
   const attachUrl = ((formData.get("attachmentUrl") as string) || "").trim();
   const completedAtRaw = ((formData.get("completedAt") as string) || "").trim();
-  const expiresAtRaw = ((formData.get("expiresAt") as string) || "").trim();
+  let expiresAtRaw = ((formData.get("expiresAt") as string) || "").trim();
+
+  // Recurring cycle: when no expiry is given, auto-fill it from a matching
+  // active training requirement's frequency (e.g. annual forklift cert).
+  if (!expiresAtRaw && completedAtRaw) {
+    const reqs = await prisma.trainingRequirement.findMany({
+      where: { isActive: true, frequencyMonths: { gt: 0 } },
+      select: { name: true, frequencyMonths: true },
+    });
+    const match = reqs.find(
+      (r) => r.name.trim().toLowerCase() === name.toLowerCase()
+    );
+    if (match) {
+      const d = new Date(completedAtRaw);
+      d.setMonth(d.getMonth() + match.frequencyMonths);
+      expiresAtRaw = d.toISOString();
+    }
+  }
   await prisma.trainingRecord.create({
     data: {
       userId,
@@ -4769,6 +4786,65 @@ export async function actionAddTrainingRecord(
   });
   revalidatePath("/hr");
   revalidatePath(`/hr/person/${userId}`);
+}
+
+export async function actionCreateTrainingRequirement(
+  formData: FormData
+): Promise<void> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const user = await getCurrentUser();
+  if (!user) return;
+  const isHr = await userHasPermission(user.id, "hr.docs.manage");
+  if (!isHr && user.role !== "ADMIN") {
+    throw new Error("Only HR can define training cycles");
+  }
+  const name = ((formData.get("name") as string) || "").trim();
+  if (!name) return;
+  const frequencyMonths = Math.max(
+    0,
+    parseInt((formData.get("frequencyMonths") as string) || "12", 10) || 0
+  );
+  await prisma.trainingRequirement.create({
+    data: {
+      name,
+      description:
+        ((formData.get("description") as string) || "").trim() || null,
+      type: ((formData.get("type") as string) || "COMPLIANCE").trim(),
+      frequencyMonths,
+      department:
+        ((formData.get("department") as string) || "").trim() || null,
+      createdById: user.id,
+    },
+  });
+  await logAudit({
+    entityType: "TrainingRequirement",
+    entityId: name,
+    action: "TRAINING_CYCLE_CREATED",
+    userId: user.id,
+    metadata: { name, frequencyMonths },
+  });
+  revalidatePath("/hr");
+}
+
+export async function actionToggleTrainingRequirement(
+  formData: FormData
+): Promise<void> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const user = await getCurrentUser();
+  if (!user) return;
+  const isHr = await userHasPermission(user.id, "hr.docs.manage");
+  if (!isHr && user.role !== "ADMIN") {
+    throw new Error("Only HR can manage training cycles");
+  }
+  const id = ((formData.get("id") as string) || "").trim();
+  if (!id) return;
+  const req = await prisma.trainingRequirement.findUnique({ where: { id } });
+  if (!req) return;
+  await prisma.trainingRequirement.update({
+    where: { id },
+    data: { isActive: !req.isActive },
+  });
+  revalidatePath("/hr");
 }
 
 export async function actionAttachTrainingEvidence(

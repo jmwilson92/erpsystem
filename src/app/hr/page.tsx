@@ -6,6 +6,7 @@ import {
   getEmployeeProfile,
   getTeamOverview,
   getComplianceItems,
+  getTrainingMatrix,
   certExpiryTone,
 } from "@/lib/services/hr";
 import {
@@ -32,6 +33,8 @@ import {
   actionUpdateGoalProgress,
   actionSaveReviewPolicy,
   actionOpenDueReviewCycles,
+  actionCreateTrainingRequirement,
+  actionToggleTrainingRequirement,
 } from "@/app/actions";
 import { Users2, Clock, Calendar, Target } from "lucide-react";
 
@@ -63,13 +66,20 @@ export default async function HrPage({
     await openDueReviewCycles({ actorId: me.id });
   }
 
-  const [profile, team, complianceItems] = await Promise.all([
-    getEmployeeProfile(me.id),
-    persona.isManager ? getTeamOverview(me.id) : Promise.resolve([]),
-    persona.isManager || persona.isHrAdmin
-      ? getComplianceItems(me)
-      : Promise.resolve([]),
-  ]);
+  const [profile, team, complianceItems, trainingGaps, trainingReqs] =
+    await Promise.all([
+      getEmployeeProfile(me.id),
+      persona.isManager ? getTeamOverview(me.id) : Promise.resolve([]),
+      persona.isManager || persona.isHrAdmin
+        ? getComplianceItems(me)
+        : Promise.resolve([]),
+      persona.isManager || persona.isHrAdmin
+        ? getTrainingMatrix(persona.isHrAdmin ? undefined : persona.reportIds)
+        : Promise.resolve([]),
+      persona.isHrAdmin
+        ? prisma.trainingRequirement.findMany({ orderBy: { name: "asc" } })
+        : Promise.resolve([]),
+    ]);
   const overdueCount = complianceItems.filter((c) => c.daysOut < 0).length;
 
   // Company-wide data only loads for HR administration.
@@ -245,19 +255,191 @@ export default async function HrPage({
                             : "bg-amber-500/15 text-amber-300"
                         }`}
                       >
-                        {c.kind.startsWith("TRAINING")
-                          ? overdue
-                            ? "EXPIRED"
-                            : `expires ${Math.abs(c.daysOut)}d`
-                          : overdue
+                        {c.kind === "TRAINING_MISSING"
+                          ? "MISSING"
+                          : c.kind === "TRAINING_OVERDUE"
                             ? `${Math.abs(c.daysOut)}d overdue`
-                            : `due ${c.daysOut}d`}
+                            : c.kind.startsWith("TRAINING")
+                              ? overdue
+                                ? "EXPIRED"
+                                : `expires ${Math.abs(c.daysOut)}d`
+                              : overdue
+                                ? `${Math.abs(c.daysOut)}d overdue`
+                                : `due ${c.daysOut}d`}
                       </span>
                     </Link>
                   );
                 })}
               </CardContent>
             </Card>
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">
+                  Recurring training matrix
+                </CardTitle>
+                <p className="text-xs text-slate-500">
+                  Every required training cycle × every applicable employee.{" "}
+                  {trainingGaps.filter((g) => g.status === "CURRENT").length}{" "}
+                  current ·{" "}
+                  {trainingGaps.filter((g) => g.status === "DUE_SOON").length}{" "}
+                  due soon ·{" "}
+                  {trainingGaps.filter((g) => g.status === "OVERDUE").length}{" "}
+                  overdue ·{" "}
+                  {trainingGaps.filter((g) => g.status === "MISSING").length}{" "}
+                  missing.
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-1">
+                {trainingGaps.length === 0 && (
+                  <p className="py-4 text-center text-sm text-slate-500">
+                    No active training cycles defined
+                    {persona.isHrAdmin ? " — add one below." : "."}
+                  </p>
+                )}
+                {trainingGaps
+                  .filter((g) => g.status !== "CURRENT")
+                  .slice(0, 40)
+                  .map((g) => (
+                    <Link
+                      key={`${g.requirementId}:${g.userId}`}
+                      href={`/hr/person/${g.userId}`}
+                      className="flex items-center justify-between gap-2 rounded-lg border border-slate-800 px-3 py-2 text-sm hover:border-slate-700"
+                    >
+                      <span className="min-w-0">
+                        <span className="text-slate-200">{g.employeeName}</span>
+                        <span className="ml-2 text-xs text-slate-500">
+                          {g.requirementName}
+                          {g.frequencyMonths > 0
+                            ? ` · every ${g.frequencyMonths} mo`
+                            : " · one-time"}
+                          {g.department ? ` · ${g.department}` : ""}
+                        </span>
+                      </span>
+                      <span
+                        className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                          g.status === "MISSING"
+                            ? "bg-rose-500/15 text-rose-300"
+                            : g.status === "OVERDUE"
+                              ? "bg-rose-500/15 text-rose-300"
+                              : "bg-amber-500/15 text-amber-300"
+                        }`}
+                      >
+                        {g.status === "DUE_SOON" && g.daysOut !== null
+                          ? `due ${g.daysOut}d`
+                          : g.status === "OVERDUE" && g.daysOut !== null
+                            ? `${Math.abs(g.daysOut)}d overdue`
+                            : g.status.replace(/_/g, " ")}
+                      </span>
+                    </Link>
+                  ))}
+                {trainingGaps.length > 0 &&
+                  trainingGaps.every((g) => g.status === "CURRENT") && (
+                    <p className="py-4 text-center text-sm text-slate-500">
+                      Every required training is current. 🎉
+                    </p>
+                  )}
+              </CardContent>
+            </Card>
+
+            {persona.isHrAdmin && (
+              <Card className="border-teal-900/40">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">
+                    Training cycles (HR)
+                  </CardTitle>
+                  <p className="text-xs text-slate-500">
+                    Define what training recurs and how often. New completions
+                    logged on a person&apos;s page auto-set the next expiry
+                    from the cycle; gaps alert here and on the bell.
+                  </p>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="space-y-1">
+                    {trainingReqs.map((r) => (
+                      <div
+                        key={r.id}
+                        className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 px-3 py-2 text-sm"
+                      >
+                        <span className="min-w-0">
+                          <span
+                            className={
+                              r.isActive ? "text-slate-200" : "text-slate-500 line-through"
+                            }
+                          >
+                            {r.name}
+                          </span>
+                          <span className="ml-2 text-xs text-slate-500">
+                            {r.type.replace(/_/g, " ").toLowerCase()}
+                            {r.frequencyMonths > 0
+                              ? ` · every ${r.frequencyMonths} mo`
+                              : " · one-time"}
+                            {r.department ? ` · ${r.department}` : " · company-wide"}
+                          </span>
+                        </span>
+                        <form action={actionToggleTrainingRequirement}>
+                          <input type="hidden" name="id" value={r.id} />
+                          <Button type="submit" size="sm" variant="outline">
+                            {r.isActive ? "Deactivate" : "Reactivate"}
+                          </Button>
+                        </form>
+                      </div>
+                    ))}
+                    {trainingReqs.length === 0 && (
+                      <p className="text-sm text-slate-500">
+                        No cycles defined yet.
+                      </p>
+                    )}
+                  </div>
+                  <form
+                    action={actionCreateTrainingRequirement}
+                    className="grid gap-2 border-t border-slate-800 pt-3 sm:grid-cols-2 lg:grid-cols-4"
+                  >
+                    <Input
+                      name="name"
+                      required
+                      placeholder="Training name (matches records)"
+                      className="h-9 lg:col-span-2"
+                    />
+                    <select name="type" className={selectClass} defaultValue="COMPLIANCE">
+                      <option value="COMPLIANCE">Compliance</option>
+                      <option value="SAFETY">Safety</option>
+                      <option value="CERTIFICATION">Certification</option>
+                      <option value="COURSE">Course</option>
+                      <option value="ON_THE_JOB">On the job</option>
+                    </select>
+                    <Input
+                      name="frequencyMonths"
+                      type="number"
+                      min={0}
+                      defaultValue={12}
+                      title="Months between completions (0 = one-time)"
+                      className="h-9"
+                    />
+                    <select
+                      name="department"
+                      className={`${selectClass} lg:col-span-2`}
+                      defaultValue=""
+                    >
+                      <option value="">Company-wide</option>
+                      {departments.filter(Boolean).map((d) => (
+                        <option key={d} value={d!}>
+                          {d}
+                        </option>
+                      ))}
+                    </select>
+                    <Input
+                      name="description"
+                      placeholder="Description (optional)"
+                      className="h-9"
+                    />
+                    <Button type="submit" size="sm">
+                      Add training cycle
+                    </Button>
+                  </form>
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
         )}
 
