@@ -107,6 +107,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/suppliers", label: "Suppliers / ASL", icon: Award, keywords: ["vendor", "scorecard", "approved supplier"] },
       { href: "/inventory", label: "Inventory", icon: Package, keywords: ["stock", "bins", "kanban", "quarantine"] },
       { href: "/government-property", label: "Gov Property", icon: Shield, keywords: ["gfp", "cap", "uid", "dfars"] },
+      { href: "/assets", label: "Asset Tracker", icon: Briefcase, keywords: ["tools", "test equipment", "demo unit", "checkout", "check out"] },
       { href: "/virtual-assets", label: "Virtual Assets", icon: Package2, keywords: ["licenses", "software", "intangible"] },
     ],
   },

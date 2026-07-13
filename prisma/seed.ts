@@ -38,6 +38,7 @@ async function main() {
     "Budget", "ApPayment", "ApInvoice", "ArPayment", "ArInvoiceLine", "ArInvoice",
     "Rfq", "ReceivingTravelerLine", "ReceivingTraveler", "ReceiptLine", "Receipt", "PurchaseOrderLine", "PurchaseOrder",
     "Customer",
+    "AssetCheckout", "Asset",
     "BankTransaction", "BankAccount",
     "JournalLine", "JournalEntry", "Account",
     "PurchaseRequestLine", "PurchaseRequest",
@@ -364,6 +365,51 @@ async function main() {
     });
   }
   console.log("  ✓ 2 bank accounts + feed");
+
+  // ── Company assets (tools, test equipment, demo units) ─────
+  const assetDefs = [
+    { name: "Fluke 87V Multimeter", category: "TEST_EQUIPMENT", serialNumber: "FL87-2231", manufacturer: "Fluke", locationScope: "IN_HOUSE_ONLY", homeLocation: "Cal Lab", purchaseValue: 450 },
+    { name: "Keysight DSOX1204G Oscilloscope", category: "TEST_EQUIPMENT", serialNumber: "KS-DSOX-8841", manufacturer: "Keysight", locationScope: "IN_HOUSE_ONLY", homeLocation: "Test Bench 2", purchaseValue: 1800 },
+    { name: "Block 5 Demo Unit", category: "DEMO_UNIT", serialNumber: "DEMO-B5-001", locationScope: "OFFSITE_OK", homeLocation: "Demo Cage", purchaseValue: 25000 },
+    { name: "Torque Wrench Set (calibrated)", category: "TOOL", manufacturer: "Snap-on", locationScope: "IN_HOUSE_ONLY", homeLocation: "Tool Crib", purchaseValue: 620 },
+    { name: "Field Laptop — Trade Shows", category: "IT", serialNumber: "LT-FIELD-04", locationScope: "OFFSITE_OK", homeLocation: "IT", purchaseValue: 1400 },
+    { name: "Environmental Chamber", category: "TEST_EQUIPMENT", manufacturer: "Thermotron", locationScope: "IN_HOUSE_ONLY", homeLocation: "Env Lab", purchaseValue: 42000 },
+  ];
+  let assetN = 0;
+  for (const a of assetDefs) {
+    assetN++;
+    await prisma.asset.create({
+      data: {
+        assetTag: `AST-${String(assetN).padStart(5, "0")}`,
+        name: a.name,
+        category: a.category,
+        serialNumber: a.serialNumber || null,
+        manufacturer: a.manufacturer || null,
+        locationScope: a.locationScope,
+        homeLocation: a.homeLocation,
+        purchaseValue: a.purchaseValue,
+      },
+    });
+  }
+  // Check the demo unit out, offsite, to the buyer for a trade show
+  const demoUnit = await prisma.asset.findFirst({ where: { category: "DEMO_UNIT" } });
+  if (demoUnit) {
+    await prisma.assetCheckout.create({
+      data: {
+        assetId: demoUnit.id,
+        userId: buyer.id,
+        purpose: "AUSA trade show demo",
+        offsite: true,
+        destination: "Washington, DC",
+        dueAt: daysFromNow(6),
+      },
+    });
+    await prisma.asset.update({
+      where: { id: demoUnit.id },
+      data: { status: "CHECKED_OUT", assignedToUserId: buyer.id },
+    });
+  }
+  console.log(`  ✓ ${assetN} assets`);
 
   // ── UOM master + conversions ───────────────────────────────
   const uomDefs = [
