@@ -28,7 +28,7 @@ export async function getNotificationSummary(user: {
   const persona = await getHrPersona(user);
   const scope = persona.isHrAdmin ? undefined : { in: persona.reportIds };
 
-  const [pto, time, expenses, pmAlerts, mrbOpen, canPmo, canMrb, myReviews, theirReviews] =
+  const [pto, time, expenses, pmAlerts, mrbOpen, canPmo, canMrb, myReviews, theirReviews, canInventory] =
     await Promise.all([
       prisma.ptoRequest.count({
         where: { status: "PENDING", ...(scope ? { userId: scope } : {}) },
@@ -68,7 +68,21 @@ export async function getNotificationSummary(user: {
           ],
         },
       }),
+      userCanView(user.id, "inventory"),
     ]);
+
+  // Kanban stockout risk: parts at/below min with nothing on order yet
+  let shortageCount = 0;
+  if (canInventory) {
+    try {
+      const { findKanbanShortages } = await import(
+        "@/lib/services/kanban-replenishment"
+      );
+      shortageCount = (await findKanbanShortages()).length;
+    } catch {
+      // shortage scan is advisory — never break the shell over it
+    }
+  }
 
   const approvals = pto + time + expenses;
   const items: NotificationItem[] = [];
@@ -84,6 +98,13 @@ export async function getNotificationSummary(user: {
   }
   if (canMrb && mrbOpen > 0) {
     items.push({ label: "Open MRB cases", count: mrbOpen, href: "/mrb" });
+  }
+  if (shortageCount > 0) {
+    items.push({
+      label: "Kanban parts below min (no PR yet)",
+      count: shortageCount,
+      href: "/inventory",
+    });
   }
   const reviewActions = myReviews + theirReviews;
   if (reviewActions > 0) {
