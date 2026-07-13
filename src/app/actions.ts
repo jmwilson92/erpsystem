@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { flashToast } from "@/lib/flash";
 import {
   receivePurchaseOrder,
   receiveGfpTraveler,
@@ -446,6 +447,7 @@ export async function actionCreateItemBom(formData: FormData): Promise<void> {
     copyFromBomId: formOptId(formData, "copyFromBomId") || undefined,
     userId: user?.id,
   });
+  await flashToast("BOM created");
   revalidatePath("/items");
   revalidatePath(`/items/${partId}`);
   revalidatePath("/bom");
@@ -466,6 +468,7 @@ export async function actionAddBomLine(formData: FormData): Promise<void> {
     notes: formStr(formData, "notes") || undefined,
     userId: user?.id,
   });
+  await flashToast("BOM line added");
   revalidatePath(`/items/${partId}`);
   revalidatePath(`/bom/${bomHeaderId}`);
   revalidatePath("/bom");
@@ -634,6 +637,7 @@ export async function actionSaveWorkCenter(formData: FormData): Promise<void> {
     sortOrder: Number(formData.get("sortOrder") || 0),
     userId: user?.id,
   });
+  await flashToast("Workcenter saved");
   revalidatePath("/workcenters");
   revalidatePath("/floor");
   revalidatePath("/test-center");
@@ -788,6 +792,7 @@ export async function actionCertifyBom(formData: FormData) {
 
   await certifyBom({ bomHeaderId, userId: user?.id });
 
+  await flashToast("BOM certified");
   revalidatePath("/bom");
   revalidatePath(`/bom/${bomHeaderId}`);
 }
@@ -814,6 +819,7 @@ export async function actionCreateWoFromBom(formData: FormData): Promise<void> {
     status,
   });
 
+  await flashToast(`Work order ${wo.number} created`);
   revalidatePath("/work-orders");
   revalidatePath("/floor");
   revalidatePath("/bom");
@@ -855,6 +861,7 @@ export async function actionCreateForecast(formData: FormData): Promise<void> {
     userId: user?.id,
   });
 
+  await flashToast("Forecast created");
   revalidatePath("/planning");
   redirect(`/planning/forecasts/${forecast.id}`);
 }
@@ -871,6 +878,7 @@ export async function actionGenerateMrsFromForecast(
     forecastId,
     userId: user?.id,
   });
+  await flashToast("Material requisition generated");
   revalidatePath("/planning");
   revalidatePath(`/planning/forecasts/${forecastId}`);
   redirect(`/planning/mrs/${mrs.id}`);
@@ -888,6 +896,7 @@ export async function actionReleaseMaterialRequisition(
     materialRequisitionId,
     userId: user?.id,
   });
+  await flashToast("MRS released — work orders created");
   revalidatePath("/planning");
   revalidatePath(`/planning/mrs/${materialRequisitionId}`);
   revalidatePath("/work-orders");
@@ -1940,6 +1949,7 @@ export async function actionCreateSalesOrder(formData: FormData): Promise<void> 
     }
   }
 
+  await flashToast(`Sales order ${so.number} created`);
   revalidateFulfillmentPaths([`/sales/${so.id}`]);
   redirect(`/sales/${so.id}`);
 }
@@ -1962,6 +1972,7 @@ export async function actionCreateQuote(formData: FormData): Promise<void> {
     });
   }
 
+  await flashToast("Quote created");
   revalidatePath("/sales");
   revalidatePath("/sales/quotes");
   redirect(`/sales/quotes/${quote.id}`);
@@ -2070,6 +2081,7 @@ export async function actionCreateCustomer(formData: FormData): Promise<void> {
     userId: user?.id,
   });
 
+  await flashToast("Customer created");
   revalidatePath("/customers");
   revalidatePath("/sales");
   revalidatePath("/sales/new");
@@ -2093,6 +2105,7 @@ export async function actionUpdateCustomer(formData: FormData): Promise<void> {
     userId: user?.id,
   });
 
+  await flashToast("Customer updated");
   revalidatePath("/customers");
   revalidatePath(`/customers/${id}`);
   revalidatePath("/sales");
@@ -2196,6 +2209,7 @@ export async function actionCreateItem(formData: FormData): Promise<void> {
     notes: formOptId(formData, "notes"),
     userId: user?.id,
   });
+  await flashToast("Item created");
   revalidatePath("/items");
   revalidatePath("/bom");
   redirect(`/items/${part.id}`);
@@ -2259,6 +2273,7 @@ export async function actionUpdateItem(formData: FormData): Promise<void> {
   }
 
   await updatePart(id, data);
+  await flashToast("Item updated");
   revalidatePath("/items");
   revalidatePath(`/items/${id}`);
   revalidatePath("/bom");
@@ -3955,6 +3970,7 @@ export async function actionPostJournal(formData: FormData): Promise<void> {
       },
     ],
   });
+  await flashToast("Journal entry posted");
   revalidatePath("/accounting");
   redirect(postNow ? "/accounting?tab=je" : "/accounting?tab=je&pending=1");
 }
@@ -4460,6 +4476,7 @@ export async function actionCreateAccount(formData: FormData): Promise<void> {
     action: "CREATED",
     userId: user?.id,
   });
+  await flashToast("GL account created");
   revalidatePath("/accounting");
 }
 
@@ -4535,6 +4552,7 @@ export async function actionRequestPto(formData: FormData): Promise<void> {
     hours,
     reason: ((formData.get("reason") as string) || "").trim() || undefined,
   });
+  await flashToast("PTO request submitted");
   revalidatePath("/hr");
 }
 
@@ -4784,6 +4802,7 @@ export async function actionAddTrainingRecord(
     userId: user.id,
     metadata: { name },
   });
+  await flashToast("Training record added");
   revalidatePath("/hr");
   revalidatePath(`/hr/person/${userId}`);
 }
@@ -4823,6 +4842,7 @@ export async function actionCreateTrainingRequirement(
     userId: user.id,
     metadata: { name, frequencyMonths },
   });
+  await flashToast("Training cycle added");
   revalidatePath("/hr");
 }
 
@@ -5229,6 +5249,7 @@ export async function actionProcessTimesheet(
     id: formData.get("id") as string,
     processor: { id: user.id, role: user.role },
   });
+  await flashToast("Timesheet processed to payroll");
   revalidatePath("/accounting");
   revalidatePath("/accounting");
   revalidatePath("/hr/timesheet");
@@ -5252,6 +5273,7 @@ export async function actionCreateTestProcedure(
     purpose: ((formData.get("purpose") as string) || "").trim() || null,
     userId: user.id,
   });
+  await flashToast("Test procedure created");
   revalidatePath("/test-procedures");
 }
 
@@ -5300,6 +5322,7 @@ export async function actionReleaseTestProcedure(
     testProcedureId: formData.get("testProcedureId") as string,
     userId: user.id,
   });
+  await flashToast("Test procedure released");
   revalidatePath("/test-procedures");
 }
 
@@ -5319,6 +5342,7 @@ export async function actionCreateAsset(formData: FormData): Promise<void> {
     purchaseValue: Number(formData.get("purchaseValue") || 0) || undefined,
     userId: user.id,
   });
+  await flashToast("Asset created");
   revalidatePath("/assets");
 }
 
@@ -5339,6 +5363,7 @@ export async function actionCheckoutAsset(formData: FormData): Promise<void> {
     engTaskId: ((formData.get("engTaskId") as string) || "").trim() || null,
     actorId: user.id,
   });
+  await flashToast("Asset checked out");
   revalidatePath("/assets");
 }
 
@@ -5351,6 +5376,7 @@ export async function actionCheckinAsset(formData: FormData): Promise<void> {
     returnNote: ((formData.get("returnNote") as string) || "").trim() || undefined,
     actorId: user.id,
   });
+  await flashToast("Asset checked in");
   revalidatePath("/assets");
 }
 
@@ -5371,6 +5397,7 @@ export async function actionConnectBank(formData: FormData): Promise<void> {
     glAccountId: ((formData.get("glAccountId") as string) || "").trim() || undefined,
     userId: user.id,
   });
+  await flashToast("Bank account connected");
   revalidatePath("/accounting");
 }
 
@@ -5418,6 +5445,7 @@ export async function actionRunPayroll(): Promise<void> {
   const user = await getCurrentUser();
   if (!user) return;
   await runPayroll({ id: user.id, role: user.role });
+  await flashToast("Payroll run complete — journals posted");
   revalidatePath("/accounting");
   revalidatePath("/accounting");
   revalidatePath("/hr/timesheet");
@@ -5472,6 +5500,7 @@ export async function actionSavePayrollPolicy(
     action: "POLICY_UPDATED",
     userId: user?.id,
   });
+  await flashToast("Payroll policy saved");
   revalidatePath("/accounting");
   revalidatePath("/hr/timesheet");
 }
@@ -5506,6 +5535,7 @@ export async function actionSaveAccountingSettings(
     action: "SETTINGS_UPDATED",
     userId: user?.id,
   });
+  await flashToast("Accounting settings saved");
   revalidatePath("/accounting");
 }
 
@@ -5532,6 +5562,7 @@ export async function actionSaveReviewPolicy(
     questions: rawQuestions,
     updatedById: user?.id,
   });
+  await flashToast("Review policy saved");
   revalidatePath("/hr");
 }
 
@@ -5602,6 +5633,7 @@ export async function actionApproveJournal(
     id: formData.get("id") as string,
     approvedById: user?.id,
   });
+  await flashToast("Journal entry approved");
   revalidatePath("/accounting");
 }
 
@@ -5632,6 +5664,7 @@ export async function actionRecordArPayment(
     reference: ((formData.get("reference") as string) || "").trim() || null,
     userId: user?.id,
   });
+  await flashToast("Payment recorded");
   revalidatePath("/accounting");
 }
 
@@ -5651,6 +5684,7 @@ export async function actionRecordApPayment(
     reference: ((formData.get("reference") as string) || "").trim() || null,
     userId: user?.id,
   });
+  await flashToast("Payment recorded");
   revalidatePath("/accounting");
 }
 
@@ -5676,6 +5710,7 @@ export async function actionCreateExpenseEntry(
     createdById: user?.id,
     submitForApproval: (formData.get("postNow") as string) !== "true",
   });
+  await flashToast("Expense entry posted");
   revalidatePath("/accounting");
   redirect("/accounting?tab=je");
 }
@@ -5710,6 +5745,7 @@ export async function actionSaveCompanyProfile(
     action: "COMPANY_PROFILE_SAVED",
     userId: user?.id,
   });
+  await flashToast("Company profile saved");
   revalidatePath("/", "layout");
 }
 
