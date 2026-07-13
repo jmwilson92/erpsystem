@@ -20,6 +20,7 @@ import {
 } from "@/lib/services/asl";
 import { SupplierTrendChart } from "@/components/suppliers/trend-chart";
 import Link from "next/link";
+import { ActivityTimeline } from "@/components/shared/activity-timeline";
 
 export const dynamic = "force-dynamic";
 
@@ -592,6 +593,8 @@ export default async function SupplierDetailPage({
           </CardContent>
         </Card>
       )}
+
+      <ActivityTimeline entityType="Supplier" entityId={id} />
     </div>
   );
 }

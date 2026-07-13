@@ -9,6 +9,7 @@ import { PackShipPanel } from "@/components/shipping/pack-ship-panel";
 import { Input } from "@/components/ui/input";
 import { actionShipReturnShipment } from "@/app/actions";
 import Link from "next/link";
+import { ActivityTimeline } from "@/components/shared/activity-timeline";
 
 export const dynamic = "force-dynamic";
 
@@ -299,6 +300,8 @@ export default async function ShipmentDetailPage({
           </CardContent>
         </Card>
       )}
+
+      <ActivityTimeline entityType="Shipment" entityId={id} />
     </div>
   );
 }

@@ -10,6 +10,7 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 import { actionClosePurchaseOrder } from "@/app/actions";
 import Link from "next/link";
 import type { PurchaseOrderPdfData } from "@/lib/pdf";
+import { ActivityTimeline } from "@/components/shared/activity-timeline";
 
 export const dynamic = "force-dynamic";
 
@@ -297,6 +298,8 @@ export default async function PoDetailPage({
           </CardContent>
         </Card>
       )}
+
+      <ActivityTimeline entityType="PurchaseOrder" entityId={id} />
     </div>
   );
 }
