@@ -11,6 +11,8 @@ import { actionClosePurchaseOrder } from "@/app/actions";
 import Link from "next/link";
 import type { PurchaseOrderPdfData } from "@/lib/pdf";
 import { ActivityTimeline } from "@/components/shared/activity-timeline";
+import { EmailComposeCard } from "@/components/shared/email-compose-card";
+import { composePoEmail } from "@/lib/services/email";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +36,7 @@ export default async function PoDetailPage({
   });
   if (!po) notFound();
 
+  const emailDraft = await composePoEmail(po.id);
   const buyer = po.buyerId
     ? await prisma.user.findUnique({ where: { id: po.buyerId } })
     : null;
@@ -298,6 +301,12 @@ export default async function PoDetailPage({
           </CardContent>
         </Card>
       )}
+
+      <EmailComposeCard
+        draft={emailDraft}
+        returnTo={`/purchasing/po/${id}`}
+        title="Email PO to supplier"
+      />
 
       <ActivityTimeline entityType="PurchaseOrder" entityId={id} />
     </div>
