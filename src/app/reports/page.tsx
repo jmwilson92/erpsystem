@@ -10,6 +10,8 @@ import {
   Users2,
   Download,
   FileBarChart,
+  Printer,
+  Hammer,
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -47,6 +49,20 @@ export default async function ReportsPage({
         description="Run any report on screen, download as CSV for Excel, or print. Live data, no setup."
       />
 
+      <Link
+        href="/reports/builder"
+        className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-teal-900/40 bg-gradient-to-r from-teal-500/10 to-transparent px-4 py-3 transition-colors hover:border-teal-500/40"
+      >
+        <span className="flex items-center gap-2 text-sm font-medium text-slate-200">
+          <Hammer className="h-4 w-4 text-teal-400" />
+          Custom report builder
+          <span className="text-xs font-normal text-slate-500">
+            Pick a dataset, choose columns, filter, sort — CSV + print
+          </span>
+        </span>
+        <Button size="sm">Open builder →</Button>
+      </Link>
+
       <div className="grid gap-4 lg:grid-cols-4">
         {groups.map((g) => {
           const Icon = GROUP_ICON[g];
@@ -74,12 +90,21 @@ export default async function ReportsPage({
                         {r.description}
                       </p>
                     </Link>
-                    <a
-                      href={`/reports/export?key=${r.key}`}
-                      className="mt-1 inline-flex items-center gap-1 text-[11px] text-sky-400 hover:underline"
-                    >
-                      <Download className="h-3 w-3" /> CSV
-                    </a>
+                    <span className="mt-1 flex items-center gap-3">
+                      <a
+                        href={`/reports/export?key=${r.key}`}
+                        className="inline-flex items-center gap-1 text-[11px] text-sky-400 hover:underline"
+                      >
+                        <Download className="h-3 w-3" /> CSV
+                      </a>
+                      <Link
+                        href={`/print/report?key=${r.key}`}
+                        target="_blank"
+                        className="inline-flex items-center gap-1 text-[11px] text-teal-400 hover:underline"
+                      >
+                        <Printer className="h-3 w-3" /> Print
+                      </Link>
+                    </span>
                   </div>
                 ))}
               </CardContent>
@@ -98,11 +123,18 @@ export default async function ReportsPage({
                 {table.rows.length} row{table.rows.length === 1 ? "" : "s"}
               </span>
             </CardTitle>
-            <Button asChild size="sm" variant="outline">
-              <a href={`/reports/export?key=${active!.key}`}>
-                <Download className="mr-1 h-3.5 w-3.5" /> Download CSV
-              </a>
-            </Button>
+            <div className="flex gap-2">
+              <Button asChild size="sm" variant="outline">
+                <a href={`/reports/export?key=${active!.key}`}>
+                  <Download className="mr-1 h-3.5 w-3.5" /> Download CSV
+                </a>
+              </Button>
+              <Button asChild size="sm" variant="outline">
+                <Link href={`/print/report?key=${active!.key}`} target="_blank">
+                  <Printer className="mr-1 h-3.5 w-3.5" /> Print / PDF
+                </Link>
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">

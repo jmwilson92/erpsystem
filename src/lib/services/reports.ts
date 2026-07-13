@@ -34,6 +34,9 @@ export const REPORT_CATALOG: {
   { key: "scorecards", title: "Supplier Scorecards", group: "Quality", description: "OTD, quality PPM, and overall grade per supplier" },
   { key: "timecards", title: "Timecard Summary", group: "People", description: "Hours by employee and status for recent periods" },
   { key: "pto", title: "PTO Ledger", group: "People", description: "Requests with dates, hours, and approval state" },
+  { key: "training-compliance", title: "Training Compliance", group: "People", description: "Recurring training matrix — missing, overdue, due-soon by person" },
+  { key: "req-coverage", title: "Requirements Coverage", group: "Quality", description: "Requirement status, verification method, and engineering trace count" },
+  { key: "bank-recon", title: "Bank Reconciliation", group: "Financial", description: "Bank/CC transactions by status — what still needs categorizing" },
 ];
 
 function ageBucket(days: number): string {
@@ -213,6 +216,68 @@ export async function runReport(key: string): Promise<ReportTable> {
         columns: ["Employee", "Type", "Start", "End", "Hours", "Status", "Reason"],
         rows: pto.map((p) => [
           p.user.name, p.type, day(p.startDate), day(p.endDate), p.hours, p.status, p.reason || "",
+        ]),
+      };
+    }
+    case "training-compliance": {
+      const { getTrainingMatrix } = await import("@/lib/services/hr");
+      const gaps = await getTrainingMatrix();
+      return {
+        title: "Training Compliance",
+        columns: ["Employee", "Department", "Training", "Cycle", "Status", "Due", "Days out"],
+        rows: gaps.map((g) => [
+          g.employeeName,
+          g.department || "",
+          g.requirementName,
+          g.frequencyMonths > 0 ? `Every ${g.frequencyMonths} mo` : "One-time",
+          g.status.replace(/_/g, " "),
+          day(g.dueDate),
+          g.daysOut ?? "",
+        ]),
+      };
+    }
+    case "req-coverage": {
+      const reqs = await prisma.requirement.findMany({
+        where: { status: { notIn: ["OBSOLETE"] } },
+        include: {
+          product: { select: { code: true } },
+          _count: { select: { traces: true } },
+        },
+        orderBy: { number: "asc" },
+      });
+      return {
+        title: "Requirements Coverage",
+        columns: ["Number", "Title", "Category", "Status", "Verify by", "Traces", "Product"],
+        rows: reqs.map((r) => [
+          r.number,
+          r.title,
+          r.category,
+          r.status.replace(/_/g, " "),
+          r.verificationMethod || "",
+          r._count.traces,
+          r.product?.code || "",
+        ]),
+      };
+    }
+    case "bank-recon": {
+      const txns = await prisma.bankTransaction.findMany({
+        include: {
+          bankAccount: { select: { name: true } },
+          categoryAccount: { select: { code: true, name: true } },
+        },
+        orderBy: { date: "desc" },
+        take: 500,
+      });
+      return {
+        title: "Bank Reconciliation",
+        columns: ["Account", "Date", "Description", "Amount", "Status", "Category"],
+        rows: txns.map((t) => [
+          t.bankAccount.name,
+          day(t.date),
+          t.description,
+          money(t.amount),
+          t.status,
+          t.categoryAccount ? `${t.categoryAccount.code} ${t.categoryAccount.name}` : "",
         ]),
       };
     }
