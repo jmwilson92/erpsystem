@@ -62,6 +62,7 @@ export default async function DashboardPage() {
     notif,
     balances,
     currentSheet,
+    businessPriorities,
   ] = await Promise.all([
     prisma.workOrder.groupBy({ by: ["status"], _count: true }),
     prisma.mrbCase.count({ where: { status: { in: ["OPEN", "IN_REVIEW"] } } }),
@@ -103,6 +104,12 @@ export default async function DashboardPage() {
     getPtoBalances(user.id),
     prisma.timesheet.findFirst({
       where: { userId: user.id, periodStart: { lte: now }, periodEnd: { gte: now } },
+    }),
+    prisma.businessPriority.findMany({
+      where: { status: "PUBLISHED" },
+      orderBy: { priority: "asc" },
+      take: 6,
+      select: { id: true, number: true, title: true, category: true },
     }),
   ]);
 
@@ -237,6 +244,26 @@ export default async function DashboardPage() {
           </Link>
         </div>
       </div>
+
+      {businessPriorities.length > 0 && (
+        <Link
+          href="/leadership"
+          className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-slate-800 bg-slate-950/40 px-4 py-2.5 transition-colors hover:border-slate-700"
+        >
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+            Company priorities
+          </span>
+          {businessPriorities.map((p, i) => (
+            <span key={p.id} className="flex items-center gap-2">
+              {i > 0 && <span className="text-slate-700">·</span>}
+              <span className="text-xs text-slate-300">
+                <span className="font-mono text-slate-600">{p.number}</span>{" "}
+                {p.title}
+              </span>
+            </span>
+          ))}
+        </Link>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
