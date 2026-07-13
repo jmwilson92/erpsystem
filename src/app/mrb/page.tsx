@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { formatDate } from "@/lib/utils";
-import { actionDispositionMrb } from "@/app/actions";
+import { actionDispositionMrb, actionCloseMrbCase } from "@/app/actions";
 import { CarUpdateForm } from "@/components/mrb/car-update-form";
 import Link from "next/link";
 import { ClipboardList, AlertTriangle, CheckCircle2, FileWarning } from "lucide-react";
@@ -51,15 +51,14 @@ export default async function MrbPage({
     },
   });
 
-  // Open = needs board attention; Closed = fully closed only.
+  // Open = still live: needs board attention OR dispositioned but not yet
+  // formally closed out. A dispositioned case stays visible in Open until
+  // someone closes it — closing is a distinct, deliberate step.
   const openCases = cases.filter((c) =>
-    ["OPEN", "IN_REVIEW"].includes(c.status)
+    ["OPEN", "IN_REVIEW", "DISPOSITIONED"].includes(c.status)
   );
-  // Dispositioned cases are resolved — group them with Closed so they
-  // don't disappear between the two filters.
-  const closedCases = cases.filter((c) =>
-    ["CLOSED", "DISPOSITIONED"].includes(c.status)
-  );
+  // Closed = fully closed only.
+  const closedCases = cases.filter((c) => c.status === "CLOSED");
 
   const cars = cases.flatMap((c) =>
     c.dispositions
@@ -684,6 +683,22 @@ export default async function MrbPage({
                         Record disposition
                       </Button>
                     </form>
+                  )}
+
+                  {mrb.status === "DISPOSITIONED" && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-900/40 bg-emerald-500/5 p-3">
+                      <p className="text-xs text-slate-400">
+                        Dispositioned — still open until closed. Verify the
+                        disposition was carried out (return shipped, rework WO
+                        complete, stock relieved), then close it out.
+                      </p>
+                      <form action={actionCloseMrbCase}>
+                        <input type="hidden" name="mrbCaseId" value={mrb.id} />
+                        <Button type="submit" size="sm" variant="secondary">
+                          Close case
+                        </Button>
+                      </form>
+                    </div>
                   )}
 
                   {mrb.ncr.supplier && (

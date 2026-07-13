@@ -1147,6 +1147,38 @@ export async function createNcrAndMrbFromInspection(params: {
   return { ncrId: ncr.id, mrbId: mrb.id, ncrNumber: ncr.number, mrbNumber: mrb.number };
 }
 
+/**
+ * Formally close a dispositioned MRB case. A case stays in the Open
+ * queue after disposition until someone deliberately closes it out
+ * here — that's the difference between "resolved" and "done".
+ */
+export async function closeMrbCase(params: {
+  mrbCaseId: string;
+  closedById?: string;
+}) {
+  const mrb = await prisma.mrbCase.findUnique({
+    where: { id: params.mrbCaseId },
+  });
+  if (!mrb) throw new Error("MRB case not found");
+  if (mrb.status !== "DISPOSITIONED") {
+    throw new Error(
+      `Only a dispositioned case can be closed (this one is ${mrb.status}).`
+    );
+  }
+  const updated = await prisma.mrbCase.update({
+    where: { id: params.mrbCaseId },
+    data: { status: "CLOSED", closedAt: new Date() },
+  });
+  await logAudit({
+    entityType: "MrbCase",
+    entityId: mrb.id,
+    action: "MRB_CLOSED",
+    userId: params.closedById,
+    metadata: { number: mrb.number },
+  });
+  return updated;
+}
+
 export async function dispositionMrb(params: {
   mrbCaseId: string;
   disposition: "USE_AS_IS" | "REWORK" | "SCRAP" | "RETURN_TO_SUPPLIER" | "REPAIR";

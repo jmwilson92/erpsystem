@@ -484,6 +484,14 @@ export async function actionRemoveBomLine(formData: FormData): Promise<void> {
   redirect(`/items/${partId}?tab=bom`);
 }
 
+export async function actionCloseMrbCase(formData: FormData): Promise<void> {
+  const mrbCaseId = formData.get("mrbCaseId") as string;
+  const user = await getCurrentUser();
+  const { closeMrbCase } = await import("@/lib/services/supply-chain");
+  await closeMrbCase({ mrbCaseId, closedById: user?.id });
+  revalidatePath("/mrb");
+}
+
 export async function actionDispositionMrb(formData: FormData) {
   const mrbCaseId = formData.get("mrbCaseId") as string;
   const disposition = formData.get("disposition") as
