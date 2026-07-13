@@ -1,12 +1,31 @@
-# PostgreSQL for production-like local development
-# Usage:
-#   1. docker compose up -d
-#   2. Copy .env.postgres.example → .env (or set DATABASE_URL)
-#   3. Update prisma/schema.prisma provider to "postgresql"
-#   4. npx prisma db push && npm run db:seed
+# ForgeRP self-host stack.
+#
+#   docker compose up -d --build     → app on http://localhost:3000
+#
+# The default profile runs the app on zero-config SQLite (books live on
+# the forgerp-data volume). The optional `postgres` profile keeps the
+# production-like Postgres database for teams that want it:
+#
+#   docker compose --profile postgres up -d
+#   (then point DATABASE_URL at postgres and switch the Prisma provider)
 
 services:
+  forgerp:
+    build: .
+    container_name: forgerp
+    ports:
+      - "3000:3000"
+    environment:
+      # Books + sandboxes live on the volume below
+      DATABASE_URL: "file:/data/forgerp.db"
+      # Set to "0" to start with an empty database instead of demo data
+      SEED_ON_FIRST_BOOT: "1"
+    volumes:
+      - forgerp-data:/data
+    restart: unless-stopped
+
   postgres:
+    profiles: ["postgres"]
     image: postgres:16-alpine
     container_name: forgeerp-postgres
     restart: unless-stopped
@@ -25,4 +44,5 @@ services:
       retries: 10
 
 volumes:
+  forgerp-data:
   forgeerp_pgdata:
