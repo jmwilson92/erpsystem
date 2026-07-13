@@ -19,7 +19,6 @@ import {
 import {
   actionPostJournal,
   actionCreateAccount,
-  actionProcessTimesheet,
   actionSavePayrollPolicy,
   actionSaveAccountingSettings,
   actionApproveJournal,
@@ -992,60 +991,21 @@ export default async function AccountingPage({
         </TabsContent>
 
         <TabsContent value="payroll" className="space-y-4">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">Payroll queue</CardTitle>
-              <p className="text-xs text-slate-500">
-                Manager-approved timesheets awaiting payroll. Processing posts
-                a payroll accrual journal entry (Dr 6000 / Cr 2100).
-              </p>
-            </CardHeader>
-            <CardContent className="space-y-0 p-0">
-              {payrollQueue.length === 0 && (
-                <p className="p-4 text-sm text-slate-500">
-                  No approved timesheets waiting.
+          <Card className="border-teal-900/40 bg-gradient-to-r from-teal-500/5 to-transparent">
+            <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+              <div>
+                <p className="text-sm font-medium text-slate-200">
+                  Payroll runs in its own module now
                 </p>
-              )}
-              {payrollQueue.map((t) => {
-                const hours = t.entries.reduce((s, e) => s + e.hours, 0);
-                const amount = t.entries.reduce(
-                  (s, e) => s + e.hours * (e.laborRate || 65),
-                  0
-                );
-                return (
-                  <div
-                    key={t.id}
-                    className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-900/70 px-3 py-1 text-[12px]"
-                  >
-                    <span className="flex items-center gap-3">
-                      <span className="text-slate-200">{t.user.name}</span>
-                      <span className="font-mono text-[11px] text-slate-500">
-                        {formatDate(t.periodStart)} → {formatDate(t.periodEnd)}
-                      </span>
-                      <Link
-                        href={`/hr/timesheet/${t.id}`}
-                        className="text-[11px] text-sky-400 hover:underline"
-                      >
-                        detail →
-                      </Link>
-                    </span>
-                    <span className="flex items-center gap-3">
-                      <span className="tabular-nums text-slate-400">
-                        {hours}h · {formatCurrency(amount)}
-                      </span>
-                      <StatusBadge status={t.status} />
-                      {t.status === "APPROVED" && (
-                        <form action={actionProcessTimesheet}>
-                          <input type="hidden" name="id" value={t.id} />
-                          <Button type="submit" size="sm" className="h-7">
-                            Process
-                          </Button>
-                        </form>
-                      )}
-                    </span>
-                  </div>
-                );
-              })}
+                <p className="text-xs text-slate-500">
+                  {payrollQueue.filter((t) => t.status === "APPROVED").length}{" "}
+                  approved timecard(s) ready to process. Policy below still lives
+                  here.
+                </p>
+              </div>
+              <Link href="/accounting/payroll">
+                <Button size="sm">Open Payroll →</Button>
+              </Link>
             </CardContent>
           </Card>
 

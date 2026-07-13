@@ -35,6 +35,7 @@ import {
   KeyRound,
   Layers,
   FileSpreadsheet,
+  Wallet,
   type LucideIcon,
 } from "lucide-react";
 
@@ -128,6 +129,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/pmo/pi", label: "PI Planning", icon: CalendarRange, keywords: ["program increment", "safe", "sprint"] },
       { href: "/pmo/alerts", label: "PM Alerts", icon: AlertTriangle, keywords: ["program alerts", "risk"] },
       { href: "/accounting", label: "Accounting", icon: Landmark, keywords: ["gl", "gaap", "p&l", "balance sheet", "ar", "ap"] },
+      { href: "/accounting/payroll", label: "Payroll", icon: Wallet, keywords: ["pay run", "wages", "salaries", "timecard payroll"] },
       { href: "/hr", label: "HR / Workforce", icon: Users2, keywords: ["time", "pto", "expenses", "reviews"] },
     ],
   },

@@ -9,10 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import {
-  actionDecideTimesheetApproval,
-  actionProcessTimesheet,
-} from "@/app/actions";
+import { actionDecideTimesheetApproval } from "@/app/actions";
 import { ActivityTimeline } from "@/components/shared/activity-timeline";
 
 export const dynamic = "force-dynamic";
@@ -193,21 +190,19 @@ export default async function TimesheetDetailPage({
       )}
 
       {canProcess && sheet.status === "APPROVED" && (
-        <Card className="border-emerald-500/30">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Payroll processing</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <form action={actionProcessTimesheet}>
-              <input type="hidden" name="id" value={sheet.id} />
-              <Button type="submit" size="sm">
-                Process for payroll ({formatCurrency(cost)})
-              </Button>
-            </form>
-            <p className="mt-2 text-[11px] text-slate-500">
-              Posts a payroll accrual journal entry (Dr Salaries &amp; Wages /
-              Cr Accrued Expenses) and marks the sheet processed.
+        <Card className="border-emerald-500/20">
+          <CardContent className="flex flex-wrap items-center justify-between gap-2 p-4">
+            <p className="text-sm text-slate-400">
+              Approved and ready for payroll
+              <span className="ml-2 tabular-nums text-slate-300">
+                {formatCurrency(cost)}
+              </span>
+              . Payroll is processed as a run in the Payroll module — not from
+              here.
             </p>
+            <Link href="/accounting/payroll">
+              <Button size="sm">Go to Payroll →</Button>
+            </Link>
           </CardContent>
         </Card>
       )}
