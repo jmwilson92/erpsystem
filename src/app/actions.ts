@@ -1066,6 +1066,61 @@ export async function actionRemoveRequirementTrace(
   revalidatePath("/engineering");
 }
 
+// ── Email center ───────────────────────────────────────────────
+
+export async function actionSendEmail(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("Sign in required");
+  const { sendEmail } = await import("@/lib/services/email");
+  const msg = await sendEmail({
+    to: (formData.get("to") as string) || "",
+    subject: (formData.get("subject") as string) || "",
+    body: (formData.get("body") as string) || "",
+    entityType: ((formData.get("entityType") as string) || "").trim() || null,
+    entityId: ((formData.get("entityId") as string) || "").trim() || null,
+    entityLabel:
+      ((formData.get("entityLabel") as string) || "").trim() || null,
+    userId: user.id,
+  });
+  await flashToast(
+    `E-mail ${msg.status === "SENT" ? "sent" : "queued"} to ${msg.toAddr}`
+  );
+  revalidatePath("/email");
+  const returnTo = ((formData.get("returnTo") as string) || "").trim();
+  if (returnTo) {
+    revalidatePath(returnTo);
+    redirect(returnTo);
+  }
+}
+
+export async function actionParseInboundEmail(
+  _prev: { ok: boolean; message: string } | null,
+  formData: FormData
+): Promise<{ ok: boolean; message: string }> {
+  const user = await getCurrentUser();
+  if (!user) return { ok: false, message: "Sign in required" };
+  const { parseInboundEmail } = await import("@/lib/services/email");
+  const kindRaw = ((formData.get("kind") as string) || "OTHER").trim();
+  try {
+    const result = await parseInboundEmail({
+      raw: (formData.get("raw") as string) || "",
+      kind:
+        kindRaw === "RFQ" ? "RFQ" : kindRaw === "PO_ACK" ? "PO_ACK" : "OTHER",
+      userId: user.id,
+    });
+    await flashToast(result.outcome);
+    revalidatePath("/email");
+    revalidatePath("/sales/quotes");
+    revalidatePath("/purchasing");
+    return { ok: true, message: result.outcome };
+  } catch (e) {
+    return {
+      ok: false,
+      message: e instanceof Error ? e.message : "Could not parse the e-mail",
+    };
+  }
+}
+
 export async function actionCreateTaskWo(formData: FormData): Promise<void> {
   const description = formData.get("description") as string;
   const status = ((formData.get("status") as string) || "BACKLOG").trim();

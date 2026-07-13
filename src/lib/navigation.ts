@@ -1,6 +1,7 @@
 import {
   Clock,
   ListChecks,
+  Mail,
   Rocket,
   FileBarChart,
   LayoutDashboard,
@@ -144,6 +145,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/admin/permissions", label: "Roles & Permissions", icon: KeyRound, keywords: ["rbac", "access", "security"] },
       { href: "/setup", label: "Setup Wizard", icon: Rocket, keywords: ["onboarding", "company", "getting started", "plug and play"] },
       { href: "/admin/import", label: "Data Import", icon: FileSpreadsheet, keywords: ["csv", "excel", "migrate", "onboard", "item master", "upload"] },
+      { href: "/email", label: "Email Center", icon: Mail, keywords: ["inbox", "outbound", "rfq", "acknowledge", "parse", "smtp"] },
       { href: "/demo", label: "Test Drive Page", icon: FlaskConical, keywords: ["demo", "sandbox", "trial", "landing", "prospects"] },
     ],
   },

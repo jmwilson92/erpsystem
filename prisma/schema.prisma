@@ -3709,6 +3709,32 @@ model TrainingRecord {
   @@index([userId])
 }
 
+/// Outbound + inbound email log. Outbound: composed from records (PO to
+/// supplier, quote to customer). Inbound: pasted/forwarded mail parsed
+/// into draft records (RFQ → draft quote, PO ack → acknowledged PO).
+model EmailMessage {
+  id          String   @id @default(cuid())
+  direction   String   // OUTBOUND | INBOUND
+  status      String   @default("QUEUED") // QUEUED | SENT | FAILED | RECEIVED | PARSED
+  fromAddr    String
+  toAddr      String
+  subject     String
+  body        String
+  /// Record this mail was sent about / created (e.g. PurchaseOrder / Quote)
+  entityType  String?
+  entityId    String?
+  entityLabel String?  // human label, e.g. "PO-00012"
+  error       String?
+  sentAt      DateTime?
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@index([direction])
+  @@index([status])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
 /// Recurring training cycle definition — who must complete what, how often.
 /// The compliance engine matches these (by name) against TrainingRecords to
 /// surface MISSING / OVERDUE / DUE SOON gaps per employee.

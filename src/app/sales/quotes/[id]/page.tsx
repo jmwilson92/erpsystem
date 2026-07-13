@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { CompanyLetterhead } from "@/components/sales/document-header";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { actionAcceptQuote, actionSendQuote } from "@/app/actions";
+import { EmailComposeCard } from "@/components/shared/email-compose-card";
+import { composeQuoteEmail } from "@/lib/services/email";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -29,6 +31,7 @@ export default async function QuoteDetailPage({
 
   const canAccept = ["DRAFT", "SENT", "ACCEPTED"].includes(quote.status) && !quote.salesOrder;
   const canSend = quote.status === "DRAFT";
+  const emailDraft = await composeQuoteEmail(quote.id);
 
   return (
     <div className="space-y-6">
@@ -192,6 +195,12 @@ export default async function QuoteDetailPage({
           )}
         </CardContent>
       </Card>
+
+      <EmailComposeCard
+        draft={emailDraft}
+        returnTo={`/sales/quotes/${quote.id}`}
+        title="Email quote to customer"
+      />
     </div>
   );
 }

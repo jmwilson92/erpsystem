@@ -39,7 +39,7 @@ async function main() {
     "Rfq", "ReceivingTravelerLine", "ReceivingTraveler", "ReceiptLine", "Receipt", "PurchaseOrderLine", "PurchaseOrder",
     "Customer",
     "AssetCheckout", "Asset",
-    "BankTransaction", "BankAccount",
+    "BankTransaction", "BankAccount", "EmailMessage",
     "JournalLine", "JournalEntry", "Account",
     "PurchaseRequestLine", "PurchaseRequest",
     "SupplierScorecardHistory", "SupplierCertification", "AslPolicy", "Supplier",
