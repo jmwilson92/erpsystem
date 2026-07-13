@@ -141,6 +141,11 @@ export default async function InventoryPage({
         description="On-hand by location · lot/serial · GFP vs company · quarantine"
         actions={
           <div className="flex flex-wrap gap-2">
+            <Link href="/print/labels?kind=bins">
+              <Button size="sm" variant="outline">
+                Print bin labels
+              </Button>
+            </Link>
             {kanbanShortages.length > 0 && (
               <form action={actionRunKanbanReplenishment}>
                 <Button type="submit" size="sm" variant="secondary">
