@@ -136,6 +136,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/admin/permissions", label: "Roles & Permissions", icon: KeyRound, keywords: ["rbac", "access", "security"] },
       { href: "/setup", label: "Setup Wizard", icon: Rocket, keywords: ["onboarding", "company", "getting started", "plug and play"] },
+      { href: "/demo", label: "Test Drive Page", icon: FlaskConical, keywords: ["demo", "sandbox", "trial", "landing", "prospects"] },
     ],
   },
 ];
