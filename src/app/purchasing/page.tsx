@@ -647,7 +647,12 @@ export default async function PurchasingPage({
                     className="border-t border-slate-800/70 hover:bg-slate-900/50"
                   >
                     <td className="px-3 py-2">
-                      <span className="font-mono text-sky-400">{pr.number}</span>
+                      <Link
+                        href={`/purchasing/pr/${pr.id}`}
+                        className="font-mono text-sky-400 hover:underline"
+                      >
+                        {pr.number}
+                      </Link>
                       {pr.triggerSource && (
                         <StatusBadge
                           status={pr.triggerSource}
@@ -783,18 +788,11 @@ export default async function PurchasingPage({
                                     Approve step
                                   </Button>
                                 </form>
-                                <form action={actionApprovePr}>
-                                  <input type="hidden" name="id" value={pr.id} />
-                                  <input type="hidden" name="decision" value="REJECTED" />
-                                  <Button
-                                    type="submit"
-                                    size="sm"
-                                    variant="outline"
-                                    disabled={!roleOk}
-                                  >
-                                    Reject
+                                <Link href={`/purchasing/pr/${pr.id}`}>
+                                  <Button size="sm" variant="outline">
+                                    Review / reject
                                   </Button>
-                                </form>
+                                </Link>
                               </div>
                             </div>
                           );
