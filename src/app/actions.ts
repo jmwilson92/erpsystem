@@ -5154,6 +5154,57 @@ export async function actionProcessTimesheet(
   revalidatePath("/hr/timesheet");
 }
 
+export async function actionCreateAsset(formData: FormData): Promise<void> {
+  const { createAsset } = await import("@/lib/services/assets");
+  const user = await getCurrentUser();
+  if (!user) return;
+  const name = ((formData.get("name") as string) || "").trim();
+  if (!name) return;
+  await createAsset({
+    name,
+    category: (formData.get("category") as string) || "EQUIPMENT",
+    serialNumber: ((formData.get("serialNumber") as string) || "").trim() || undefined,
+    manufacturer: ((formData.get("manufacturer") as string) || "").trim() || undefined,
+    locationScope: (formData.get("locationScope") as string) || "IN_HOUSE_ONLY",
+    homeLocation: ((formData.get("homeLocation") as string) || "").trim() || undefined,
+    purchaseValue: Number(formData.get("purchaseValue") || 0) || undefined,
+    userId: user.id,
+  });
+  revalidatePath("/assets");
+}
+
+export async function actionCheckoutAsset(formData: FormData): Promise<void> {
+  const { checkoutAsset } = await import("@/lib/services/assets");
+  const user = await getCurrentUser();
+  if (!user) return;
+  const holderId = ((formData.get("userId") as string) || "").trim() || user.id;
+  const dueRaw = ((formData.get("dueAt") as string) || "").trim();
+  await checkoutAsset({
+    assetId: formData.get("assetId") as string,
+    userId: holderId,
+    purpose: ((formData.get("purpose") as string) || "").trim() || undefined,
+    offsite: (formData.get("offsite") as string) === "true",
+    destination: ((formData.get("destination") as string) || "").trim() || undefined,
+    dueAt: dueRaw ? new Date(dueRaw) : null,
+    workOrderId: ((formData.get("workOrderId") as string) || "").trim() || null,
+    engTaskId: ((formData.get("engTaskId") as string) || "").trim() || null,
+    actorId: user.id,
+  });
+  revalidatePath("/assets");
+}
+
+export async function actionCheckinAsset(formData: FormData): Promise<void> {
+  const { checkinAsset } = await import("@/lib/services/assets");
+  const user = await getCurrentUser();
+  if (!user) return;
+  await checkinAsset({
+    assetId: formData.get("assetId") as string,
+    returnNote: ((formData.get("returnNote") as string) || "").trim() || undefined,
+    actorId: user.id,
+  });
+  revalidatePath("/assets");
+}
+
 export async function actionConnectBank(formData: FormData): Promise<void> {
   const { userHasPermission } = await import("@/lib/auth");
   const { connectBankAccount } = await import("@/lib/services/banking");

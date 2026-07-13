@@ -41,6 +41,8 @@ model User {
   performanceReviews  PerformanceReview[]      @relation("ReviewSubject")
   reviewsGiven        PerformanceReview[]      @relation("Reviewer")
   goals               EmployeeGoal[]
+  assetsHeld          Asset[]                  @relation("AssetHolder")
+  assetCheckouts      AssetCheckout[]          @relation("AssetCheckoutUser")
   goalCheckIns        GoalCheckIn[]            @relation("GoalCheckInAuthor")
   feedbackReceived    FeedbackNote[]           @relation("FeedbackAbout")
   feedbackGiven       FeedbackNote[]           @relation("FeedbackAuthor")
@@ -518,6 +520,7 @@ model WorkOrder {
   mrsLines        MaterialRequisitionLine[]
   productionEngIssues ProductionEngIssue[]
   gfpConsumptions GfpConsumption[]
+  assets          Asset[]
 
   @@index([status])
   @@index([workCenter])
@@ -1532,6 +1535,7 @@ model EngTask {
   scans           WorkTimeScan[]
   blockedBy       EngDependency[] @relation("DepTargetTask")
   blocking        EngDependency[] @relation("DepSourceTask")
+  assets          Asset[]
 
   @@index([projectId])
   @@index([productId])
@@ -2597,6 +2601,60 @@ model Rfq {
   dueDate     DateTime?
   notes       String?
   createdAt   DateTime @default(now())
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ASSET TRACKER (company tools, test equipment, demo units)
+// ═══════════════════════════════════════════════════════════════
+
+model Asset {
+  id            String   @id @default(cuid())
+  assetTag      String   @unique
+  name          String
+  category      String   @default("EQUIPMENT") // EQUIPMENT, TEST_EQUIPMENT, TOOL, IT, DEMO_UNIT, VEHICLE
+  serialNumber  String?
+  manufacturer  String?
+  model         String?
+  /// AVAILABLE | CHECKED_OUT | IN_USE | MAINTENANCE | RETIRED
+  status        String   @default("AVAILABLE")
+  /// IN_HOUSE_ONLY = must stay on-site; OFFSITE_OK = may leave for demos
+  locationScope String   @default("IN_HOUSE_ONLY")
+  homeLocation  String?
+  purchaseValue Float    @default(0)
+  /// Current holder / assignment
+  assignedToUserId String?
+  assignedToUser   User?  @relation("AssetHolder", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  workOrderId   String?
+  workOrder     WorkOrder? @relation(fields: [workOrderId], references: [id], onDelete: SetNull)
+  engTaskId     String?
+  engTask       EngTask?   @relation(fields: [engTaskId], references: [id], onDelete: SetNull)
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  checkouts     AssetCheckout[]
+
+  @@index([status])
+  @@index([category])
+}
+
+model AssetCheckout {
+  id            String   @id @default(cuid())
+  assetId       String
+  asset         Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  userId        String?
+  user          User?    @relation("AssetCheckoutUser", fields: [userId], references: [id], onDelete: SetNull)
+  checkedOutAt  DateTime @default(now())
+  dueAt         DateTime?
+  checkedInAt   DateTime?
+  purpose       String?
+  /// True when the asset physically leaves the facility (demo, field work)
+  offsite       Boolean  @default(false)
+  destination   String?
+  /// Condition note captured at check-in
+  returnNote    String?
+
+  @@index([assetId])
 }
 
 // ═══════════════════════════════════════════════════════════════
