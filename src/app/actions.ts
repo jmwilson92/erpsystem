@@ -5154,6 +5154,75 @@ export async function actionProcessTimesheet(
   revalidatePath("/hr/timesheet");
 }
 
+export async function actionCreateTestProcedure(
+  formData: FormData
+): Promise<void> {
+  const { createTestProcedure } = await import(
+    "@/lib/services/test-procedures"
+  );
+  const user = await getCurrentUser();
+  if (!user) return;
+  const title = ((formData.get("title") as string) || "").trim();
+  if (!title) return;
+  await createTestProcedure({
+    title,
+    category: (formData.get("category") as string) || "FUNCTIONAL",
+    partId: ((formData.get("partId") as string) || "").trim() || null,
+    equipment: ((formData.get("equipment") as string) || "").trim() || null,
+    purpose: ((formData.get("purpose") as string) || "").trim() || null,
+    userId: user.id,
+  });
+  revalidatePath("/test-procedures");
+}
+
+export async function actionAddTestProcedureStep(
+  formData: FormData
+): Promise<void> {
+  const { addTestProcedureStep } = await import(
+    "@/lib/services/test-procedures"
+  );
+  const user = await getCurrentUser();
+  if (!user) return;
+  const parameter = ((formData.get("parameter") as string) || "").trim();
+  if (!parameter) return;
+  const min = (formData.get("minValue") as string) || "";
+  const max = (formData.get("maxValue") as string) || "";
+  await addTestProcedureStep({
+    testProcedureId: formData.get("testProcedureId") as string,
+    parameter,
+    method: ((formData.get("method") as string) || "").trim() || undefined,
+    spec: ((formData.get("spec") as string) || "").trim() || undefined,
+    minValue: min ? Number(min) : null,
+    maxValue: max ? Number(max) : null,
+    units: ((formData.get("units") as string) || "").trim() || undefined,
+  });
+  revalidatePath("/test-procedures");
+}
+
+export async function actionReleaseTestProcedure(
+  formData: FormData
+): Promise<void> {
+  const { releaseTestProcedure } = await import(
+    "@/lib/services/test-procedures"
+  );
+  const { userHasPermission } = await import("@/lib/auth");
+  const user = await getCurrentUser();
+  if (!user) return;
+  if (
+    !(await userHasPermission(user.id, "wi.release")) &&
+    user.role !== "ADMIN" &&
+    user.role !== "CM" &&
+    user.role !== "QUALITY"
+  ) {
+    throw new Error("Releasing a test procedure requires CM/Quality authority");
+  }
+  await releaseTestProcedure({
+    testProcedureId: formData.get("testProcedureId") as string,
+    userId: user.id,
+  });
+  revalidatePath("/test-procedures");
+}
+
 export async function actionCreateAsset(formData: FormData): Promise<void> {
   const { createAsset } = await import("@/lib/services/assets");
   const user = await getCurrentUser();

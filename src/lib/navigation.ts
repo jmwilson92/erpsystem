@@ -116,6 +116,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/qa", label: "QA Inspection", icon: ClipboardCheck, keywords: ["visual", "gd&t", "first article"] },
       { href: "/test-center", label: "Test Center", icon: FlaskConical, keywords: ["ate", "burn-in", "test station"] },
+      { href: "/test-procedures", label: "Test Procedures", icon: ClipboardList, keywords: ["atp", "test procedure", "acceptance test", "functional test", "cm controlled"] },
       { href: "/quality", label: "NCR / Quality", icon: AlertTriangle, keywords: ["nonconformance", "yield", "trend"] },
       { href: "/mrb", label: "MRB", icon: FileWarning, keywords: ["material review board", "disposition"] },
       { href: "/mrb?view=cars", label: "CAR", icon: FileWarning, keywords: ["corrective action", "8d", "root cause"] },
