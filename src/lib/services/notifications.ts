@@ -115,6 +115,24 @@ export async function getNotificationSummary(user: {
     });
   }
 
+  // Overdue/expiring reviews & training for HR admins and managers
+  if (persona.isHrAdmin || persona.isManager) {
+    try {
+      const { getComplianceItems } = await import("@/lib/services/hr");
+      const compliance = await getComplianceItems(user);
+      const overdue = compliance.filter((c) => c.daysOut < 0).length;
+      if (overdue > 0) {
+        items.push({
+          label: "Overdue reviews / expired training",
+          count: overdue,
+          href: "/hr?tab=compliance",
+        });
+      }
+    } catch {
+      // advisory — never break the shell
+    }
+  }
+
   return {
     total: items.reduce((s, i) => s + i.count, 0),
     items,
