@@ -13,6 +13,7 @@ import {
 import { Plus } from "lucide-react";
 import Link from "next/link";
 import { getCompanyDepartments } from "@/lib/services/company";
+import { getCurrentUser, userHasPermission } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +39,11 @@ export default async function WorkOrdersPage({
 }) {
   const sp = await searchParams;
   const statusFilter = pick(sp, "status");
+
+  const me = await getCurrentUser();
+  // Supervisors/managers (WO creators) see analytics + creation. Technicians
+  // get the read-only list only — no cost analytics, no create.
+  const canManageWos = await userHasPermission(me?.id, "workorders.create");
 
   const [workOrders, certifiedBoms, projects, departments] = await Promise.all([
     prisma.workOrder.findMany({
@@ -78,6 +84,7 @@ export default async function WorkOrdersPage({
     <div className="space-y-6">
       <PageHeader title="Work Orders" />
 
+      {canManageWos && (
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="border-teal-900/40">
           <CardHeader>
@@ -231,6 +238,7 @@ export default async function WorkOrdersPage({
           </CardContent>
         </Card>
       </div>
+      )}
 
       <div className="flex flex-wrap gap-2">
         {STATUS_FILTERS.map((f) => (
@@ -334,7 +342,7 @@ export default async function WorkOrdersPage({
                         </p>
                       </div>
                     )}
-                    {!isTask && (
+                    {!isTask && canManageWos && (
                       <div>
                         <p className="text-slate-400">Std cost</p>
                         <p className="font-mono text-sm text-slate-200">

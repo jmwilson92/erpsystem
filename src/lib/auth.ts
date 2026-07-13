@@ -380,6 +380,16 @@ export async function userCanView(
   return userHasPermission(userId, `${module}.view`);
 }
 
+/**
+ * Whether a user may see money figures (revenue, cash, AR/AP, margins).
+ * Gated on the GAAP-reports permission so financials stay need-to-know.
+ */
+export async function userCanSeeFinancials(
+  userId: string | undefined | null
+): Promise<boolean> {
+  return userHasPermission(userId, "accounting.reports.read");
+}
+
 export async function requirePermission(
   permissionCode: string,
   roleHint?: string

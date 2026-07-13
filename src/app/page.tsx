@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, userCanSeeFinancials } from "@/lib/auth";
 import { getNotificationSummary } from "@/lib/services/notifications";
 import { getPtoBalances } from "@/lib/services/timesheets";
 import { StatCard } from "@/components/shared/stat-card";
@@ -37,6 +37,7 @@ const fmtMoney = (n: number) =>
 export default async function DashboardPage() {
   const user = await getCurrentUser();
   if (!user) return null;
+  const canSeeMoney = await userCanSeeFinancials(user.id);
   const setupDone = (
     await prisma.companySettings.findUnique({ where: { id: "default" } })
   )?.setupCompleted ?? false;
@@ -296,56 +297,58 @@ export default async function DashboardPage() {
         />
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="overflow-hidden">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-medium uppercase tracking-wider text-slate-400">
-                Revenue billed · 6 mo
+      {canSeeMoney && (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <Card className="overflow-hidden">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-medium uppercase tracking-wider text-slate-400">
+                  Revenue billed · 6 mo
+                </p>
+                <Landmark className="h-4 w-4 text-teal-400" />
+              </div>
+              <p className="mt-1 text-xl font-bold tabular-nums text-slate-50">
+                {fmtMoney(revenue6mo)}
               </p>
-              <Landmark className="h-4 w-4 text-teal-400" />
-            </div>
-            <p className="mt-1 text-xl font-bold tabular-nums text-slate-50">
-              {fmtMoney(revenue6mo)}
-            </p>
-            <Sparkline data={revenueByMonth} color="#14b8a6" prefix="$" />
-          </CardContent>
-        </Card>
-        <Card className="overflow-hidden">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-medium uppercase tracking-wider text-slate-400">
-                Bookings · 6 mo
+              <Sparkline data={revenueByMonth} color="#14b8a6" prefix="$" />
+            </CardContent>
+          </Card>
+          <Card className="overflow-hidden">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-medium uppercase tracking-wider text-slate-400">
+                  Bookings · 6 mo
+                </p>
+                <TrendingUp className="h-4 w-4 text-sky-400" />
+              </div>
+              <p className="mt-1 text-xl font-bold tabular-nums text-slate-50">
+                {fmtMoney(bookings6mo)}
               </p>
-              <TrendingUp className="h-4 w-4 text-sky-400" />
-            </div>
-            <p className="mt-1 text-xl font-bold tabular-nums text-slate-50">
-              {fmtMoney(bookings6mo)}
-            </p>
-            <Sparkline data={bookingsByMonth} color="#38bdf8" prefix="$" />
-          </CardContent>
-        </Card>
-        <Link href="/accounting?tab=ar">
-          <StatCard
-            title="Open Receivables"
-            value={fmtMoney(openAr)}
-            subtitle={
-              overdueAr > 0 ? `${fmtMoney(overdueAr)} past due` : "Nothing past due"
-            }
-            icon={Landmark}
-            accent={overdueAr > 0 ? "amber" : "emerald"}
-          />
-        </Link>
-        <Link href="/accounting?tab=ap">
-          <StatCard
-            title="Cash · Open Payables"
-            value={fmtMoney(cashAccount?.balance || 0)}
-            subtitle={`${fmtMoney(openAp)} owed to suppliers`}
-            icon={ShoppingCart}
-            accent="violet"
-          />
-        </Link>
-      </div>
+              <Sparkline data={bookingsByMonth} color="#38bdf8" prefix="$" />
+            </CardContent>
+          </Card>
+          <Link href="/accounting?tab=ar">
+            <StatCard
+              title="Open Receivables"
+              value={fmtMoney(openAr)}
+              subtitle={
+                overdueAr > 0 ? `${fmtMoney(overdueAr)} past due` : "Nothing past due"
+              }
+              icon={Landmark}
+              accent={overdueAr > 0 ? "amber" : "emerald"}
+            />
+          </Link>
+          <Link href="/accounting?tab=ap">
+            <StatCard
+              title="Cash · Open Payables"
+              value={fmtMoney(cashAccount?.balance || 0)}
+              subtitle={`${fmtMoney(openAp)} owed to suppliers`}
+              icon={ShoppingCart}
+              accent="violet"
+            />
+          </Link>
+        </div>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
