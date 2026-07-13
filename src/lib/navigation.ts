@@ -130,6 +130,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/pmo/alerts", label: "PM Alerts", icon: AlertTriangle, keywords: ["program alerts", "risk"] },
       { href: "/accounting", label: "Accounting", icon: Landmark, keywords: ["gl", "gaap", "p&l", "balance sheet", "ar", "ap"] },
       { href: "/accounting/payroll", label: "Payroll", icon: Wallet, keywords: ["pay run", "wages", "salaries", "timecard payroll"] },
+      { href: "/accounting/banking", label: "Banking", icon: Landmark, keywords: ["bank feed", "credit card", "reconcile", "transactions", "import"] },
       { href: "/hr", label: "HR / Workforce", icon: Users2, keywords: ["time", "pto", "expenses", "reviews"] },
     ],
   },

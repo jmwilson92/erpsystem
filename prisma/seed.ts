@@ -38,6 +38,7 @@ async function main() {
     "Budget", "ApPayment", "ApInvoice", "ArPayment", "ArInvoiceLine", "ArInvoice",
     "Rfq", "ReceivingTravelerLine", "ReceivingTraveler", "ReceiptLine", "Receipt", "PurchaseOrderLine", "PurchaseOrder",
     "Customer",
+    "BankTransaction", "BankAccount",
     "JournalLine", "JournalEntry", "Account",
     "PurchaseRequestLine", "PurchaseRequest",
     "SupplierScorecardHistory", "SupplierCertification", "AslPolicy", "Supplier",
@@ -306,6 +307,7 @@ async function main() {
       { code: "1220", name: "Inventory - Finished Goods", type: "ASSET", balance: 310000 },
       { code: "1500", name: "Equipment", type: "ASSET", balance: 1200000 },
       { code: "2000", name: "Accounts Payable", type: "LIABILITY", balance: 178000 },
+      { code: "2050", name: "Credit Card Payable", type: "LIABILITY", balance: 8400 },
       { code: "2100", name: "Accrued Expenses", type: "LIABILITY", balance: 45000 },
       { code: "3000", name: "Retained Earnings", type: "EQUITY", balance: 2100000 },
       { code: "3100", name: "Common Stock & Paid-in Capital", type: "EQUITY", balance: 769000 },
@@ -317,6 +319,51 @@ async function main() {
     ].map((a) => prisma.account.create({ data: a }))
   );
   console.log(`  ✓ ${accounts.length} GL accounts`);
+
+  // ── Connected bank + credit-card accounts with feeds ───────
+  const acctByCode = (code: string) => accounts.find((a) => a.code === code);
+  const checking = await prisma.bankAccount.create({
+    data: {
+      name: "Operating Checking",
+      institution: "First National Bank",
+      kind: "CHECKING",
+      last4: "4821",
+      glAccountId: acctByCode("1000")?.id,
+      currentBalance: 850000,
+    },
+  });
+  const creditCard = await prisma.bankAccount.create({
+    data: {
+      name: "Business Visa",
+      institution: "First National Bank",
+      kind: "CREDIT_CARD",
+      last4: "7733",
+      glAccountId: acctByCode("2050")?.id,
+      currentBalance: -8400,
+    },
+  });
+  const bankFeed = [
+    { acct: checking.id, days: 2, desc: "GRAINGER INDUSTRIAL SUPPLY", amount: -1284.5 },
+    { acct: checking.id, days: 3, desc: "CITY OF HUNTSVILLE UTILITIES", amount: -842.17 },
+    { acct: checking.id, days: 5, desc: "CUSTOMER DEPOSIT — NORTHSTAR", amount: 25000 },
+    { acct: checking.id, days: 6, desc: "MCMASTER-CARR", amount: -503.88 },
+    { acct: creditCard.id, days: 1, desc: "AMAZON BUSINESS", amount: -218.44 },
+    { acct: creditCard.id, days: 2, desc: "DIGIKEY ELECTRONICS", amount: -1147.02 },
+    { acct: creditCard.id, days: 4, desc: "UNITED AIRLINES — TRADE SHOW", amount: -612.4 },
+  ];
+  for (const t of bankFeed) {
+    const date = daysAgo(t.days);
+    await prisma.bankTransaction.create({
+      data: {
+        bankAccountId: t.acct,
+        date,
+        description: t.desc,
+        amount: t.amount,
+        externalId: `${t.acct}:${date.toISOString().slice(0, 10)}:${t.desc.toLowerCase().replace(/[^a-z0-9]/g, "")}:${t.amount}`,
+      },
+    });
+  }
+  console.log("  ✓ 2 bank accounts + feed");
 
   // ── UOM master + conversions ───────────────────────────────
   const uomDefs = [

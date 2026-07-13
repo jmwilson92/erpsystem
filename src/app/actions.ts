@@ -5154,6 +5154,65 @@ export async function actionProcessTimesheet(
   revalidatePath("/hr/timesheet");
 }
 
+export async function actionConnectBank(formData: FormData): Promise<void> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const { connectBankAccount } = await import("@/lib/services/banking");
+  const user = await getCurrentUser();
+  if (!user || !(await userHasPermission(user.id, "accounting.journal.post"))) {
+    throw new Error("Connecting accounts requires accounting authority");
+  }
+  const name = ((formData.get("name") as string) || "").trim();
+  if (!name) return;
+  await connectBankAccount({
+    name,
+    institution: ((formData.get("institution") as string) || "").trim() || undefined,
+    kind: (formData.get("kind") as string) || "CHECKING",
+    last4: ((formData.get("last4") as string) || "").trim() || undefined,
+    glAccountId: ((formData.get("glAccountId") as string) || "").trim() || undefined,
+    userId: user.id,
+  });
+  revalidatePath("/accounting/banking");
+}
+
+export async function actionImportBankTransactions(
+  _prev: import("@/lib/services/banking").BankImportResult | null,
+  formData: FormData
+): Promise<import("@/lib/services/banking").BankImportResult> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const { importBankTransactions } = await import("@/lib/services/banking");
+  const user = await getCurrentUser();
+  if (!user || !(await userHasPermission(user.id, "accounting.journal.post"))) {
+    return { imported: 0, duplicates: 0, errors: [{ row: 0, message: "Not authorized." }] };
+  }
+  const bankAccountId = ((formData.get("bankAccountId") as string) || "").trim();
+  const text = ((formData.get("text") as string) || "").trim();
+  if (!bankAccountId || !text) {
+    return { imported: 0, duplicates: 0, errors: [{ row: 0, message: "Pick an account and paste rows." }] };
+  }
+  const res = await importBankTransactions({ bankAccountId, text, userId: user.id });
+  revalidatePath("/accounting/banking");
+  return res;
+}
+
+export async function actionCategorizeBankTxn(formData: FormData): Promise<void> {
+  const { categorizeBankTransaction } = await import("@/lib/services/banking");
+  const user = await getCurrentUser();
+  if (!user) return;
+  await categorizeBankTransaction({
+    transactionId: formData.get("transactionId") as string,
+    categoryAccountId: formData.get("categoryAccountId") as string,
+    userId: user.id,
+  });
+  revalidatePath("/accounting/banking");
+  revalidatePath("/accounting");
+}
+
+export async function actionReconcileBankTxn(formData: FormData): Promise<void> {
+  const { reconcileBankTransaction } = await import("@/lib/services/banking");
+  await reconcileBankTransaction(formData.get("transactionId") as string);
+  revalidatePath("/accounting/banking");
+}
+
 export async function actionRunPayroll(): Promise<void> {
   const { runPayroll } = await import("@/lib/services/timesheets");
   const user = await getCurrentUser();

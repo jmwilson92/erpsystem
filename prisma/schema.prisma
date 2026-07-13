@@ -2603,6 +2603,48 @@ model Rfq {
 // ACCOUNTING
 // ═══════════════════════════════════════════════════════════════
 
+/// A connected bank or credit-card account. Transactions import into
+/// the feed and are matched/categorized to journal entries, then
+/// reconciled against the linked GL cash/liability account.
+model BankAccount {
+  id            String   @id @default(cuid())
+  name          String
+  institution   String?
+  /// CHECKING | SAVINGS | CREDIT_CARD
+  kind          String   @default("CHECKING")
+  last4         String?
+  /// Linked GL account (e.g. 1000 Cash, 2050 Credit Card Payable)
+  glAccountId   String?
+  glAccount     Account? @relation("BankGlAccount", fields: [glAccountId], references: [id])
+  /// Running feed balance (from imported transactions)
+  currentBalance Float   @default(0)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  transactions  BankTransaction[]
+}
+
+model BankTransaction {
+  id            String      @id @default(cuid())
+  bankAccountId String
+  bankAccount   BankAccount @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+  date          DateTime
+  description   String
+  /// Signed amount: negative = money out, positive = money in
+  amount        Float
+  /// UNMATCHED | MATCHED | RECONCILED | EXCLUDED
+  status        String      @default("UNMATCHED")
+  /// GL account this was categorized to
+  categoryAccountId String?
+  categoryAccount   Account? @relation("BankTxnCategory", fields: [categoryAccountId], references: [id])
+  journalEntryId    String?
+  externalId    String?     // dedupe key from the import
+  createdAt     DateTime    @default(now())
+
+  @@index([bankAccountId, status])
+  @@index([externalId])
+}
+
 model Account {
   id          String  @id @default(cuid())
   code        String  @unique
@@ -2622,6 +2664,8 @@ model Account {
   partsInventory Part[] @relation("PartInventoryAccount")
   partsExpense   Part[] @relation("PartExpenseAccount")
   partsCogs      Part[] @relation("PartCogsAccount")
+  bankAccounts   BankAccount[]     @relation("BankGlAccount")
+  bankTxnCategories BankTransaction[] @relation("BankTxnCategory")
 
   @@index([chargeCodeType])
   @@index([type, isActive])
