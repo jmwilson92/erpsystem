@@ -284,8 +284,9 @@ export async function generateMaterialRequisitionFromForecast(params: {
 }
 
 /**
- * Release MRS: create MWO- work orders for BUILD lines (shortQty > 0).
- * Each MWO references the MRS number.
+ * Release MRS: create MWO- work orders for BUILD lines (shortQty > 0) and
+ * one purchase request covering all BUY shorts (linked line-by-line; the
+ * PO created from that PR hangs off it).
  */
 export async function releaseMaterialRequisition(params: {
   materialRequisitionId: string;
@@ -356,10 +357,75 @@ export async function releaseMaterialRequisition(params: {
     });
   }
 
+  // ── BUY lines → one purchase request for the whole sheet ──
+  const buyLines = mrs.lines.filter(
+    (l) => l.action === "BUY" && l.shortQty > 0 && !l.purchaseRequestId
+  );
+  let createdPr: { id: string; number: string } | null = null;
+  if (buyLines.length > 0) {
+    const preferred = await prisma.supplier.findFirst({
+      where: { status: { in: ["APPROVED", "CONDITIONAL"] } },
+      orderBy: { overallScore: "desc" },
+    });
+    const prCount = await prisma.purchaseRequest.count();
+    const prNumber = `PR-${String(prCount + 1).padStart(5, "0")}`;
+    const totalEstimate = buyLines.reduce(
+      (s, l) => s + l.shortQty * (l.part.standardCost || l.part.lastBuyCost || 0),
+      0
+    );
+    const pr = await prisma.purchaseRequest.create({
+      data: {
+        number: prNumber,
+        status: "SUBMITTED",
+        requestedById: params.userId || null,
+        department: "Planning",
+        neededBy: new Date(Date.now() + 14 * 86_400_000),
+        justification: `Buy demand from material requisition ${mrs.number}${mrs.name ? ` — ${mrs.name}` : ""}`,
+        totalEstimate,
+        supplierId: preferred?.id,
+        triggerSource: "MATERIAL_REQ",
+        materialRequisitionId: mrs.id,
+        lines: {
+          create: buyLines.map((l) => ({
+            partId: l.partId,
+            description: `${l.part.partNumber} — ${l.part.description}`,
+            quantity: l.shortQty,
+            estimatedUnitCost: l.part.standardCost || l.part.lastBuyCost || 0,
+            uom: l.part.uom,
+            notes: `MRS ${mrs.number} shortfall (need ${l.requiredQty}, on-hand ${l.onHandQty})`,
+          })),
+        },
+      },
+    });
+    createdPr = { id: pr.id, number: pr.number };
+
+    await prisma.materialRequisitionLine.updateMany({
+      where: { id: { in: buyLines.map((l) => l.id) } },
+      data: { purchaseRequestId: pr.id },
+    });
+
+    try {
+      const { startPrApprovalWorkflow } = await import(
+        "@/lib/services/pr-approval"
+      );
+      await startPrApprovalWorkflow({
+        purchaseRequestId: pr.id,
+        userId: params.userId,
+      });
+    } catch {
+      /* PR stays SUBMITTED; approvals can be assigned manually */
+    }
+  }
+
   await prisma.materialRequisition.update({
     where: { id: mrs.id },
     data: {
-      status: created.length ? "IN_PROGRESS" : mrs.status === "DRAFT" ? "RELEASED" : mrs.status,
+      status:
+        created.length || createdPr
+          ? "IN_PROGRESS"
+          : mrs.status === "DRAFT"
+            ? "RELEASED"
+            : mrs.status,
       releasedAt: mrs.releasedAt || new Date(),
     },
   });
@@ -372,8 +438,146 @@ export async function releaseMaterialRequisition(params: {
     metadata: {
       number: mrs.number,
       workOrders: created.map((c) => c.number),
+      purchaseRequest: createdPr?.number || null,
     },
   });
 
-  return { mrsId: mrs.id, mrsNumber: mrs.number, workOrders: created };
+  return {
+    mrsId: mrs.id,
+    mrsNumber: mrs.number,
+    workOrders: created,
+    purchaseRequest: createdPr,
+  };
+}
+
+/** Planner adjustment of an MRS line — the generated plan is a starting
+ *  point. Blocked once the line is released to a WO or PR. */
+export async function updateMrsLine(params: {
+  lineId: string;
+  requiredQty?: number;
+  action?: string;
+  notes?: string | null;
+  userId?: string;
+}) {
+  const line = await prisma.materialRequisitionLine.findUnique({
+    where: { id: params.lineId },
+    include: { materialRequisition: true, part: true },
+  });
+  if (!line) throw new Error("MRS line not found");
+  if (["CLOSED", "CANCELLED"].includes(line.materialRequisition.status)) {
+    throw new Error("Sheet is closed — no further adjustments");
+  }
+  if (line.workOrderId || line.purchaseRequestId) {
+    throw new Error(
+      "Line already released to a work order / purchase request — adjust there"
+    );
+  }
+  const requiredQty =
+    params.requiredQty !== undefined && params.requiredQty >= 0
+      ? params.requiredQty
+      : line.requiredQty;
+  const action =
+    params.action && ["BUILD", "BUY", "STOCK", "NONE"].includes(params.action)
+      ? params.action
+      : line.action;
+  const shortQty = Math.max(0, requiredQty - line.onHandQty);
+  const updated = await prisma.materialRequisitionLine.update({
+    where: { id: line.id },
+    data: {
+      requiredQty,
+      action,
+      shortQty,
+      ...(params.notes !== undefined ? { notes: params.notes } : {}),
+    },
+  });
+  await logAudit({
+    entityType: "MaterialRequisition",
+    entityId: line.materialRequisitionId,
+    action: "LINE_ADJUSTED",
+    userId: params.userId,
+    metadata: {
+      partNumber: line.part.partNumber,
+      fromQty: line.requiredQty,
+      toQty: requiredQty,
+      fromAction: line.action,
+      toAction: action,
+    },
+  });
+  return updated;
+}
+
+/** Add a manual line to an MRS (planner supplement to the generated plan). */
+export async function addMrsLine(params: {
+  materialRequisitionId: string;
+  partId: string;
+  requiredQty: number;
+  action?: string;
+  notes?: string | null;
+  userId?: string;
+}) {
+  const mrs = await prisma.materialRequisition.findUnique({
+    where: { id: params.materialRequisitionId },
+  });
+  if (!mrs) throw new Error("Material requisition not found");
+  if (["CLOSED", "CANCELLED"].includes(mrs.status)) {
+    throw new Error("Sheet is closed — no further adjustments");
+  }
+  if (!(params.requiredQty > 0)) throw new Error("Quantity must be > 0");
+  const part = await prisma.part.findUnique({ where: { id: params.partId } });
+  if (!part) throw new Error("Part not found");
+  const onHand = await getAvailableQty(part.id);
+  const action =
+    params.action && ["BUILD", "BUY", "STOCK", "NONE"].includes(params.action)
+      ? params.action
+      : part.sourcingMethod === "PURCHASE"
+        ? "BUY"
+        : "BUILD";
+  const line = await prisma.materialRequisitionLine.create({
+    data: {
+      materialRequisitionId: mrs.id,
+      partId: part.id,
+      requiredQty: params.requiredQty,
+      onHandQty: onHand,
+      shortQty: Math.max(0, params.requiredQty - onHand),
+      action,
+      level: 0,
+      notes: params.notes || "Added by planner",
+    },
+  });
+  await logAudit({
+    entityType: "MaterialRequisition",
+    entityId: mrs.id,
+    action: "LINE_ADDED",
+    userId: params.userId,
+    metadata: { partNumber: part.partNumber, qty: params.requiredQty, action },
+  });
+  return line;
+}
+
+/** Remove an MRS line the planner doesn't want (not yet released to WO/PR). */
+export async function removeMrsLine(params: {
+  lineId: string;
+  userId?: string;
+}) {
+  const line = await prisma.materialRequisitionLine.findUnique({
+    where: { id: params.lineId },
+    include: { materialRequisition: true, part: true },
+  });
+  if (!line) throw new Error("MRS line not found");
+  if (["CLOSED", "CANCELLED"].includes(line.materialRequisition.status)) {
+    throw new Error("Sheet is closed — no further adjustments");
+  }
+  if (line.workOrderId || line.purchaseRequestId) {
+    throw new Error(
+      "Line already released to a work order / purchase request — cannot remove"
+    );
+  }
+  await prisma.materialRequisitionLine.delete({ where: { id: line.id } });
+  await logAudit({
+    entityType: "MaterialRequisition",
+    entityId: line.materialRequisitionId,
+    action: "LINE_REMOVED",
+    userId: params.userId,
+    metadata: { partNumber: line.part.partNumber },
+  });
 }

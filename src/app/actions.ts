@@ -892,16 +892,81 @@ export async function actionReleaseMaterialRequisition(
   const { releaseMaterialRequisition } = await import(
     "@/lib/services/planning"
   );
-  await releaseMaterialRequisition({
+  const result = await releaseMaterialRequisition({
     materialRequisitionId,
     userId: user?.id,
   });
-  await flashToast("MRS released — work orders created");
+  await flashToast(
+    [
+      "MRS released",
+      result.workOrders.length ? `${result.workOrders.length} MWO(s)` : null,
+      result.purchaseRequest ? `PR ${result.purchaseRequest.number}` : null,
+    ]
+      .filter(Boolean)
+      .join(" — ")
+  );
   revalidatePath("/planning");
   revalidatePath(`/planning/mrs/${materialRequisitionId}`);
   revalidatePath("/work-orders");
+  revalidatePath("/purchasing");
   revalidatePath("/floor");
   redirect(`/planning/mrs/${materialRequisitionId}`);
+}
+
+async function requireMrsEditor() {
+  const { userHasPermission } = await import("@/lib/auth");
+  const user = await getCurrentUser();
+  if (!user) throw new Error("Sign in required");
+  const ok =
+    user.role === "ADMIN" ||
+    (await userHasPermission(user.id, "planning.mrs.release"));
+  if (!ok) throw new Error("Not authorized to adjust material requisitions");
+  return user;
+}
+
+export async function actionUpdateMrsLine(formData: FormData): Promise<void> {
+  const user = await requireMrsEditor();
+  const { updateMrsLine } = await import("@/lib/services/planning");
+  const mrsId = (formData.get("materialRequisitionId") as string) || "";
+  await updateMrsLine({
+    lineId: formData.get("lineId") as string,
+    requiredQty: Number(formData.get("requiredQty")),
+    action: ((formData.get("action") as string) || "").trim() || undefined,
+    userId: user.id,
+  });
+  await flashToast("MRS line updated");
+  revalidatePath("/planning");
+  revalidatePath(`/planning/mrs/${mrsId}`);
+}
+
+export async function actionAddMrsLine(formData: FormData): Promise<void> {
+  const user = await requireMrsEditor();
+  const { addMrsLine } = await import("@/lib/services/planning");
+  const mrsId = (formData.get("materialRequisitionId") as string) || "";
+  await addMrsLine({
+    materialRequisitionId: mrsId,
+    partId: formData.get("partId") as string,
+    requiredQty: Number(formData.get("requiredQty")),
+    action: ((formData.get("action") as string) || "").trim() || undefined,
+    notes: ((formData.get("notes") as string) || "").trim() || null,
+    userId: user.id,
+  });
+  await flashToast("Line added to MRS");
+  revalidatePath("/planning");
+  revalidatePath(`/planning/mrs/${mrsId}`);
+}
+
+export async function actionRemoveMrsLine(formData: FormData): Promise<void> {
+  const user = await requireMrsEditor();
+  const { removeMrsLine } = await import("@/lib/services/planning");
+  const mrsId = (formData.get("materialRequisitionId") as string) || "";
+  await removeMrsLine({
+    lineId: formData.get("lineId") as string,
+    userId: user.id,
+  });
+  await flashToast("MRS line removed");
+  revalidatePath("/planning");
+  revalidatePath(`/planning/mrs/${mrsId}`);
 }
 
 export async function actionCreateTaskWo(formData: FormData): Promise<void> {
@@ -941,6 +1006,9 @@ export async function actionApprovePr(formData: FormData) {
       : "APPROVED";
   const comments =
     ((formData.get("comments") as string) || "").trim() || undefined;
+  if (decision === "REJECTED" && !comments) {
+    throw new Error("A rejection reason is required");
+  }
   // Prefer the demo user's actual role so multi-step policies can be exercised
   // by switching DEMO_USER_ROLE. ADMIN can approve any step.
   const user = await getCurrentUser();
@@ -952,8 +1020,12 @@ export async function actionApprovePr(formData: FormData) {
     userId: user?.id,
     userRole: user?.role,
   });
+  await flashToast(
+    decision === "REJECTED" ? "PR rejected" : "PR approval recorded"
+  );
   revalidatePath("/purchasing");
   revalidatePath("/purchasing/approvals");
+  revalidatePath(`/purchasing/pr/${id}`);
 }
 
 export async function actionSaveApprovalPolicy(formData: FormData): Promise<void> {

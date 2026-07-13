@@ -647,8 +647,9 @@ model MaterialRequisition {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  lines       MaterialRequisitionLine[]
-  workOrders  WorkOrder[]
+  lines            MaterialRequisitionLine[]
+  workOrders       WorkOrder[]
+  purchaseRequests PurchaseRequest[]
 
   @@index([status])
   @@index([forecastId])
@@ -673,11 +674,15 @@ model MaterialRequisitionLine {
   level                   Int    @default(0)
   workOrderId             String?
   workOrder               WorkOrder? @relation(fields: [workOrderId], references: [id])
+  // BUY lines link to the purchase request raised at release (POs hang off it)
+  purchaseRequestId       String?
+  purchaseRequest         PurchaseRequest? @relation(fields: [purchaseRequestId], references: [id])
   notes                   String?
 
   @@index([materialRequisitionId])
   @@index([partId])
   @@index([workOrderId])
+  @@index([purchaseRequestId])
 }
 
 model WorkOrderInstruction {
@@ -2480,6 +2485,9 @@ model PurchaseRequest {
   /// Set when this PR replaces scrapped material from an MRB disposition
   mrbCaseId       String?
   mrbCase         MrbCase? @relation(fields: [mrbCaseId], references: [id], onDelete: SetNull)
+  /// Set when this PR covers BUY demand from a material requisition release
+  materialRequisitionId String?
+  materialRequisition   MaterialRequisition? @relation(fields: [materialRequisitionId], references: [id], onDelete: SetNull)
   projectId       String?
   project         Project? @relation(fields: [projectId], references: [id])
   salesOrderId    String?
@@ -2497,10 +2505,12 @@ model PurchaseRequest {
 
   lines           PurchaseRequestLine[]
   purchaseOrders  PurchaseOrder[]
+  mrsLines        MaterialRequisitionLine[]
 
   @@index([workOrderId])
   @@index([workInstructionId])
   @@index([status])
+  @@index([materialRequisitionId])
 }
 
 model PurchaseRequestLine {
