@@ -1,0 +1,8 @@
+.git
+.next
+node_modules
+prisma/dev.db*
+prisma/sandboxes
+*.md
+!README.md
+.env*

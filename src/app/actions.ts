@@ -4796,7 +4796,11 @@ export async function actionSwitchDemoUser(formData: FormData): Promise<void> {
   const userId = ((formData.get("userId") as string) || "").trim();
   const jar = await cookies();
   if (userId) {
-    jar.set(DEMO_USER_COOKIE, userId, { path: "/", httpOnly: false });
+    jar.set(DEMO_USER_COOKIE, userId, {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+    });
   } else {
     jar.delete(DEMO_USER_COOKIE);
   }
