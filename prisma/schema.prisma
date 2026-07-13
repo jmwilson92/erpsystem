@@ -263,6 +263,7 @@ model Part {
   forecastLines   ForecastLine[]
   mrsLines        MaterialRequisitionLine[]
   cmDocuments     CmDocument[]
+  ecrsAsBomPart   ChangeRequest[] @relation("EcrBomPart")
   // PLM product links
   productsAsTopLevel Product[]     @relation("ProductTopLevelPart")
   productPartLinks   ProductPart[]
@@ -668,6 +669,8 @@ model MaterialRequisitionLine {
   action                  String @default("NONE")
   // Parent FG line that drove this component demand (for BOM explosion)
   parentPartId            String?
+  // BOM explosion depth: 0 = forecast top-level, 1 = component, 2 = sub-BOM component…
+  level                   Int    @default(0)
   workOrderId             String?
   workOrder               WorkOrder? @relation(fields: [workOrderId], references: [id])
   notes                   String?
@@ -735,6 +738,11 @@ model ChangeRequest {
   affectedParts   String?  // JSON
   bomHeaderId     String?
   bomHeader       BomHeader? @relation(fields: [bomHeaderId], references: [id])
+  // Drawing defines a BOM: an in-work BOM is auto-created for bomPart and
+  // this ECR cannot release until that BOM is CERTIFIED
+  includesBom     Boolean  @default(false)
+  bomPartId       String?
+  bomPart         Part?    @relation("EcrBomPart", fields: [bomPartId], references: [id])
   workInstructionId String?
   workInstruction WorkInstruction? @relation(fields: [workInstructionId], references: [id])
   engineeringTicketId String?

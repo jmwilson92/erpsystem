@@ -38,6 +38,32 @@ export default async function MrsDetailPage({
   const buildLines = mrs.lines.filter((l) => l.action === "BUILD");
   const buyLines = mrs.lines.filter((l) => l.action === "BUY");
   const stockLines = mrs.lines.filter((l) => l.action === "STOCK");
+
+  // Rebuild explosion tree order: top-level lines first, each followed by
+  // its component lines (nested sub-BOMs indent deeper).
+  type MrsLine = (typeof mrs.lines)[number];
+  const byParent = new Map<string, MrsLine[]>();
+  for (const l of mrs.lines) {
+    const key = l.parentPartId || "__root__";
+    const list = byParent.get(key) || [];
+    list.push(l);
+    byParent.set(key, list);
+  }
+  const treeLines: MrsLine[] = [];
+  const seen = new Set<string>();
+  function walk(parentKey: string) {
+    for (const l of byParent.get(parentKey) || []) {
+      if (seen.has(l.id)) continue;
+      seen.add(l.id);
+      treeLines.push(l);
+      walk(l.partId);
+    }
+  }
+  walk("__root__");
+  // Orphans (legacy rows whose parent line collapsed away)
+  for (const l of mrs.lines) {
+    if (!seen.has(l.id)) treeLines.push(l);
+  }
   const canRelease =
     ["DRAFT", "RELEASED", "IN_PROGRESS"].includes(mrs.status) &&
     buildLines.some((l) => l.shortQty > 0 && !l.workOrderId);
@@ -126,7 +152,7 @@ export default async function MrsDetailPage({
               </tr>
             </thead>
             <tbody>
-              {mrs.lines.map((l) => (
+              {treeLines.map((l) => (
                 <tr
                   key={l.id}
                   className={`border-b border-slate-800/60 ${
@@ -138,15 +164,29 @@ export default async function MrsDetailPage({
                   }`}
                 >
                   <td className="py-2">
-                    <Link
-                      href={`/items/${l.partId}`}
-                      className="font-mono text-teal-400 hover:underline"
+                    <div
+                      style={{ paddingLeft: `${Math.min(l.level, 6) * 18}px` }}
                     >
-                      {l.part.partNumber}
-                    </Link>
-                    <p className="text-[11px] text-slate-500">
-                      {l.part.description}
-                    </p>
+                      <span className="flex items-center gap-1.5">
+                        {l.level > 0 && (
+                          <span className="text-slate-600">└</span>
+                        )}
+                        <Link
+                          href={`/items/${l.partId}`}
+                          className="font-mono text-teal-400 hover:underline"
+                        >
+                          {l.part.partNumber}
+                        </Link>
+                        {l.level > 1 && (
+                          <span className="rounded bg-slate-800 px-1 text-[9px] text-slate-400">
+                            L{l.level}
+                          </span>
+                        )}
+                      </span>
+                      <p className="text-[11px] text-slate-500">
+                        {l.part.description}
+                      </p>
+                    </div>
                   </td>
                   <td className="py-2">
                     <StatusBadge status={l.action} />
