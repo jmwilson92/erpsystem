@@ -31,6 +31,7 @@ import { generateQrDataUrl, workOrderQrPayload } from "@/lib/qr";
 import { CheckCircle2, Circle, FlaskConical } from "lucide-react";
 import Link from "next/link";
 import { Textarea } from "@/components/ui/textarea";
+import { ActivityTimeline } from "@/components/shared/activity-timeline";
 
 export const dynamic = "force-dynamic";
 
@@ -891,6 +892,8 @@ export default async function WorkOrderDetailPage({
           </CardContent>
         </Card>
       </div>
+
+      <ActivityTimeline entityType="WorkOrder" entityId={id} />
     </div>
   );
 }

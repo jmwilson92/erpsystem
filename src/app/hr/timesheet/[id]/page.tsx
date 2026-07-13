@@ -13,6 +13,7 @@ import {
   actionDecideTimesheetApproval,
   actionProcessTimesheet,
 } from "@/app/actions";
+import { ActivityTimeline } from "@/components/shared/activity-timeline";
 
 export const dynamic = "force-dynamic";
 
@@ -218,6 +219,8 @@ export default async function TimesheetDetailPage({
           Accounting → Journals.
         </p>
       )}
+
+      <ActivityTimeline entityType="Timesheet" entityId={id} />
     </div>
   );
 }

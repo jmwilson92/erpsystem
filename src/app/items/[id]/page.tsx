@@ -17,6 +17,7 @@ import {
 } from "@/app/actions";
 import Link from "next/link";
 import { listApprovedSuppliers } from "@/lib/services/items";
+import { ActivityTimeline } from "@/components/shared/activity-timeline";
 
 export const dynamic = "force-dynamic";
 
@@ -927,6 +928,8 @@ export default async function ItemDetailPage({
           </Card>
         </div>
       )}
+
+      <ActivityTimeline entityType="Part" entityId={id} />
     </div>
   );
 }

@@ -21,6 +21,7 @@ import {
   FileText,
   Camera,
 } from "lucide-react";
+import { ActivityTimeline } from "@/components/shared/activity-timeline";
 
 export const dynamic = "force-dynamic";
 
@@ -1295,6 +1296,8 @@ export default async function ReceivingTravelerDetailPage({
           </CardContent>
         </Card>
       )}
+
+      <ActivityTimeline entityType="ReceivingTraveler" entityId={id} />
     </div>
   );
 }
