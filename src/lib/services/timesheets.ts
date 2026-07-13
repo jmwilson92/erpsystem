@@ -928,6 +928,77 @@ export async function processTimesheet(params: {
   return updated;
 }
 
+/**
+ * Payroll module data: approved timesheets ready to run, plus the most
+ * recent processed runs. This is where payroll happens now — not on any
+ * individual employee or timesheet page.
+ */
+export async function getPayrollRun() {
+  const [ready, recent] = await Promise.all([
+    prisma.timesheet.findMany({
+      where: { status: "APPROVED" },
+      include: {
+        user: { select: { name: true, department: true } },
+        entries: { select: { hours: true, costAmount: true, laborRate: true, type: true } },
+      },
+      orderBy: { periodEnd: "asc" },
+    }),
+    prisma.timesheet.findMany({
+      where: { status: "PROCESSED" },
+      include: { user: { select: { name: true } } },
+      orderBy: { processedAt: "desc" },
+      take: 25,
+    }),
+  ]);
+
+  const cost = (
+    entries: { hours: number; costAmount: number; laborRate: number }[]
+  ) =>
+    entries.reduce(
+      (s, e) => s + (e.costAmount || e.hours * (e.laborRate || DEFAULT_LABOR_RATE)),
+      0
+    );
+
+  const readyRows = ready.map((t) => ({
+    id: t.id,
+    employee: t.user.name,
+    department: t.user.department,
+    periodStart: t.periodStart,
+    periodEnd: t.periodEnd,
+    hours: t.entries.reduce((s, e) => s + e.hours, 0),
+    grossPay: Math.round(cost(t.entries) * 100) / 100,
+  }));
+
+  return {
+    ready: readyRows,
+    recent: recent.map((t) => ({
+      id: t.id,
+      employee: t.user.name,
+      periodStart: t.periodStart,
+      periodEnd: t.periodEnd,
+      processedAt: t.processedAt,
+      journalEntryId: t.journalEntryId,
+    })),
+    totalReadyGross: Math.round(readyRows.reduce((s, r) => s + r.grossPay, 0) * 100) / 100,
+  };
+}
+
+/** Process every approved timesheet in one payroll run. */
+export async function runPayroll(processor: { id: string; role: string }) {
+  const ok = await userHasPermission(processor.id, "accounting.journal.post");
+  if (!ok) throw new Error("Payroll processing requires accounting authority");
+  const ready = await prisma.timesheet.findMany({
+    where: { status: "APPROVED" },
+    select: { id: true },
+  });
+  let processed = 0;
+  for (const t of ready) {
+    await processTimesheet({ id: t.id, processor });
+    processed++;
+  }
+  return { processed };
+}
+
 export async function getTimesheetDetail(id: string) {
   return prisma.timesheet.findUnique({
     where: { id },

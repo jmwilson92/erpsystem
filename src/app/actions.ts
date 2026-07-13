@@ -5150,6 +5150,17 @@ export async function actionProcessTimesheet(
     processor: { id: user.id, role: user.role },
   });
   revalidatePath("/accounting");
+  revalidatePath("/accounting/payroll");
+  revalidatePath("/hr/timesheet");
+}
+
+export async function actionRunPayroll(): Promise<void> {
+  const { runPayroll } = await import("@/lib/services/timesheets");
+  const user = await getCurrentUser();
+  if (!user) return;
+  await runPayroll({ id: user.id, role: user.role });
+  revalidatePath("/accounting/payroll");
+  revalidatePath("/accounting");
   revalidatePath("/hr/timesheet");
 }
 
