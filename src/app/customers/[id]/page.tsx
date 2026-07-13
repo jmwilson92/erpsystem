@@ -60,6 +60,11 @@ export default async function CustomerDetailPage({
             <Link href={`/sales/quotes/new?customerId=${customer.id}`}>
               <Button size="sm">New quote</Button>
             </Link>
+            <Link href={`/print/statement/${customer.id}`}>
+              <Button size="sm" variant="outline">
+                Print statement
+              </Button>
+            </Link>
           </div>
         }
       />
