@@ -245,8 +245,12 @@ export async function approveJournal(params: {
 
 export async function voidJournal(params: {
   id: string;
+  reason?: string | null;
   voidedById?: string | null;
 }) {
+  if (!params.reason?.trim()) {
+    throw new Error("A void reason is required");
+  }
   const je = await prisma.journalEntry.findUniqueOrThrow({
     where: { id: params.id },
     include: { lines: true },
@@ -264,7 +268,7 @@ export async function voidJournal(params: {
   }
   return prisma.journalEntry.update({
     where: { id: je.id },
-    data: { status: "VOID" },
+    data: { status: "VOID", voidReason: params.reason.trim() },
   });
 }
 

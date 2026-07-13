@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { ToggleField } from "@/components/ui/toggle-field";
 import { actionCreateItem } from "@/app/actions";
 import Link from "next/link";
 
@@ -123,31 +124,9 @@ export default async function NewItemPage() {
               />
             </div>
             <div className="flex flex-wrap items-end gap-4 pb-1">
-              <label className="flex items-center gap-2 text-sm text-slate-400">
-                <input
-                  type="checkbox"
-                  name="isSerialized"
-                  className="rounded border-slate-600"
-                />
-                Serialized
-              </label>
-              <label className="flex items-center gap-2 text-sm text-slate-400">
-                <input
-                  type="checkbox"
-                  name="isLotControlled"
-                  className="rounded border-slate-600"
-                />
-                Lot controlled
-              </label>
-              <label className="flex items-center gap-2 text-sm text-slate-400">
-                <input
-                  type="checkbox"
-                  name="isActive"
-                  defaultChecked
-                  className="rounded border-slate-600"
-                />
-                Active
-              </label>
+              <ToggleField name="isSerialized" label="Serialized" />
+              <ToggleField name="isLotControlled" label="Lot controlled" />
+              <ToggleField name="isActive" defaultChecked label="Active" />
             </div>
           </CardContent>
         </Card>
@@ -250,22 +229,14 @@ export default async function NewItemPage() {
             <CardTitle>Receiving inspection</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-wrap gap-4">
-            <label className="flex items-center gap-2 text-sm text-slate-400">
-              <input
-                type="checkbox"
-                name="requiresGdtInspection"
-                className="rounded border-slate-600"
-              />
-              GD&amp;T / visual (QA)
-            </label>
-            <label className="flex items-center gap-2 text-sm text-slate-400">
-              <input
-                type="checkbox"
-                name="requiresFunctionalTest"
-                className="rounded border-slate-600"
-              />
-              Functional (Test / power)
-            </label>
+            <ToggleField
+              name="requiresGdtInspection"
+              label="GD&T / visual (QA)"
+            />
+            <ToggleField
+              name="requiresFunctionalTest"
+              label="Functional (Test / power)"
+            />
           </CardContent>
         </Card>
 

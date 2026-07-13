@@ -593,6 +593,11 @@ export default async function GovPropertyPage({
                     placeholder="PM PIN *"
                     className="w-28 font-mono"
                   />
+                  <Input
+                    name="approvalNotes"
+                    placeholder="Notes (required to reject)"
+                    className="w-48"
+                  />
                   <Button type="submit" name="approve" value="true" size="sm">
                     Approve
                   </Button>

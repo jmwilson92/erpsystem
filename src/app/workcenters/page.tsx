@@ -4,6 +4,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ToggleField } from "@/components/ui/toggle-field";
 import { actionSaveWorkCenter } from "@/app/actions";
 import { WORK_AREAS, WORK_AREA_LABELS } from "@/lib/work-areas";
 import Link from "next/link";
@@ -168,23 +169,11 @@ export default async function WorkCentersPage() {
               </div>
             </div>
             <div className="flex flex-wrap gap-4">
-              <label className="flex items-center gap-2 text-sm text-slate-400">
-                <input
-                  type="checkbox"
-                  name="isDefault"
-                  className="rounded border-slate-600"
-                />
-                Default for area (used when WI only says QA / TEST / MANUFACTURING)
-              </label>
-              <label className="flex items-center gap-2 text-sm text-slate-400">
-                <input
-                  type="checkbox"
-                  name="isActive"
-                  defaultChecked
-                  className="rounded border-slate-600"
-                />
-                Active
-              </label>
+              <ToggleField
+                name="isDefault"
+                label="Default for area (used when WI only says QA / TEST / MANUFACTURING)"
+              />
+              <ToggleField name="isActive" defaultChecked label="Active" />
             </div>
             <Button type="submit">Save workcenter</Button>
           </form>
