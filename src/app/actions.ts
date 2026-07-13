@@ -5150,7 +5150,7 @@ export async function actionProcessTimesheet(
     processor: { id: user.id, role: user.role },
   });
   revalidatePath("/accounting");
-  revalidatePath("/accounting/payroll");
+  revalidatePath("/accounting");
   revalidatePath("/hr/timesheet");
 }
 
@@ -5291,7 +5291,7 @@ export async function actionConnectBank(formData: FormData): Promise<void> {
     glAccountId: ((formData.get("glAccountId") as string) || "").trim() || undefined,
     userId: user.id,
   });
-  revalidatePath("/accounting/banking");
+  revalidatePath("/accounting");
 }
 
 export async function actionImportBankTransactions(
@@ -5310,7 +5310,7 @@ export async function actionImportBankTransactions(
     return { imported: 0, duplicates: 0, errors: [{ row: 0, message: "Pick an account and paste rows." }] };
   }
   const res = await importBankTransactions({ bankAccountId, text, userId: user.id });
-  revalidatePath("/accounting/banking");
+  revalidatePath("/accounting");
   return res;
 }
 
@@ -5323,14 +5323,14 @@ export async function actionCategorizeBankTxn(formData: FormData): Promise<void>
     categoryAccountId: formData.get("categoryAccountId") as string,
     userId: user.id,
   });
-  revalidatePath("/accounting/banking");
+  revalidatePath("/accounting");
   revalidatePath("/accounting");
 }
 
 export async function actionReconcileBankTxn(formData: FormData): Promise<void> {
   const { reconcileBankTransaction } = await import("@/lib/services/banking");
   await reconcileBankTransaction(formData.get("transactionId") as string);
-  revalidatePath("/accounting/banking");
+  revalidatePath("/accounting");
 }
 
 export async function actionRunPayroll(): Promise<void> {
@@ -5338,7 +5338,7 @@ export async function actionRunPayroll(): Promise<void> {
   const user = await getCurrentUser();
   if (!user) return;
   await runPayroll({ id: user.id, role: user.role });
-  revalidatePath("/accounting/payroll");
+  revalidatePath("/accounting");
   revalidatePath("/accounting");
   revalidatePath("/hr/timesheet");
 }

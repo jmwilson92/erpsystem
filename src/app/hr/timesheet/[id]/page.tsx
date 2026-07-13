@@ -200,7 +200,7 @@ export default async function TimesheetDetailPage({
               . Payroll is processed as a run in the Payroll module — not from
               here.
             </p>
-            <Link href="/accounting/payroll">
+            <Link href="/accounting?tab=payroll">
               <Button size="sm">Go to Payroll →</Button>
             </Link>
           </CardContent>
