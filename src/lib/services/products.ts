@@ -436,12 +436,12 @@ export async function advanceProductLifecycle(params: {
     if (!product.obsoleteDate) data.obsoleteDate = now;
   }
 
-  const [updated] = await prisma.$transaction([
-    prisma.product.update({
+  const updated = await prisma.$transaction(async (tx) => {
+    const p = await tx.product.update({
       where: { id: product.id },
       data,
-    }),
-    prisma.productLifecycleEvent.create({
+    });
+    await tx.productLifecycleEvent.create({
       data: {
         productId: product.id,
         fromPhase: product.lifecyclePhase,
@@ -449,8 +449,9 @@ export async function advanceProductLifecycle(params: {
         notes: params.notes?.trim() || null,
         userId: params.userId || null,
       },
-    }),
-  ]);
+    });
+    return p;
+  });
 
   await logAudit({
     entityType: "Product",

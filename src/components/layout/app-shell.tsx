@@ -40,8 +40,8 @@ function ShellInner({
   const { theme } = useTheme();
   const pathname = usePathname();
 
-  // Print documents render on a bare white canvas — no chrome.
-  if (pathname?.startsWith("/print")) {
+  // Print documents and the public demo landing render without chrome.
+  if (pathname?.startsWith("/print") || pathname?.startsWith("/demo")) {
     return <>{children}</>;
   }
 

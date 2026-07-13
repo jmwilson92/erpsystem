@@ -4833,6 +4833,32 @@ export async function actionGoalCheckIn(formData: FormData): Promise<void> {
   revalidatePath(`/hr/person/${goal.userId}`);
 }
 
+export async function actionStartTestDrive(): Promise<void> {
+  const { cookies } = await import("next/headers");
+  const { randomUUID } = await import("crypto");
+  const { SANDBOX_COOKIE, materializeSandbox } = await import("@/lib/db");
+  const id = randomUUID().toLowerCase();
+  await materializeSandbox(id);
+  const jar = await cookies();
+  jar.set(SANDBOX_COOKIE, id, { path: "/", httpOnly: true, sameSite: "lax" });
+  // Fresh sandbox, fresh identity — start as the admin persona
+  jar.delete("forge-demo-user");
+  revalidatePath("/", "layout");
+  redirect("/");
+}
+
+export async function actionEndTestDrive(): Promise<void> {
+  const { cookies } = await import("next/headers");
+  const { SANDBOX_COOKIE, destroySandbox } = await import("@/lib/db");
+  const jar = await cookies();
+  const id = jar.get(SANDBOX_COOKIE)?.value;
+  if (id) destroySandbox(id);
+  jar.delete(SANDBOX_COOKIE);
+  jar.delete("forge-demo-user");
+  revalidatePath("/", "layout");
+  redirect("/demo?ended=1");
+}
+
 export async function actionAddFeedbackNote(
   formData: FormData
 ): Promise<void> {

@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { cookies } from "next/headers";
 import { AppShell } from "@/components/layout/app-shell";
+import { SandboxBanner } from "@/components/layout/sandbox-banner";
 import { getCurrentUser, listUsers } from "@/lib/auth";
-import { prisma } from "@/lib/db";
+import { prisma, SANDBOX_COOKIE } from "@/lib/db";
 import { getNotificationSummary } from "@/lib/services/notifications";
 
 const geistSans = Geist({
@@ -40,6 +42,8 @@ export default async function RootLayout({
   const notifications = currentUser
     ? await getNotificationSummary(currentUser)
     : { total: 0, items: [], badges: {} };
+  const jar = await cookies();
+  const inSandbox = Boolean(jar.get(SANDBOX_COOKIE)?.value);
   const shellUsers = demoUsers.map((u) => ({
     id: u.id,
     name: u.name,
@@ -78,6 +82,7 @@ export default async function RootLayout({
               : null
           }
         >
+          {inSandbox && <SandboxBanner />}
           {children}
         </AppShell>
       </body>
