@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth";
 import { getPendingApprovals } from "@/lib/services/hr";
 import { getTimecardReviewQueue } from "@/lib/services/timesheets";
+import { countPrApprovalsForUser } from "@/lib/services/pr-approval";
 import { TimecardReviewQueue } from "@/components/hr/timecard-review-queue";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/shared/page-header";
@@ -22,7 +23,7 @@ export default async function ApprovalsPage() {
   const [{ persona, ptoRequests, timesheetApprovals, expenses }, openPrs, timecardQueue] =
     await Promise.all([
       getPendingApprovals(user),
-      prisma.purchaseRequest.count({ where: { status: "SUBMITTED" } }),
+      countPrApprovalsForUser({ userId: user.id, userRole: user.role }),
       getTimecardReviewQueue(user),
     ]);
 

@@ -273,6 +273,7 @@ export default async function DashboardPage() {
           subtitle={`${statusMap["ON_HOLD"] || 0} on hold`}
           icon={Factory}
           accent="teal"
+          href="/work-orders"
         />
         <StatCard
           title="Open MRB / NCR"
@@ -280,6 +281,7 @@ export default async function DashboardPage() {
           subtitle="Material review · non-conformances"
           icon={FlaskConical}
           accent={openMrb > 0 ? "amber" : "emerald"}
+          href="/mrb"
         />
         <StatCard
           title="Open Purchase Orders"
@@ -287,6 +289,7 @@ export default async function DashboardPage() {
           subtitle="In supply pipeline"
           icon={ShoppingCart}
           accent="sky"
+          href="/purchasing"
         />
         <StatCard
           title="Incoming Yield"
@@ -294,6 +297,7 @@ export default async function DashboardPage() {
           subtitle={`${inspFailed} failed inspections`}
           icon={TrendingUp}
           accent={yieldPct >= 95 ? "emerald" : "amber"}
+          href="/quality"
         />
       </div>
 
@@ -447,10 +451,16 @@ export default async function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
+              {recentNcrs.length === 0 && (
+                <p className="py-4 text-center text-sm text-slate-500">
+                  No open quality alerts. 🎉
+                </p>
+              )}
               {recentNcrs.map((ncr) => (
-                <div
+                <Link
                   key={ncr.id}
-                  className="flex items-center justify-between rounded-lg border border-slate-800/80 px-3 py-2.5"
+                  href={`/quality?ncr=${ncr.id}`}
+                  className="flex items-center justify-between rounded-lg border border-slate-800/80 px-3 py-2.5 transition-colors hover:border-amber-500/40"
                 >
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
@@ -462,7 +472,7 @@ export default async function DashboardPage() {
                     </p>
                   </div>
                   <StatusBadge status={ncr.severity} />
-                </div>
+                </Link>
               ))}
             </div>
           </CardContent>

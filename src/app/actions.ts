@@ -2401,6 +2401,7 @@ export async function actionAcceptQuote(formData: FormData): Promise<void> {
     }
   }
 
+  await flashToast(`Quote accepted — sales order ${so.number} created`);
   revalidateFulfillmentPaths([`/sales/${so.id}`, `/sales/quotes/${quoteId}`]);
   redirect(`/sales/${so.id}`);
 }

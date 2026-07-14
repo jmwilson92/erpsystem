@@ -351,7 +351,11 @@ export default async function SalesOrderDetailPage({
                   <p className="mt-1 text-xs text-amber-400/90">
                     PRs:{" "}
                     {wo.purchaseRequests.map((pr) => (
-                      <Link key={pr.id} href="/purchasing" className="mr-2 underline">
+                      <Link
+                        key={pr.id}
+                        href={`/purchasing/pr/${pr.id}`}
+                        className="mr-2 underline"
+                      >
                         {pr.number} ({pr.status})
                       </Link>
                     ))}

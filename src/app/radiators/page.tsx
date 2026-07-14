@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 import { getFloorBoardData } from "@/lib/services/work-orders";
 import { getValueStreamMetrics } from "@/lib/services/supply-chain";
 import { FloorAutoRefresh } from "@/components/floor/auto-refresh";
-import { computeEvm, formatCurrency, cn } from "@/lib/utils";
+import { computeEvm, compactCurrency, cn } from "@/lib/utils";
 import { StatusBadge } from "@/components/shared/status-badge";
 
 export const dynamic = "force-dynamic";
@@ -47,7 +47,8 @@ export default async function RadiatorsPage() {
           },
           {
             label: "WIP VALUE",
-            value: formatCurrency(floor.wipValue),
+            // Compact so 7-figure values never run off a monitor
+            value: compactCurrency(floor.wipValue),
             color: "text-emerald-400 border-emerald-500/40",
           },
         ].map((k) => (
