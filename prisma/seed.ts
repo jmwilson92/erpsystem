@@ -3409,6 +3409,72 @@ async function main() {
     console.log("  ✓ requirements (traced to eng board)");
   }
 
+  // ── Retain CM master copies for released work instructions ─────────
+  {
+    const releasedWis = await prisma.workInstruction.findMany({
+      where: { status: "RELEASED" },
+      include: { part: { select: { partNumber: true } }, _count: { select: { steps: true } } },
+    });
+    if (releasedWis.length > 0) {
+      // Ensure Admin → Work Instructions folder
+      let admin = await prisma.cmFolder.findFirst({
+        where: { kind: "ADMIN", parentId: null },
+      });
+      if (!admin) {
+        admin = await prisma.cmFolder.create({
+          data: {
+            name: "Admin",
+            kind: "ADMIN",
+            isSystem: true,
+            description: "Company internal documents, policies, and QMS records",
+            sortOrder: -1,
+          },
+        });
+      }
+      let wiFolder = await prisma.cmFolder.findFirst({
+        where: { parentId: admin.id, name: "Work Instructions" },
+      });
+      if (!wiFolder) {
+        wiFolder = await prisma.cmFolder.create({
+          data: {
+            name: "Work Instructions",
+            parentId: admin.id,
+            kind: "ADMIN",
+            isSystem: true,
+            description: "Released work instruction master copies (CM controlled)",
+            sortOrder: 5,
+          },
+        });
+      }
+      for (const wi of releasedWis) {
+        const exists = await prisma.cmDocument.findFirst({
+          where: { docType: "WI", workInstructionId: wi.id },
+        });
+        if (exists) continue;
+        await prisma.cmDocument.create({
+          data: {
+            folderId: wiFolder.id,
+            docType: "WI",
+            number: wi.documentNumber,
+            title: wi.title,
+            revision: wi.revision,
+            status: "RELEASED",
+            description: `Work instruction master — ${wi._count.steps} step${
+              wi._count.steps === 1 ? "" : "s"
+            }${wi.part ? ` · part ${wi.part.partNumber}` : ""}. Controlled copy; edit via new revision only.`,
+            fileUrl: `/work-instructions/${wi.id}?cm=1`,
+            fileName: `${wi.documentNumber} Rev ${wi.revision}`,
+            productTag: wi.part?.partNumber || null,
+            partId: wi.partId || null,
+            bomHeaderId: wi.bomHeaderId || null,
+            workInstructionId: wi.id,
+          },
+        });
+      }
+      console.log("  ✓ CM master copies for released work instructions");
+    }
+  }
+
   console.log("✅ ForgeRP seed complete — all modules linked.");
 }
 

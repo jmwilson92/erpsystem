@@ -31,6 +31,7 @@ export default async function WiDetailPage({
   const { id } = await params;
   const sp = await searchParams;
   const toolPrNotice = Array.isArray(sp.toolPr) ? sp.toolPr[0] : sp.toolPr;
+  const cmView = (Array.isArray(sp.cm) ? sp.cm[0] : sp.cm) === "1";
   const [wi, workCenters, boms, measureUoms] = await Promise.all([
     prisma.workInstruction.findUnique({
       where: { id },
@@ -46,6 +47,12 @@ export default async function WiDetailPage({
         },
         changeRequests: { orderBy: { createdAt: "desc" }, take: 5 },
         supersedes: true,
+        cmDocuments: {
+          orderBy: { updatedAt: "desc" },
+          include: {
+            folder: { select: { id: true, name: true } },
+          },
+        },
         toolPurchaseRequests: {
           orderBy: { createdAt: "desc" },
           take: 10,
@@ -151,7 +158,88 @@ export default async function WiDetailPage({
         )}
       </div>
 
-      {wi.isLocked && (
+      {/* CM-style controlled-document title block (?cm=1 or released master) */}
+      {(() => {
+        const master = wi.cmDocuments.find((d) => !d.isArchived) || null;
+        const isReleased = wi.status === "RELEASED" || wi.isLocked;
+        if (!cmView && !master && !isReleased) return null;
+        return (
+          <div className="overflow-hidden rounded-2xl border border-teal-800/50 bg-slate-950/60">
+            <div className="flex items-center justify-between border-b border-teal-800/40 bg-teal-500/5 px-5 py-2">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-teal-300">
+                Configuration-Controlled Master
+              </span>
+              <span className="font-mono text-[11px] text-slate-500">
+                {master ? master.number : wi.documentNumber} ·{" "}
+                {master ? master.status : wi.status}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-2 p-5 text-sm sm:grid-cols-4">
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-slate-500">
+                  Document
+                </p>
+                <p className="font-mono text-slate-100">{wi.documentNumber}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-slate-500">
+                  Revision
+                </p>
+                <p className="font-mono text-slate-100">{wi.revision}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-slate-500">
+                  Released
+                </p>
+                <p className="text-slate-100">
+                  {wi.releasedAt ? formatDate(wi.releasedAt) : "—"}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-slate-500">
+                  Prepared by
+                </p>
+                <p className="text-slate-100">{wi.createdBy?.name || "—"}</p>
+              </div>
+              <div className="sm:col-span-2">
+                <p className="text-[10px] uppercase tracking-wider text-slate-500">
+                  Title
+                </p>
+                <p className="text-slate-100">{wi.title}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-slate-500">
+                  Part
+                </p>
+                <p className="font-mono text-slate-100">
+                  {wi.part?.partNumber || "—"}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-slate-500">
+                  Supersedes
+                </p>
+                <p className="text-slate-100">
+                  {wi.supersedes ? `Rev ${wi.supersedes.revision}` : "Original"}
+                </p>
+              </div>
+            </div>
+            {master && (
+              <div className="flex items-center justify-between border-t border-slate-800 px-5 py-2 text-xs text-slate-500">
+                <span>
+                  Retained in CM library
+                  {master.folder ? ` · ${master.folder.name}` : ""}
+                </span>
+                <Link href="/cm" className="text-teal-400 hover:underline">
+                  Open CM library →
+                </Link>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {wi.isLocked && !cmView && (
         <Card className="border-amber-900/40">
           <CardContent className="p-4 text-sm text-amber-100/90">
             This revision is <strong>released and locked</strong>. Content cannot
