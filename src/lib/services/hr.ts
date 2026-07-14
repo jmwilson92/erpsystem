@@ -679,14 +679,23 @@ export async function upsertPerformanceReview(params: {
   period: string;
   status?: string;
   overallRating?: number | null;
+  ratingRationale?: string | null;
   strengths?: string | null;
   improvements?: string | null;
   careerNotes?: string | null;
 }) {
+  // A rating without a written justification isn't allowed.
+  if (
+    params.overallRating != null &&
+    !params.ratingRationale?.trim()
+  ) {
+    throw new Error("Explain the rating — a written rationale is required.");
+  }
   const data = {
     period: params.period.trim(),
     status: params.status || "DRAFT",
     overallRating: params.overallRating ?? null,
+    ratingRationale: params.ratingRationale?.trim() || null,
     strengths: params.strengths?.trim() || null,
     improvements: params.improvements?.trim() || null,
     careerNotes: params.careerNotes?.trim() || null,

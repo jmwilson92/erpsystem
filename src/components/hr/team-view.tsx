@@ -90,14 +90,21 @@ export function TeamView({
                 {/* Review status */}
                 <div className="rounded-lg border border-slate-800 p-3 text-sm">
                   {latestCompleted ? (
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-slate-400">
-                        Last review {latestCompleted.period}
-                      </span>
-                      <span className="text-teal-400">
-                        {latestCompleted.overallRating}/5
-                      </span>
-                    </div>
+                    <>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-slate-400">
+                          Last review {latestCompleted.period}
+                        </span>
+                        <span className="text-teal-400">
+                          {latestCompleted.overallRating}/5
+                        </span>
+                      </div>
+                      {latestCompleted.ratingRationale && (
+                        <p className="mt-1 text-[11px] italic text-slate-500">
+                          “{latestCompleted.ratingRationale}”
+                        </p>
+                      )}
+                    </>
                   ) : (
                     <p className="text-xs text-slate-500">No completed reviews.</p>
                   )}
@@ -183,6 +190,13 @@ export function TeamView({
                         <option value="COMPLETED">Complete</option>
                       </select>
                     </div>
+                    <Textarea
+                      name="ratingRationale"
+                      rows={2}
+                      defaultValue={inFlight?.ratingRationale || ""}
+                      placeholder="Why this rating? (required when you set a rating)"
+                      className="border-amber-500/30"
+                    />
                     <Textarea
                       name="strengths"
                       rows={2}

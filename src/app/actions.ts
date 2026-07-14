@@ -5079,6 +5079,8 @@ export async function actionSavePerformanceReview(
   );
   if (!ok) throw new Error("Not authorized to review this employee");
   const ratingRaw = (formData.get("overallRating") as string) || "";
+  const ratingRationale =
+    ((formData.get("ratingRationale") as string) || "").trim() || null;
   const readyForSignoff =
     (formData.get("readyForSignoff") as string) === "true" ||
     (formData.get("status") as string) === "AWAITING_SIGNOFF";
@@ -5088,6 +5090,7 @@ export async function actionSavePerformanceReview(
       reviewId,
       manager: { id: user.id, role: user.role },
       overallRating: ratingRaw ? Number(ratingRaw) : null,
+      ratingRationale,
       strengths: (formData.get("strengths") as string) || null,
       improvements: (formData.get("improvements") as string) || null,
       careerNotes: (formData.get("careerNotes") as string) || null,
@@ -5102,6 +5105,7 @@ export async function actionSavePerformanceReview(
         ? "AWAITING_SIGNOFF"
         : ((formData.get("status") as string) || "IN_PROGRESS").trim(),
       overallRating: ratingRaw ? Number(ratingRaw) : null,
+      ratingRationale,
       strengths: (formData.get("strengths") as string) || null,
       improvements: (formData.get("improvements") as string) || null,
       careerNotes: (formData.get("careerNotes") as string) || null,
@@ -6035,13 +6039,19 @@ export async function actionSubmitSelfReview(
   const questions = formData.getAll("question").map(String);
   const ratings = formData.getAll("rating").map(String);
   const comments = formData.getAll("comment").map(String);
+  // Every rating must be explained.
+  if (questions.some((_, i) => !(comments[i] || "").trim())) {
+    throw new Error(
+      "Explain each rating — a comment is required for every question."
+    );
+  }
   await submitSelfReview({
     reviewId,
     employeeId: user.id,
     ratings: questions.map((q, i) => ({
       question: q,
       rating: Number(ratings[i] || 3),
-      comment: comments[i] || undefined,
+      comment: (comments[i] || "").trim() || undefined,
     })),
   });
   revalidatePath("/hr");
