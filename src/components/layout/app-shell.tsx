@@ -91,6 +91,14 @@ export function AppShell({
   notifications: ShellNotifications;
   company: ShellCompany;
 }) {
+  const pathname = usePathname();
+  // Auth screens render bare — no sidebar/header chrome
+  if (
+    pathname?.startsWith("/login") ||
+    pathname?.startsWith("/invite/")
+  ) {
+    return <ThemeProvider>{children}</ThemeProvider>;
+  }
   return (
     <ThemeProvider>
       <ShellInner

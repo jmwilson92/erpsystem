@@ -30,6 +30,8 @@ model User {
   reports       User[]   @relation("OrgChart")
   // Shop-floor sign-off PIN (demo: 4–6 digits). Required on WI step sign-off.
   pinCode       String?
+  /// scrypt hash (salt:hash hex) — null until the account is activated
+  passwordHash  String?
   isActive      Boolean  @default(true)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -47,6 +49,8 @@ model User {
   feedbackReceived    FeedbackNote[]           @relation("FeedbackAbout")
   feedbackGiven       FeedbackNote[]           @relation("FeedbackAuthor")
   trainingRecords     TrainingRecord[]
+  authSessions        AuthSession[]
+  invitesSent         UserInvite[] @relation("InviteSender")
   employeeDocuments   EmployeeDocument[]
   timesheets          Timesheet[]
   timesheetApprovals  TimesheetApproval[]
@@ -3707,6 +3711,43 @@ model TrainingRecord {
   updatedAt   DateTime @updatedAt
 
   @@index([userId])
+}
+
+/// Login session — token hash stored, raw token lives in the HttpOnly
+/// cookie. Sliding 30-day expiry.
+model AuthSession {
+  id         String   @id @default(cuid())
+  tokenHash  String   @unique
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+  userAgent  String?
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// Team invite (also used for password resets): tokened link that lets
+/// the recipient set a password. Unlimited seats — org size is the only
+/// pricing factor, never a seat cap in the product.
+model UserInvite {
+  id          String   @id @default(cuid())
+  tokenHash   String   @unique
+  email       String
+  name        String?
+  role        String   @default("OPERATOR")
+  /// INVITE (new/unactivated account) | RESET (existing account)
+  kind        String   @default("INVITE")
+  invitedById String?
+  invitedBy   User?    @relation("InviteSender", fields: [invitedById], references: [id], onDelete: SetNull)
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([email])
+  @@index([expiresAt])
 }
 
 /// Outbound + inbound email log. Outbound: composed from records (PO to

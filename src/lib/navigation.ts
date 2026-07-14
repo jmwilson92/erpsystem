@@ -69,6 +69,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/ai", label: "AI Assistant", icon: Bot, keywords: ["chat", "grok", "assistant"] },
       { href: "/approvals", label: "My Approvals", icon: ClipboardCheck, keywords: ["pending", "pto", "timesheet", "expense", "manager"] },
       { href: "/hr/timesheet", label: "My Timesheet", icon: Clock, keywords: ["time", "hours", "pay period", "charge"] },
+      { href: "/account", label: "My Account", icon: KeyRound, keywords: ["password", "login", "sign out", "sessions", "security"] },
     ],
   },
   {
