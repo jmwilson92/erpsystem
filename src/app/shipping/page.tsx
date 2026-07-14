@@ -5,7 +5,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { actionQueueShipment } from "@/app/actions";
-import { PackShipPanel } from "@/components/shipping/pack-ship-panel";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -160,35 +159,13 @@ export default async function ShippingPage() {
                   Tracking: {s.trackingNumber}
                 </p>
               )}
-              {s.salesOrder && !["SHIPPED", "DELIVERED"].includes(s.status) && (
+              {!["SHIPPED", "DELIVERED"].includes(s.status) && (
                 <div className="mt-3">
-                  <PackShipPanel
-                    shipmentId={s.id}
-                    salesOrderId={s.salesOrder.id}
-                    packingListVerified={s.packingListVerified}
-                    status={s.status}
-                    shipToAddress={s.shipToAddress}
-                    depositBlocked={
-                      s.salesOrder.depositRequired &&
-                      !["RECEIVED", "WAIVED"].includes(
-                        (s.salesOrder.depositStatus || "").toUpperCase()
-                      )
-                    }
-                    depositMessage={
-                      s.salesOrder.depositRequired &&
-                      !["RECEIVED", "WAIVED"].includes(
-                        (s.salesOrder.depositStatus || "").toUpperCase()
-                      )
-                        ? `Deposit ${formatCurrency(s.salesOrder.depositAmount)} required (${s.salesOrder.depositStatus || "PENDING"}) — mark received or waive on SO ${s.salesOrder.number} before shipping.`
-                        : null
-                    }
-                    lineSummary={s.lines.map(
-                      (l) =>
-                        `${l.description} × ${l.quantity}${
-                          l.lotNumber ? ` · Lot ${l.lotNumber}` : ""
-                        }`
-                    )}
-                  />
+                  <Link href={`/shipping/${s.id}`}>
+                    <Button size="sm" variant="outline">
+                      Open to verify &amp; ship →
+                    </Button>
+                  </Link>
                 </div>
               )}
             </CardContent>

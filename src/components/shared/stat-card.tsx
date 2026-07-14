@@ -1,6 +1,7 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import type { LucideIcon } from "lucide-react";
+import Link from "next/link";
 
 export function StatCard({
   title,
@@ -10,6 +11,7 @@ export function StatCard({
   trend,
   accent = "teal",
   className,
+  href,
 }: {
   title: string;
   value: string | number;
@@ -18,6 +20,8 @@ export function StatCard({
   trend?: { value: string; positive?: boolean };
   accent?: "teal" | "amber" | "emerald" | "red" | "sky" | "violet";
   className?: string;
+  /** When set, the whole card becomes a link to its source data. */
+  href?: string;
 }) {
   const accents = {
     teal: "from-teal-500/10 to-transparent text-teal-400",
@@ -28,8 +32,14 @@ export function StatCard({
     violet: "from-violet-500/10 to-transparent text-violet-400",
   };
 
-  return (
-    <Card className={cn("overflow-hidden", className)}>
+  const card = (
+    <Card
+      className={cn(
+        "overflow-hidden",
+        href && "transition-colors hover:border-teal-500/40",
+        className
+      )}
+    >
       <CardContent className={cn("relative p-5 bg-gradient-to-br", accents[accent])}>
         <div className="flex items-start justify-between">
           <div>
@@ -56,4 +66,13 @@ export function StatCard({
       </CardContent>
     </Card>
   );
+
+  if (href) {
+    return (
+      <Link href={href} className="block">
+        {card}
+      </Link>
+    );
+  }
+  return card;
 }

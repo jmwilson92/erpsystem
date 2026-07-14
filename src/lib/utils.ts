@@ -15,6 +15,16 @@ export function formatCurrency(amount: number, currency = "USD") {
   }).format(amount);
 }
 
+/** Compact currency for big-number displays (radiators): $1.2M, $850K. */
+export function compactCurrency(amount: number, currency = "USD") {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency,
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(amount);
+}
+
 export function formatNumber(n: number, digits = 0) {
   return new Intl.NumberFormat("en-US", {
     maximumFractionDigits: digits,

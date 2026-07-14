@@ -373,6 +373,15 @@ export async function decidePrApproval(params: {
     where: { id: params.purchaseRequestId },
   });
   if (!pr) throw new Error("Purchase request not found");
+  // Segregation of duties: the requester can't approve their own PR
+  if (
+    params.decision === "APPROVED" &&
+    pr.requestedById &&
+    pr.requestedById === params.userId &&
+    params.userRole !== "ADMIN"
+  ) {
+    throw new Error("You cannot approve a purchase request you submitted");
+  }
   if (pr.status !== "SUBMITTED") {
     throw new Error(`PR is ${pr.status}, not awaiting approval`);
   }
@@ -512,6 +521,46 @@ export async function getPrApprovals(purchaseRequestId: string) {
     },
     orderBy: { stepOrder: "asc" },
   });
+}
+
+/**
+ * PRs actually awaiting THIS user's decision — the current pending step is
+ * one they can approve, and they aren't the one who submitted it. Used for
+ * the My Approvals count so operators don't see every submitted PR.
+ */
+export async function countPrApprovalsForUser(params: {
+  userId?: string;
+  userRole?: string;
+}): Promise<number> {
+  if (!params.userId) return 0;
+  const prs = await prisma.purchaseRequest.findMany({
+    where: { status: "SUBMITTED" },
+    select: { id: true, currentStepOrder: true, requestedById: true },
+  });
+  let count = 0;
+  for (const pr of prs) {
+    // A requester never approves their own PR
+    if (pr.requestedById && pr.requestedById === params.userId) continue;
+    const current = await prisma.approval.findFirst({
+      where: {
+        entityType: "PurchaseRequest",
+        entityId: pr.id,
+        status: "PENDING",
+        ...(pr.currentStepOrder > 0
+          ? { stepOrder: pr.currentStepOrder }
+          : {}),
+      },
+      orderBy: { stepOrder: "asc" },
+    });
+    if (!current) continue;
+    const ok = await canUserApproveStep({
+      userId: params.userId,
+      userRole: params.userRole,
+      approvalId: current.id,
+    });
+    if (ok) count++;
+  }
+  return count;
 }
 
 export async function saveApprovalPolicy(params: {

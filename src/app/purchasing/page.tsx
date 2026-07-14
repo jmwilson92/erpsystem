@@ -63,6 +63,9 @@ export default async function PurchasingPage({
 
   await ensureDefaultPrApprovalPolicy();
   const currentUser = await getCurrentUser();
+  // Converting a PR to a PO is a purchasing function only
+  const canConvertToPo =
+    currentUser?.role === "ADMIN" || currentUser?.role === "PURCHASING";
 
   const poWhere: Prisma.PurchaseOrderWhereInput = {};
   if (status) poWhere.status = status;
@@ -766,38 +769,39 @@ export default async function PurchasingPage({
                             currentUser?.role === current.policyStep.approverRole ||
                             (current?.policyStep?.approverUserId &&
                               current.policyStep.approverUserId === currentUser?.id);
+                          const isRequester =
+                            !!currentUser?.id &&
+                            currentUser.id === pr.requestedById;
+                          const canApprove = roleOk && !isRequester;
                           if (!current) return null;
                           return (
                             <div className="flex flex-col items-end gap-1">
                               <p className="max-w-[160px] text-right text-[10px] text-slate-500">
                                 Step: {current.stage}
-                                {!roleOk && (
-                                  <span className="block text-amber-500/80">
-                                    Needs {current.policyStep?.approverRole || "approver"}
-                                    {currentUser
-                                      ? ` (you: ${currentUser.role})`
-                                      : ""}
-                                  </span>
-                                )}
                               </p>
                               <div className="flex gap-1">
-                                <form action={actionApprovePr}>
-                                  <input type="hidden" name="id" value={pr.id} />
-                                  <input type="hidden" name="decision" value="APPROVED" />
-                                  <Button type="submit" size="sm" disabled={!roleOk}>
-                                    Approve step
-                                  </Button>
-                                </form>
+                                {canApprove && (
+                                  <form action={actionApprovePr}>
+                                    <input type="hidden" name="id" value={pr.id} />
+                                    <input type="hidden" name="decision" value="APPROVED" />
+                                    <Button type="submit" size="sm">
+                                      Approve step
+                                    </Button>
+                                  </form>
+                                )}
                                 <Link href={`/purchasing/pr/${pr.id}`}>
                                   <Button size="sm" variant="outline">
-                                    Review / reject
+                                    {canApprove ? "Review / reject" : "View"}
                                   </Button>
                                 </Link>
                               </div>
                             </div>
                           );
                         })()}
-                        {pr.status === "APPROVED" && pr.supplierId && pr.supplier && (
+                        {pr.status === "APPROVED" &&
+                          pr.supplierId &&
+                          pr.supplier &&
+                          canConvertToPo &&
                           (() => {
                             const aslOk =
                               pr.supplier.isApprovedVendor &&
@@ -811,8 +815,7 @@ export default async function PurchasingPage({
                               );
                             }
                             return <ConvertPrToPoButton prId={pr.id} />;
-                          })()
-                        )}
+                          })()}
                       </div>
                     </td>
                   </tr>

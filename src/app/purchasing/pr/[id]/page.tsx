@@ -86,7 +86,11 @@ export default async function PrDetailPage({
     currentUser?.role === currentStep.policyStep.approverRole ||
     (currentStep?.policyStep?.approverUserId &&
       currentStep.policyStep.approverUserId === currentUser?.id);
-  const canDecide = pr.status === "SUBMITTED" && !!currentStep;
+  // A requester can never approve their own PR (segregation of duties)
+  const isRequester =
+    !!currentUser?.id && currentUser.id === pr.requestedById;
+  const canDecide =
+    pr.status === "SUBMITTED" && !!currentStep && !!roleOk && !isRequester;
 
   const lineTotal = pr.lines.reduce(
     (s, l) => s + l.quantity * l.estimatedUnitCost,
@@ -243,15 +247,14 @@ export default async function PrDetailPage({
                 </div>
               ))}
 
+              {isRequester && pr.status === "SUBMITTED" && (
+                <p className="border-t border-slate-800 pt-3 text-[11px] text-slate-500">
+                  You submitted this request — it must be approved by someone
+                  else.
+                </p>
+              )}
               {canDecide && (
                 <div className="space-y-2 border-t border-slate-800 pt-3">
-                  {!roleOk && (
-                    <p className="text-[11px] text-amber-400">
-                      Current step needs{" "}
-                      {currentStep?.policyStep?.approverRole || "an approver"}
-                      {currentUser ? ` — you are ${currentUser.role}` : ""}.
-                    </p>
-                  )}
                   <form action={actionApprovePr} className="space-y-2">
                     <input type="hidden" name="id" value={pr.id} />
                     <input type="hidden" name="decision" value="APPROVED" />
@@ -260,12 +263,7 @@ export default async function PrDetailPage({
                       rows={2}
                       placeholder="Comment (optional)"
                     />
-                    <Button
-                      type="submit"
-                      size="sm"
-                      className="w-full"
-                      disabled={!roleOk}
-                    >
+                    <Button type="submit" size="sm" className="w-full">
                       Approve — {currentStep?.stage || "current step"}
                     </Button>
                   </form>
@@ -283,7 +281,6 @@ export default async function PrDetailPage({
                       size="sm"
                       variant="outline"
                       className="w-full border-rose-900/50 text-rose-300 hover:border-rose-500/40"
-                      disabled={!roleOk}
                     >
                       Reject
                     </Button>
