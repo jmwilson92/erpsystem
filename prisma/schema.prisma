@@ -2567,6 +2567,9 @@ model PurchaseRequest {
   buyerConfirmedPrices Boolean @default(false)
   buyerConfirmedShip   Boolean @default(false)
   buyerNotes      String?
+  /// Supplier quote attached to the request; carried onto the PO at convert
+  quoteFileUrl    String?
+  quoteFileName   String?
   approvalPolicyId String?
   approvalPolicy  ApprovalPolicy? @relation(fields: [approvalPolicyId], references: [id])
   currentStepOrder Int     @default(0) // active approval step (0 = none / done)
@@ -2620,6 +2623,9 @@ model PurchaseOrder {
   currency        String   @default("USD")
   buyerId         String?
   notes           String?
+  /// Supplier quote — carried from the originating purchase request at convert
+  quoteFileUrl    String?
+  quoteFileName   String?
   // PO procures government property (GFP/CAP) — requires DD Form 1149 at receive
   isGovernmentProperty Boolean @default(false)
   createdAt       DateTime @default(now())

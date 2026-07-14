@@ -1398,6 +1398,37 @@ export async function actionSaveApprovalPolicy(formData: FormData): Promise<void
   redirect("/purchasing/approvals");
 }
 
+export async function actionAttachPrQuote(formData: FormData): Promise<void> {
+  const id = ((formData.get("id") as string) || "").trim();
+  if (!id) throw new Error("Purchase request id required");
+  const quoteFileUrl = ((formData.get("quoteFileUrl") as string) || "").trim();
+  const quoteFileName =
+    ((formData.get("quoteFileName") as string) || "").trim() || "quote";
+  if (!quoteFileUrl) throw new Error("Choose a quote file to attach");
+
+  const user = await getCurrentUser();
+  const pr = await prisma.purchaseRequest.findUnique({
+    where: { id },
+    select: { id: true },
+  });
+  if (!pr) throw new Error("Purchase request not found");
+
+  await prisma.purchaseRequest.update({
+    where: { id },
+    data: { quoteFileUrl, quoteFileName },
+  });
+  await logAudit({
+    entityType: "PurchaseRequest",
+    entityId: id,
+    action: "QUOTE_ATTACHED",
+    userId: user?.id,
+    metadata: { quoteFileName },
+  });
+  await flashToast(`Quote "${quoteFileName}" attached`);
+  revalidatePath(`/purchasing/pr/${id}`);
+  revalidatePath("/purchasing");
+}
+
 export async function actionConvertPrToPo(formData: FormData): Promise<void> {
   const id = ((formData.get("id") as string) || "").trim();
   if (!id) throw new Error("Purchase request id required");
@@ -1473,6 +1504,9 @@ export async function actionConvertPrToPo(formData: FormData): Promise<void> {
         promisedDate: pr.neededBy || undefined,
         projectId,
         wbsElementId,
+        // Carry the supplier quote from the PR onto the PO
+        quoteFileUrl: pr.quoteFileUrl || undefined,
+        quoteFileName: pr.quoteFileName || undefined,
         shipToAddress:
           "Forge Dynamics LLC\nReceiving Dock\n1200 Precision Way\nHuntsville, AL 35806",
         notes: [

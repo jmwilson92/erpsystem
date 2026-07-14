@@ -7,8 +7,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { actionApprovePr } from "@/app/actions";
+import { actionApprovePr, actionAttachPrQuote } from "@/app/actions";
 import { getPrApprovals } from "@/lib/services/pr-approval";
+import { QuoteFileField } from "@/components/purchasing/quote-file-field";
 import { ActivityTimeline } from "@/components/shared/activity-timeline";
 import Link from "next/link";
 import {
@@ -189,6 +190,48 @@ export default async function PrDetailPage({
         </Card>
 
         <div className="space-y-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Supplier quote</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {pr.quoteFileUrl ? (
+                <a
+                  href={pr.quoteFileUrl}
+                  download={pr.quoteFileName || "quote"}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 rounded-lg border border-slate-800 px-3 py-2 text-sm hover:border-teal-500/30"
+                >
+                  <FileText className="h-4 w-4 text-teal-400" />
+                  <span className="truncate text-slate-200">
+                    {pr.quoteFileName || "Quote file"}
+                  </span>
+                  <span className="ml-auto text-[10px] uppercase tracking-wider text-slate-500">
+                    Open
+                  </span>
+                </a>
+              ) : (
+                <p className="text-xs text-slate-500">
+                  No quote attached yet.
+                </p>
+              )}
+              {!["CONVERTED", "CANCELLED"].includes(pr.status) && (
+                <>
+                  <QuoteFileField
+                    action={actionAttachPrQuote}
+                    prId={pr.id}
+                    currentName={pr.quoteFileName}
+                  />
+                  <p className="text-[11px] text-slate-600">
+                    Attaching a supplier quote carries it onto the PO when this
+                    request is converted.
+                  </p>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
           <Card
             className={
               canDecide ? "border-amber-900/50" : "border-slate-800"
