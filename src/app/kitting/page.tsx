@@ -6,11 +6,21 @@ import { Button } from "@/components/ui/button";
 import { formatDate } from "@/lib/utils";
 import { actionCompleteKit, actionCreateKit } from "@/app/actions";
 import { getAvailableInventory } from "@/lib/services/order-fulfillment";
+import {
+  getUpcomingKits,
+  sweepKitReadiness,
+  KIT_PREP_WINDOW_DAYS,
+} from "@/lib/services/kitting";
 import Link from "next/link";
+import { CalendarClock } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
 export default async function KittingPage() {
+  // Auto-open travelers for WOs inside the prep window with material ready
+  await sweepKitReadiness().catch(() => []);
+
+  const upcoming = await getUpcomingKits();
   const [kits, readyWos] = await Promise.all([
     prisma.kitOrder.findMany({
       orderBy: { createdAt: "desc" },
@@ -61,8 +71,90 @@ export default async function KittingPage() {
     <div className="space-y-6">
       <PageHeader
         title="Kitting"
-        description="Pick from shown locations · multi-bin choose one · GFP requires project charge match"
+        description={`Pick from shown locations · travelers auto-open ${KIT_PREP_WINDOW_DAYS} days before WO start once material lands · early kit allowed when everything's in stock`}
       />
+
+      {upcoming.length > 0 && (
+        <Card className="border-sky-900/40">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <CalendarClock className="h-4 w-4 text-sky-400" />
+              Upcoming kits ({upcoming.length})
+            </CardTitle>
+            <p className="text-xs text-slate-500">
+              Ordered by WO start date. Inside the {KIT_PREP_WINDOW_DAYS}-day
+              window with material on hand, the traveler opens automatically —
+              material already here means you can kit early.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {upcoming.map((u) => (
+              <div
+                key={u.workOrderId}
+                className={`flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3 ${
+                  u.ready
+                    ? "border-emerald-900/50"
+                    : "border-slate-800"
+                }`}
+              >
+                <div className="min-w-0">
+                  <span className="flex flex-wrap items-center gap-2">
+                    <Link
+                      href={`/work-orders/${u.workOrderId}`}
+                      className="font-mono text-teal-400 hover:underline"
+                    >
+                      {u.woNumber}
+                    </Link>
+                    {u.partNumber && (
+                      <span className="text-sm text-slate-300">
+                        {u.partNumber} × {u.quantity}
+                      </span>
+                    )}
+                    <StatusBadge status={u.status} />
+                    {u.daysToStart !== null && (
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                          u.inWindow
+                            ? "bg-amber-500/15 text-amber-300"
+                            : "bg-slate-800 text-slate-400"
+                        }`}
+                      >
+                        {u.daysToStart <= 0
+                          ? "Start date reached"
+                          : `Starts in ${u.daysToStart}d`}
+                      </span>
+                    )}
+                  </span>
+                  {u.shorts.length > 0 && (
+                    <p className="mt-1 text-[11px] text-rose-300">
+                      Short:{" "}
+                      {u.shorts
+                        .map((s) => `${s.partNumber} (−${s.short})`)
+                        .join(", ")}
+                    </p>
+                  )}
+                </div>
+                {u.ready ? (
+                  <form action={actionCreateKit}>
+                    <input
+                      type="hidden"
+                      name="workOrderId"
+                      value={u.workOrderId}
+                    />
+                    <Button type="submit" size="sm">
+                      {u.inWindow ? "Open kit traveler" : "Kit early"}
+                    </Button>
+                  </form>
+                ) : (
+                  <span className="text-xs text-slate-500">
+                    Awaiting material
+                  </span>
+                )}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {readyWos.length > 0 && (
         <Card>

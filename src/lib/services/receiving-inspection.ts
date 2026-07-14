@@ -483,6 +483,81 @@ async function createInspection(params: {
 }
 
 /** Complete a single VISUAL / GDT / FUNCTIONAL inspection (TEST-01 queue). */
+/**
+ * Post-hoc dock attestation: a RECEIVING inspection left PENDING because
+ * the receiver didn't sign at the dock can be attested afterward — this
+ * is the only way a doc-only receipt clears its INSP and the traveler
+ * moves on to putaway.
+ */
+export async function attestDockAcceptance(params: {
+  inspectionId: string;
+  notes?: string;
+  userId?: string;
+}) {
+  const insp = await prisma.inspection.findUnique({
+    where: { id: params.inspectionId },
+    include: { results: true },
+  });
+  if (!insp) throw new Error("Inspection not found");
+  if (insp.type !== "RECEIVING") {
+    throw new Error(
+      "Only dock (RECEIVING) inspections can be attested — QA/Test inspections complete from their queues"
+    );
+  }
+  if (insp.status !== "PENDING") {
+    throw new Error(`Inspection already ${insp.status}`);
+  }
+
+  await prisma.inspection.update({
+    where: { id: insp.id },
+    data: {
+      status: "PASSED",
+      quantityPassed: insp.quantity,
+      quantityFailed: 0,
+      inspectorId: params.userId || null,
+      completedAt: new Date(),
+      notes: [
+        "Dock acceptance attested",
+        params.notes?.trim() || null,
+        insp.plannedPutawayCode
+          ? `putaway ${insp.plannedPutawayCode}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" · "),
+    },
+  });
+  const visual = insp.results.find((r) =>
+    r.characteristic.toLowerCase().includes("visual")
+  );
+  if (visual) {
+    await prisma.inspectionResult.update({
+      where: { id: visual.id },
+      data: {
+        result: "PASS",
+        measuredValue: "Attested by receiver (post-receipt)",
+      },
+    });
+  }
+
+  await logAudit({
+    entityType: "Inspection",
+    entityId: insp.id,
+    action: "DOCK_ATTESTED",
+    userId: params.userId,
+    metadata: { number: insp.number },
+  });
+
+  // Advance the traveler if everything on this material is now clear
+  if (insp.inventoryItemId) {
+    await tryCompleteInventoryReceivingInspections({
+      inventoryItemId: insp.inventoryItemId,
+      userId: params.userId,
+    });
+  }
+  return insp.number;
+}
+
 export async function completeReceivingInspection(params: {
   inspectionId: string;
   result: "PASS" | "FAIL";
@@ -890,6 +965,16 @@ export async function completeReceivingAfterInspection(params: {
   }
 
   await refreshAllWaitingMaterial(params.userId);
+
+  // Receive→kit handoff: freshly stocked material may complete a WO's
+  // BOM — open kit travelers for anything now ready inside its window.
+  try {
+    const { sweepKitReadiness } = await import("@/lib/services/kitting");
+    await sweepKitReadiness(params.userId);
+  } catch {
+    /* advisory — never block putaway */
+  }
+
   await logAudit({
     entityType: "ReceivingTraveler",
     entityId: traveler.id,
