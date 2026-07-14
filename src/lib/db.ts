@@ -4,7 +4,7 @@ import path from "path";
 import fs from "fs";
 
 // Bump when Prisma schema fields change so HMR does not keep a stale client.
-const PRISMA_CLIENT_EPOCH = "wi-cm-ship-kit-v13-timecharge";
+const PRISMA_CLIENT_EPOCH = "wi-cm-ship-kit-v14-pr-quote";
 
 /** Cookie that puts a request into a private test-drive sandbox. */
 export const SANDBOX_COOKIE = "forge-sandbox";

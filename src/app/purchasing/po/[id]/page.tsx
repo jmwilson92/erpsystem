@@ -276,6 +276,39 @@ export default async function PoDetailPage({
         </CardContent>
       </Card>
 
+      {(() => {
+        const quoteUrl = po.quoteFileUrl || po.purchaseRequest?.quoteFileUrl;
+        const quoteName =
+          po.quoteFileName || po.purchaseRequest?.quoteFileName || "Quote file";
+        if (!quoteUrl) return null;
+        return (
+          <Card>
+            <CardContent className="space-y-2 p-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                Supplier quote
+              </p>
+              <a
+                href={quoteUrl}
+                download={quoteName}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-between rounded border border-slate-800 px-3 py-2 text-sm hover:border-teal-500/30"
+              >
+                <span className="truncate text-slate-200">{quoteName}</span>
+                <span className="text-[10px] uppercase tracking-wider text-slate-500">
+                  Open
+                </span>
+              </a>
+              {!po.quoteFileUrl && po.purchaseRequest?.quoteFileUrl && (
+                <p className="text-[11px] text-slate-600">
+                  Carried from {po.purchaseRequest.number}.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })()}
+
       {po.receivingTravelers.length > 0 && (
         <Card>
           <CardContent className="space-y-2 p-4">
