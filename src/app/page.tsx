@@ -22,7 +22,8 @@ import {
   Landmark,
 } from "lucide-react";
 import Link from "next/link";
-import { DashboardCharts } from "@/components/dashboard/charts";
+import { DisciplinePulseCharts } from "@/components/dashboard/discipline-pulse";
+import { getDisciplinePulse } from "@/lib/services/dashboard-pulse";
 import { Sparkline } from "@/components/dashboard/sparkline";
 
 export const dynamic = "force-dynamic";
@@ -64,6 +65,7 @@ export default async function DashboardPage() {
     balances,
     currentSheet,
     businessPriorities,
+    disciplinePulse,
   ] = await Promise.all([
     prisma.workOrder.groupBy({ by: ["status"], _count: true }),
     prisma.mrbCase.count({ where: { status: { in: ["OPEN", "IN_REVIEW"] } } }),
@@ -112,6 +114,7 @@ export default async function DashboardPage() {
       take: 6,
       select: { id: true, number: true, title: true, category: true },
     }),
+    getDisciplinePulse({ role: user.role, department: user.department }),
   ]);
 
   // ---- Financial pulse: 6-month sparklines + open balances ----
@@ -172,15 +175,6 @@ export default async function DashboardPage() {
     inspPassed + inspFailed > 0
       ? Math.round((inspPassed / (inspPassed + inspFailed)) * 1000) / 10
       : 100;
-
-  const chartData = {
-    woByStatus: woCounts.map((w) => ({ name: w.status.replace(/_/g, " "), value: w._count })),
-    suppliers: suppliers.map((s) => ({
-      name: s.code,
-      score: s.overallScore,
-      otd: s.onTimeDeliveryPct,
-    })),
-  };
 
   return (
     <div className="space-y-6">
@@ -357,10 +351,13 @@ export default async function DashboardPage() {
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>Work Order & Supplier Pulse</CardTitle>
+            <CardTitle>{disciplinePulse.discipline} Pulse</CardTitle>
+            <span className="rounded-full border border-slate-700 px-2 py-0.5 text-[10px] uppercase tracking-wider text-slate-500">
+              Your view
+            </span>
           </CardHeader>
           <CardContent>
-            <DashboardCharts data={chartData} />
+            <DisciplinePulseCharts pulse={disciplinePulse} />
           </CardContent>
         </Card>
 
