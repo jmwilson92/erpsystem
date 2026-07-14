@@ -32,6 +32,14 @@ import { CheckCircle2, Circle, FlaskConical } from "lucide-react";
 import Link from "next/link";
 import { Textarea } from "@/components/ui/textarea";
 import { ActivityTimeline } from "@/components/shared/activity-timeline";
+import {
+  MaterialGenealogyCard,
+  TraceChainCard,
+} from "@/components/shared/trace-chain";
+import {
+  getWoMaterialGenealogy,
+  getTraceChain,
+} from "@/lib/services/traceability";
 
 export const dynamic = "force-dynamic";
 
@@ -86,6 +94,16 @@ export default async function WorkOrderDetailPage({
 
   const qrPayload = workOrderQrPayload(wo.id, wo.number);
   const qrDataUrl = await generateQrDataUrl(qrPayload);
+
+  const genealogy = await getWoMaterialGenealogy(wo.id);
+  const traceChain = await getTraceChain({
+    workOrderId: wo.id,
+    lotNumbers: [
+      ...new Set(
+        genealogy.map((g) => g.lotNumber).filter((x): x is string => !!x)
+      ),
+    ],
+  });
 
   const selectClass =
     "flex h-8 w-full min-w-0 max-w-full rounded-md border border-slate-700 bg-slate-950 px-2 text-xs text-slate-200";
@@ -897,6 +915,10 @@ export default async function WorkOrderDetailPage({
           </CardContent>
         </Card>
       </div>
+
+      <MaterialGenealogyCard rows={genealogy} />
+
+      <TraceChainCard events={traceChain} title="Everything that touched this WO" />
 
       <ActivityTimeline entityType="WorkOrder" entityId={id} />
     </div>

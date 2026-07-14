@@ -13,6 +13,7 @@ import {
   actionAddMrsLine,
   actionRemoveMrsLine,
 } from "@/app/actions";
+import { getKitRefsForMrs } from "@/lib/services/kitting";
 import Link from "next/link";
 import { Trash2 } from "lucide-react";
 
@@ -72,6 +73,8 @@ export default async function MrsDetailPage({
     !["CLOSED", "CANCELLED"].includes(mrs.status) &&
     (user.role === "ADMIN" ||
       (await userHasPermission(user.id, "planning.mrs.release")));
+
+  const kitRefs = await getKitRefsForMrs(mrs.id);
 
   const addableParts = canEdit
     ? await prisma.part.findMany({
@@ -260,6 +263,20 @@ export default async function MrsDetailPage({
                         {l.shortQty}
                       </td>
                       <td className="py-2 pl-5">
+                        {kitRefs.has(l.partId) && (
+                          <Link
+                            href="/kitting"
+                            className="mb-0.5 mr-2 inline-flex items-center gap-1 rounded-full border border-teal-700/50 bg-teal-500/10 px-2 py-0.5 font-mono text-[11px] text-teal-300 hover:border-teal-500/60"
+                          >
+                            {kitRefs.get(l.partId)!.number}
+                            <span className="text-[9px] text-slate-400">
+                              {kitRefs.get(l.partId)!.lineStatus === "PICKED" ||
+                              kitRefs.get(l.partId)!.kitStatus === "COMPLETE"
+                                ? "KITTED"
+                                : kitRefs.get(l.partId)!.kitStatus}
+                            </span>
+                          </Link>
+                        )}
                         {l.workOrder ? (
                           <Link
                             href={`/work-orders/${l.workOrder.id}`}
@@ -296,7 +313,7 @@ export default async function MrsDetailPage({
                           <span className="text-[11px] text-slate-600">
                             Pending release
                           </span>
-                        ) : (
+                        ) : kitRefs.has(l.partId) ? null : (
                           "—"
                         )}
                       </td>

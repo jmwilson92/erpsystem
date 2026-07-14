@@ -4,10 +4,12 @@ import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import {
   actionCloseGfpTraveler,
   actionCompleteReceivingPutaway,
+  actionAttestDockAcceptance,
 } from "@/app/actions";
 import { ReceiveForm } from "@/components/receiving/receive-form";
 import Link from "next/link";
@@ -1099,6 +1101,31 @@ export default async function ReceivingTravelerDetailPage({
                     <p className="mt-1 text-[11px] text-slate-500">
                       {insp.documents.length} document(s) on inspection
                     </p>
+                  )}
+                  {insp.type === "RECEIVING" && insp.status === "PENDING" && (
+                    <form
+                      action={actionAttestDockAcceptance}
+                      className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-amber-900/50 bg-amber-500/5 p-2"
+                    >
+                      <input
+                        type="hidden"
+                        name="inspectionId"
+                        value={insp.id}
+                      />
+                      <input type="hidden" name="travelerId" value={id} />
+                      <span className="text-[11px] text-amber-300">
+                        Dock acceptance was not signed at receive — attest it
+                        to clear this inspection and release putaway.
+                      </span>
+                      <Input
+                        name="notes"
+                        placeholder="Note (optional)"
+                        className="h-8 w-44 text-xs"
+                      />
+                      <Button type="submit" size="sm">
+                        Attest & clear
+                      </Button>
+                    </form>
                   )}
                   {insp.ncrs.length > 0 && (
                     <div className="mt-2 space-y-1">

@@ -1066,6 +1066,25 @@ export async function actionRemoveRequirementTrace(
   revalidatePath("/engineering");
 }
 
+export async function actionAttestDockAcceptance(
+  formData: FormData
+): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("Sign in required");
+  const { attestDockAcceptance } = await import(
+    "@/lib/services/receiving-inspection"
+  );
+  const number = await attestDockAcceptance({
+    inspectionId: formData.get("inspectionId") as string,
+    notes: ((formData.get("notes") as string) || "").trim() || undefined,
+    userId: user.id,
+  });
+  await flashToast(`${number} attested — dock acceptance cleared`);
+  revalidatePath("/receiving");
+  const travelerId = ((formData.get("travelerId") as string) || "").trim();
+  if (travelerId) revalidatePath(`/receiving/${travelerId}`);
+}
+
 // ── Email center ───────────────────────────────────────────────
 
 export async function actionSendEmail(formData: FormData): Promise<void> {

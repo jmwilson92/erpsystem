@@ -14,6 +14,8 @@ import {
 } from "@/app/actions";
 import Link from "next/link";
 import { ActivityTimeline } from "@/components/shared/activity-timeline";
+import { TraceChainCard } from "@/components/shared/trace-chain";
+import { getTraceChain } from "@/lib/services/traceability";
 
 export const dynamic = "force-dynamic";
 
@@ -414,6 +416,11 @@ export default async function SalesOrderDetailPage({
           </ol>
         </CardContent>
       </Card>
+
+      <TraceChainCard
+        events={await getTraceChain({ salesOrderId: id })}
+        title="Everything that touched this order"
+      />
 
       <ActivityTimeline entityType="SalesOrder" entityId={id} />
     </div>
