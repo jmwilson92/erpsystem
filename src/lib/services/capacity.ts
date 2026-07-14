@@ -53,6 +53,9 @@ export async function getCapacityAndWorkload(refDate?: Date): Promise<{
     projectedHours: number;
     overCapacityCount: number;
     nearCapacityCount: number;
+    /** Whole-plant utilization: projected ÷ available across all centers */
+    totalCapacityPct: number;
+    alert: CapacityAlertLevel;
   };
 }> {
   const { start, end } = weekWindow(refDate || new Date());
@@ -206,15 +209,23 @@ export async function getCapacityAndWorkload(refDate?: Date): Promise<{
     };
   });
 
+  const availableHours =
+    Math.round(result.reduce((s, c) => s + c.availableHoursThisWeek, 0) * 10) / 10;
+  const projectedHours =
+    Math.round(result.reduce((s, c) => s + c.projectedHoursThisWeek, 0) * 10) / 10;
+  const totalCapacityPct =
+    availableHours > 0
+      ? Math.round((projectedHours / availableHours) * 1000) / 10
+      : projectedHours > 0
+        ? 999
+        : 0;
   const totals = {
-    availableHours: Math.round(
-      result.reduce((s, c) => s + c.availableHoursThisWeek, 0) * 10
-    ) / 10,
-    projectedHours: Math.round(
-      result.reduce((s, c) => s + c.projectedHoursThisWeek, 0) * 10
-    ) / 10,
+    availableHours,
+    projectedHours,
     overCapacityCount: result.filter((c) => c.alert === "OVER").length,
     nearCapacityCount: result.filter((c) => c.alert === "NEAR").length,
+    totalCapacityPct,
+    alert: alertFor(totalCapacityPct),
   };
 
   return { weekStart: start, weekEnd: end, centers: result, totals };
