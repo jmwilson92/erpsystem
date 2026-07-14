@@ -161,7 +161,8 @@ export function ProfileView({
                               </select>
                               <Input
                                 name="comment"
-                                placeholder="Comment"
+                                required
+                                placeholder="Explain your rating (required)"
                                 className="h-9 flex-1 text-xs"
                               />
                             </div>

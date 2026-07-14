@@ -3634,6 +3634,8 @@ model PerformanceReview {
   period      String   // 2025-Q1, 2025-Q2, etc
   status      String   @default("DRAFT") // DRAFT, SELF_REVIEW, IN_PROGRESS, AWAITING_SIGNOFF, COMPLETED
   overallRating Float?
+  /// Required written justification for the overall rating
+  ratingRationale String?
   strengths   String?
   improvements String?
   careerNotes String?

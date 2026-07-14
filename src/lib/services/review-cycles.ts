@@ -203,6 +203,7 @@ export async function saveManagerReviewNotes(params: {
   reviewId: string;
   manager: { id: string; role: string };
   overallRating?: number | null;
+  ratingRationale?: string | null;
   strengths?: string | null;
   improvements?: string | null;
   careerNotes?: string | null;
@@ -221,6 +222,21 @@ export async function saveManagerReviewNotes(params: {
     throw new Error("Review already completed");
   }
 
+  // The rating must carry a written justification. Check against the
+  // effective rating (incoming value if provided, else what's on record)
+  // and the effective rationale.
+  const effectiveRating =
+    params.overallRating === undefined
+      ? review.overallRating
+      : params.overallRating;
+  const effectiveRationale =
+    params.ratingRationale === undefined
+      ? review.ratingRationale
+      : params.ratingRationale?.trim() || null;
+  if (effectiveRating != null && !effectiveRationale) {
+    throw new Error("Explain the rating — a written rationale is required.");
+  }
+
   const nextStatus =
     params.readyForSignoff || review.status === "AWAITING_SIGNOFF"
       ? "AWAITING_SIGNOFF"
@@ -237,6 +253,10 @@ export async function saveManagerReviewNotes(params: {
         params.overallRating === undefined
           ? review.overallRating
           : params.overallRating,
+      ratingRationale:
+        params.ratingRationale === undefined
+          ? review.ratingRationale
+          : params.ratingRationale?.trim() || null,
       strengths:
         params.strengths === undefined
           ? review.strengths
