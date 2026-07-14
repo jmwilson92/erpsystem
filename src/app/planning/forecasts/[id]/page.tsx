@@ -87,12 +87,12 @@ export default async function ForecastDetailPage({
                       href={`/items/${l.partId}`}
                       className="font-mono text-teal-400 hover:underline"
                     >
-                      {l.part.partNumber}
+                      {l.part?.partNumber || "(deleted part)"}
                     </Link>
-                    <p className="text-xs text-slate-500">{l.part.description}</p>
+                    <p className="text-xs text-slate-500">{l.part?.description || ""}</p>
                   </td>
                   <td className="py-2">
-                    <StatusBadge status={l.part.sourcingMethod} />
+                    <StatusBadge status={l.part?.sourcingMethod || "N/A"} />
                   </td>
                   <td className="py-2 text-right tabular-nums font-medium">
                     {l.quantity}

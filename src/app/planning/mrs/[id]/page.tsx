@@ -233,7 +233,7 @@ export default async function MrsDetailPage({
                               href={`/items/${l.partId}`}
                               className="font-mono text-teal-400 hover:underline"
                             >
-                              {l.part.partNumber}
+                              {l.part?.partNumber || "(deleted part)"}
                             </Link>
                             {l.level > 1 && (
                               <span className="rounded bg-slate-800 px-1 text-[9px] text-slate-400">
@@ -242,7 +242,7 @@ export default async function MrsDetailPage({
                             )}
                           </span>
                           <p className="text-[11px] text-slate-500">
-                            {l.part.description}
+                            {l.part?.description || ""}
                           </p>
                         </div>
                       </td>
