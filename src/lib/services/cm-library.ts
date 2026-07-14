@@ -107,6 +107,124 @@ export async function ensureAdminFolder(userId?: string) {
   });
 }
 
+/** Ensure the system "Work Instructions" folder (under Admin) for released WI masters. */
+export async function ensureWorkInstructionsFolder(userId?: string) {
+  const admin = await ensureAdminFolder(userId);
+  const existing = await prisma.cmFolder.findFirst({
+    where: { parentId: admin.id, name: "Work Instructions" },
+  });
+  if (existing) return existing;
+  return prisma.cmFolder.create({
+    data: {
+      name: "Work Instructions",
+      parentId: admin.id,
+      kind: "ADMIN",
+      isSystem: true,
+      productName: null,
+      description: "Released work instruction master copies (CM controlled)",
+      sortOrder: 5,
+      createdById: userId || null,
+    },
+  });
+}
+
+/**
+ * Retain a released work instruction as a CM-controlled master document.
+ * Creates (or refreshes) a RELEASED CmDocument of docType WI linked to the WI,
+ * and archives the master copies of any prior revisions of the same document
+ * number. Called when CM releases a WI so the shop always has one controlled
+ * master with a proper revision history.
+ */
+export async function retainWorkInstructionMaster(params: {
+  workInstructionId: string;
+  userId?: string;
+}) {
+  const wi = await prisma.workInstruction.findUnique({
+    where: { id: params.workInstructionId },
+    include: { part: { select: { partNumber: true } }, _count: { select: { steps: true } } },
+  });
+  if (!wi) throw new Error("Work instruction not found");
+
+  // Prior masters for this document number (other revisions) still live
+  const priors = await prisma.cmDocument.findMany({
+    where: {
+      docType: "WI",
+      number: wi.documentNumber,
+      isArchived: false,
+      NOT: { workInstructionId: wi.id },
+    },
+  });
+
+  // Home folder: reuse a prior master's folder, else the Work Instructions folder
+  let folderId: string | null =
+    priors.find((p) => p.folderId)?.folderId || null;
+  if (!folderId) {
+    folderId = (await ensureWorkInstructionsFolder(params.userId)).id;
+  }
+
+  // Lock + archive prior-revision masters
+  if (priors.length > 0) {
+    const archive = await ensureArchiveFolder(folderId, params.userId);
+    for (const p of priors) {
+      await prisma.cmDocument.update({
+        where: { id: p.id },
+        data: {
+          isLocked: true,
+          isArchived: true,
+          status: "ARCHIVED",
+          lockedAt: new Date(),
+          folderId: archive.id,
+        },
+      });
+    }
+  }
+
+  const data = {
+    folderId,
+    docType: "WI",
+    number: wi.documentNumber,
+    title: wi.title,
+    revision: wi.revision,
+    status: "RELEASED",
+    description: `Work instruction master — ${wi._count.steps} step${
+      wi._count.steps === 1 ? "" : "s"
+    }${wi.part ? ` · part ${wi.part.partNumber}` : ""}. Controlled copy; edit via new revision only.`,
+    // CM-style read-only view of the WI
+    fileUrl: `/work-instructions/${wi.id}?cm=1`,
+    fileName: `${wi.documentNumber} Rev ${wi.revision}`,
+    productTag: wi.part?.partNumber || null,
+    partId: wi.partId || null,
+    bomHeaderId: wi.bomHeaderId || null,
+    workInstructionId: wi.id,
+    supersedesId: priors[0]?.id || null,
+    isLocked: false,
+    isArchived: false,
+    createdById: params.userId || null,
+  };
+
+  const mine = await prisma.cmDocument.findFirst({
+    where: { docType: "WI", workInstructionId: wi.id },
+  });
+  const doc = mine
+    ? await prisma.cmDocument.update({ where: { id: mine.id }, data })
+    : await prisma.cmDocument.create({ data });
+
+  await logAudit({
+    entityType: "CmDocument",
+    entityId: doc.id,
+    action: "WI_MASTER_RETAINED",
+    userId: params.userId,
+    metadata: {
+      workInstructionId: wi.id,
+      number: wi.documentNumber,
+      revision: wi.revision,
+      archivedPriors: priors.length,
+    },
+  });
+
+  return doc;
+}
+
 /**
  * Create a product root folder, Admin subfolder, or a subfolder under a product.
  * Root-level creates are product folders (not projects).

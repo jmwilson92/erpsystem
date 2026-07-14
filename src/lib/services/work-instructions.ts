@@ -483,6 +483,20 @@ export async function releaseWorkInstructionFromCm(params: {
     },
   });
 
+  // Retain a CM-controlled master copy (archives prior revisions' masters).
+  // Never let CM retention failure block the release itself.
+  try {
+    const { retainWorkInstructionMaster } = await import(
+      "@/lib/services/cm-library"
+    );
+    await retainWorkInstructionMaster({
+      workInstructionId: wi.id,
+      userId: params.userId,
+    });
+  } catch (e) {
+    console.error("WI CM master retention failed:", e);
+  }
+
   await logAudit({
     entityType: "WorkInstruction",
     entityId: wi.id,
