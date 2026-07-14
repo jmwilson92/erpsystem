@@ -3560,6 +3560,9 @@ model TimeEntry {
   wbsElementId String?
   wbsElement   WbsElement? @relation(fields: [wbsElementId], references: [id], onDelete: SetNull)
   description String?
+  /// Named overhead / indirect charge code (e.g. OH, IND-G&A) when there is
+  /// no work order, project, or engineering task to charge against
+  chargeCode  String?
   status      String   @default("SUBMITTED") // DRAFT, SUBMITTED, APPROVED, REJECTED
   /// Approver's note — required when rejecting
   decisionNotes String?

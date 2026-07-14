@@ -442,6 +442,9 @@ export type GridRow = {
   workOrderId: string | null;
   projectId: string | null;
   wbsElementId: string | null;
+  engTaskId: string | null;
+  /** Named overhead / indirect charge code (e.g. OH) */
+  chargeCode: string | null;
   /** ISO date (yyyy-mm-dd) -> hours */
   hours: Record<string, number>;
 };
@@ -475,6 +478,8 @@ export async function saveTimecardGrid(params: {
     workOrderId: string | null;
     projectId: string | null;
     wbsElementId: string | null;
+    engTaskId: string | null;
+    chargeCode: string | null;
   }[] = [];
 
   for (const row of params.rows) {
@@ -500,6 +505,8 @@ export async function saveTimecardGrid(params: {
         workOrderId: row.workOrderId || null,
         projectId: row.projectId || null,
         wbsElementId: row.wbsElementId || null,
+        engTaskId: row.engTaskId || null,
+        chargeCode: row.chargeCode || null,
       });
     }
   }
@@ -574,6 +581,15 @@ async function buildApprovalBuckets(sheetId: string) {
           project: {
             select: { id: true, number: true, projectManagerId: true },
           },
+          engTask: {
+            select: {
+              number: true,
+              discipline: true,
+              project: {
+                select: { id: true, number: true, projectManagerId: true },
+              },
+            },
+          },
         },
       },
     },
@@ -625,6 +641,35 @@ async function buildApprovalBuckets(sheetId: string) {
         },
         e.hours
       );
+    } else if (e.engTaskId && e.engTask) {
+      // Engineering task time with no work order/project of its own — route
+      // to the task's project PM if it has one, else the engineer's manager.
+      const proj = e.engTask.project;
+      if (proj) {
+        add(
+          `P:${proj.id}`,
+          {
+            category: "PROJECT",
+            refId: proj.id,
+            label: `Project ${proj.number}`,
+            approverId: proj.projectManagerId || sheet.user.managerId,
+          },
+          e.hours
+        );
+      } else {
+        const dept =
+          e.engTask.discipline || sheet.user.department || "ENGINEERING";
+        add(
+          `D:${dept}`,
+          {
+            category: "DIRECT",
+            refId: dept,
+            label: `${dept} task time`,
+            approverId: null,
+          },
+          e.hours
+        );
+      }
     } else {
       const dept =
         e.workOrder?.department || sheet.user.department || "GENERAL";
@@ -1010,6 +1055,7 @@ export async function getTimesheetDetail(id: string) {
           workOrder: { select: { id: true, number: true } },
           project: { select: { id: true, number: true } },
           wbsElement: { select: { id: true, code: true } },
+          engTask: { select: { id: true, number: true, name: true } },
         },
       },
       approvals: {
