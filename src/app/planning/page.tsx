@@ -172,6 +172,60 @@ export default async function PlanningPage({
 
       {(tab === "capacity" || tab === "workload") && (
         <>
+          {/* Whole-plant production capacity utilization */}
+          <div
+            className={`rounded-2xl border p-5 ${
+              capacity.totals.alert === "OVER"
+                ? "border-rose-500/40 bg-rose-500/5"
+                : capacity.totals.alert === "NEAR"
+                  ? "border-amber-500/40 bg-amber-500/5"
+                  : "border-teal-500/30 bg-teal-500/5"
+            }`}
+          >
+            <div className="flex items-end justify-between">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                  Total production capacity
+                </p>
+                <p
+                  className={`mt-1 text-4xl font-bold tabular-nums ${
+                    capacity.totals.alert === "OVER"
+                      ? "text-rose-400"
+                      : capacity.totals.alert === "NEAR"
+                        ? "text-amber-400"
+                        : "text-teal-400"
+                  }`}
+                >
+                  {capacity.totals.totalCapacityPct}%
+                </p>
+              </div>
+              <p className="text-right text-xs text-slate-500">
+                {capacity.totals.projectedHours}h projected /{" "}
+                {capacity.totals.availableHours}h available
+                <br />
+                {capacity.totals.alert === "OVER"
+                  ? "Plant is over capacity"
+                  : capacity.totals.alert === "NEAR"
+                    ? "Plant is near capacity"
+                    : "Plant has headroom"}
+              </p>
+            </div>
+            <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-slate-800">
+              <div
+                className={`h-full rounded-full ${
+                  capacity.totals.alert === "OVER"
+                    ? "bg-rose-500"
+                    : capacity.totals.alert === "NEAR"
+                      ? "bg-amber-500"
+                      : "bg-teal-500"
+                }`}
+                style={{
+                  width: `${Math.min(100, capacity.totals.totalCapacityPct)}%`,
+                }}
+              />
+            </div>
+          </div>
+
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <StatCard
               title="Available hrs (week)"
