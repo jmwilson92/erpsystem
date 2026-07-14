@@ -3,10 +3,11 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "predev": "prisma db push",
+    "predev": "prisma generate && prisma db push",
     "dev": "next dev --turbopack",
-    "prestart": "prisma db push",
+    "prestart": "prisma generate && prisma db push",
     "build": "next build",
+    "prebuild": "prisma generate",
     "start": "next start",
     "lint": "eslint",
     "db:generate": "prisma generate",
