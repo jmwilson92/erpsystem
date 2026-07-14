@@ -4,7 +4,7 @@ import {
   ensurePermissionCatalog,
 } from "@/lib/services/permissions";
 import { prisma } from "@/lib/db";
-import { PERMISSIONS } from "@/lib/auth";
+import { PERMISSIONS, ROLES } from "@/lib/auth";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import {
   actionGrantUserPermission,
   actionCreatePermissionGroup,
   actionToggleGroupPermission,
+  actionInviteUser,
 } from "@/app/actions";
 import { Input } from "@/components/ui/input";
 
@@ -36,6 +37,12 @@ const selectClass =
 export default async function PermissionsAdminPage() {
   await ensureDefaultPermissionGroups();
   await ensurePermissionCatalog();
+
+  const pendingInvites = await prisma.userInvite.findMany({
+    where: { acceptedAt: null, expiresAt: { gt: new Date() } },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+  });
 
   const [groups, users, directGrants] = await Promise.all([
     listPermissionGroups(),
@@ -67,6 +74,53 @@ export default async function PermissionsAdminPage() {
         title="Roles & Permissions"
         description="Assign permission groups or grant individual actions to users"
       />
+
+      <Card className="border-teal-900/40">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Invite teammates</CardTitle>
+          <p className="text-xs text-slate-500">
+            Unlimited seats — invite everyone. The invite e-mail (with the
+            activation link) is logged in the Email Center; SMTP delivers it
+            for real in production.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <form
+            action={actionInviteUser}
+            className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4"
+          >
+            <Input name="email" type="email" required placeholder="teammate@company.com" className="h-9" />
+            <Input name="name" placeholder="Name (optional)" className="h-9" />
+            <select
+              name="role"
+              className="h-9 rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm text-slate-200"
+              defaultValue="OPERATOR"
+            >
+              {ROLES.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </select>
+            <Button type="submit" size="sm" className="h-9">
+              Send invite
+            </Button>
+          </form>
+          {pendingInvites.length > 0 && (
+            <div className="space-y-1 border-t border-slate-800 pt-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                Pending invites
+              </p>
+              {pendingInvites.map((inv) => (
+                <p key={inv.id} className="text-xs text-slate-400">
+                  {inv.email} · {inv.role} · {inv.kind.toLowerCase()} · expires{" "}
+                  {inv.expiresAt.toISOString().slice(0, 10)}
+                </p>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">
         {groups.map((g) => (

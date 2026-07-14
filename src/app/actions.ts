@@ -1066,6 +1066,149 @@ export async function actionRemoveRequirementTrace(
   revalidatePath("/engineering");
 }
 
+// ── Authentication ─────────────────────────────────────────────
+
+type AuthFormState = { ok: boolean; message: string; email?: string } | null;
+
+export async function actionLogin(
+  _prev: AuthFormState,
+  formData: FormData
+): Promise<AuthFormState> {
+  const { loginWithPassword } = await import("@/lib/auth-core");
+  const email = (formData.get("email") as string) || "";
+  try {
+    await loginWithPassword({
+      email,
+      password: (formData.get("password") as string) || "",
+    });
+  } catch (e) {
+    return {
+      ok: false,
+      message: e instanceof Error ? e.message : "Login failed",
+      email,
+    };
+  }
+  redirect("/");
+}
+
+export async function actionBootstrapInstance(
+  _prev: AuthFormState,
+  formData: FormData
+): Promise<AuthFormState> {
+  const { bootstrapFirstAdmin } = await import("@/lib/auth-core");
+  try {
+    await bootstrapFirstAdmin({
+      email: (formData.get("email") as string) || "",
+      name: ((formData.get("name") as string) || "").trim() || undefined,
+      password: (formData.get("password") as string) || "",
+    });
+  } catch (e) {
+    return {
+      ok: false,
+      message: e instanceof Error ? e.message : "Could not claim instance",
+    };
+  }
+  redirect("/");
+}
+
+export async function actionLogout(): Promise<void> {
+  const { destroySession } = await import("@/lib/auth-core");
+  await destroySession();
+  redirect("/login");
+}
+
+export async function actionAcceptInvite(
+  _prev: AuthFormState,
+  formData: FormData
+): Promise<AuthFormState> {
+  const { acceptInvite } = await import("@/lib/auth-core");
+  try {
+    await acceptInvite({
+      token: (formData.get("token") as string) || "",
+      password: (formData.get("password") as string) || "",
+      name: ((formData.get("name") as string) || "").trim() || undefined,
+    });
+  } catch (e) {
+    return {
+      ok: false,
+      message: e instanceof Error ? e.message : "Could not accept invite",
+    };
+  }
+  redirect("/");
+}
+
+export async function actionInviteUser(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user || user.role !== "ADMIN") {
+    throw new Error("Only admins can invite teammates");
+  }
+  const { createInvite } = await import("@/lib/auth-core");
+  const { headers } = await import("next/headers");
+  const h = await headers();
+  const proto = h.get("x-forwarded-proto") || "http";
+  const host = h.get("host") || "localhost:3000";
+  const { link } = await createInvite({
+    email: (formData.get("email") as string) || "",
+    name: ((formData.get("name") as string) || "").trim() || null,
+    role: ((formData.get("role") as string) || "OPERATOR").trim(),
+    invitedById: user.id,
+    baseUrl: `${proto}://${host}`,
+  });
+  await flashToast(`Invite sent — link also logged in the Email Center`);
+  void link;
+  revalidatePath("/admin/permissions");
+  revalidatePath("/email");
+}
+
+export async function actionRequestPasswordReset(
+  _prev: AuthFormState,
+  formData: FormData
+): Promise<AuthFormState> {
+  const { createInvite } = await import("@/lib/auth-core");
+  const { headers } = await import("next/headers");
+  const email = ((formData.get("email") as string) || "").trim().toLowerCase();
+  if (!email) return { ok: false, message: "Enter your e-mail" };
+  const existing = await prisma.user.findFirst({ where: { email } });
+  if (existing) {
+    const h = await headers();
+    const proto = h.get("x-forwarded-proto") || "http";
+    const host = h.get("host") || "localhost:3000";
+    await createInvite({
+      email,
+      kind: "RESET",
+      role: existing.role,
+      baseUrl: `${proto}://${host}`,
+    }).catch(() => null);
+  }
+  // Uniform response — never reveal whether the account exists
+  return {
+    ok: true,
+    message: "If that account exists, a reset link has been sent (check the Email Center in demo mode).",
+  };
+}
+
+export async function actionChangePassword(
+  _prev: AuthFormState,
+  formData: FormData
+): Promise<AuthFormState> {
+  const user = await getCurrentUser();
+  if (!user) return { ok: false, message: "Sign in required" };
+  const { changePassword } = await import("@/lib/auth-core");
+  try {
+    await changePassword({
+      userId: user.id,
+      currentPassword: (formData.get("currentPassword") as string) || "",
+      newPassword: (formData.get("newPassword") as string) || "",
+    });
+    return { ok: true, message: "Password changed — other sessions signed out." };
+  } catch (e) {
+    return {
+      ok: false,
+      message: e instanceof Error ? e.message : "Could not change password",
+    };
+  }
+}
+
 export async function actionAttestDockAcceptance(
   formData: FormData
 ): Promise<void> {

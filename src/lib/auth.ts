@@ -4,12 +4,24 @@ import { cookies } from "next/headers";
 export const DEMO_USER_COOKIE = "forge-demo-user";
 
 /**
- * Demo auth — the "Demo Mode" switcher in the sidebar sets a cookie to
- * impersonate any employee (so HR/manager/employee views can be
- * exercised). Falls back to DEMO_USER_ROLE. Replace with real auth in
- * production.
+ * Identity chokepoint. Order:
+ *  1. Real login session (email+password → HttpOnly cookie) always wins.
+ *  2. DEMO_MODE (default on): the sidebar persona switcher cookie, then
+ *     DEMO_USER_ROLE. Set DEMO_MODE=0 in production to require login.
  */
 export async function getCurrentUser(roleHint?: string) {
+  // 1. Real session
+  try {
+    const { getSessionUser } = await import("./auth-core");
+    const sessionUser = await getSessionUser();
+    if (sessionUser) return sessionUser;
+  } catch {
+    /* outside request scope */
+  }
+
+  // 2. Demo fallback (evaluation / test-drive) — off when DEMO_MODE=0
+  if (process.env.DEMO_MODE === "0") return null;
+
   if (!roleHint) {
     try {
       const jar = await cookies();
