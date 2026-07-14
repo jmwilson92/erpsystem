@@ -31,7 +31,7 @@ export default async function MyTimesheetPage() {
 
   const policy = await getPayrollPolicy();
   const current = await getOrCreateTimesheet(user.id, new Date());
-  const [sheet, history, workOrders, projects, wbsElements] =
+  const [sheet, history, workOrders, projects, wbsElements, engTasks, chargeCodeAccounts] =
     await Promise.all([
       prisma.timesheet.findUniqueOrThrow({
         where: { id: current.id },
@@ -61,7 +61,26 @@ export default async function MyTimesheetPage() {
         select: { id: true, code: true, name: true, projectId: true },
         orderBy: { code: "asc" },
       }),
+      // Engineering tasks you can charge to when there's no work order
+      prisma.engTask.findMany({
+        where: {
+          status: { in: ["TODO", "IN_PROGRESS", "IN_REVIEW", "BLOCKED"] },
+        },
+        select: { id: true, number: true, name: true },
+        orderBy: { number: "asc" },
+        take: 100,
+      }),
+      // Named overhead / indirect charge codes from the chart of accounts
+      prisma.account.findMany({
+        where: { isActive: true, chargeCodeType: "INDIRECT", chargeCode: { not: null } },
+        select: { chargeCode: true, name: true },
+        orderBy: { chargeCode: "asc" },
+      }),
     ]);
+
+  const chargeCodes = chargeCodeAccounts
+    .filter((a): a is { chargeCode: string; name: string } => !!a.chargeCode)
+    .map((a) => ({ code: a.chargeCode, name: a.name }));
 
   const editable = ["OPEN", "REJECTED"].includes(sheet.status);
   const days = periodDays(sheet.periodStart, sheet.periodEnd).map((d) =>
@@ -109,9 +128,10 @@ export default async function MyTimesheetPage() {
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Timecard</CardTitle>
           <p className="text-xs text-slate-500">
-            One row per charge code — work order (direct), project / WBS, or
-            overhead / PTO / sick / holiday. Job scans add time here
-            automatically; approved PTO and company holidays pre-fill.
+            One row per charge code — work order (direct), project / WBS,
+            engineering task (when there&apos;s no work order), an overhead
+            charge code like OH, or PTO / sick / holiday. Job scans add time
+            here automatically; approved PTO and company holidays pre-fill.
           </p>
         </CardHeader>
         <CardContent>
@@ -127,8 +147,10 @@ export default async function MyTimesheetPage() {
               workOrderId: e.workOrderId,
               projectId: e.projectId,
               wbsElementId: e.wbsElementId,
+              engTaskId: e.engTaskId,
+              chargeCode: e.chargeCode,
             }))}
-            options={{ workOrders, projects, wbsElements }}
+            options={{ workOrders, projects, wbsElements, engTasks, chargeCodes }}
             policy={{
               maxHoursPerDay: policy.maxHoursPerDay,
               otAfterDailyHours: policy.otAfterDailyHours,

@@ -20,12 +20,17 @@ export type GridEntry = {
   workOrderId: string | null;
   projectId: string | null;
   wbsElementId: string | null;
+  engTaskId: string | null;
+  chargeCode: string | null;
 };
 
 export type ChargeOptions = {
   workOrders: { id: string; number: string; department: string | null }[];
   projects: { id: string; number: string; name: string }[];
   wbsElements: { id: string; code: string; name: string; projectId: string }[];
+  engTasks: { id: string; number: string; name: string }[];
+  /** Named overhead / indirect charge codes from the chart of accounts */
+  chargeCodes: { code: string; name: string }[];
 };
 
 type Row = {
@@ -34,6 +39,8 @@ type Row = {
   workOrderId: string | null;
   projectId: string | null;
   wbsElementId: string | null;
+  engTaskId: string | null;
+  chargeCode: string | null;
   hours: Record<string, string>; // iso -> input value
 };
 
@@ -42,7 +49,17 @@ const rowKey = (r: {
   workOrderId: string | null;
   projectId: string | null;
   wbsElementId: string | null;
-}) => [r.type, r.workOrderId || "", r.projectId || "", r.wbsElementId || ""].join("|");
+  engTaskId: string | null;
+  chargeCode: string | null;
+}) =>
+  [
+    r.type,
+    r.workOrderId || "",
+    r.projectId || "",
+    r.wbsElementId || "",
+    r.engTaskId || "",
+    r.chargeCode || "",
+  ].join("|");
 
 const HR_TYPES = ["PTO", "SICK", "HOLIDAY"];
 
@@ -81,6 +98,8 @@ export function TimecardGrid({
           workOrderId: e.workOrderId,
           projectId: e.projectId,
           wbsElementId: e.wbsElementId,
+          engTaskId: e.engTaskId,
+          chargeCode: e.chargeCode,
           hours: {},
         } as Row);
       row.hours[e.date] = String(
@@ -98,22 +117,44 @@ export function TimecardGrid({
   const [newWo, setNewWo] = useState("");
   const [newProject, setNewProject] = useState("");
   const [newWbs, setNewWbs] = useState("");
+  const [newTask, setNewTask] = useState("");
+  const [newChargeCode, setNewChargeCode] = useState("");
+
+  const blank = {
+    workOrderId: null,
+    projectId: null,
+    wbsElementId: null,
+    engTaskId: null,
+    chargeCode: null,
+  };
 
   const addRow = () => {
     let row: Row | null = null;
     if (newKind === "WO" && newWo) {
-      row = { key: "", type: "REGULAR", workOrderId: newWo, projectId: null, wbsElementId: null, hours: {} };
+      row = { key: "", type: "REGULAR", ...blank, workOrderId: newWo, hours: {} };
     } else if (newKind === "PROJECT" && newProject) {
       row = {
         key: "",
         type: "REGULAR",
-        workOrderId: null,
+        ...blank,
         projectId: newProject,
         wbsElementId: newWbs || null,
         hours: {},
       };
-    } else if (["OVERHEAD", "PTO", "SICK", "HOLIDAY"].includes(newKind)) {
-      row = { key: "", type: newKind, workOrderId: null, projectId: null, wbsElementId: null, hours: {} };
+    } else if (newKind === "TASK" && newTask) {
+      // Engineering task time when there's no work order to charge against
+      row = { key: "", type: "REGULAR", ...blank, engTaskId: newTask, hours: {} };
+    } else if (newKind === "OVERHEAD") {
+      // Named overhead / indirect charge code (e.g. OH); blank = general OH
+      row = {
+        key: "",
+        type: "OVERHEAD",
+        ...blank,
+        chargeCode: newChargeCode || "OH",
+        hours: {},
+      };
+    } else if (["PTO", "SICK", "HOLIDAY"].includes(newKind)) {
+      row = { key: "", type: newKind, ...blank, hours: {} };
     }
     if (!row) return;
     row.key = rowKey(row);
@@ -121,6 +162,8 @@ export function TimecardGrid({
     setRows([...rows, row]);
     setNewWo("");
     setNewWbs("");
+    setNewTask("");
+    setNewChargeCode("");
   };
 
   const label = (r: Row) => {
@@ -134,6 +177,15 @@ export function TimecardGrid({
         ? options.wbsElements.find((w) => w.id === r.wbsElementId)
         : null;
       return `${p?.number || "Project"}${w ? ` / WBS ${w.code}` : ""}`;
+    }
+    if (r.engTaskId) {
+      const t = options.engTasks.find((t) => t.id === r.engTaskId);
+      return `${t?.number || "Task"} (task)`;
+    }
+    if (r.type === "OVERHEAD") {
+      const cc = r.chargeCode || "OH";
+      const named = options.chargeCodes.find((c) => c.code === cc);
+      return `Overhead · ${cc}${named ? ` (${named.name})` : ""}`;
     }
     return r.type.replace(/_/g, " ");
   };
@@ -160,6 +212,8 @@ export function TimecardGrid({
         workOrderId: r.workOrderId,
         projectId: r.projectId,
         wbsElementId: r.wbsElementId,
+        engTaskId: r.engTaskId,
+        chargeCode: r.chargeCode,
         hours: Object.fromEntries(
           Object.entries(r.hours)
             .map(([k, v]) => [k, Number(v) || 0])
@@ -291,7 +345,8 @@ export function TimecardGrid({
           >
             <option value="WO">Work order (direct)</option>
             <option value="PROJECT">Project / WBS</option>
-            <option value="OVERHEAD">Overhead</option>
+            <option value="TASK">Engineering task</option>
+            <option value="OVERHEAD">Overhead / charge code</option>
             <option value="PTO">PTO</option>
             <option value="SICK">Sick</option>
             <option value="HOLIDAY">Holiday</option>
@@ -344,6 +399,34 @@ export function TimecardGrid({
                   ))}
               </select>
             </>
+          )}
+          {newKind === "TASK" && (
+            <select
+              value={newTask}
+              onChange={(e) => setNewTask(e.target.value)}
+              className="h-8 rounded-md border border-slate-700 bg-slate-950 px-2 text-xs text-slate-200"
+            >
+              <option value="">Pick task…</option>
+              {options.engTasks.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.number} · {t.name}
+                </option>
+              ))}
+            </select>
+          )}
+          {newKind === "OVERHEAD" && (
+            <select
+              value={newChargeCode}
+              onChange={(e) => setNewChargeCode(e.target.value)}
+              className="h-8 rounded-md border border-slate-700 bg-slate-950 px-2 text-xs text-slate-200"
+            >
+              <option value="">OH · General overhead</option>
+              {options.chargeCodes.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.code} · {c.name}
+                </option>
+              ))}
+            </select>
           )}
           <Button type="button" size="sm" variant="outline" onClick={addRow}>
             Add row

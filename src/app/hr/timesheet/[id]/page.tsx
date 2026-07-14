@@ -101,6 +101,15 @@ export default async function TimesheetDetailPage({
                     >
                       {e.workOrder.number}
                     </Link>
+                  ) : e.engTask ? (
+                    <Link
+                      href={`/engineering/tasks/${e.engTask.id}`}
+                      className="text-teal-400 hover:underline"
+                    >
+                      {e.engTask.number}
+                    </Link>
+                  ) : e.chargeCode ? (
+                    <span>Overhead · {e.chargeCode}</span>
                   ) : (
                     e.project?.number || e.description || "—"
                   )}
