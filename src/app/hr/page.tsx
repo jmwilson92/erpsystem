@@ -725,13 +725,9 @@ export default async function HrPage({
                           </>
                         )}
                         {e.status === "APPROVED" && (
-                          <form action={actionAdvanceExpense}>
-                            <input type="hidden" name="id" value={e.id} />
-                            <input type="hidden" name="status" value="PAID" />
-                            <Button type="submit" size="sm" variant="amber">
-                              Mark paid
-                            </Button>
-                          </form>
+                          <span className="text-[11px] text-slate-500">
+                            Approved — accounting records payment
+                          </span>
                         )}
                       </div>
                     </div>
