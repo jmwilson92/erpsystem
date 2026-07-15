@@ -39,6 +39,10 @@ const nextConfig: NextConfig = {
   // Required for Server Actions behind Codespaces / Cloudflare tunnels
   experimental: {
     serverActions: {
+      // Uploads (drawings, WI/step photos, quote PDFs, employee docs) travel as
+      // data URLs inside the action body; the 1MB default rejects them with
+      // "An unexpected response was received from the server".
+      bodySizeLimit: "25mb",
       allowedOrigins: [
         "localhost:3000",
         "localhost:3001",

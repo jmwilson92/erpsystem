@@ -762,6 +762,9 @@ model ChangeRequest {
   productFolder   CmFolder? @relation("CrProductFolder", fields: [productFolderId], references: [id])
   // Free-text product name (required so creator always knows destination)
   productName     String?
+  // Optional program/project this change is tied to (as well as a product)
+  projectId       String?
+  project         Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
   // true = company internal / policy → Admin
   isCompanyInternal Boolean @default(false)
   // Updating existing library doc?
@@ -1361,6 +1364,7 @@ model Project {
   workOrders      WorkOrder[]
   purchaseOrders  PurchaseOrder[]
   purchaseRequests PurchaseRequest[]
+  changeRequests  ChangeRequest[]
   systemRequirements Requirement[] @relation("ProjectSystemReqs")
   members         ProjectMember[]
   timeEntries     TimeEntry[]

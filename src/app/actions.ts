@@ -2013,6 +2013,7 @@ export async function actionCreateDocumentEcr(
     productFolderId:
       ((formData.get("productFolderId") as string) || "").trim() || null,
     productName: ((formData.get("productName") as string) || "").trim() || null,
+    projectId: ((formData.get("projectId") as string) || "").trim() || null,
     isCompanyInternal,
     sourceDocumentId:
       ((formData.get("sourceDocumentId") as string) || "").trim() || null,
