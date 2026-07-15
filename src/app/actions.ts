@@ -5470,7 +5470,11 @@ export async function actionImportData(
       errors: [{ row: 0, message: "Pick a data type and paste your rows first." }],
     };
   }
-  const result = await runImport({ entity, text, userId: user.id });
+  const mode =
+    ((formData.get("mode") as string) || "skip") === "update"
+      ? "update"
+      : "skip";
+  const result = await runImport({ entity, text, userId: user.id, mode });
   revalidatePath("/items");
   revalidatePath("/customers");
   revalidatePath("/suppliers");

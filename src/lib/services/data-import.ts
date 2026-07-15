@@ -164,11 +164,36 @@ const VALID_ROLES = [
   "PRODUCTION", "ACCOUNTING", "HR", "VIEWER", "OPERATOR",
 ];
 
+/**
+ * Fields that must be present in every data row (all template columns except
+ * genuinely optional ones like an org-root's manager and any photo columns).
+ */
+const REQUIRED_ROW_FIELDS: Record<ImportEntity, string[]> = {
+  parts: [
+    "partNumber",
+    "description",
+    "uom",
+    "standardCost",
+    "leadTimeDays",
+    "minStock",
+    "maxStock",
+    "partType",
+    "sourcingMethod",
+  ],
+  customers: ["name", "code", "contactEmail", "paymentTerms", "creditLimit"],
+  suppliers: ["name", "code", "contactName", "contactEmail", "paymentTerms"],
+  // managerEmail is optional — the top of the org chart has no manager.
+  people: ["name", "email", "title", "department", "role"],
+};
+
 export async function runImport(params: {
   entity: ImportEntity;
   text: string;
   userId?: string | null;
+  /** "skip" (default) leaves existing rows untouched; "update" overwrites. */
+  mode?: "skip" | "update";
 }): Promise<ImportResult> {
+  const mode = params.mode || "skip";
   const rows = parseDelimited(params.text);
   const result: ImportResult = {
     created: 0,
@@ -208,6 +233,17 @@ export async function runImport(params: {
 
   for (let r = 1; r < rows.length; r++) {
     const obj = rowToObject(rows[r], mapping);
+    // Every field is required (photos excepted) — flag incomplete rows.
+    const missing = REQUIRED_ROW_FIELDS[params.entity].filter(
+      (f) => !obj[f] || obj[f].trim() === ""
+    );
+    if (missing.length > 0) {
+      result.errors.push({
+        row: r + 1,
+        message: `Missing required field${missing.length === 1 ? "" : "s"}: ${missing.join(", ")}. All columns are required (photos excepted).`,
+      });
+      continue;
+    }
     try {
       if (params.entity === "parts") {
         if (!obj.partNumber) throw new Error("Missing part number");
@@ -235,8 +271,12 @@ export async function runImport(params: {
           where: { partNumber: obj.partNumber },
         });
         if (existing) {
-          await prisma.part.update({ where: { id: existing.id }, data });
-          result.updated++;
+          if (mode === "skip") {
+            result.skipped++;
+          } else {
+            await prisma.part.update({ where: { id: existing.id }, data });
+            result.updated++;
+          }
         } else {
           await prisma.part.create({
             data: { partNumber: obj.partNumber, ...data },
@@ -254,9 +294,13 @@ export async function runImport(params: {
           where: { name: obj.name },
         });
         if (existing) {
-          // Never touch the code on update — it's the unique key others reference
-          await prisma.customer.update({ where: { id: existing.id }, data });
-          result.updated++;
+          if (mode === "skip") {
+            result.skipped++;
+          } else {
+            // Never touch the code on update — it's the key others reference
+            await prisma.customer.update({ where: { id: existing.id }, data });
+            result.updated++;
+          }
         } else {
           await prisma.customer.create({
             data: {
@@ -280,8 +324,12 @@ export async function runImport(params: {
           where: { name: obj.name },
         });
         if (existing) {
-          await prisma.supplier.update({ where: { id: existing.id }, data });
-          result.updated++;
+          if (mode === "skip") {
+            result.skipped++;
+          } else {
+            await prisma.supplier.update({ where: { id: existing.id }, data });
+            result.updated++;
+          }
         } else {
           await prisma.supplier.create({
             data: {
@@ -312,13 +360,19 @@ export async function runImport(params: {
         };
         const existing = await prisma.user.findUnique({ where: { email } });
         if (existing) {
-          await prisma.user.update({ where: { id: existing.id }, data });
-          result.updated++;
+          if (mode === "skip") {
+            result.skipped++;
+          } else {
+            await prisma.user.update({ where: { id: existing.id }, data });
+            result.updated++;
+          }
         } else {
           await prisma.user.create({ data: { email, ...data } });
           result.created++;
         }
-        if (obj.managerEmail) {
+        // Wire the org chart for newly-created people (and everyone in update
+        // mode); don't re-touch existing people that were skipped.
+        if (obj.managerEmail && (!existing || mode === "update")) {
           managerLinks.push({ email, managerEmail: obj.managerEmail.toLowerCase() });
         }
       }
@@ -351,8 +405,10 @@ export async function runImport(params: {
     userId: params.userId,
     metadata: {
       entity: params.entity,
+      mode,
       created: result.created,
       updated: result.updated,
+      skipped: result.skipped,
       errors: result.errors.length,
     },
   });

@@ -12,6 +12,7 @@ import {
   UploadCloud,
   CheckCircle2,
   AlertTriangle,
+  Download,
 } from "lucide-react";
 import type { ImportResult } from "@/lib/services/data-import";
 
@@ -58,6 +59,21 @@ export function ImportWizard() {
   );
   const active = ENTITIES.find((e) => e.key === entity)!;
 
+  function downloadTemplate() {
+    const headerCols = active.headers.split(",").map((h) => h.trim());
+    const exampleCols = active.example.split("\t");
+    const csv = `${headerCols.join(",")}\n${exampleCols.join(",")}\n`;
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `forgerp-${entity}-template.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-4">
@@ -86,19 +102,39 @@ export function ImportWizard() {
             Paste your {active.label.toLowerCase()}
           </CardTitle>
           <p className="text-xs text-slate-500">
-            Copy the rows straight out of Excel or a CSV — header row first.
-            Columns are matched by name in any order; extra columns are
-            ignored. Rows are matched by {active.key2}, so re-running an
-            import updates instead of duplicating.
+            Download the template, fill one row per record in Excel, then paste
+            the rows back below (header row first). Columns are matched by name
+            in any order. Every column is required except photos. Rows are
+            matched by {active.key2}; rows that already exist are skipped by
+            default so re-running an import is safe.
           </p>
         </CardHeader>
         <CardContent>
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={downloadTemplate}>
+              <Download className="mr-1.5 h-4 w-4" />
+              Download {active.label} template (CSV)
+            </Button>
+            <span className="text-[11px] text-slate-500">
+              Includes the header row and one example row.
+            </span>
+          </div>
           <form action={formAction} className="space-y-3">
             <input type="hidden" name="entity" value={entity} />
             <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3 font-mono text-[11px] text-slate-500">
-              <p className="text-slate-400">Recognized columns:</p>
+              <p className="text-slate-400">Required columns:</p>
               <p className="break-all">{active.headers}</p>
             </div>
+            <fieldset className="flex flex-wrap gap-4 text-xs text-slate-400">
+              <label className="flex items-center gap-1.5">
+                <input type="radio" name="mode" value="skip" defaultChecked />
+                Skip rows that already exist (recommended)
+              </label>
+              <label className="flex items-center gap-1.5">
+                <input type="radio" name="mode" value="update" />
+                Update existing rows
+              </label>
+            </fieldset>
             <textarea
               name="text"
               rows={10}
@@ -127,10 +163,11 @@ export function ImportWizard() {
                   <AlertTriangle className="h-4 w-4 shrink-0" />
                 )}
                 <span>
-                  {result.created} created · {result.updated} updated
+                  {result.created} created · {result.updated} updated ·{" "}
+                  {result.skipped} skipped
                   {result.errors.length > 0
                     ? ` · ${result.errors.length} row${result.errors.length === 1 ? "" : "s"} failed`
-                    : " — all rows in."}
+                    : " — done."}
                 </span>
               </div>
               {result.errors.length > 0 && (
