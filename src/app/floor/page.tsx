@@ -7,6 +7,7 @@ import { workOrderHoldProvenance } from "@/lib/provenance";
 import { compactCurrency, cn } from "@/lib/utils";
 import Link from "next/link";
 import { FloorAutoRefresh } from "@/components/floor/auto-refresh";
+import { FloorFlow } from "@/components/floor/floor-flow";
 import { WorkcenterPanel } from "@/components/workcenters/workcenter-panel";
 import { Zap, AlertTriangle, TrendingUp, OctagonAlert } from "lucide-react";
 
@@ -155,6 +156,21 @@ export default async function FloorPage({
           <KpiTile label="Planned" value={data.counts.planned} tone="text-slate-400" />
         )}
       </div>
+
+      {/* Animated flow lane — stations joined by arrows, WOs gliding through */}
+      <FloorFlow
+        stations={data.byCenter.map((c) => ({
+          code: c.center,
+          name: c.name,
+          area: c.area,
+          wos: c.orders.map((wo) => ({
+            id: wo.id,
+            number: wo.number,
+            status: wo.status,
+            pct: progressMap[wo.id] || 0,
+          })),
+        }))}
+      />
 
       {/* House-shaped work-center tiles */}
       <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
