@@ -6080,6 +6080,7 @@ export async function actionSaveAccountingSettings(
   });
   await flashToast("Accounting settings saved");
   revalidatePath("/accounting");
+  revalidatePath("/admin/settings");
 }
 
 // ─────────────────────────────────────────────────────────────

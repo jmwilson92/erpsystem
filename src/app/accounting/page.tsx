@@ -1,4 +1,6 @@
 import { prisma } from "@/lib/db";
+import { getCurrentUser, userHasPermission } from "@/lib/auth";
+import { InlineSetting } from "@/components/settings/inline-setting";
 import { getGaapReportPack, listJournalEntries } from "@/lib/services/gaap";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
@@ -41,6 +43,11 @@ export const dynamic = "force-dynamic";
 
 const selectClass =
   "flex h-9 w-full rounded-md border border-slate-700 bg-slate-950 px-2 text-sm text-slate-200";
+
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
 
 function pick(
   sp: Record<string, string | string[] | undefined>,
@@ -190,6 +197,12 @@ export default async function AccountingPage({
   if (periodFrom) periodQs.set("from", periodFrom);
   if (periodTo) periodQs.set("to", periodTo);
   const periodSuffix = periodQs.toString() ? `&${periodQs.toString()}` : "";
+
+  const settingsUser = await getCurrentUser();
+  const canEditSettings = await userHasPermission(
+    settingsUser?.id,
+    "accounting.journal.post"
+  );
 
   // QuickBooks-style date-range presets (server-computed, pure links).
   const iso = (d: Date) => d.toISOString().slice(0, 10);
@@ -400,6 +413,48 @@ export default async function AccountingPage({
           )}
         </span>
       </div>
+
+      {/* Accounting settings — editable inline; also on Admin → Company Settings */}
+      <Card className="border-slate-800">
+        <CardContent className="flex flex-wrap items-center gap-x-8 gap-y-3 p-3">
+          <InlineSetting
+            label="Accounting basis"
+            name="basis"
+            type="select"
+            value={acctSettings.basis}
+            display={acctSettings.basis === "CASH" ? "Cash" : "Accrual"}
+            options={[
+              { value: "ACCRUAL", label: "Accrual" },
+              { value: "CASH", label: "Cash" },
+            ]}
+            action={actionSaveAccountingSettings}
+            hiddenFields={{
+              fiscalYearStartMonth: String(acctSettings.fiscalYearStartMonth),
+            }}
+            canEdit={canEditSettings}
+          />
+          <InlineSetting
+            label="Fiscal year starts"
+            name="fiscalYearStartMonth"
+            type="select"
+            value={String(acctSettings.fiscalYearStartMonth)}
+            display={MONTH_NAMES[(acctSettings.fiscalYearStartMonth || 1) - 1]}
+            options={MONTH_NAMES.map((m, i) => ({
+              value: String(i + 1),
+              label: m,
+            }))}
+            action={actionSaveAccountingSettings}
+            hiddenFields={{ basis: acctSettings.basis }}
+            canEdit={canEditSettings}
+          />
+          <Link
+            href="/admin/settings"
+            className="text-xs text-teal-400 hover:underline"
+          >
+            All company settings →
+          </Link>
+        </CardContent>
+      </Card>
 
       {/* Month-end close */}
       <Card className="border-slate-800">
