@@ -1,19 +1,22 @@
 import { prisma } from "@/lib/db";
 import { getFloorBoardData } from "@/lib/services/work-orders";
 import { getValueStreamMetrics } from "@/lib/services/supply-chain";
+import { getRadiatorSlides } from "@/lib/services/radiators";
 import { FloorAutoRefresh } from "@/components/floor/auto-refresh";
+import { RadiatorRotator } from "@/components/radiators/radiator-rotator";
 import { computeEvm, compactCurrency, cn } from "@/lib/utils";
 import { StatusBadge } from "@/components/shared/status-badge";
 
 export const dynamic = "force-dynamic";
 
 export default async function RadiatorsPage() {
-  const [floor, vsm, mrb, projects, suppliers] = await Promise.all([
+  const [floor, vsm, mrb, projects, suppliers, radiatorSlides] = await Promise.all([
     getFloorBoardData(),
     getValueStreamMetrics(),
     prisma.mrbCase.count({ where: { status: { in: ["OPEN", "IN_REVIEW"] } } }),
     prisma.project.findMany({ where: { status: "ACTIVE" } }),
     prisma.supplier.findMany({ orderBy: { overallScore: "asc" }, take: 3 }),
+    getRadiatorSlides(),
   ]);
 
   return (
@@ -23,10 +26,16 @@ export default async function RadiatorsPage() {
           <h1 className="text-3xl font-bold tracking-tight text-slate-50 md:text-4xl">
             ForgeRP Live Board
           </h1>
-          <p className="text-slate-500">Plant information radiator · auto-refresh</p>
+          <p className="text-slate-500">
+            Discipline radiators rotate automatically · pick which show with the
+            gear · auto-refresh
+          </p>
         </div>
         <FloorAutoRefresh intervalSec={20} />
       </div>
+
+      {/* Rotating discipline radiators */}
+      <RadiatorRotator slides={radiatorSlides} />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
