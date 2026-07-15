@@ -158,6 +158,45 @@ export default async function AccountingPage({
   if (periodTo) periodQs.set("to", periodTo);
   const periodSuffix = periodQs.toString() ? `&${periodQs.toString()}` : "";
 
+  // QuickBooks-style date-range presets (server-computed, pure links).
+  const iso = (d: Date) => d.toISOString().slice(0, 10);
+  const now = new Date();
+  const fyStartMonth = (acctSettings.fiscalYearStartMonth || 1) - 1; // 0-indexed
+  const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const thisMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+  const qStartMonth = Math.floor(now.getMonth() / 3) * 3;
+  const thisQuarterStart = new Date(now.getFullYear(), qStartMonth, 1);
+  const thisQuarterEnd = new Date(now.getFullYear(), qStartMonth + 3, 0);
+  // Fiscal year containing today
+  const fyStartYear =
+    now.getMonth() >= fyStartMonth ? now.getFullYear() : now.getFullYear() - 1;
+  const fyStart = new Date(fyStartYear, fyStartMonth, 1);
+  const fyEnd = new Date(fyStartYear + 1, fyStartMonth, 0);
+  const datePresets: { label: string; from?: string; to?: string }[] = [
+    { label: "This month", from: iso(thisMonthStart), to: iso(thisMonthEnd) },
+    { label: "Last month", from: iso(lastMonthStart), to: iso(lastMonthEnd) },
+    {
+      label: "This quarter",
+      from: iso(thisQuarterStart),
+      to: iso(thisQuarterEnd),
+    },
+    { label: "Fiscal YTD", from: iso(fyStart), to: iso(now) },
+    { label: "Fiscal year", from: iso(fyStart), to: iso(fyEnd) },
+    { label: "All dates" },
+  ];
+  const presetHref = (p: { from?: string; to?: string }) => {
+    const qs = new URLSearchParams();
+    qs.set("tab", defaultTab);
+    if (p.from) qs.set("from", p.from);
+    if (p.to) qs.set("to", p.to);
+    return `/accounting?${qs.toString()}`;
+  };
+  const activePreset = datePresets.find(
+    (p) => (p.from || "") === (periodFrom || "") && (p.to || "") === (periodTo || "")
+  )?.label;
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -167,7 +206,30 @@ export default async function AccountingPage({
 
       {/* Period filter bar */}
       <Card>
-        <CardContent className="flex flex-wrap items-end gap-3 p-3">
+        <CardContent className="space-y-3 p-3">
+          {/* Quick date-range presets (QuickBooks-style) */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="mr-1 text-[11px] uppercase tracking-wider text-slate-600">
+              Period
+            </span>
+            {datePresets.map((p) => {
+              const active = activePreset === p.label;
+              return (
+                <Link
+                  key={p.label}
+                  href={presetHref(p)}
+                  className={`rounded-full border px-2.5 py-0.5 text-xs transition ${
+                    active
+                      ? "border-teal-500 bg-teal-500/10 text-teal-300"
+                      : "border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-200"
+                  }`}
+                >
+                  {p.label}
+                </Link>
+              );
+            })}
+          </div>
+          <div className="flex flex-wrap items-end gap-3">
           <form className="flex flex-wrap items-end gap-2" method="get">
             <input type="hidden" name="tab" value={defaultTab} />
             <label className="text-xs text-slate-500">
@@ -216,6 +278,7 @@ export default async function AccountingPage({
           <p className="text-[11px] text-slate-600">
             Filters AR / AP / Journals line lists. Reports below use full books.
           </p>
+          </div>
         </CardContent>
       </Card>
 
