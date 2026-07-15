@@ -33,11 +33,25 @@ const DOC_ICONS: Record<string, typeof File> = {
   GENERAL: File,
 };
 
+export type ProfileSection =
+  | "identity"
+  | "reviews"
+  | "goals"
+  | "timeoff"
+  | "training"
+  | "feedback"
+  | "documents"
+  | "activity";
+
 export function ProfileView({
   profile,
+  only,
 }: {
   profile: Awaited<ReturnType<typeof getEmployeeProfile>>;
+  /** Render only these sections (default: all — used by the person page). */
+  only?: ProfileSection[];
 }) {
+  const show = (s: ProfileSection) => !only || only.includes(s);
   const {
     user,
     ptoRequests,
@@ -64,6 +78,7 @@ export function ProfileView({
   return (
     <div className="space-y-4">
       {/* Identity */}
+      {show("identity") && (
       <Card>
         <CardContent className="flex flex-wrap items-start justify-between gap-4 p-5">
           <div>
@@ -102,8 +117,9 @@ export function ProfileView({
           </div>
         </CardContent>
       </Card>
+      )}
 
-      {upcoming.length > 0 && (
+      {show("reviews") && upcoming.length > 0 && (
         <Card className="border-sky-500/30">
           <CardContent className="space-y-4 p-4">
             <div className="flex items-center justify-between">
@@ -212,6 +228,7 @@ export function ProfileView({
 
       <div className="grid gap-4 lg:grid-cols-2">
         {/* Goals */}
+        {show("goals") && (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">My goals</CardTitle>
@@ -284,8 +301,10 @@ export function ProfileView({
             </form>
           </CardContent>
         </Card>
+        )}
 
         {/* Reviews */}
+        {show("reviews") && (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">My reviews</CardTitle>
@@ -313,8 +332,10 @@ export function ProfileView({
             ))}
           </CardContent>
         </Card>
+        )}
 
         {/* PTO */}
+        {show("timeoff") && (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">My time off</CardTitle>
@@ -369,8 +390,10 @@ export function ProfileView({
             ))}
           </CardContent>
         </Card>
+        )}
 
         {/* Training & qualifications */}
+        {show("training") && (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">My training</CardTitle>
@@ -452,8 +475,10 @@ export function ProfileView({
             </form>
           </CardContent>
         </Card>
+        )}
 
         {/* Feedback for me */}
+        {show("feedback") && (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Feedback for me</CardTitle>
@@ -496,8 +521,10 @@ export function ProfileView({
             ))}
           </CardContent>
         </Card>
+        )}
 
         {/* Documents */}
+        {show("documents") && (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">My documents</CardTitle>
@@ -572,9 +599,11 @@ export function ProfileView({
             )}
           </CardContent>
         </Card>
+        )}
       </div>
 
       {/* Recent activity */}
+      {show("activity") && (
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader className="pb-2">
@@ -632,6 +661,7 @@ export function ProfileView({
           </CardContent>
         </Card>
       </div>
+      )}
     </div>
   );
 }
