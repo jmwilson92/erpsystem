@@ -3897,6 +3897,11 @@ model AccountingSettings {
   id                    String   @id @default("default")
   basis                 String   @default("ACCRUAL") // ACCRUAL, CASH
   fiscalYearStartMonth  Int      @default(1) // 1 = January
+  // Month-end close: journals dated on or before this date are locked —
+  // they cannot be posted, approved, or voided until the period is reopened.
+  closedThroughDate     DateTime?
+  closedById            String?
+  closedAt              DateTime?
   updatedById           String?
   updatedAt             DateTime @updatedAt
 }

@@ -355,6 +355,46 @@ async function applyArSettlementFromJournal(je: {
   });
 }
 
+/** Current month-end close date, or null if the books are fully open. */
+export async function getAccountingCloseDate(): Promise<Date | null> {
+  const s = await prisma.accountingSettings.findUnique({
+    where: { id: "default" },
+    select: { closedThroughDate: true },
+  });
+  return s?.closedThroughDate ?? null;
+}
+
+/** Throw if `date` falls in a closed period. */
+async function assertPeriodOpen(date: Date, action: string) {
+  const closed = await getAccountingCloseDate();
+  if (closed && date <= closed) {
+    throw new Error(
+      `Period is closed through ${closed.toLocaleDateString()} — cannot ${action} an entry dated ${date.toLocaleDateString()}. Reopen the period first (Accounting → month-end close).`
+    );
+  }
+}
+
+/** Set (or clear) the month-end closing date. */
+export async function setAccountingCloseDate(params: {
+  date: Date | null;
+  userId?: string | null;
+}) {
+  return prisma.accountingSettings.upsert({
+    where: { id: "default" },
+    create: {
+      id: "default",
+      closedThroughDate: params.date,
+      closedById: params.userId ?? null,
+      closedAt: params.date ? new Date() : null,
+    },
+    update: {
+      closedThroughDate: params.date,
+      closedById: params.userId ?? null,
+      closedAt: params.date ? new Date() : null,
+    },
+  });
+}
+
 /** Approve a pending journal — posts balances. */
 export async function approveJournal(params: {
   id: string;
@@ -365,6 +405,7 @@ export async function approveJournal(params: {
     include: { lines: true },
   });
   if (je.status === "POSTED") return je;
+  await assertPeriodOpen(je.date, "post");
   if (!["PENDING_APPROVAL", "DRAFT"].includes(je.status)) {
     throw new Error(`Cannot approve journal in status ${je.status}`);
   }
@@ -391,6 +432,7 @@ export async function voidJournal(params: {
     include: { lines: true },
   });
   if (je.status === "VOID") return je;
+  await assertPeriodOpen(je.date, "void");
   if (je.status === "POSTED") {
     // Reverse balances
     await applyJournalBalances(

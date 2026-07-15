@@ -27,7 +27,9 @@ import {
   actionRecordApPayment,
   actionCreateExpenseEntry,
   actionReimburseExpense,
+  actionSetAccountingCloseDate,
 } from "@/app/actions";
+import { Lock, LockOpen } from "lucide-react";
 import { getExpenseReimbursements } from "@/lib/services/hr";
 import { getPayrollPolicy, parseHolidays } from "@/lib/services/timesheets";
 import { HolidayPicker } from "@/components/accounting/holiday-picker";
@@ -378,7 +380,77 @@ export default async function AccountingPage({
             {pendingJe.length} JE awaiting approval
           </Link>
         )}
+        <span
+          className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 ${
+            acctSettings.closedThroughDate
+              ? "border-slate-700 text-slate-300"
+              : "border-emerald-800 text-emerald-400"
+          }`}
+        >
+          {acctSettings.closedThroughDate ? (
+            <>
+              <Lock className="h-3.5 w-3.5" />
+              Closed through {formatDate(acctSettings.closedThroughDate)}
+            </>
+          ) : (
+            <>
+              <LockOpen className="h-3.5 w-3.5" />
+              Books open
+            </>
+          )}
+        </span>
       </div>
+
+      {/* Month-end close */}
+      <Card className="border-slate-800">
+        <CardContent className="flex flex-wrap items-center justify-between gap-3 p-3">
+          <div className="flex items-center gap-2 text-sm text-slate-400">
+            {acctSettings.closedThroughDate ? (
+              <Lock className="h-4 w-4 text-slate-400" />
+            ) : (
+              <LockOpen className="h-4 w-4 text-emerald-400" />
+            )}
+            <span>
+              <span className="font-medium text-slate-200">Month-end close.</span>{" "}
+              {acctSettings.closedThroughDate
+                ? `Journals dated on/before ${formatDate(
+                    acctSettings.closedThroughDate
+                  )} are locked from posting, approval, and voiding.`
+                : "Books are fully open. Set a closing date to lock prior-period journals."}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <form action={actionSetAccountingCloseDate} className="flex items-end gap-2">
+              <label className="text-xs text-slate-500">
+                Close through
+                <Input
+                  name="closeDate"
+                  type="date"
+                  defaultValue={
+                    acctSettings.closedThroughDate
+                      ? new Date(acctSettings.closedThroughDate)
+                          .toISOString()
+                          .slice(0, 10)
+                      : ""
+                  }
+                  className="h-8 w-40"
+                />
+              </label>
+              <Button type="submit" size="sm" className="h-8">
+                Close period
+              </Button>
+            </form>
+            {acctSettings.closedThroughDate && (
+              <form action={actionSetAccountingCloseDate}>
+                <input type="hidden" name="closeDate" value="" />
+                <Button type="submit" size="sm" variant="outline" className="h-8">
+                  Reopen
+                </Button>
+              </form>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       <Tabs defaultValue={defaultTab || "pl"}>
         <TabsList className="flex h-auto flex-wrap">
