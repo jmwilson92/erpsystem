@@ -131,6 +131,37 @@ export default async function AccountingPage({
   const arFiltered = arList.filter((i) => inPeriod(i.invoiceDate));
   const apFiltered = apList.filter((i) => inPeriod(i.invoiceDate));
 
+  // AR/AP aging snapshot (point-in-time, not period-bound). Buckets by days
+  // past due using the due date when present, else the invoice date.
+  const agingOf = (
+    invoices: {
+      status: string;
+      total: number;
+      amountPaid: number;
+      invoiceDate: Date;
+      dueDate: Date | null;
+    }[]
+  ) => {
+    const buckets = { current: 0, d30: 0, d60: 0, d90: 0, d90plus: 0, total: 0 };
+    const nowMs = Date.now();
+    for (const i of invoices) {
+      if (!["OPEN", "PARTIAL"].includes(i.status)) continue;
+      const open = i.total - i.amountPaid;
+      if (open <= 0.01) continue;
+      const basis = i.dueDate ?? i.invoiceDate;
+      const daysPast = Math.floor((nowMs - basis.getTime()) / 86_400_000);
+      if (daysPast <= 0) buckets.current += open;
+      else if (daysPast <= 30) buckets.d30 += open;
+      else if (daysPast <= 60) buckets.d60 += open;
+      else if (daysPast <= 90) buckets.d90 += open;
+      else buckets.d90plus += open;
+      buckets.total += open;
+    }
+    return buckets;
+  };
+  const arAging = agingOf(arList);
+  const apAging = agingOf(apList);
+
   const holidayText = parseHolidays(payrollPolicy)
     .map((h) => `${h.date} ${h.name}`)
     .join("\n");
@@ -486,7 +517,8 @@ export default async function AccountingPage({
         </TabsContent>
 
         {/* Dense AR ledger */}
-        <TabsContent value="ar">
+        <TabsContent value="ar" className="space-y-4">
+          <AgingSummary title="AR aging" buckets={arAging} tone="ar" />
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-base">
@@ -609,6 +641,7 @@ export default async function AccountingPage({
               </CardContent>
             </Card>
           )}
+          <AgingSummary title="AP aging" buckets={apAging} tone="ap" />
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-base">
@@ -1340,6 +1373,76 @@ export default async function AccountingPage({
         </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+function AgingSummary({
+  title,
+  buckets,
+  tone,
+}: {
+  title: string;
+  buckets: {
+    current: number;
+    d30: number;
+    d60: number;
+    d90: number;
+    d90plus: number;
+    total: number;
+  };
+  tone: "ar" | "ap";
+}) {
+  const cells = [
+    { label: "Current", value: buckets.current, cls: "text-emerald-400" },
+    { label: "1–30", value: buckets.d30, cls: "text-slate-200" },
+    { label: "31–60", value: buckets.d60, cls: "text-amber-400" },
+    { label: "61–90", value: buckets.d90, cls: "text-orange-400" },
+    { label: "90+", value: buckets.d90plus, cls: "text-rose-400" },
+  ];
+  const total = buckets.total || 1;
+  const barTone =
+    tone === "ar"
+      ? ["bg-emerald-500", "bg-teal-500", "bg-amber-500", "bg-orange-500", "bg-rose-500"]
+      : ["bg-emerald-500", "bg-sky-500", "bg-amber-500", "bg-orange-500", "bg-rose-500"];
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">
+          {title}
+          <span className="ml-2 text-xs font-normal text-slate-500">
+            {formatCurrency(buckets.total)} open
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {/* Stacked proportion bar */}
+        <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-slate-800">
+          {cells.map((c, i) => (
+            <div
+              key={c.label}
+              className={barTone[i]}
+              style={{ width: `${(c.value / total) * 100}%` }}
+              title={`${c.label}: ${formatCurrency(c.value)}`}
+            />
+          ))}
+        </div>
+        <div className="grid grid-cols-5 gap-2">
+          {cells.map((c) => (
+            <div
+              key={c.label}
+              className="rounded-lg border border-slate-800 bg-slate-900/40 px-2 py-1.5"
+            >
+              <p className="text-[10px] uppercase tracking-wider text-slate-500">
+                {c.label}
+              </p>
+              <p className={`text-sm font-semibold tabular-nums ${c.cls}`}>
+                {formatCurrency(c.value)}
+              </p>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
