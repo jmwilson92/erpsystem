@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { prisma } from "@/lib/db";
 import { getFloorBoardData } from "@/lib/services/work-orders";
 import { getCurrentUser, userCanSeeFinancials, userHasPermission } from "@/lib/auth";
 import { PageHeader } from "@/components/shared/page-header";
@@ -48,6 +49,35 @@ export default async function FloorPage({
     : false;
   const showWip = canSeeWip && pick(sp, "wip") === "1";
   const progressMap = Object.fromEntries(data.signOffProgress.map((s) => [s.id, s.pct]));
+
+  // Selectable WOs for per-WO flow tracing: active WOs at their current station
+  // (path runs to that station), plus recent completed WOs (full flow).
+  const stationCodes = data.byCenter.map((c) => c.center);
+  const activeFlowWos = data.byCenter.flatMap((c, idx) =>
+    c.orders.map((wo) => ({
+      id: wo.id,
+      number: wo.number,
+      status: wo.status,
+      stationIndex: idx,
+      completed: false,
+    }))
+  );
+  const completedWos = await prisma.workOrder.findMany({
+    where: { status: { in: ["COMPLETED", "CLOSED"] } },
+    orderBy: { updatedAt: "desc" },
+    take: 12,
+    select: { id: true, number: true, status: true, workCenter: true },
+  });
+  const flowWos = [
+    ...activeFlowWos,
+    ...completedWos.map((wo) => ({
+      id: wo.id,
+      number: wo.number,
+      status: wo.status,
+      stationIndex: Math.max(0, stationCodes.indexOf(wo.workCenter || "")),
+      completed: true,
+    })),
+  ];
 
   return (
     <div className="space-y-6">
@@ -163,6 +193,7 @@ export default async function FloorPage({
       {/* Animated flow lane — stations joined by arrows, WOs gliding through */}
       <FloorFlow
         canReorder={canReorder}
+        selectableWos={flowWos}
         stations={data.byCenter.map((c) => ({
           code: c.center,
           name: c.name,
