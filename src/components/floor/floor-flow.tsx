@@ -14,6 +14,15 @@ export type FlowStation = {
   wos: { id: string; number: string; status: string; pct: number }[];
 };
 
+export type FlowWo = {
+  id: string;
+  number: string;
+  status: string;
+  /** Index of the station the WO is currently at (its path runs 0..this) */
+  stationIndex: number;
+  completed: boolean;
+};
+
 const areaColor: Record<string, string> = {
   MANUFACTURING: "#14b8a6",
   ASSEMBLY: "#14b8a6",
@@ -33,16 +42,38 @@ const areaColor: Record<string, string> = {
 export function FloorFlow({
   stations: initial,
   canReorder = false,
+  selectableWos = [],
 }: {
   stations: FlowStation[];
   canReorder?: boolean;
+  selectableWos?: FlowWo[];
 }) {
   const router = useRouter();
   const [lit, setLit] = useState<number>(-1);
   const [stations, setStations] = useState(initial);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
+  const [selectedWos, setSelectedWos] = useState<string[]>([]);
+  const [pickWo, setPickWo] = useState(false);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  // The selected WOs' furthest station index — their flow covers 0..this.
+  // (completed WOs cover the whole line.)
+  const selected = selectableWos.filter((w) => selectedWos.includes(w.id));
+  const focusActive = selected.length > 0;
+  const maxIdx = selected.length
+    ? Math.max(
+        ...selected.map((w) =>
+          w.completed ? stations.length - 1 : w.stationIndex
+        )
+      )
+    : -1;
+  const onPathStation = (i: number) => !focusActive || i <= maxIdx;
+  const onPathArrow = (i: number) => focusActive && i < maxIdx;
+  const toggleWo = (id: string) =>
+    setSelectedWos((cur) =>
+      cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]
+    );
 
   // Keep local order in sync when server data refreshes.
   useEffect(() => {
@@ -106,14 +137,68 @@ export function FloorFlow({
             )}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={replay}
-          className="flex items-center gap-1.5 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-slate-300 transition-colors hover:border-teal-500/40 hover:text-teal-300"
-        >
-          <Play className="h-3.5 w-3.5" />
-          Replay flow
-        </button>
+        <div className="flex items-center gap-2">
+          {selectableWos.length > 0 && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setPickWo((p) => !p)}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs transition-colors",
+                  focusActive
+                    ? "border-teal-500/50 text-teal-300"
+                    : "border-slate-700 text-slate-300 hover:border-teal-500/40"
+                )}
+              >
+                {focusActive ? `${selected.length} WO selected` : "Trace a WO"}
+              </button>
+              {pickWo && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setPickWo(false)} />
+                  <div className="absolute right-0 z-20 mt-2 max-h-72 w-64 overflow-y-auto rounded-xl border border-slate-800 bg-slate-950 p-2 shadow-xl">
+                    <div className="flex items-center justify-between px-1 pb-1">
+                      <span className="text-[10px] uppercase tracking-wider text-slate-500">
+                        Trace flow of…
+                      </span>
+                      {focusActive && (
+                        <button
+                          className="text-[10px] text-teal-400 hover:underline"
+                          onClick={() => setSelectedWos([])}
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                    {selectableWos.map((w) => {
+                      const on = selectedWos.includes(w.id);
+                      return (
+                        <button
+                          key={w.id}
+                          onClick={() => toggleWo(w.id)}
+                          className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-xs text-slate-300 hover:bg-slate-900"
+                        >
+                          <span className="font-mono">{w.number}</span>
+                          <span className="text-[9px] text-slate-500">
+                            {w.completed ? "full flow" : "→ current"}
+                            {on ? " ✓" : ""}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={replay}
+            className="flex items-center gap-1.5 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-slate-300 transition-colors hover:border-teal-500/40 hover:text-teal-300"
+          >
+            <Play className="h-3.5 w-3.5" />
+            Replay flow
+          </button>
+        </div>
       </div>
 
       <div className="flex items-stretch gap-0 overflow-x-auto pb-2">
@@ -129,10 +214,12 @@ export function FloorFlow({
                 onDragOver={(e) => canReorder && e.preventDefault()}
                 onDrop={() => canReorder && onDrop(i)}
                 className={cn(
-                  "w-44 shrink-0 rounded-xl border border-slate-800 bg-slate-950/60",
+                  "w-44 shrink-0 rounded-xl border border-slate-800 bg-slate-950/60 transition-opacity",
                   lit === i && "station-lit border-teal-500/60",
                   canReorder && "cursor-grab",
-                  dragIdx === i && "opacity-50"
+                  dragIdx === i && "opacity-50",
+                  focusActive && !onPathStation(i) && "opacity-30",
+                  focusActive && i === maxIdx && "ring-1 ring-teal-500/60"
                 )}
                 style={{ borderTop: `3px solid ${color}` }}
               >
@@ -186,21 +273,28 @@ export function FloorFlow({
 
               {/* Arrow to next station */}
               {i < stations.length - 1 && (
-                <div className="relative flex w-14 shrink-0 items-center">
+                <div
+                  className={cn(
+                    "relative flex w-14 shrink-0 items-center transition-opacity",
+                    focusActive && !onPathArrow(i) && "opacity-30"
+                  )}
+                >
                   <div className="relative h-2 w-full rounded-full bg-slate-800">
                     <div
                       className={cn(
-                        "absolute inset-0 rounded-full text-teal-400",
-                        top && "flow-track"
+                        "absolute inset-0 rounded-full",
+                        focusActive
+                          ? onPathArrow(i) && "flow-track text-teal-300"
+                          : top && "flow-track text-teal-400"
                       )}
                     />
                     {/* Gliding WO token */}
-                    {top && (
+                    {(focusActive ? onPathArrow(i) : top) && (
                       <span
                         className="animate-glide absolute top-1/2 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap rounded bg-teal-500 px-1 text-[8px] font-semibold text-white shadow"
                         style={{ animationDelay: `${(i % 3) * 0.5}s` }}
                       >
-                        {top.number.replace(/^.*-/, "")}
+                        {(focusActive ? selected[0]?.number : top?.number)?.replace(/^.*-/, "")}
                       </span>
                     )}
                   </div>
