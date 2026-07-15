@@ -545,8 +545,12 @@ export async function getFloorBoardData() {
     string,
     {
       center: string;
+      name: string;
+      area: string;
+      efficiency: number;
       capacity: number;
       loadHours: number;
+      sortOrder: number;
       orders: typeof workOrders;
     }
   > = {};
@@ -554,8 +558,12 @@ export async function getFloorBoardData() {
   for (const wc of workCenters) {
     byCenter[wc.code] = {
       center: wc.code,
+      name: wc.name,
+      area: wc.area,
+      efficiency: wc.efficiency,
       capacity: wc.capacityHoursPerDay * wc.efficiency,
       loadHours: 0,
+      sortOrder: wc.sortOrder,
       orders: [],
     };
   }
@@ -565,8 +573,12 @@ export async function getFloorBoardData() {
     if (!byCenter[center]) {
       byCenter[center] = {
         center,
+        name: center === "UNASSIGNED" ? "Unassigned" : center,
+        area: "MANUFACTURING",
+        efficiency: 1,
         capacity: 16,
         loadHours: 0,
+        sortOrder: 999,
         orders: [],
       };
     }
@@ -601,16 +613,51 @@ export async function getFloorBoardData() {
     };
   });
 
+  // ── Plant KPIs ──────────────────────────────────────────────
+  // First-pass yield from recent inspection outcomes.
+  const inspAgg = await prisma.inspection.groupBy({
+    by: ["status"],
+    _count: true,
+  });
+  const passed = inspAgg.find((i) => i.status === "PASSED")?._count || 0;
+  const failed = inspAgg.find((i) => i.status === "FAILED")?._count || 0;
+  const fpy =
+    passed + failed > 0 ? Math.round((passed / (passed + failed)) * 1000) / 10 : 100;
+
+  // Plant efficiency: staffed-weighted average of work-center efficiency.
+  const effCenters = workCenters.length
+    ? Math.round(
+        (workCenters.reduce((s, wc) => s + wc.efficiency, 0) / workCenters.length) *
+          1000
+      ) / 10
+    : 100;
+
+  const holds = workOrders.filter((w) => w.status === "ON_HOLD").length;
+
+  // Whole-plant load vs capacity (for the over-capacity pulse).
+  const centers = Object.values(byCenter);
+  const totalCapacity = centers.reduce((s, c) => s + c.capacity, 0);
+  const totalLoad = centers.reduce((s, c) => s + c.loadHours, 0);
+  const utilization =
+    totalCapacity > 0 ? Math.round((totalLoad / totalCapacity) * 1000) / 10 : 0;
+
   return {
     workOrders,
-    byCenter: Object.values(byCenter),
+    byCenter: centers.sort((a, b) => a.sortOrder - b.sortOrder),
     wipValue,
     signOffProgress,
     counts: {
       planned: workOrders.filter((w) => w.status === "PLANNED").length,
       released: workOrders.filter((w) => w.status === "RELEASED").length,
       inProgress: workOrders.filter((w) => w.status === "IN_PROGRESS").length,
-      onHold: workOrders.filter((w) => w.status === "ON_HOLD").length,
+      onHold: holds,
+    },
+    kpis: {
+      fpy,
+      efficiency: effCenters,
+      holds,
+      utilization,
+      overCapacity: utilization > 100,
     },
   };
 }
