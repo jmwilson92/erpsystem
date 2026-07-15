@@ -125,27 +125,24 @@ export default async function HrPage({
       .map((c) => ({ user: u.name, ...c }))
   );
 
-  const allowedTabs = new Set(
-    [
-      "profile",
-      persona.isManager ? "team" : "",
-      persona.isManager || persona.isHrAdmin ? "compliance" : "",
-      ...(persona.isHrAdmin ? ["people", "time", "pto", "expenses", "reviews"] : []),
-    ].filter(Boolean)
-  );
-  const defaultTab = allowedTabs.has(tabParam)
-    ? tabParam
-    : persona.isHrAdmin
-      ? "people"
-      : persona.isManager
-        ? "team"
-        : "profile";
+  // Everyone gets the same top-level tabs (their own data); manager/HR-admin
+  // sections appear as extra cards within the relevant tab, permission-gated.
+  const allowedTabs = new Set([
+    "reviews",
+    "goals",
+    "training",
+    "timeoff",
+    "documents",
+    "feedback",
+    "more",
+  ]);
+  const defaultTab = allowedTabs.has(tabParam) ? tabParam : "reviews";
 
   const description = persona.isHrAdmin
-    ? "HR administration — people, time, PTO, expenses, reviews"
+    ? "HR administration & your workspace — reviews, goals, training, time off, documents, feedback"
     : persona.isManager
-      ? "Your profile and your team"
-      : "Your employee profile — reviews, goals, time off, documents";
+      ? "Your workspace and your team"
+      : "Your workspace — reviews, goals, training, time off, documents, feedback";
 
   return (
     <div className="space-y-6">
@@ -190,33 +187,57 @@ export default async function HrPage({
       )}
 
       <Tabs defaultValue={defaultTab}>
-        <TabsList>
-          <TabsTrigger value="profile">My Profile</TabsTrigger>
-          {persona.isManager && (
-            <TabsTrigger value="team">My Team ({team.length})</TabsTrigger>
-          )}
-          {(persona.isManager || persona.isHrAdmin) && (
-            <TabsTrigger value="compliance">
-              Compliance{overdueCount > 0 ? ` (${overdueCount})` : ""}
-            </TabsTrigger>
-          )}
-          {persona.isHrAdmin && (
-            <>
-              <TabsTrigger value="people">People</TabsTrigger>
-              <TabsTrigger value="time">
-                Time{pendingTime.length > 0 ? ` (${pendingTime.length})` : ""}
-              </TabsTrigger>
-              <TabsTrigger value="pto">
-                PTO{pendingPto.length > 0 ? ` (${pendingPto.length})` : ""}
-              </TabsTrigger>
-              <TabsTrigger value="expenses">Expenses</TabsTrigger>
-              <TabsTrigger value="reviews">Reviews & Goals</TabsTrigger>
-            </>
-          )}
+        <TabsList className="flex h-auto flex-wrap">
+          <TabsTrigger value="reviews">Reviews</TabsTrigger>
+          <TabsTrigger value="goals">Goals</TabsTrigger>
+          <TabsTrigger value="training">
+            Training
+            {(persona.isManager || persona.isHrAdmin) && overdueCount > 0
+              ? ` (${overdueCount})`
+              : ""}
+          </TabsTrigger>
+          <TabsTrigger value="timeoff">
+            Time off
+            {persona.isHrAdmin && pendingPto.length > 0
+              ? ` (${pendingPto.length})`
+              : ""}
+          </TabsTrigger>
+          <TabsTrigger value="documents">My documents</TabsTrigger>
+          <TabsTrigger value="feedback">Feedback</TabsTrigger>
+          <TabsTrigger value="more">
+            More
+            {persona.isHrAdmin && pendingTime.length > 0
+              ? ` (${pendingTime.length})`
+              : ""}
+          </TabsTrigger>
         </TabsList>
 
+        {/* Employee-own panels (always available; admin cards stack below) */}
+        <TabsContent value="reviews">
+          <ProfileView profile={profile} only={["reviews"]} />
+        </TabsContent>
+        <TabsContent value="goals">
+          <ProfileView profile={profile} only={["goals"]} />
+        </TabsContent>
+        <TabsContent value="training">
+          <ProfileView profile={profile} only={["training"]} />
+        </TabsContent>
+        <TabsContent value="timeoff">
+          <ProfileView profile={profile} only={["timeoff"]} />
+        </TabsContent>
+        <TabsContent value="documents">
+          <ProfileView profile={profile} only={["documents"]} />
+        </TabsContent>
+        <TabsContent value="feedback">
+          <ProfileView profile={profile} only={["feedback"]} />
+        </TabsContent>
+        <TabsContent value="more" className="space-y-4">
+          <ProfileView profile={profile} only={["identity", "activity"]} />
+          {persona.isManager && <TeamView team={team} />}
+        </TabsContent>
+
         {(persona.isManager || persona.isHrAdmin) && (
-          <TabsContent value="compliance" className="space-y-2">
+          <TabsContent value="training" className="space-y-2">
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-base">
@@ -443,19 +464,9 @@ export default async function HrPage({
           </TabsContent>
         )}
 
-        <TabsContent value="profile">
-          <ProfileView profile={profile} />
-        </TabsContent>
-
-        {persona.isManager && (
-          <TabsContent value="team">
-            <TeamView team={team} />
-          </TabsContent>
-        )}
-
         {persona.isHrAdmin && (
           <>
-            <TabsContent value="people" className="space-y-4">
+            <TabsContent value="more" className="space-y-4">
               <p className="text-xs text-slate-500">
                 {departments
                   .map(
@@ -538,7 +549,7 @@ export default async function HrPage({
               </p>
             </TabsContent>
 
-            <TabsContent value="time" className="space-y-2">
+            <TabsContent value="more" className="space-y-2">
               {pendingTime.length > 0 && (
                 <p className="text-xs text-slate-500">
                   {pendingTime.length} submitted entr
@@ -595,7 +606,7 @@ export default async function HrPage({
               ))}
             </TabsContent>
 
-            <TabsContent value="pto" className="space-y-3">
+            <TabsContent value="timeoff" className="space-y-3">
               <Card className="border-slate-800">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base">Request time off (on behalf)</CardTitle>
@@ -675,7 +686,7 @@ export default async function HrPage({
               ))}
             </TabsContent>
 
-            <TabsContent value="expenses" className="space-y-2">
+            <TabsContent value="more" className="space-y-2">
               {expenses.map((e) => (
                 <Card key={e.id}>
                   <CardContent className="p-4">
