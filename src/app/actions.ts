@@ -4402,9 +4402,13 @@ export async function actionPostJournal(formData: FormData): Promise<void> {
     });
   }
   const postNow = (formData.get("postNow") as string) === "true";
+  // Optional: settle a specific AR invoice's subledger when this JE credits AR.
+  const settleArInvoiceId =
+    ((formData.get("settleArInvoiceId") as string) || "").trim() || undefined;
   await postJournal({
     description,
-    source: "MANUAL",
+    source: settleArInvoiceId ? "AR_SETTLE" : "MANUAL",
+    sourceId: settleArInvoiceId,
     status: postNow ? "POSTED" : "PENDING_APPROVAL",
     projectId: ((formData.get("projectId") as string) || "").trim() || undefined,
     chargeCode: ((formData.get("chargeCode") as string) || "").trim() || undefined,
