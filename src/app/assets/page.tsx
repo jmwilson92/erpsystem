@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { getAssetsOverview } from "@/lib/services/assets";
@@ -102,10 +103,15 @@ export default async function AssetsPage() {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="min-w-0">
                     <p className="flex items-center gap-2 text-sm text-slate-200">
-                      <span className="font-mono text-xs text-slate-500">
+                      <Link
+                        href={`/assets/${a.id}`}
+                        className="font-mono text-xs text-teal-400 hover:underline"
+                      >
                         {a.assetTag}
-                      </span>
-                      {a.name}
+                      </Link>
+                      <Link href={`/assets/${a.id}`} className="hover:underline">
+                        {a.name}
+                      </Link>
                       <StatusBadge status={a.status} />
                       {a.locationScope === "IN_HOUSE_ONLY" ? (
                         <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">
