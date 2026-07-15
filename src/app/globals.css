@@ -190,6 +190,33 @@ html.light .shadow-black\/30 {
   animation: cap-alert 1.4s ease-in-out infinite;
 }
 
+/* Value-stream lightning flow — a light streak sliding along a connector */
+@keyframes flow-streak {
+  0% { background-position: -140% 0; }
+  100% { background-position: 240% 0; }
+}
+.flow-track {
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    currentColor 45%,
+    #fff 50%,
+    currentColor 55%,
+    transparent 100%
+  );
+  background-size: 60% 100%;
+  background-repeat: no-repeat;
+  animation: flow-streak 1.6s linear infinite;
+}
+/* Blinking blocker symbol */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.15; }
+}
+.animate-blink {
+  animation: blink 1s step-start infinite;
+}
+
 /* Flow connector for value stream */
 .vsm-arrow::after {
   content: "→";
