@@ -54,6 +54,7 @@ export function DocumentEcrForm({
   libraryDocs,
   assignedNumbers = [],
   bomParts = [],
+  projects = [],
 }: {
   productFolders: ProductFolder[];
   adminFolderId: string | null;
@@ -63,6 +64,8 @@ export function DocumentEcrForm({
   assignedNumbers?: AssignedNumber[];
   /** Buildable items selectable when the drawing includes a BOM */
   bomParts?: { id: string; partNumber: string; description: string }[];
+  /** Programs/projects this ECR can be tied to (optional) */
+  projects?: { id: string; number: string; name: string }[];
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -266,6 +269,21 @@ export function DocumentEcrForm({
                   ""
                 }
               />
+            </div>
+          )}
+          {projects.length > 0 && (
+            <div className="sm:col-span-2">
+              <label className="text-[10px] uppercase text-slate-500">
+                Program / project (optional)
+              </label>
+              <select name="projectId" className={`${selectClass} mt-1`} defaultValue="">
+                <option value="">— None —</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.number} — {p.name}
+                  </option>
+                ))}
+              </select>
             </div>
           )}
           {companyInternal && adminFolderId && (

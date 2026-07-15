@@ -619,6 +619,7 @@ export async function createDocumentEcr(params: {
   description?: string;
   productFolderId?: string | null;
   productName?: string | null;
+  projectId?: string | null;
   isCompanyInternal?: boolean;
   sourceDocumentId?: string | null;
   documentNumber?: string | null;
@@ -886,6 +887,7 @@ export async function createDocumentEcr(params: {
       requestedById: params.userId || null,
       productFolderId,
       productName,
+      projectId: params.projectId || null,
       isCompanyInternal,
       isDocumentUpdate,
       sourceDocumentId: source?.id || null,
