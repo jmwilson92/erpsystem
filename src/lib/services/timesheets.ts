@@ -346,6 +346,13 @@ export async function submitTimesheet(params: { id: string; userId: string }) {
   if (!["OPEN", "REJECTED"].includes(sheet.status)) {
     throw new Error(`Timesheet already ${sheet.status}`);
   }
+  // Timecards only route to approvers once the pay period has ended — no
+  // partial-period approvals. The whole period's time is entered first.
+  if (startOfDay(new Date()) < startOfDay(sheet.periodEnd)) {
+    throw new Error(
+      `This pay period ends ${sheet.periodEnd.toISOString().slice(0, 10)} — you can submit for approval on or after that date.`
+    );
+  }
   if (sheet.entries.length === 0) {
     throw new Error("Add at least one entry before submitting");
   }
