@@ -24,6 +24,7 @@ import {
 import Link from "next/link";
 import { DisciplinePulseCharts } from "@/components/dashboard/discipline-pulse";
 import { getDisciplinePulse } from "@/lib/services/dashboard-pulse";
+import { DashboardPersonalize } from "@/components/dashboard/dashboard-personalize";
 import { Sparkline } from "@/components/dashboard/sparkline";
 
 export const dynamic = "force-dynamic";
@@ -163,6 +164,17 @@ export default async function DashboardPage() {
     ? currentSheet.status.replace(/_/g, " ").toLowerCase()
     : "not started";
 
+  // Personalizable dashboard views (EVM is gated behind financial visibility).
+  const dashSections = [
+    canSeeMoney && { id: "money", label: "Financial pulse" },
+    { id: "pulse", label: `${disciplinePulse.discipline} pulse` },
+    canSeeMoney && { id: "evm", label: "Project EVM" },
+    { id: "recent-wos", label: "Recent work orders" },
+    { id: "quality", label: "Quality alerts" },
+    { id: "ops-stats", label: "Ops stat cards" },
+    { id: "suppliers", label: "Supplier scorecard" },
+  ].filter(Boolean) as { id: string; label: string }[];
+
   const statusMap = Object.fromEntries(woCounts.map((w) => [w.status, w._count]));
   const activeWos =
     (statusMap["IN_PROGRESS"] || 0) +
@@ -237,6 +249,7 @@ export default async function DashboardPage() {
             <Palmtree className="h-3.5 w-3.5 text-teal-400" />
             <span className="text-slate-200">{balances.pto.available}h</span> PTO available
           </Link>
+          <DashboardPersonalize sections={dashSections} />
         </div>
       </div>
 
@@ -296,7 +309,7 @@ export default async function DashboardPage() {
       </div>
 
       {canSeeMoney && (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div data-dash="money" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Card className="overflow-hidden">
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
@@ -349,7 +362,7 @@ export default async function DashboardPage() {
       )}
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
+        <Card data-dash="pulse" className="lg:col-span-2">
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>{disciplinePulse.discipline} Pulse</CardTitle>
             <span className="rounded-full border border-slate-700 px-2 py-0.5 text-[10px] uppercase tracking-wider text-slate-500">
@@ -361,7 +374,8 @@ export default async function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        {canSeeMoney && (
+        <Card data-dash="evm">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <FolderKanban className="h-4 w-4 text-teal-400" />
@@ -402,10 +416,11 @@ export default async function DashboardPage() {
             )}
           </CardContent>
         </Card>
+        )}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
+        <Card data-dash="recent-wos">
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Recent Work Orders</CardTitle>
             <Link href="/work-orders" className="text-xs text-teal-400 hover:underline">
@@ -436,7 +451,7 @@ export default async function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card data-dash="quality">
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="flex items-center gap-2">
               <AlertTriangle className="h-4 w-4 text-amber-400" />
@@ -476,7 +491,7 @@ export default async function DashboardPage() {
         </Card>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div data-dash="ops-stats" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Link href="/inventory">
           <StatCard
             title="Low / Watch Stock"
@@ -515,7 +530,7 @@ export default async function DashboardPage() {
         </Link>
       </div>
 
-      <Card>
+      <Card data-dash="suppliers">
         <CardHeader>
           <CardTitle>Supplier Scorecard Strip</CardTitle>
         </CardHeader>
