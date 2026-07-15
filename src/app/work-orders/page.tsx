@@ -137,7 +137,7 @@ export default async function WorkOrdersPage({
             rank: 0,
             number: "UNRATED",
             title: "Not yet aligned to a business priority",
-            category: "BACKLOG",
+            category: "No priority set",
             wos: byPriority.get("UNRATED")!,
           },
         ]
@@ -352,15 +352,12 @@ export default async function WorkOrdersPage({
               key={h.id}
               className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/20"
             >
-              {/* Pitched roof band, colored by priority rank */}
+              {/* Priority accent bar */}
+              <div className="h-1" style={{ background: color }} />
               <div
-                className="h-2.5"
-                style={{
-                  background: color,
-                  clipPath: "polygon(0 100%, 3% 0, 97% 0, 100% 100%)",
-                }}
-              />
-              <div className="flex items-center justify-between border-b border-slate-800 px-5 py-3">
+                className="flex items-center justify-between border-b border-slate-800 px-5 py-3"
+                style={{ borderLeft: `3px solid ${color}` }}
+              >
                 <div className="flex items-center gap-3">
                   <span
                     className="grid h-8 w-8 place-items-center rounded-lg text-xs font-bold text-white"
