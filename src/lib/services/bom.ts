@@ -3,6 +3,55 @@
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 
+/**
+ * Certify a drawing-originated BOM for PROTOTYPE. This is the first gate:
+ * an in-work (DRAFT/IN_REVIEW) BOM is locked as prototype-certified, which
+ * allows the originating drawing ECR to be RELEASED and a prototype WO to run.
+ * Full production certification happens later via `certifyBom`.
+ */
+export async function certifyBomForPrototype(params: {
+  bomHeaderId: string;
+  userId?: string;
+  notes?: string;
+}) {
+  const bom = await prisma.bomHeader.findUnique({
+    where: { id: params.bomHeaderId },
+    include: { part: true },
+  });
+  if (!bom) throw new Error("BOM not found");
+
+  if (!["DRAFT", "IN_REVIEW"].includes(bom.status)) {
+    throw new Error(
+      `Only DRAFT or IN_REVIEW BOMs can be certified for prototype. Current status: ${bom.status}`
+    );
+  }
+  const certified = await prisma.bomHeader.update({
+    where: { id: bom.id },
+    data: {
+      status: "PROTOTYPE",
+      isPrototype: true,
+      prototypeCertifiedAt: new Date(),
+      prototypeCertifiedById: params.userId,
+      notes: params.notes || bom.notes,
+    },
+  });
+
+  await logAudit({
+    entityType: "BomHeader",
+    entityId: bom.id,
+    action: "PROTOTYPE_CERTIFIED",
+    userId: params.userId,
+    changes: {
+      from: bom.status,
+      to: "PROTOTYPE",
+      revision: bom.revision,
+      partNumber: bom.part.partNumber,
+    },
+  });
+
+  return certified;
+}
+
 export async function certifyBom(params: {
   bomHeaderId: string;
   userId?: string;
@@ -16,7 +65,24 @@ export async function certifyBom(params: {
 
   if (!["PROTOTYPE", "IN_REVIEW"].includes(bom.status)) {
     throw new Error(
-      `Only PROTOTYPE or IN_REVIEW BOMs can be certified. Current status: ${bom.status}`
+      `Only PROTOTYPE or IN_REVIEW BOMs can be certified for production. Current status: ${bom.status}`
+    );
+  }
+
+  // Production certification requires a completed prototype build. A prototype
+  // WO is created from the prototype-certified BOM and must reach COMPLETED
+  // before the BOM can graduate to production.
+  const completedProto = await prisma.workOrder.findFirst({
+    where: {
+      bomHeaderId: bom.id,
+      type: "PROTOTYPE",
+      status: "COMPLETED",
+    },
+    select: { id: true, number: true },
+  });
+  if (!completedProto) {
+    throw new Error(
+      "Production certification is blocked until a prototype work order for this BOM is COMPLETED. Create a prototype WO, build it, and complete it first."
     );
   }
 
@@ -67,6 +133,8 @@ export async function createBomRevision(params: {
   revision: string;
   asPrototype?: boolean;
   description?: string;
+  drawingNumber?: string;
+  originEcrNumber?: string;
   lines?: { componentPartId: string; quantity: number; findNumber?: string; notes?: string }[];
   userId?: string;
 }) {
@@ -97,6 +165,8 @@ export async function createBomRevision(params: {
       status: params.asPrototype ? "PROTOTYPE" : "DRAFT",
       isPrototype: params.asPrototype || false,
       description: params.description,
+      drawingNumber: params.drawingNumber,
+      originEcrNumber: params.originEcrNumber,
       lines: {
         create: lines.map((l, i) => ({
           componentPartId: l.componentPartId,

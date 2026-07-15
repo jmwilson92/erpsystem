@@ -313,9 +313,15 @@ model BomHeader {
   partId          String
   part            Part     @relation(fields: [partId], references: [id])
   revision        String
-  status          String   @default("DRAFT") // DRAFT, PROTOTYPE, IN_REVIEW, CERTIFIED, OBSOLETE
+  status          String   @default("DRAFT") // DRAFT, PROTOTYPE (prototype-certified), IN_REVIEW, CERTIFIED (production), OBSOLETE
   description     String?
   isPrototype     Boolean  @default(false)
+  // Drawing that originated this BOM (BOMs are numbered after their drawing,
+  // created via a document ECR with "this drawing includes a BOM").
+  drawingNumber   String?
+  originEcrNumber String?
+  prototypeCertifiedAt   DateTime?
+  prototypeCertifiedById String?
   certifiedAt     DateTime?
   certifiedById   String?
   effectiveDate   DateTime?

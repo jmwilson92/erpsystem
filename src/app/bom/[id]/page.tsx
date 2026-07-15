@@ -5,7 +5,11 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatDate } from "@/lib/utils";
-import { actionCertifyBom, actionCreateWoFromBom } from "@/app/actions";
+import {
+  actionCertifyBom,
+  actionCertifyBomForPrototype,
+  actionCreateWoFromBom,
+} from "@/app/actions";
 import { compareBomRevisions, whereUsed } from "@/lib/services/bom";
 import Link from "next/link";
 
@@ -45,11 +49,22 @@ export default async function BomDetailPage({
 
   const usedIn = await whereUsed(bom.partId);
 
+  const hasCompletedProto =
+    (await prisma.workOrder.count({
+      where: { bomHeaderId: bom.id, type: "PROTOTYPE", status: "COMPLETED" },
+    })) > 0;
+
   return (
     <div className="space-y-6">
       <PageHeader
         title={`${bom.part.partNumber} · Rev ${bom.revision}`}
-        description={bom.description || bom.part.description}
+        description={
+          bom.drawingNumber
+            ? `Drawing ${bom.drawingNumber}${
+                bom.originEcrNumber ? ` · ${bom.originEcrNumber}` : ""
+              } — ${bom.description || bom.part.description || ""}`
+            : bom.description || bom.part.description
+        }
         actions={
           <div className="flex flex-wrap gap-2">
             <Link href={`/items/${bom.partId}`}>
@@ -62,13 +77,40 @@ export default async function BomDetailPage({
                 All BOMs
               </Button>
             </Link>
-            {["PROTOTYPE", "IN_REVIEW"].includes(bom.status) && (
-              <form action={actionCertifyBom}>
+            {["DRAFT", "IN_REVIEW"].includes(bom.status) && (
+              <form action={actionCertifyBomForPrototype}>
                 <input type="hidden" name="bomHeaderId" value={bom.id} />
                 <Button type="submit" size="sm">
-                  Certify for Production
+                  Certify for Prototype
                 </Button>
               </form>
+            )}
+            {bom.status === "PROTOTYPE" && (
+              <>
+                <form action={actionCreateWoFromBom}>
+                  <input type="hidden" name="bomHeaderId" value={bom.id} />
+                  <input type="hidden" name="quantity" value="1" />
+                  <input type="hidden" name="type" value="PROTOTYPE" />
+                  <Button type="submit" size="sm" variant="amber">
+                    Create Prototype WO
+                  </Button>
+                </form>
+                <form action={actionCertifyBom}>
+                  <input type="hidden" name="bomHeaderId" value={bom.id} />
+                  <Button
+                    type="submit"
+                    size="sm"
+                    disabled={!hasCompletedProto}
+                    title={
+                      hasCompletedProto
+                        ? undefined
+                        : "Complete a prototype work order first"
+                    }
+                  >
+                    Certify for Production
+                  </Button>
+                </form>
+              </>
             )}
             {bom.status === "CERTIFIED" && (
               <form action={actionCreateWoFromBom}>
@@ -77,16 +119,6 @@ export default async function BomDetailPage({
                 <input type="hidden" name="type" value="PRODUCTION" />
                 <Button type="submit" size="sm">
                   Create Production WO
-                </Button>
-              </form>
-            )}
-            {bom.status === "PROTOTYPE" && (
-              <form action={actionCreateWoFromBom}>
-                <input type="hidden" name="bomHeaderId" value={bom.id} />
-                <input type="hidden" name="quantity" value="1" />
-                <input type="hidden" name="type" value="PROTOTYPE" />
-                <Button type="submit" size="sm" variant="amber">
-                  Create Prototype WO
                 </Button>
               </form>
             )}
@@ -104,11 +136,21 @@ export default async function BomDetailPage({
         )}
       </div>
 
-      {(bom.status === "PROTOTYPE" || bom.isPrototype) && (
+      {["DRAFT", "IN_REVIEW"].includes(bom.status) && (
+        <div className="rounded-lg border border-sky-500/40 bg-sky-500/10 px-4 py-3 text-sm text-sky-200">
+          <strong>In-work BOM</strong> — edit the components on the item card, then
+          <strong> Certify for Prototype</strong>. Prototype certification unlocks
+          release of the originating drawing.
+        </div>
+      )}
+
+      {bom.status === "PROTOTYPE" && (
         <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-          <strong>Prototype / First Article BOM</strong> — Cannot be used for production
-          work orders until reviewed and certified. After successful prototype build, use
-          Certify to lock this revision and obsolete prior certified revs.
+          <strong>Prototype-certified BOM</strong> — the drawing can be released and a
+          prototype work order run.{" "}
+          {hasCompletedProto
+            ? "The prototype WO is complete — certify this BOM for production to unlock production work orders."
+            : "Once the prototype WO reaches COMPLETED, Certify for Production becomes available."}
         </div>
       )}
 

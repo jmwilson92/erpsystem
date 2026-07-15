@@ -801,6 +801,9 @@ export async function createDocumentEcr(params: {
     }
   }
 
+  const count = await prisma.changeRequest.count();
+  const number = `ECR-${String(count + 1).padStart(5, "0")}`;
+
   // ── Drawing includes a BOM: ensure an in-work BOM exists for the part ──
   const includesBom = !!params.includesBom;
   let bomPartId: string | null = null;
@@ -849,9 +852,13 @@ export async function createDocumentEcr(params: {
       const created = await createBomRevision({
         partId: bomPart.id,
         revision: nextRev,
-        asPrototype: true,
+        // Starts as DRAFT (in-work). The designated person edits it, then
+        // certifies it for PROTOTYPE — which unlocks drawing release.
+        asPrototype: false,
+        drawingNumber: documentNumber || undefined,
+        originEcrNumber: number,
         description: `In-work BOM from drawing ECR — ${
-          params.documentNumber || documentNumber || "drawing"
+          documentNumber || "drawing"
         }`,
         userId: params.userId,
       });
@@ -859,9 +866,6 @@ export async function createDocumentEcr(params: {
       bomAutoCreated = true;
     }
   }
-
-  const count = await prisma.changeRequest.count();
-  const number = `ECR-${String(count + 1).padStart(5, "0")}`;
 
   const title =
     params.title?.trim() ||
@@ -1049,9 +1053,11 @@ export async function releaseDocumentEcr(params: {
         "This drawing includes a BOM but no BOM is linked — link or create the BOM before release"
       );
     }
-    if (gateBom.status !== "CERTIFIED") {
+    // Release only needs the BOM certified for PROTOTYPE. Full production
+    // certification happens later, after the prototype WO completes.
+    if (!["PROTOTYPE", "CERTIFIED"].includes(gateBom.status)) {
       throw new Error(
-        `Release blocked — this drawing includes a BOM. BOM ${gateBom.part.partNumber} Rev ${gateBom.revision} is ${gateBom.status}; certify it first.`
+        `Release blocked — this drawing includes a BOM. BOM ${gateBom.part.partNumber} Rev ${gateBom.revision} is ${gateBom.status}; certify it for prototype first.`
       );
     }
   }
