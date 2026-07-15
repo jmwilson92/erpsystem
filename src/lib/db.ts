@@ -4,7 +4,11 @@ import path from "path";
 import fs from "fs";
 
 // Bump when Prisma schema fields change so HMR does not keep a stale client.
-const PRISMA_CLIENT_EPOCH = "wi-cm-ship-kit-v15-review-rationale";
+// The epoch also stamps the sandbox directory (see sandboxDir), so demo/
+// test-drive sandbox copies re-materialize from the migrated master whenever
+// the schema changes — otherwise a sandbox created before a new column would
+// keep failing with "column does not exist" even after `prisma db push`.
+const PRISMA_CLIENT_EPOCH = "wi-cm-ship-kit-v16-sandbox-epoch";
 
 /** Cookie that puts a request into a private test-drive sandbox. */
 export const SANDBOX_COOKIE = "forge-sandbox";
@@ -28,12 +32,36 @@ function masterDbPath() {
   return path.join(process.cwd(), "prisma", "dev.db");
 }
 
-export function sandboxDir() {
+function sandboxRoot() {
   return path.join(path.dirname(masterDbPath()), "sandboxes");
+}
+
+export function sandboxDir() {
+  // Stamp with the schema epoch so a schema change gives fresh sandbox copies
+  // (old-epoch copies would otherwise keep a stale, pre-migration schema).
+  return path.join(sandboxRoot(), PRISMA_CLIENT_EPOCH);
 }
 
 export function sandboxDbPath(id: string) {
   return path.join(sandboxDir(), `${id}.db`);
+}
+
+/** Remove sandbox copies from previous schema epochs (stale schema). */
+function pruneStaleSandboxEpochs() {
+  try {
+    const root = sandboxRoot();
+    if (!fs.existsSync(root)) return;
+    for (const entry of fs.readdirSync(root)) {
+      if (entry === PRISMA_CLIENT_EPOCH) continue;
+      try {
+        fs.rmSync(path.join(root, entry), { recursive: true, force: true });
+      } catch {
+        // best-effort cleanup
+      }
+    }
+  } catch {
+    // best-effort cleanup
+  }
 }
 
 function createClientForFile(file: string) {
@@ -70,6 +98,9 @@ function sandboxMap() {
 /** Copy the master database into a fresh sandbox file. */
 export async function materializeSandbox(id: string) {
   if (!SANDBOX_ID_RE.test(id)) throw new Error("Bad sandbox id");
+  // Clear any sandbox copies left over from an earlier schema epoch so we
+  // never serve a stale-schema database.
+  pruneStaleSandboxEpochs();
   const dir = sandboxDir();
   fs.mkdirSync(dir, { recursive: true });
   const target = sandboxDbPath(id);
