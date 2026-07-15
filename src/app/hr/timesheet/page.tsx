@@ -158,17 +158,36 @@ export default async function MyTimesheetPage() {
             }}
           />
           {editable && sheet.entries.length > 0 && (
-            <form action={actionSubmitTimesheet} className="pt-3">
-              <input type="hidden" name="id" value={sheet.id} />
-              <Button type="submit" size="sm">
-                Submit timecard for approval
-              </Button>
-              <p className="mt-1 text-[11px] text-slate-500">
-                Submitting routes each charge type to its approver: project
-                time → the PM, direct charges → the department manager,
-                PTO/sick/holiday/overhead → HR.
-              </p>
-            </form>
+            (() => {
+              const periodEnded =
+                new Date().toISOString().slice(0, 10) >=
+                sheet.periodEnd.toISOString().slice(0, 10);
+              if (!periodEnded) {
+                return (
+                  <p className="pt-3 text-[11px] text-slate-500">
+                    Keep entering time — this timecard can be submitted for
+                    approval once the pay period ends on{" "}
+                    <span className="text-slate-300">
+                      {formatDate(sheet.periodEnd)}
+                    </span>
+                    .
+                  </p>
+                );
+              }
+              return (
+                <form action={actionSubmitTimesheet} className="pt-3">
+                  <input type="hidden" name="id" value={sheet.id} />
+                  <Button type="submit" size="sm">
+                    Submit timecard for approval
+                  </Button>
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    Submitting routes each charge type to its approver: project
+                    time → the PM, direct charges → the department manager,
+                    PTO/sick/holiday/overhead → HR.
+                  </p>
+                </form>
+              );
+            })()
           )}
           {sheet.approvals.length > 0 && sheet.status !== "OPEN" && (
             <div className="mt-4 border-t border-slate-800 pt-3">
