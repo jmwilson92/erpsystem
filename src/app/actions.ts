@@ -435,24 +435,12 @@ export async function actionClosePoFromReceiving(formData: FormData): Promise<vo
   return actionClosePurchaseOrder(formData);
 }
 
-export async function actionCreateItemBom(formData: FormData): Promise<void> {
-  const { createOrLinkBom } = await import("@/lib/services/bom");
-  const partId = formStr(formData, "partId");
-  const user = await getCurrentUser();
-  const bom = await createOrLinkBom({
-    partId,
-    revision: formStr(formData, "revision") || "A",
-    description: formStr(formData, "description") || undefined,
-    asPrototype: formBool(formData, "asPrototype"),
-    copyFromBomId: formOptId(formData, "copyFromBomId") || undefined,
-    userId: user?.id,
-  });
-  await flashToast("BOM created");
-  revalidatePath("/items");
-  revalidatePath(`/items/${partId}`);
-  revalidatePath("/bom");
-  revalidatePath(`/bom/${bom.id}`);
-  redirect(`/items/${partId}?tab=bom`);
+export async function actionCreateItemBom(): Promise<void> {
+  // BOMs no longer originate from the item card — a BOM is created from its
+  // drawing via a document ECR ("this drawing includes a BOM").
+  throw new Error(
+    "BOMs are created from a drawing ECR, not the item card. Create a document ECR for the drawing and check “includes a BOM”."
+  );
 }
 
 export async function actionAddBomLine(formData: FormData): Promise<void> {
