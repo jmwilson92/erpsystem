@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Command } from "cmdk";
 import { NAV_GROUPS } from "@/lib/navigation";
+import { moduleKeyForPath } from "@/lib/modules";
 import { FileSearch, Loader2 } from "lucide-react";
 
 type SearchHit = {
@@ -16,9 +17,11 @@ type SearchHit = {
 export function CommandPalette({
   open,
   onOpenChange,
+  disabledModules = [],
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
+  disabledModules?: string[];
 }) {
   const router = useRouter();
   const [search, setSearch] = useState("");
@@ -79,12 +82,15 @@ export function CommandPalette({
   const q = search.trim().toLowerCase();
   const moduleGroups = NAV_GROUPS.map((g) => ({
     label: g.label,
-    items: g.items.filter(
-      (p) =>
+    items: g.items.filter((p) => {
+      const key = moduleKeyForPath(p.href);
+      if (key && disabledModules.includes(key)) return false;
+      return (
         !q ||
         p.label.toLowerCase().includes(q) ||
         (p.keywords || []).some((k) => k.toLowerCase().includes(q))
-    ),
+      );
+    }),
   })).filter((g) => g.items.length > 0);
 
   const empty = hits.length === 0 && moduleGroups.length === 0 && !searching;

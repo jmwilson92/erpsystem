@@ -7,7 +7,10 @@ import { InlineSetting } from "@/components/settings/inline-setting";
 import {
   actionSaveCompanyProfile,
   actionSaveAccountingSettings,
+  actionSetModuleEnabled,
 } from "@/app/actions";
+import { MODULES } from "@/lib/modules";
+import { Button } from "@/components/ui/button";
 import { parseJsonArray } from "@/lib/utils";
 import {
   Building2,
@@ -17,6 +20,8 @@ import {
   Rocket,
   Mail,
   Lock,
+  Blocks,
+  Check,
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -45,6 +50,7 @@ export default async function AdminSettingsPage() {
 
   const departments = parseJsonArray<string>(company.departments);
   const deptText = departments.join("\n");
+  const disabledModules = parseJsonArray<string>(company.disabledModules);
 
   return (
     <div className="space-y-6">
@@ -170,6 +176,67 @@ export default async function AdminSettingsPage() {
               Manage month-end close →
             </Link>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Modules — buy the whole suite or just the parts */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Blocks className="h-4 w-4 text-teal-400" />
+            Modules
+          </CardTitle>
+          <p className="text-xs text-slate-500">
+            Turn modules on or off. Disabled modules disappear from the
+            navigation and their pages are blocked until re-enabled — buy the
+            whole system or just the parts you need.
+          </p>
+        </CardHeader>
+        <CardContent className="grid gap-2 sm:grid-cols-2">
+          {MODULES.map((m) => {
+            const enabled = !disabledModules.includes(m.key);
+            return (
+              <div
+                key={m.key}
+                className="flex items-center justify-between gap-3 rounded-xl border border-slate-800 px-3 py-2.5"
+              >
+                <div className="min-w-0">
+                  <p className="flex items-center gap-2 text-sm text-slate-200">
+                    {m.label}
+                    {enabled ? (
+                      <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-400">
+                        <Check className="h-3 w-3" /> On
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-slate-800 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
+                        Off
+                      </span>
+                    )}
+                  </p>
+                  <p className="truncate text-[11px] text-slate-500">
+                    {m.description}
+                  </p>
+                </div>
+                {canEdit && (
+                  <form action={actionSetModuleEnabled}>
+                    <input type="hidden" name="moduleKey" value={m.key} />
+                    <input
+                      type="hidden"
+                      name="enabled"
+                      value={enabled ? "false" : "true"}
+                    />
+                    <Button
+                      type="submit"
+                      size="sm"
+                      variant={enabled ? "outline" : "default"}
+                    >
+                      {enabled ? "Disable" : "Enable"}
+                    </Button>
+                  </form>
+                )}
+              </div>
+            );
+          })}
         </CardContent>
       </Card>
 

@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
+import { redirect } from "next/navigation";
 import { AppShell } from "@/components/layout/app-shell";
 import { SandboxBanner } from "@/components/layout/sandbox-banner";
 import { FlashToast } from "@/components/layout/flash-toast";
@@ -9,6 +10,7 @@ import { getCurrentUser, listUsers } from "@/lib/auth";
 import { prisma, SANDBOX_COOKIE } from "@/lib/db";
 import { getNotificationSummary } from "@/lib/services/notifications";
 import { readFlashToast } from "@/lib/flash";
+import { moduleKeyForPath } from "@/lib/modules";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -47,6 +49,25 @@ export default async function RootLayout({
   const jar = await cookies();
   const inSandbox = Boolean(jar.get(SANDBOX_COOKIE)?.value);
   const flash = await readFlashToast();
+
+  // Per-module enable/disable: block a disabled module's routes server-side
+  // (before the page renders) so nothing from that module reaches the client.
+  const disabledModules: string[] = company.disabledModules
+    ? (() => {
+        try {
+          return JSON.parse(company.disabledModules) as string[];
+        } catch {
+          return [];
+        }
+      })()
+    : [];
+  const pathname = (await headers()).get("x-pathname") || "";
+  const blockedKey = pathname ? moduleKeyForPath(pathname) : null;
+  if (blockedKey && disabledModules.includes(blockedKey)) {
+    // Redirect before the disabled module's page renders — nothing from that
+    // module reaches the client (not even the RSC payload).
+    redirect(`/module-off?m=${blockedKey}`);
+  }
   const shellUsers = demoUsers.map((u) => ({
     id: u.id,
     name: u.name,
@@ -72,6 +93,7 @@ export default async function RootLayout({
       >
         <AppShell
           company={{ name: company.name, tagline: company.tagline }}
+          disabledModules={disabledModules}
           notifications={notifications}
           demoUsers={shellUsers}
           currentUser={
