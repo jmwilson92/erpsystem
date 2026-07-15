@@ -5826,6 +5826,31 @@ export async function actionReleaseTestProcedure(
   revalidatePath("/test-procedures");
 }
 
+export async function actionRecordTestSignOff(
+  formData: FormData
+): Promise<void> {
+  const { recordTestStepSignOff } = await import(
+    "@/lib/services/test-procedures"
+  );
+  const user = await getCurrentUser();
+  if (!user) return;
+  const testProcedureId = formData.get("testProcedureId") as string;
+  await recordTestStepSignOff({
+    testProcedureId,
+    stepId: formData.get("stepId") as string,
+    workOrderId: ((formData.get("workOrderId") as string) || "").trim() || null,
+    unitSerial: ((formData.get("unitSerial") as string) || "").trim() || null,
+    userId: user.id,
+    measuredValue: ((formData.get("measuredValue") as string) || "").trim() || null,
+    result: ((formData.get("result") as string) || "").trim() || null,
+    notes: ((formData.get("notes") as string) || "").trim() || null,
+    photoUrl: ((formData.get("photoUrl") as string) || "").trim() || null,
+    pinCode: ((formData.get("pinCode") as string) || "").trim() || null,
+  });
+  await flashToast("Test result recorded");
+  revalidatePath(`/test-procedures/${testProcedureId}`);
+}
+
 export async function actionCreateAsset(formData: FormData): Promise<void> {
   const { createAsset } = await import("@/lib/services/assets");
   const user = await getCurrentUser();
