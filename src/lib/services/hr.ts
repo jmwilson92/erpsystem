@@ -455,6 +455,69 @@ const EXPENSE_TRANSITIONS: Record<string, string[]> = {
   PAID: [],
 };
 
+/** Approved expense reports awaiting reimbursement (accounting queue). */
+export async function getExpenseReimbursements() {
+  return prisma.expenseReport.findMany({
+    where: { status: "APPROVED" },
+    include: { user: { select: { name: true } }, lines: true },
+    orderBy: { createdAt: "asc" },
+  });
+}
+
+/**
+ * Accounting reimburses an approved expense report: marks it PAID and posts a
+ * best-effort reimbursement journal entry (Dr expense, Cr cash). Paying is an
+ * accounting function, gated by accounting.journal.post.
+ */
+export async function payExpenseReport(params: {
+  id: string;
+  processor: { id: string; role: string };
+}) {
+  const ok = await userHasPermission(params.processor.id, "accounting.journal.post");
+  if (!ok) throw new Error("Recording reimbursement requires accounting authority");
+  const report = await prisma.expenseReport.findUniqueOrThrow({
+    where: { id: params.id },
+    include: { lines: true, user: { select: { name: true } } },
+  });
+  if (report.status !== "APPROVED") {
+    throw new Error(`Expense ${report.number} is ${report.status}, not APPROVED`);
+  }
+  const amount = report.lines.reduce((s, l) => s + (l.amount || 0), 0);
+  let journalEntryId: string | null = null;
+  if (amount > 0) {
+    const [exp, cash] = await Promise.all([
+      prisma.account.findFirst({ where: { code: "6200" } }),
+      prisma.account.findFirst({ where: { code: "1000" } }),
+    ]);
+    if (exp && cash) {
+      const { postJournal } = await import("@/lib/services/gaap");
+      const je = await postJournal({
+        description: `Expense reimbursement — ${report.user.name} (${report.number})`,
+        source: "EXPENSE",
+        sourceId: report.id,
+        createdById: params.processor.id,
+        lines: [
+          { accountId: exp.id, debit: amount, memo: "Employee expense" },
+          { accountId: cash.id, credit: amount, memo: "Reimbursement paid" },
+        ],
+      });
+      journalEntryId = je.id;
+    }
+  }
+  const updated = await prisma.expenseReport.update({
+    where: { id: report.id },
+    data: { status: "PAID" },
+  });
+  await logAudit({
+    entityType: "ExpenseReport",
+    entityId: report.id,
+    action: "EXPENSE_PAID",
+    userId: params.processor.id,
+    changes: { amount, journalEntryId },
+  });
+  return updated;
+}
+
 export async function advanceExpenseReport(params: {
   id: string;
   status: string;

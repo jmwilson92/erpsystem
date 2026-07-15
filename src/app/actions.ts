@@ -5058,6 +5058,21 @@ export async function actionAdvanceExpense(formData: FormData): Promise<void> {
   revalidatePath("/approvals");
 }
 
+/** Accounting reimburses an approved expense report (marks PAID + JE). */
+export async function actionReimburseExpense(formData: FormData): Promise<void> {
+  const { payExpenseReport } = await import("@/lib/services/hr");
+  const user = await getCurrentUser();
+  if (!user) return;
+  await payExpenseReport({
+    id: formData.get("id") as string,
+    processor: { id: user.id, role: user.role },
+  });
+  await flashToast("Reimbursement recorded");
+  revalidatePath("/accounting");
+  revalidatePath("/hr");
+  revalidatePath("/approvals");
+}
+
 export async function actionUpdateGoalProgress(
   formData: FormData
 ): Promise<void> {

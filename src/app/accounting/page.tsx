@@ -26,7 +26,9 @@ import {
   actionRecordArPayment,
   actionRecordApPayment,
   actionCreateExpenseEntry,
+  actionReimburseExpense,
 } from "@/app/actions";
+import { getExpenseReimbursements } from "@/lib/services/hr";
 import { getPayrollPolicy, parseHolidays } from "@/lib/services/timesheets";
 import { HolidayPicker } from "@/components/accounting/holiday-picker";
 import { PayrollTab } from "@/components/accounting/payroll-tab";
@@ -80,6 +82,7 @@ export default async function AccountingPage({
     payrollQueue,
     arList,
     apList,
+    reimbursements,
   ] = await Promise.all([
     prisma.account.findMany({ orderBy: { code: "asc" } }),
     listJournalEntries({
@@ -115,6 +118,7 @@ export default async function AccountingPage({
       orderBy: { invoiceDate: "desc" },
       take: 80,
     }),
+    getExpenseReimbursements(),
   ]);
 
   const inPeriod = (d: Date | null | undefined) => {
@@ -472,7 +476,7 @@ export default async function AccountingPage({
                             <option value="CARD">Card</option>
                           </select>
                           <Button type="submit" size="sm" className="h-7 text-[10px]">
-                            Pay
+                            Record
                           </Button>
                         </form>
                       ) : (
@@ -490,7 +494,44 @@ export default async function AccountingPage({
         </TabsContent>
 
         {/* Dense AP ledger */}
-        <TabsContent value="ap">
+        <TabsContent value="ap" className="space-y-4">
+          {reimbursements.length > 0 && (
+            <Card className="border-amber-900/40">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">
+                  Employee reimbursements
+                  <span className="ml-2 text-xs font-normal text-slate-500">
+                    {reimbursements.length} approved · awaiting payment
+                  </span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-1.5">
+                {reimbursements.map((r) => (
+                  <div
+                    key={r.id}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 px-3 py-2 text-sm"
+                  >
+                    <div>
+                      <span className="font-mono text-teal-400">{r.number}</span>
+                      <span className="ml-2 text-slate-300">{r.user.name}</span>
+                      <span className="ml-2 text-xs text-slate-500">{r.title}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="font-mono tabular-nums text-slate-200">
+                        {formatCurrency(r.totalAmount)}
+                      </span>
+                      <form action={actionReimburseExpense}>
+                        <input type="hidden" name="id" value={r.id} />
+                        <Button type="submit" size="sm">
+                          Record reimbursement
+                        </Button>
+                      </form>
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-base">
@@ -559,7 +600,7 @@ export default async function AccountingPage({
                             <option value="CARD">Card</option>
                           </select>
                           <Button type="submit" size="sm" className="h-7 text-[10px]">
-                            Pay
+                            Record
                           </Button>
                         </form>
                       ) : (
