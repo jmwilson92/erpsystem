@@ -10,9 +10,29 @@ import { ShoppingBag, Factory, Truck, PackageCheck, Plus, FileText } from "lucid
 
 export const dynamic = "force-dynamic";
 
-export default async function SalesOrdersPage() {
+// Maps a tile filter key → the SO statuses it covers.
+const STATUS_GROUPS: Record<string, string[]> = {
+  open: ["OPEN", "PLANNED"],
+  production: ["IN_PRODUCTION"],
+  ready: ["READY_TO_SHIP"],
+  shipped: ["SHIPPED"],
+};
+
+export default async function SalesOrdersPage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const sp = searchParams ? await searchParams : {};
+  const rawStatus = Array.isArray(sp.status) ? sp.status[0] : sp.status || "";
+  const activeGroup = STATUS_GROUPS[rawStatus] ? rawStatus : "";
+  const statusWhere = activeGroup
+    ? { status: { in: STATUS_GROUPS[activeGroup] } }
+    : {};
+
   const [orders, quoteCounts, counts] = await Promise.all([
     prisma.salesOrder.findMany({
+      where: statusWhere,
       orderBy: { orderDate: "desc" },
       include: {
         customer: true,
@@ -69,19 +89,47 @@ export default async function SalesOrdersPage() {
           title="Open / Planned"
           value={(statusMap["OPEN"] || 0) + (statusMap["PLANNED"] || 0)}
           icon={ShoppingBag}
+          href={activeGroup === "open" ? "/sales" : "/sales?status=open"}
+          className={activeGroup === "open" ? "ring-1 ring-teal-500/50" : undefined}
         />
         <StatCard
           title="In Production"
           value={statusMap["IN_PRODUCTION"] || 0}
           icon={Factory}
+          href={activeGroup === "production" ? "/sales" : "/sales?status=production"}
+          className={
+            activeGroup === "production" ? "ring-1 ring-teal-500/50" : undefined
+          }
         />
         <StatCard
           title="Ready to Ship"
           value={statusMap["READY_TO_SHIP"] || 0}
           icon={PackageCheck}
+          href={activeGroup === "ready" ? "/sales" : "/sales?status=ready"}
+          className={activeGroup === "ready" ? "ring-1 ring-teal-500/50" : undefined}
         />
-        <StatCard title="Shipped" value={statusMap["SHIPPED"] || 0} icon={Truck} />
+        <StatCard
+          title="Shipped"
+          value={statusMap["SHIPPED"] || 0}
+          icon={Truck}
+          href={activeGroup === "shipped" ? "/sales" : "/sales?status=shipped"}
+          className={activeGroup === "shipped" ? "ring-1 ring-teal-500/50" : undefined}
+        />
       </div>
+
+      {activeGroup && (
+        <div className="flex items-center gap-2 text-xs text-slate-400">
+          <span>
+            Filtered to{" "}
+            <span className="text-slate-200">
+              {STATUS_GROUPS[activeGroup].map((s) => s.replace(/_/g, " ")).join(" / ")}
+            </span>
+          </span>
+          <Link href="/sales" className="text-teal-400 hover:underline">
+            Clear
+          </Link>
+        </div>
+      )}
 
       <div className="overflow-hidden rounded-xl border border-slate-800">
         <table className="w-full text-sm">
