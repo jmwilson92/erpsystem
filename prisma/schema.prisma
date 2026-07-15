@@ -3887,6 +3887,10 @@ model CompanySettings {
   tagline        String   @default("Manufacturing")
   /// JSON [string] — departments used for org chart + charge routing
   departments    String?
+  /// JSON [string] — module keys the company has turned OFF (buy parts, not
+  /// the whole suite). Disabled modules vanish from nav and their routes are
+  /// blocked until re-enabled. See src/lib/modules.ts for the catalog.
+  disabledModules String?
   setupCompleted Boolean  @default(false)
   updatedById    String?
   updatedAt      DateTime @updatedAt

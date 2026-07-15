@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { NAV_GROUPS, activeNavHref } from "@/lib/navigation";
+import { moduleKeyForPath } from "@/lib/modules";
 import { actionSwitchDemoUser } from "@/app/actions";
 import type { DemoUser } from "./app-shell";
 import { ChevronLeft, ChevronDown, Flame } from "lucide-react";
@@ -17,11 +18,13 @@ export function Sidebar({
   currentUser = null,
   badges = {},
   company,
+  disabledModules = [],
 }: {
   demoUsers?: DemoUser[];
   currentUser?: DemoUser | null;
   badges?: Record<string, number>;
   company?: { name: string; tagline: string };
+  disabledModules?: string[];
 }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -55,6 +58,15 @@ export function Sidebar({
 
   const activeHref = activeNavHref(pathname, searchParams);
 
+  // Hide nav items whose module is turned off; drop groups left empty.
+  const visibleGroups = NAV_GROUPS.map((group) => ({
+    ...group,
+    items: group.items.filter((item) => {
+      const key = moduleKeyForPath(item.href);
+      return !key || !disabledModules.includes(key);
+    }),
+  })).filter((group) => group.items.length > 0);
+
   return (
     <aside
       className={cn(
@@ -86,7 +98,7 @@ export function Sidebar({
       </div>
 
       <nav className="flex-1 overflow-y-auto px-2 py-3">
-        {NAV_GROUPS.map((group) => {
+        {visibleGroups.map((group) => {
           const groupClosed = !collapsed && closedGroups.includes(group.label);
           const groupHasActive = group.items.some((i) => i.href === activeHref);
           return (

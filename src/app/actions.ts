@@ -6325,6 +6325,55 @@ export async function actionSaveCompanyProfile(
   revalidatePath("/", "layout");
 }
 
+export async function actionSetModuleEnabled(
+  formData: FormData
+): Promise<void> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const user = await getCurrentUser();
+  if (!(await userHasPermission(user?.id, "admin.permissions"))) {
+    throw new Error("Only an administrator can change enabled modules");
+  }
+  const { MODULES } = await import("@/lib/modules");
+  const moduleKey = ((formData.get("moduleKey") as string) || "").trim();
+  const enabled = ((formData.get("enabled") as string) || "") === "true";
+  if (!MODULES.some((m) => m.key === moduleKey)) {
+    throw new Error("Unknown module");
+  }
+  const settings = await prisma.companySettings.upsert({
+    where: { id: "default" },
+    create: { id: "default" },
+    update: {},
+  });
+  let disabled: string[] = [];
+  try {
+    disabled = settings.disabledModules
+      ? (JSON.parse(settings.disabledModules) as string[])
+      : [];
+  } catch {
+    disabled = [];
+  }
+  const next = enabled
+    ? disabled.filter((k) => k !== moduleKey)
+    : Array.from(new Set([...disabled, moduleKey]));
+  await prisma.companySettings.update({
+    where: { id: "default" },
+    data: { disabledModules: JSON.stringify(next), updatedById: user?.id },
+  });
+  await logAudit({
+    entityType: "CompanySettings",
+    entityId: "default",
+    action: enabled ? "MODULE_ENABLED" : "MODULE_DISABLED",
+    userId: user?.id,
+    metadata: { moduleKey },
+  });
+  await flashToast(
+    `${MODULES.find((m) => m.key === moduleKey)?.label} ${enabled ? "enabled" : "disabled"}`
+  );
+  // Nav lives in the root layout — revalidate the whole tree.
+  revalidatePath("/", "layout");
+  revalidatePath("/admin/settings");
+}
+
 export async function actionWizardAddPerson(
   formData: FormData
 ): Promise<void> {

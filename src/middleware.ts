@@ -10,15 +10,23 @@ import { NextRequest, NextResponse } from "next/server";
  */
 const PUBLIC_PREFIXES = ["/login", "/invite", "/_next", "/favicon", "/api/health"];
 
+/** Pass the current path to server components (root layout) via a header so
+ *  the module guard can block disabled-module routes before they render. */
+function withPathname(req: NextRequest) {
+  const headers = new Headers(req.headers);
+  headers.set("x-pathname", req.nextUrl.pathname);
+  return NextResponse.next({ request: { headers } });
+}
+
 export function middleware(req: NextRequest) {
-  if (process.env.DEMO_MODE !== "0") return NextResponse.next();
+  if (process.env.DEMO_MODE !== "0") return withPathname(req);
 
   const { pathname } = req.nextUrl;
   if (PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))) {
     return NextResponse.next();
   }
   if (req.cookies.get("forge-session")?.value) {
-    return NextResponse.next();
+    return withPathname(req);
   }
   const url = req.nextUrl.clone();
   url.pathname = "/login";

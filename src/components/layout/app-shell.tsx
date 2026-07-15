@@ -29,12 +29,14 @@ function ShellInner({
   currentUser,
   notifications,
   company,
+  disabledModules,
 }: {
   children: React.ReactNode;
   demoUsers: DemoUser[];
   currentUser: DemoUser | null;
   notifications: ShellNotifications;
   company: ShellCompany;
+  disabledModules: string[];
 }) {
   const [cmdOpen, setCmdOpen] = useState(false);
   const { theme } = useTheme();
@@ -57,6 +59,7 @@ function ShellInner({
           currentUser={currentUser}
           badges={notifications.badges}
           company={company}
+          disabledModules={disabledModules}
         />
       </Suspense>
       <div className="flex min-w-0 flex-1 flex-col">
@@ -65,7 +68,7 @@ function ShellInner({
           <div className="mx-auto max-w-[1600px] p-4 md:p-6">{children}</div>
         </main>
       </div>
-      <CommandPalette open={cmdOpen} onOpenChange={setCmdOpen} />
+      <CommandPalette open={cmdOpen} onOpenChange={setCmdOpen} disabledModules={disabledModules} />
       <Toaster
         theme={theme === "light" ? "light" : "dark"}
         position="bottom-right"
@@ -84,12 +87,14 @@ export function AppShell({
   currentUser,
   notifications,
   company,
+  disabledModules = [],
 }: {
   children: React.ReactNode;
   demoUsers: DemoUser[];
   currentUser: DemoUser | null;
   notifications: ShellNotifications;
   company: ShellCompany;
+  disabledModules?: string[];
 }) {
   const pathname = usePathname();
   // Auth screens render bare — no sidebar/header chrome
@@ -106,6 +111,7 @@ export function AppShell({
         currentUser={currentUser}
         notifications={notifications}
         company={company}
+        disabledModules={disabledModules}
       >
         {children}
       </ShellInner>
