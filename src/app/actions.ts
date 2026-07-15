@@ -5826,6 +5826,21 @@ export async function actionReleaseTestProcedure(
   revalidatePath("/test-procedures");
 }
 
+export async function actionSubmitTestProcedureToCm(
+  formData: FormData
+): Promise<void> {
+  const { submitTestProcedureToCm } = await import(
+    "@/lib/services/test-procedures"
+  );
+  const user = await getCurrentUser();
+  if (!user) return;
+  const testProcedureId = formData.get("testProcedureId") as string;
+  await submitTestProcedureToCm({ testProcedureId, userId: user.id });
+  await flashToast("Test procedure submitted to CM");
+  revalidatePath(`/test-procedures/${testProcedureId}`);
+  revalidatePath("/cm");
+}
+
 export async function actionRecordTestSignOff(
   formData: FormData
 ): Promise<void> {

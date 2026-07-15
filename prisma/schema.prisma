@@ -429,6 +429,7 @@ model TestProcedure {
 
   steps          TestProcedureStep[]
   signOffs       TestProcedureSignOff[]
+  changeRequests ChangeRequest[] @relation("TpChangeRequests")
   wiSteps        WorkInstructionStep[]
   functionalForParts Part[] @relation("PartFunctionalTest")
   verifiesRequirements Requirement[] @relation("ReqVerifiedByTp")
@@ -782,6 +783,8 @@ model ChangeRequest {
   bomPart         Part?    @relation("EcrBomPart", fields: [bomPartId], references: [id])
   workInstructionId String?
   workInstruction WorkInstruction? @relation(fields: [workInstructionId], references: [id])
+  testProcedureId String?
+  testProcedure   TestProcedure? @relation("TpChangeRequests", fields: [testProcedureId], references: [id])
   engineeringTicketId String?
   // ── Document ECR (drawing / policy) fields ──
   // Product the creator targets (product root folder id) or Admin folder id

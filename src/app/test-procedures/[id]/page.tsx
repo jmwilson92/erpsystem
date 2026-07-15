@@ -11,6 +11,7 @@ import { formatDate } from "@/lib/utils";
 import {
   actionAddTestProcedureStep,
   actionReleaseTestProcedure,
+  actionSubmitTestProcedureToCm,
 } from "@/app/actions";
 import { TestStepRecord } from "@/components/test-procedures/test-step-record";
 
@@ -56,13 +57,28 @@ export default async function TestProcedureDetailPage({
                 All procedures
               </Button>
             </Link>
-            {!released && (
-              <form action={actionReleaseTestProcedure}>
+            {tp.status !== "RELEASED" && tp.status !== "CM_REVIEW" && (
+              <form action={actionSubmitTestProcedureToCm}>
                 <input type="hidden" name="testProcedureId" value={tp.id} />
                 <Button type="submit" size="sm">
-                  Release (CM)
+                  Submit to CM
                 </Button>
               </form>
+            )}
+            {tp.status === "CM_REVIEW" && (
+              <>
+                <Link href="/cm">
+                  <Button size="sm" variant="secondary">
+                    Open CM board
+                  </Button>
+                </Link>
+                <form action={actionReleaseTestProcedure}>
+                  <input type="hidden" name="testProcedureId" value={tp.id} />
+                  <Button type="submit" size="sm">
+                    Release (CM)
+                  </Button>
+                </form>
+              </>
             )}
           </div>
         }
