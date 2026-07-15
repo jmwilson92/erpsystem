@@ -249,9 +249,12 @@ export default async function GovPropertyPage({
                         }`}
                       >
                         <td className="px-3 py-2">
-                          <p className="font-mono font-semibold text-violet-400">
+                          <Link
+                            href={`/government-property/${prop.id}`}
+                            className="font-mono font-semibold text-violet-400 hover:underline"
+                          >
                             {prop.assetTag}
-                          </p>
+                          </Link>
                           <p className="font-mono text-[10px] text-slate-600">
                             {prop.serialNumber || prop.uid || "—"}
                           </p>

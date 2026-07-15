@@ -211,9 +211,11 @@ export default async function VirtualAssetsPage({
           <Card key={a.id}>
             <CardHeader className="pb-2">
               <div className="flex flex-wrap items-center gap-2">
-                <CardTitle className="font-mono text-sky-400">
-                  {a.assetTag}
-                </CardTitle>
+                <Link href={`/virtual-assets/${a.id}`}>
+                  <CardTitle className="font-mono text-sky-400 hover:underline">
+                    {a.assetTag}
+                  </CardTitle>
+                </Link>
                 <StatusBadge status={a.assetType} />
                 <StatusBadge status={a.usageType} />
                 <StatusBadge status={a.status} />
