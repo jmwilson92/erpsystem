@@ -57,6 +57,7 @@ model User {
   assignedWorkOrders  WorkOrder[]              @relation("WOAssignee")
   createdWorkOrders   WorkOrder[]              @relation("WOCreator")
   stepSignOffs        WorkInstructionSignOff[]
+  testProcSignOffs    TestProcedureSignOff[]   @relation("TestProcSignOffUser")
   wiCreated           WorkInstruction[]        @relation("WICreator")
   testProceduresCreated TestProcedure[]        @relation("TestProcCreator")
   approvals           Approval[]
@@ -427,6 +428,7 @@ model TestProcedure {
   updatedAt      DateTime @updatedAt
 
   steps          TestProcedureStep[]
+  signOffs       TestProcedureSignOff[]
   wiSteps        WorkInstructionStep[]
   functionalForParts Part[] @relation("PartFunctionalTest")
   verifiesRequirements Requirement[] @relation("ReqVerifiedByTp")
@@ -434,6 +436,30 @@ model TestProcedure {
   @@unique([number, revision])
   @@index([status])
   @@index([partId])
+}
+
+/// A PIN-verified execution record of one test-procedure step (measurement +
+/// pass/fail), mirroring WorkInstructionSignOff. Photos captured as data URLs.
+model TestProcedureSignOff {
+  id              String  @id @default(cuid())
+  testProcedureId String
+  testProcedure   TestProcedure @relation(fields: [testProcedureId], references: [id], onDelete: Cascade)
+  stepId          String?
+  step            TestProcedureStep? @relation(fields: [stepId], references: [id], onDelete: SetNull)
+  workOrderId     String?
+  unitSerial      String?
+  userId          String
+  user            User    @relation("TestProcSignOffUser", fields: [userId], references: [id])
+  result          String? // PASS | FAIL | NA
+  measuredValue   String?
+  units           String?
+  notes           String?
+  photoUrl        String?
+  pinVerified     Boolean @default(false)
+  signedAt        DateTime @default(now())
+
+  @@index([testProcedureId])
+  @@index([stepId])
 }
 
 model TestProcedureStep {
@@ -448,6 +474,7 @@ model TestProcedureStep {
   maxValue        Float?
   units           String?
   sortOrder       Int     @default(0)
+  signOffs        TestProcedureSignOff[]
 
   @@index([testProcedureId])
 }

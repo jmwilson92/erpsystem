@@ -142,3 +142,89 @@ export async function listTestProcedures() {
     orderBy: [{ number: "asc" }, { revision: "desc" }],
   });
 }
+
+export async function getTestProcedureDetail(id: string) {
+  return prisma.testProcedure.findUnique({
+    where: { id },
+    include: {
+      part: { select: { id: true, partNumber: true } },
+      createdBy: { select: { name: true } },
+      steps: { orderBy: { sortOrder: "asc" } },
+      signOffs: {
+        orderBy: { signedAt: "desc" },
+        take: 60,
+        include: { user: { select: { name: true } } },
+      },
+    },
+  });
+}
+
+/**
+ * Record a PIN-verified execution of one test-procedure step: captures a
+ * measurement, auto-grades PASS/FAIL against the step's min/max when numeric,
+ * and stores an optional photo. Mirrors the WI step sign-off.
+ */
+export async function recordTestStepSignOff(params: {
+  testProcedureId: string;
+  stepId: string;
+  workOrderId?: string | null;
+  unitSerial?: string | null;
+  userId: string;
+  measuredValue?: string | null;
+  result?: string | null;
+  notes?: string | null;
+  photoUrl?: string | null;
+  pinCode?: string | null;
+}) {
+  const user = await prisma.user.findUniqueOrThrow({
+    where: { id: params.userId },
+    select: { pinCode: true },
+  });
+  const expectedPin = user.pinCode || "1234";
+  if (!params.pinCode || params.pinCode.trim() !== expectedPin) {
+    throw new Error("PIN verification failed");
+  }
+
+  const step = await prisma.testProcedureStep.findUniqueOrThrow({
+    where: { id: params.stepId },
+  });
+
+  // Auto-grade against min/max when a numeric measurement is given.
+  let result = (params.result || "").toUpperCase();
+  const num = params.measuredValue != null ? Number(params.measuredValue) : NaN;
+  if (!result && !Number.isNaN(num) && (step.minValue != null || step.maxValue != null)) {
+    const okMin = step.minValue == null || num >= step.minValue;
+    const okMax = step.maxValue == null || num <= step.maxValue;
+    result = okMin && okMax ? "PASS" : "FAIL";
+  }
+  if (!result) result = "PASS";
+
+  const signOff = await prisma.testProcedureSignOff.create({
+    data: {
+      testProcedureId: params.testProcedureId,
+      stepId: params.stepId,
+      workOrderId: params.workOrderId || null,
+      unitSerial: params.unitSerial?.trim() || null,
+      userId: params.userId,
+      result,
+      measuredValue: params.measuredValue?.toString().trim() || null,
+      units: step.units || null,
+      notes: params.notes?.trim() || null,
+      photoUrl: params.photoUrl?.trim() || null,
+      pinVerified: true,
+    },
+  });
+  await logAudit({
+    entityType: "TestProcedure",
+    entityId: params.testProcedureId,
+    action: `TEST_STEP_${result}`,
+    userId: params.userId,
+    metadata: {
+      stepId: params.stepId,
+      parameter: step.parameter,
+      measuredValue: params.measuredValue,
+      unitSerial: params.unitSerial,
+    },
+  });
+  return signOff;
+}

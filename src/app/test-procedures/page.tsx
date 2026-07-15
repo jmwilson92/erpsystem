@@ -5,12 +5,9 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  actionCreateTestProcedure,
-  actionAddTestProcedureStep,
-  actionReleaseTestProcedure,
-} from "@/app/actions";
+import { actionCreateTestProcedure } from "@/app/actions";
 import { FlaskConical, Plus } from "lucide-react";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -94,109 +91,42 @@ export default async function TestProceduresPage() {
         </CardContent>
       </Card>
 
-      <div className="space-y-3">
-        {procedures.map((tp) => {
-          const released = tp.status === "RELEASED";
-          return (
-            <Card key={tp.id}>
-              <CardHeader className="pb-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <span className="font-mono text-sm text-teal-400">
-                      {tp.number} Rev {tp.revision}
-                    </span>
-                    {tp.title}
-                    <StatusBadge status={tp.status} />
-                    <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">
-                      {tp.category.replace(/_/g, " ")}
-                    </span>
-                  </CardTitle>
-                  {!released && (
-                    <form action={actionReleaseTestProcedure}>
-                      <input type="hidden" name="testProcedureId" value={tp.id} />
-                      <Button type="submit" size="sm">
-                        Release (CM)
-                      </Button>
-                    </form>
-                  )}
-                </div>
-                <p className="text-xs text-slate-500">
-                  {tp.part ? `Part ${tp.part.partNumber} · ` : ""}
-                  {tp.equipment ? `${tp.equipment} · ` : ""}
-                  {tp._count.wiSteps} WI step
-                  {tp._count.wiSteps === 1 ? "" : "s"} call this out ·{" "}
-                  {tp._count.functionalForParts} part
-                  {tp._count.functionalForParts === 1 ? "" : "s"} require it at
-                  receiving
-                </p>
-              </CardHeader>
-              <CardContent>
-                {tp.steps.length > 0 && (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="border-b border-slate-800 text-left text-[10px] uppercase tracking-wider text-slate-500">
-                          <th className="px-2 py-1">#</th>
-                          <th className="px-2 py-1">Parameter</th>
-                          <th className="px-2 py-1">Method</th>
-                          <th className="px-2 py-1">Spec</th>
-                          <th className="px-2 py-1 text-right">Min</th>
-                          <th className="px-2 py-1 text-right">Max</th>
-                          <th className="px-2 py-1">Units</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {tp.steps.map((s) => (
-                          <tr key={s.id} className="border-b border-slate-900/60">
-                            <td className="px-2 py-1 text-slate-500">{s.stepNumber}</td>
-                            <td className="px-2 py-1 text-slate-200">{s.parameter}</td>
-                            <td className="px-2 py-1 text-slate-400">{s.method || "—"}</td>
-                            <td className="px-2 py-1 text-slate-400">{s.spec || "—"}</td>
-                            <td className="px-2 py-1 text-right tabular-nums text-slate-400">
-                              {s.minValue ?? "—"}
-                            </td>
-                            <td className="px-2 py-1 text-right tabular-nums text-slate-400">
-                              {s.maxValue ?? "—"}
-                            </td>
-                            <td className="px-2 py-1 text-slate-400">{s.units || "—"}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-                {!released && (
-                  <form
-                    action={actionAddTestProcedureStep}
-                    className="mt-2 grid gap-1.5 sm:grid-cols-3 lg:grid-cols-7"
-                  >
-                    <input type="hidden" name="testProcedureId" value={tp.id} />
-                    <Input name="parameter" required placeholder="Parameter" className="h-8 text-xs lg:col-span-2" />
-                    <Input name="method" placeholder="Method" className="h-8 text-xs lg:col-span-2" />
-                    <Input name="spec" placeholder="Spec" className="h-8 text-xs" />
-                    <Input name="minValue" type="number" step="any" placeholder="Min" className="h-8 text-xs" />
-                    <Input name="maxValue" type="number" step="any" placeholder="Max" className="h-8 text-xs" />
-                    <Input name="units" placeholder="Units" className="h-8 text-xs" />
-                    <Button type="submit" size="sm" variant="outline" className="h-8 lg:col-span-7 lg:w-fit">
-                      Add test step
-                    </Button>
-                  </form>
-                )}
-                {released && (
-                  <p className="mt-2 text-[11px] text-slate-500">
-                    Released &amp; locked. Edits require a new revision.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          );
-        })}
+      <div className="overflow-hidden rounded-xl border border-slate-800">
+        <div className="grid grid-cols-[8rem_1fr_7rem_5rem_minmax(9rem,1fr)] gap-x-2 border-b border-slate-800 bg-slate-900/60 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+          <span>Number</span>
+          <span>Title</span>
+          <span>Category</span>
+          <span className="text-center">Steps</span>
+          <span>Called by</span>
+        </div>
+        {procedures.map((tp) => (
+          <Link
+            key={tp.id}
+            href={`/test-procedures/${tp.id}`}
+            className="grid grid-cols-[8rem_1fr_7rem_5rem_minmax(9rem,1fr)] items-center gap-x-2 border-b border-slate-900/70 px-3 py-2 text-sm transition-colors last:border-0 hover:bg-slate-900/40"
+          >
+            <span className="font-mono text-xs text-teal-400">
+              {tp.number} <span className="text-slate-600">R{tp.revision}</span>
+            </span>
+            <span className="flex items-center gap-2 truncate text-slate-200">
+              {tp.title}
+              <StatusBadge status={tp.status} className="text-[9px]" />
+            </span>
+            <span className="text-xs text-slate-400">
+              {tp.category.replace(/_/g, " ")}
+            </span>
+            <span className="text-center text-xs tabular-nums text-slate-400">
+              {tp.steps.length}
+            </span>
+            <span className="truncate text-[11px] text-slate-500">
+              {tp._count.wiSteps} WI · {tp._count.functionalForParts} receiving
+            </span>
+          </Link>
+        ))}
         {procedures.length === 0 && (
-          <Card>
-            <CardContent className="p-8 text-center text-sm text-slate-500">
-              No test procedures yet. Create one above.
-            </CardContent>
-          </Card>
+          <div className="p-8 text-center text-sm text-slate-500">
+            No test procedures yet. Create one above.
+          </div>
         )}
       </div>
     </div>
