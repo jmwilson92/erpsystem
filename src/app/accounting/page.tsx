@@ -952,6 +952,21 @@ export default async function AccountingPage({
                     </option>
                   ))}
                 </select>
+                <select name="settleArInvoiceId" className={selectClass} defaultValue="">
+                  <option value="">— Settle AR invoice? (optional) —</option>
+                  {arList
+                    .filter((i) => !["PAID", "VOID"].includes(i.status))
+                    .map((i) => (
+                      <option key={i.id} value={i.id}>
+                        {i.number} · {i.customer.name} · open{" "}
+                        {formatCurrency(i.total - i.amountPaid)}
+                      </option>
+                    ))}
+                </select>
+                <p className="text-[10px] text-slate-500">
+                  Pick an invoice to auto-apply the AR credit to its balance when
+                  this JE posts — no need to record the payment again in AR.
+                </p>
                 <Input
                   name="receiptUrl"
                   placeholder="Receipt / supporting doc URL"

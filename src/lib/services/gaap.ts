@@ -216,9 +216,55 @@ export async function postJournal(params: {
 
   if (status === "POSTED") {
     await applyJournalBalances(je.lines);
+    await applyArSettlementFromJournal(je);
   }
 
   return je;
+}
+
+/**
+ * When a journal that credits the AR control account is linked to a specific
+ * AR invoice (source AR_SETTLE, sourceId = invoiceId), apply that credit to the
+ * invoice's subledger — so posting the JE settles the invoice automatically
+ * instead of the user having to record the payment separately in AR. The GL is
+ * already booked by the JE itself, so no second JE is posted here. Idempotent.
+ */
+async function applyArSettlementFromJournal(je: {
+  number: string;
+  source: string | null;
+  sourceId: string | null;
+  lines: { accountId: string; credit: number }[];
+}) {
+  if (je.source !== "AR_SETTLE" || !je.sourceId) return;
+  const ar = await prisma.account.findFirst({ where: { code: "1100" } });
+  if (!ar) return;
+  const credit = je.lines
+    .filter((l) => l.accountId === ar.id)
+    .reduce((s, l) => s + (l.credit || 0), 0);
+  if (credit <= 0) return;
+  const inv = await prisma.arInvoice.findUnique({ where: { id: je.sourceId } });
+  if (!inv || ["PAID", "VOID"].includes(inv.status)) return;
+  // Don't double-apply if this JE already settled the invoice.
+  const already = await prisma.arPayment.findFirst({
+    where: { invoiceId: inv.id, reference: je.number },
+  });
+  if (already) return;
+  const amountPaid = Math.min(inv.total, inv.amountPaid + credit);
+  const status =
+    amountPaid >= inv.total - 0.001 ? "PAID" : amountPaid > 0 ? "PARTIAL" : inv.status;
+  await prisma.arPayment.create({
+    data: {
+      invoiceId: inv.id,
+      amount: Math.min(credit, inv.total - inv.amountPaid),
+      method: "JOURNAL",
+      reference: je.number,
+      paymentDate: new Date(),
+    },
+  });
+  await prisma.arInvoice.update({
+    where: { id: inv.id },
+    data: { amountPaid, status },
+  });
 }
 
 /** Approve a pending journal — posts balances. */
@@ -240,6 +286,7 @@ export async function approveJournal(params: {
     include: { lines: true, attachments: true },
   });
   await applyJournalBalances(updated.lines);
+  await applyArSettlementFromJournal(updated);
   return updated;
 }
 
