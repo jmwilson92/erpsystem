@@ -46,7 +46,7 @@ import {
   shipSalesOrder,
   ensureShipmentForSalesOrder,
 } from "@/lib/services/order-fulfillment";
-import { certifyBom } from "@/lib/services/bom";
+import { certifyBom, certifyBomForPrototype } from "@/lib/services/bom";
 import { processAiQuery } from "@/lib/services/ai";
 import { createCustomer, updateCustomer } from "@/lib/services/customers";
 import {
@@ -802,13 +802,24 @@ export async function actionUpdateWiStepRouting(
   revalidatePath("/work-instructions");
 }
 
+export async function actionCertifyBomForPrototype(formData: FormData) {
+  const bomHeaderId = formData.get("bomHeaderId") as string;
+  const user = await getCurrentUser("CM");
+
+  await certifyBomForPrototype({ bomHeaderId, userId: user?.id });
+
+  await flashToast("BOM certified for prototype — drawing can now be released");
+  revalidatePath("/bom");
+  revalidatePath(`/bom/${bomHeaderId}`);
+}
+
 export async function actionCertifyBom(formData: FormData) {
   const bomHeaderId = formData.get("bomHeaderId") as string;
   const user = await getCurrentUser("CM");
 
   await certifyBom({ bomHeaderId, userId: user?.id });
 
-  await flashToast("BOM certified");
+  await flashToast("BOM certified for production");
   revalidatePath("/bom");
   revalidatePath(`/bom/${bomHeaderId}`);
 }
