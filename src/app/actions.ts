@@ -648,6 +648,34 @@ export async function actionSaveWorkCenter(formData: FormData): Promise<void> {
   redirect(returnPath.includes("?") ? returnPath : `${returnPath}?tab=stations`);
 }
 
+/** Persist a new work-center display order (drag-to-model floor flow). */
+export async function actionReorderWorkCenters(
+  formData: FormData
+): Promise<void> {
+  const user = await getCurrentUser();
+  const { userHasPermission } = await import("@/lib/auth");
+  const ok = await userHasPermission(user?.id, "workorders.create");
+  if (!ok) throw new Error("Not authorized to reorder work centers");
+  const raw = (formData.get("codes") as string) || "[]";
+  let codes: string[];
+  try {
+    codes = JSON.parse(raw);
+  } catch {
+    throw new Error("Bad order payload");
+  }
+  if (!Array.isArray(codes)) return;
+  await Promise.all(
+    codes.map((code, i) =>
+      prisma.workCenter.updateMany({
+        where: { code: String(code) },
+        data: { sortOrder: i },
+      })
+    )
+  );
+  revalidatePath("/floor");
+  revalidatePath("/workcenters");
+}
+
 export async function actionScanWorkOrderToStation(
   formData: FormData
 ): Promise<void> {
