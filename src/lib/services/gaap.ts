@@ -117,6 +117,94 @@ export async function getGaapReportPack() {
   };
 }
 
+/**
+ * Register-style account ledger: every posted journal line hitting the
+ * account, oldest→newest, with a running balance in the account's natural
+ * (normal-balance) sign. Also returns opening balance before the window.
+ */
+export async function getAccountRegister(
+  accountId: string,
+  opts?: { from?: Date | null; to?: Date | null }
+) {
+  const account = await prisma.account.findUnique({
+    where: { id: accountId },
+  });
+  if (!account) return null;
+
+  const debitNormal = ["ASSET", "EXPENSE", "COGS"].includes(account.type);
+  const signed = (debit: number, credit: number) =>
+    debitNormal ? (debit || 0) - (credit || 0) : (credit || 0) - (debit || 0);
+
+  const lines = await prisma.journalLine.findMany({
+    where: { accountId, journalEntry: { status: "POSTED" } },
+    include: {
+      journalEntry: {
+        select: { id: true, number: true, date: true, description: true, source: true },
+      },
+    },
+    orderBy: [{ journalEntry: { date: "asc" } }, { id: "asc" }],
+  });
+
+  const from = opts?.from ?? null;
+  const to = opts?.to ?? null;
+
+  let opening = 0;
+  const windowRows: {
+    id: string;
+    date: Date;
+    number: string;
+    description: string;
+    source: string | null;
+    journalEntryId: string;
+    memo: string | null;
+    debit: number;
+    credit: number;
+    balance: number;
+  }[] = [];
+
+  // First pass: opening balance from lines strictly before the window.
+  for (const l of lines) {
+    const d = l.journalEntry.date;
+    if (from && d < from) {
+      opening += signed(l.debit, l.credit);
+    }
+  }
+
+  let running = opening;
+  for (const l of lines) {
+    const d = l.journalEntry.date;
+    if (from && d < from) continue;
+    if (to && d > to) continue;
+    running += signed(l.debit, l.credit);
+    windowRows.push({
+      id: l.id,
+      date: d,
+      number: l.journalEntry.number,
+      description: l.journalEntry.description,
+      source: l.journalEntry.source,
+      journalEntryId: l.journalEntry.id,
+      memo: l.memo,
+      debit: l.debit || 0,
+      credit: l.credit || 0,
+      balance: running,
+    });
+  }
+
+  const totalDebit = windowRows.reduce((s, r) => s + r.debit, 0);
+  const totalCredit = windowRows.reduce((s, r) => s + r.credit, 0);
+
+  return {
+    account,
+    debitNormal,
+    opening,
+    closing: running,
+    totalDebit,
+    totalCredit,
+    // newest first for display
+    rows: windowRows.reverse(),
+  };
+}
+
 async function applyJournalBalances(
   lines: { accountId: string; debit: number; credit: number }[]
 ) {

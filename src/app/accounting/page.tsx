@@ -455,10 +455,24 @@ export default async function AccountingPage({
                   {accounts.map((a) => (
                     <tr
                       key={a.id}
-                      className="border-b border-slate-900/80 text-[13px]"
+                      className="border-b border-slate-900/80 text-[13px] hover:bg-slate-900/40"
                     >
-                      <td className="py-1 font-mono text-teal-400">{a.code}</td>
-                      <td className="py-1 text-slate-300">{a.name}</td>
+                      <td className="py-1 font-mono">
+                        <Link
+                          href={`/accounting/account/${a.id}${periodSuffix ? `?${periodSuffix.slice(1)}` : ""}`}
+                          className="text-teal-400 hover:underline"
+                        >
+                          {a.code}
+                        </Link>
+                      </td>
+                      <td className="py-1 text-slate-300">
+                        <Link
+                          href={`/accounting/account/${a.id}${periodSuffix ? `?${periodSuffix.slice(1)}` : ""}`}
+                          className="hover:text-teal-300 hover:underline"
+                        >
+                          {a.name}
+                        </Link>
+                      </td>
                       <td className="py-1 text-slate-500">{a.type}</td>
                       <td className="py-1 text-right tabular-nums">
                         {formatCurrency(a.balance)}
@@ -747,9 +761,10 @@ export default async function AccountingPage({
                   <span className="text-right">Balance</span>
                 </div>
                 {accounts.map((a) => (
-                  <div
+                  <Link
                     key={a.id}
-                    className="grid grid-cols-[4rem_1fr_5rem_5.5rem] gap-x-2 border-b border-slate-900/70 px-3 py-0.5 text-[12px]"
+                    href={`/accounting/account/${a.id}`}
+                    className="grid grid-cols-[4rem_1fr_5rem_5.5rem] gap-x-2 border-b border-slate-900/70 px-3 py-0.5 text-[12px] hover:bg-slate-900/50"
                   >
                     <span className="font-mono text-teal-400">{a.code}</span>
                     <span className="truncate text-slate-300">
@@ -766,7 +781,7 @@ export default async function AccountingPage({
                     <span className="text-right font-mono tabular-nums text-slate-400">
                       {formatCurrency(a.balance)}
                     </span>
-                  </div>
+                  </Link>
                 ))}
               </CardContent>
             </Card>
