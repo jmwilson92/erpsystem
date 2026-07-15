@@ -39,7 +39,14 @@ export default async function WiDetailPage({
         part: true,
         bomHeader: { include: { part: true } },
         createdBy: true,
-        steps: { orderBy: { stepNumber: "asc" } },
+        steps: {
+          orderBy: { stepNumber: "asc" },
+          include: {
+            testProcedure: {
+              select: { id: true, number: true, revision: true, status: true },
+            },
+          },
+        },
         signOffs: {
           take: 10,
           orderBy: { signedAt: "desc" },
@@ -401,6 +408,14 @@ export default async function WiDetailPage({
                   }
                 />
                 {step.passFailRequired && <StatusBadge status="PASS_FAIL" />}
+                {step.testProcedure && (
+                  <Link
+                    href={`/test-procedures/${step.testProcedure.id}`}
+                    className="inline-flex items-center gap-1 rounded-md border border-teal-500/40 bg-teal-500/5 px-1.5 py-0.5 text-[10px] text-teal-300 hover:border-teal-400"
+                  >
+                    Open {step.testProcedure.number} Rev {step.testProcedure.revision} →
+                  </Link>
+                )}
                 {step.measureUom && (
                   <span className="font-mono text-[10px] text-sky-400">
                     {step.measureUom}
