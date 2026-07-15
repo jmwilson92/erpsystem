@@ -11,7 +11,6 @@ import {
   actionUpdateItem,
   actionUpsertPartVendor,
   actionUpdatePartInspectionFlags,
-  actionCreateItemBom,
   actionAddBomLine,
   actionRemoveBomLine,
 } from "@/app/actions";
@@ -82,14 +81,6 @@ export default async function ItemDetailPage({
   const editableBom = part.bomHeaders.find((b) =>
     ["DRAFT", "PROTOTYPE", "IN_REVIEW"].includes(b.status)
   );
-  const nextRevSuggestion = (() => {
-    if (part.bomHeaders.length === 0) return "A";
-    const last = part.bomHeaders[0].revision;
-    if (/^[A-Z]$/i.test(last)) {
-      return String.fromCharCode(last.toUpperCase().charCodeAt(0) + 1);
-    }
-    return `${last}.1`;
-  })();
 
   const selectClass =
     "flex h-9 w-full rounded-md border border-slate-700 bg-slate-950 px-2 text-sm text-slate-200";
@@ -852,78 +843,30 @@ export default async function ItemDetailPage({
             </Card>
           )}
 
-          <Card>
+          <Card className="border-slate-800">
             <CardHeader>
-              <CardTitle>
-                {part.bomHeaders.length === 0
-                  ? "Create BOM"
-                  : "New BOM revision"}
-              </CardTitle>
+              <CardTitle>Where do BOMs come from?</CardTitle>
             </CardHeader>
-            <CardContent>
-              <form
-                action={actionCreateItemBom}
-                className="grid gap-3 sm:grid-cols-2"
-              >
-                <input type="hidden" name="partId" value={part.id} />
-                <div>
-                  <label className="text-[10px] uppercase text-slate-500">
-                    Revision *
-                  </label>
-                  <Input
-                    name="revision"
-                    required
-                    defaultValue={nextRevSuggestion}
-                    className="mt-1 font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] uppercase text-slate-500">
-                    Copy lines from
-                  </label>
-                  <select
-                    name="copyFromBomId"
-                    className={`${selectClass} mt-1`}
-                    defaultValue=""
-                  >
-                    <option value="">— Empty BOM —</option>
-                    {part.bomHeaders.map((b) => (
-                      <option key={b.id} value={b.id}>
-                        Rev {b.revision} ({b.status})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="sm:col-span-2">
-                  <label className="text-[10px] uppercase text-slate-500">
-                    Description
-                  </label>
-                  <Input
-                    name="description"
-                    className="mt-1"
-                    placeholder="e.g. Production release"
-                  />
-                </div>
-                <label className="flex items-center gap-2 text-sm text-slate-400">
-                  <input
-                    type="checkbox"
-                    name="asPrototype"
-                    className="rounded border-slate-600"
-                  />
-                  Mark as prototype / FAI
-                </label>
-                <div className="flex items-end">
-                  <Button type="submit" size="sm">
-                    {part.bomHeaders.length === 0
-                      ? "Create BOM"
-                      : "Create revision"}
-                  </Button>
-                </div>
-              </form>
-              <p className="mt-2 text-xs text-slate-600">
-                New revisions are DRAFT (or PROTOTYPE). Edit components while
-                unlocked, then certify from the BOM detail page for production.
+            <CardContent className="space-y-2 text-sm text-slate-400">
+              <p>
+                BOMs are no longer created from the item card. A bill of
+                materials originates from its <strong>drawing</strong>: create a
+                document ECR for the drawing and check{" "}
+                <em>&ldquo;this drawing includes a BOM&rdquo;</em> — an in-work
+                prototype BOM is created automatically, numbered after the
+                drawing.
               </p>
+              <p className="text-xs text-slate-500">
+                Once the drawing ECR is approved, a designated person updates the
+                BOM and certifies it for prototype; the drawing then releases,
+                the prototype runs on a work order, and on completion the BOM is
+                certified for production.
+              </p>
+              <Link href="/cm?tab=submissions">
+                <Button size="sm" variant="outline">
+                  Create a drawing ECR →
+                </Button>
+              </Link>
             </CardContent>
           </Card>
         </div>
