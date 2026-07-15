@@ -6198,6 +6198,27 @@ export async function actionVoidJournal(formData: FormData): Promise<void> {
   revalidatePath("/accounting");
 }
 
+export async function actionSetAccountingCloseDate(
+  formData: FormData
+): Promise<void> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const { setAccountingCloseDate } = await import("@/lib/services/gaap");
+  const user = await getCurrentUser();
+  if (!(await userHasPermission(user?.id, "accounting.journal.post"))) {
+    throw new Error("Not authorized to close accounting periods");
+  }
+  const raw = ((formData.get("closeDate") as string) || "").trim();
+  const date = raw ? new Date(raw) : null;
+  if (date && Number.isNaN(date.getTime())) {
+    throw new Error("Invalid closing date");
+  }
+  await setAccountingCloseDate({ date, userId: user?.id });
+  await flashToast(
+    date ? `Books closed through ${date.toLocaleDateString()}` : "Books reopened"
+  );
+  revalidatePath("/accounting");
+}
+
 export async function actionRecordArPayment(
   formData: FormData
 ): Promise<void> {
