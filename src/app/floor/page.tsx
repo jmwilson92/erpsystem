@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { getFloorBoardData } from "@/lib/services/work-orders";
-import { getCurrentUser, userCanSeeFinancials } from "@/lib/auth";
+import { getCurrentUser, userCanSeeFinancials, userHasPermission } from "@/lib/auth";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { workOrderHoldProvenance } from "@/lib/provenance";
@@ -43,6 +43,9 @@ export default async function FloorPage({
   // WIP Value is hidden by default; only users who can see financials
   // (managers+) get it, and even then behind a "?wip=1" reveal.
   const canSeeWip = user ? await userCanSeeFinancials(user.id) : false;
+  const canReorder = user
+    ? await userHasPermission(user.id, "workorders.create")
+    : false;
   const showWip = canSeeWip && pick(sp, "wip") === "1";
   const progressMap = Object.fromEntries(data.signOffProgress.map((s) => [s.id, s.pct]));
 
@@ -159,6 +162,7 @@ export default async function FloorPage({
 
       {/* Animated flow lane — stations joined by arrows, WOs gliding through */}
       <FloorFlow
+        canReorder={canReorder}
         stations={data.byCenter.map((c) => ({
           code: c.center,
           name: c.name,

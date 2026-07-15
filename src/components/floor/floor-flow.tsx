@@ -1,9 +1,11 @@
 "use client";
 
 import { Fragment, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import { Play, ArrowRight } from "lucide-react";
+import { Play, ArrowRight, GripVertical } from "lucide-react";
+import { actionReorderWorkCenters } from "@/app/actions";
 
 export type FlowStation = {
   code: string;
@@ -28,9 +30,46 @@ const areaColor: Record<string, string> = {
  * arrow (station → station), and "Replay flow" runs a one-shot wave that
  * lights each station in sequence to visualize product moving down the line.
  */
-export function FloorFlow({ stations }: { stations: FlowStation[] }) {
+export function FloorFlow({
+  stations: initial,
+  canReorder = false,
+}: {
+  stations: FlowStation[];
+  canReorder?: boolean;
+}) {
+  const router = useRouter();
   const [lit, setLit] = useState<number>(-1);
+  const [stations, setStations] = useState(initial);
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  // Keep local order in sync when server data refreshes.
+  useEffect(() => {
+    setStations(initial);
+  }, [initial]);
+
+  const onDrop = async (targetIdx: number) => {
+    if (dragIdx === null || dragIdx === targetIdx) {
+      setDragIdx(null);
+      return;
+    }
+    const next = [...stations];
+    const [moved] = next.splice(dragIdx, 1);
+    next.splice(targetIdx, 0, moved);
+    setStations(next);
+    setDragIdx(null);
+    // Persist the new order (real work centers only).
+    setSaving(true);
+    try {
+      const fd = new FormData();
+      fd.set("codes", JSON.stringify(next.map((s) => s.code)));
+      await actionReorderWorkCenters(fd);
+      router.refresh();
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const clearTimers = () => {
     timers.current.forEach(clearTimeout);
@@ -59,6 +98,12 @@ export function FloorFlow({ stations }: { stations: FlowStation[] }) {
           <h2 className="text-sm font-semibold text-slate-100">Floor flow</h2>
           <p className="text-[11px] text-slate-500">
             Work centers in routing order — product flows left to right
+            {canReorder && (
+              <span className="text-slate-600">
+                {" · "}
+                {saving ? "saving order…" : "drag the grip to reorder"}
+              </span>
+            )}
           </p>
         </div>
         <button
@@ -79,17 +124,30 @@ export function FloorFlow({ stations }: { stations: FlowStation[] }) {
             <Fragment key={st.code}>
               {/* Station */}
               <div
+                draggable={canReorder}
+                onDragStart={() => canReorder && setDragIdx(i)}
+                onDragOver={(e) => canReorder && e.preventDefault()}
+                onDrop={() => canReorder && onDrop(i)}
                 className={cn(
                   "w-44 shrink-0 rounded-xl border border-slate-800 bg-slate-950/60",
-                  lit === i && "station-lit border-teal-500/60"
+                  lit === i && "station-lit border-teal-500/60",
+                  canReorder && "cursor-grab",
+                  dragIdx === i && "opacity-50"
                 )}
                 style={{ borderTop: `3px solid ${color}` }}
               >
-                <div className="border-b border-slate-800 px-3 py-2">
-                  <p className="font-mono text-xs font-semibold text-slate-100">
-                    {st.code}
-                  </p>
-                  <p className="truncate text-[10px] text-slate-500">{st.name}</p>
+                <div className="flex items-center justify-between border-b border-slate-800 px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="font-mono text-xs font-semibold text-slate-100">
+                      {st.code}
+                    </p>
+                    <p className="truncate text-[10px] text-slate-500">
+                      {st.name}
+                    </p>
+                  </div>
+                  {canReorder && (
+                    <GripVertical className="h-4 w-4 shrink-0 text-slate-600" />
+                  )}
                 </div>
                 <div className="space-y-1 p-2">
                   {st.wos.length === 0 && (
