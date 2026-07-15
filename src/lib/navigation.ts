@@ -38,6 +38,7 @@ import {
   Layers,
   FileSpreadsheet,
   Wallet,
+  SlidersHorizontal,
   type LucideIcon,
 } from "lucide-react";
 
@@ -141,6 +142,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Administration",
     items: [
+      { href: "/admin/settings", label: "Company Settings", icon: SlidersHorizontal, keywords: ["settings", "config", "preferences", "company", "fiscal", "basis", "admin"] },
       { href: "/admin/permissions", label: "Roles & Permissions", icon: KeyRound, keywords: ["rbac", "access", "security"] },
       { href: "/setup", label: "Setup Wizard", icon: Rocket, keywords: ["onboarding", "company", "getting started", "plug and play"] },
       { href: "/admin/import", label: "Data Import", icon: FileSpreadsheet, keywords: ["csv", "excel", "migrate", "onboard", "item master", "upload"] },
