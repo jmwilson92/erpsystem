@@ -420,7 +420,8 @@ export async function clockOutBuyerWork(params: {
 }
 
 /**
- * Complete the BUYER_PACKAGE approval step specifically (confirm, not generic approve).
+ * Complete the BUYER_PACKAGE step directly (does not rely on generic decidePrApproval
+ * or form submit-button name/value quirks).
  */
 export async function confirmBuyerPackageStep(params: {
   purchaseRequestId: string;
@@ -436,6 +437,17 @@ export async function confirmBuyerPackageStep(params: {
     throw new Error(`PR is ${pr.status}, not in pipeline`);
   }
 
+  // Purchasing / assigned buyer / admin only
+  const role = params.userRole || "";
+  const canConfirm =
+    role === "ADMIN" ||
+    role === "PURCHASING" ||
+    role === "EXECUTIVE" ||
+    (params.userId && pr.assignedBuyerId === params.userId);
+  if (!canConfirm) {
+    throw new Error("Only purchasing (or the assigned buyer) can confirm the package");
+  }
+
   const gate = isBuyerPackageComplete({
     buyerConfirmedPrices: pr.buyerConfirmedPrices,
     quoteFileUrl: pr.quoteFileUrl,
@@ -445,11 +457,10 @@ export async function confirmBuyerPackageStep(params: {
   });
   if (!gate.ok) {
     throw new Error(
-      `Buyer package incomplete — ${gate.missing.join("; ")}. Save the workbench with prices verified or a quote attached.`
+      `Buyer package incomplete — ${gate.missing.join("; ")}. Save the workbench with “prices verified” checked and/or a quote attached, then confirm.`
     );
   }
 
-  // Find the buyer package step even if currentStepOrder is stale
   const all = await prisma.approval.findMany({
     where: {
       entityType: "PurchaseRequest",
@@ -458,35 +469,113 @@ export async function confirmBuyerPackageStep(params: {
     include: { policyStep: true },
     orderBy: { stepOrder: "asc" },
   });
+
+  // Demand confirm must already be done
+  const demand = all.find(
+    (a) =>
+      a.policyStep?.routingKey === "REQUEST_CONFIRM" ||
+      a.policyStep?.routingKey === "CHARGE_OWNER" ||
+      /confirm demand/i.test(a.stage)
+  );
+  if (demand && demand.status === "PENDING") {
+    throw new Error(
+      `Demand is still open (“${demand.stage}”). Charge owner must confirm demand before the buyer package can close.`
+    );
+  }
+
   const buyerStep = all.find(
     (a) =>
       a.status === "PENDING" &&
       (a.policyStep?.routingKey === "BUYER_PACKAGE" ||
         /buyer package/i.test(a.stage))
   );
+
   if (!buyerStep) {
+    const alreadyDone = all.find(
+      (a) =>
+        a.status === "APPROVED" &&
+        (a.policyStep?.routingKey === "BUYER_PACKAGE" ||
+          /buyer package/i.test(a.stage))
+    );
+    if (alreadyDone) {
+      const next = all.find(
+        (a) => a.status === "PENDING" && a.stepOrder > alreadyDone.stepOrder
+      );
+      if (next) {
+        await prisma.purchaseRequest.update({
+          where: { id: pr.id },
+          data: { currentStepOrder: next.stepOrder },
+        });
+      }
+      return {
+        status: "SUBMITTED" as const,
+        nextStep: next?.stage || null,
+        alreadyDone: true,
+      };
+    }
     const pending = all.filter((a) => a.status === "PENDING");
     throw new Error(
       pending.length
-        ? `No buyer package step open (current open: ${pending.map((p) => p.stage).join(", ")}). Refresh — you may need the demand-confirm step first.`
-        : "No open approval steps on this PR. Refresh the page."
+        ? `No buyer package step open (open: ${pending.map((p) => p.stage).join("; ")}).`
+        : "No open approval steps on this PR."
     );
   }
 
-  // Align pointer then complete via shared decision path
-  await prisma.purchaseRequest.update({
-    where: { id: pr.id },
-    data: { currentStepOrder: buyerStep.stepOrder },
+  // Mark buyer step done
+  await prisma.approval.update({
+    where: { id: buyerStep.id },
+    data: {
+      status: "APPROVED",
+      approverId: params.userId || null,
+      comments: params.comments || "Buyer package confirmed",
+      decidedAt: new Date(),
+    },
   });
 
-  const { decidePrApproval } = await import("@/lib/services/pr-approval");
-  const result = await decidePrApproval({
-    purchaseRequestId: pr.id,
-    decision: "APPROVED",
-    comments: params.comments || "Buyer package confirmed",
+  const next = all.find(
+    (a) => a.status === "PENDING" && a.stepOrder > buyerStep.stepOrder
+  );
+
+  if (next) {
+    await prisma.purchaseRequest.update({
+      where: { id: pr.id },
+      data: { currentStepOrder: next.stepOrder, status: "SUBMITTED" },
+    });
+  } else {
+    // No further steps — fully approved
+    await prisma.purchaseRequest.update({
+      where: { id: pr.id },
+      data: {
+        status: "APPROVED",
+        currentStepOrder: 0,
+        approvedById: params.userId || null,
+        approvedAt: new Date(),
+      },
+    });
+  }
+
+  await logAudit({
+    entityType: "PurchaseRequest",
+    entityId: pr.id,
+    action: "STEP_APPROVED",
     userId: params.userId,
-    userRole: params.userRole,
+    metadata: {
+      stage: buyerStep.stage,
+      routingKey: "BUYER_PACKAGE",
+      nextStage: next?.stage || null,
+      comments: params.comments || "Buyer package confirmed",
+    },
   });
+
+  if (!next) {
+    await logAudit({
+      entityType: "PurchaseRequest",
+      entityId: pr.id,
+      action: "APPROVED",
+      userId: params.userId,
+      metadata: { via: "BUYER_PACKAGE_LAST_STEP" },
+    });
+  }
 
   // Auto scan-out → timecard
   if (params.userId) {
@@ -497,7 +586,11 @@ export async function confirmBuyerPackageStep(params: {
     });
   }
 
-  return result;
+  return {
+    status: (next ? "SUBMITTED" : "APPROVED") as "SUBMITTED" | "APPROVED",
+    nextStep: next?.stage || null,
+    alreadyDone: false,
+  };
 }
 
 /** Whether the buyer package gate is satisfied for pipeline release. */

@@ -1654,7 +1654,6 @@ export async function actionSaveBuyerPackage(
   });
 
   if (confirmPackage) {
-    // Always advance the BUYER_PACKAGE step specifically (not a random open step)
     const result = await confirmBuyerPackageStep({
       purchaseRequestId: id,
       userId: user?.id,
@@ -1664,16 +1663,51 @@ export async function actionSaveBuyerPackage(
         "Buyer package confirmed",
     });
     const next =
-      result.status === "SUBMITTED" && "nextStep" in result && result.nextStep
+      result.nextStep
         ? ` Next: ${result.nextStep}`
         : result.status === "APPROVED"
           ? " PR fully approved."
           : "";
-    await flashToast(`Buyer package confirmed — sent to charge owner.${next}`);
+    await flashToast(
+      result.alreadyDone
+        ? `Buyer package already confirmed.${next}`
+        : `Buyer package confirmed — sent to charge owner.${next}`
+    );
   } else {
     await flashToast("Buyer package saved (still on the clock until confirm)");
   }
 
+  revalidatePath(`/purchasing/pr/${id}`);
+  revalidatePath("/purchasing");
+  revalidatePath("/hr/timesheet");
+}
+
+/** Dedicated confirm action — separate form so submit-button name quirks never skip it. */
+export async function actionConfirmBuyerPackage(
+  formData: FormData
+): Promise<void> {
+  const id = ((formData.get("id") as string) || "").trim();
+  if (!id) throw new Error("Purchase request id required");
+  const user = await getCurrentUser();
+  const { confirmBuyerPackageStep } = await import("@/lib/services/pr-buyer");
+  const result = await confirmBuyerPackageStep({
+    purchaseRequestId: id,
+    userId: user?.id,
+    userRole: user?.role,
+    comments:
+      ((formData.get("comments") as string) || "").trim() ||
+      "Buyer package confirmed",
+  });
+  const next = result.nextStep
+    ? ` Next: ${result.nextStep}`
+    : result.status === "APPROVED"
+      ? " PR fully approved."
+      : "";
+  await flashToast(
+    result.alreadyDone
+      ? `Buyer package already confirmed.${next}`
+      : `Buyer package confirmed — sent to charge owner.${next}`
+  );
   revalidatePath(`/purchasing/pr/${id}`);
   revalidatePath("/purchasing");
   revalidatePath("/hr/timesheet");

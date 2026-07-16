@@ -12,6 +12,7 @@ import {
   actionApprovePr,
   actionAssignPrBuyer,
   actionAttachPrQuote,
+  actionConfirmBuyerPackage,
   actionSaveBuyerPackage,
 } from "@/app/actions";
 import {
@@ -603,25 +604,9 @@ export default async function PrDetailPage({
                   )}
 
                   <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      type="submit"
-                      size="sm"
-                      variant="secondary"
-                      name="intent"
-                      value="save"
-                    >
+                    <Button type="submit" size="sm" variant="secondary">
                       Save package
                     </Button>
-                    {isBuyerStep && (
-                      <Button
-                        type="submit"
-                        size="sm"
-                        name="confirmPackage"
-                        value="true"
-                      >
-                        Confirm package — send to owner
-                      </Button>
-                    )}
                     {pr.buyerWorkStartedAt && (
                       <span className="text-[11px] text-emerald-400/90">
                         On the clock since{" "}
@@ -630,6 +615,34 @@ export default async function PrDetailPage({
                     )}
                   </div>
                 </form>
+
+                {/* Separate form so Confirm always hits the server (no submit-button name bugs) */}
+                {isBuyerStep && (
+                  <form
+                    action={actionConfirmBuyerPackage}
+                    className="mt-3 space-y-2 rounded-lg border border-teal-900/40 bg-teal-500/5 p-3"
+                  >
+                    <input type="hidden" name="id" value={pr.id} />
+                    <p className="text-xs text-slate-400">
+                      Save any price/charge edits first. Then confirm to close
+                      the buyer step and send this PR to the charge owner for
+                      purchase approval.
+                    </p>
+                    {!packageGate.ok && (
+                      <p className="text-xs text-amber-200">
+                        Still needed before confirm:{" "}
+                        {packageGate.missing.join("; ")}
+                      </p>
+                    )}
+                    <Button
+                      type="submit"
+                      size="sm"
+                      disabled={!packageGate.ok}
+                    >
+                      Confirm package — send to owner
+                    </Button>
+                  </form>
+                )}
 
                 <div className="mt-4 border-t border-slate-800 pt-3">
                   <p className="mb-2 text-[10px] uppercase text-slate-500">
