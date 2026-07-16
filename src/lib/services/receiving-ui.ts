@@ -20,6 +20,10 @@ export function nextActionForTraveler(params: {
   /** Open remainder child the handler should work instead of this card */
   followChildNumber?: string | null;
   followChildId?: string | null;
+  /** Child in QA/Test the material handler should walk */
+  inspectionChildNumber?: string | null;
+  inspectionChildId?: string | null;
+  inspectionChildWhere?: "QA" | "TEST" | "STATION" | null;
   poId?: string | null;
 }): {
   kind: NextStepKind;
@@ -36,10 +40,34 @@ export function nextActionForTraveler(params: {
     return {
       kind: "FOLLOW_CHILD",
       title: "Work the child traveler",
-      detail: `Open remainder / routed material is on ${params.followChildNumber}. This parent is only the umbrella.`,
+      detail: `Open remainder is on ${params.followChildNumber}. Dock more material there — not on this parent card.`,
       primaryHref: `/receiving/${params.followChildId}`,
       primaryLabel: `Open ${params.followChildNumber}`,
       childNumber: params.followChildNumber,
+    };
+  }
+
+  // Parent umbrella: material already peeled to inspection children
+  if (params.inspectionChildId && params.inspectionChildNumber) {
+    const where =
+      params.inspectionChildWhere === "TEST"
+        ? "Test Center"
+        : params.inspectionChildWhere === "QA"
+          ? "QA"
+          : "QA / Test";
+    return {
+      kind: "FOLLOW_CHILD",
+      title: `Take material with ${params.inspectionChildNumber}`,
+      detail: `Walk this child traveler to ${where}. Parent only holds dock-complete lines. Do not stock until that child is put away.`,
+      primaryHref: `/receiving/${params.inspectionChildId}`,
+      primaryLabel: `Open ${params.inspectionChildNumber}`,
+      secondaryHref:
+        params.inspectionChildWhere === "TEST"
+          ? "/test-center"
+          : "/qa",
+      secondaryLabel:
+        params.inspectionChildWhere === "TEST" ? "Test Center queue" : "QA queue",
+      childNumber: params.inspectionChildNumber,
     };
   }
 

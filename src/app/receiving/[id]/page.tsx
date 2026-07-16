@@ -332,10 +332,14 @@ export default async function ReceivingTravelerDetailPage({
         po.status !== "CLOSED" &&
         po.status !== "CANCELLED"));
 
-  // Functional-test procedures called out for parts on this receipt.
-  const functionalTestPartIds = displayLines
-    .filter((l) => l.requiresFunctionalTest && l.partId)
-    .map((l) => l.partId as string);
+  // Functional procedures only on child travelers that actually need functional work
+  const isChildTraveler = !!traveler.parentId || purpose === "CHILD";
+  const functionalTestPartIds =
+    isChildTraveler
+      ? displayLines
+          .filter((l) => l.requiresFunctionalTest && l.partId)
+          .map((l) => l.partId as string)
+      : [];
   const functionalTestCallouts = functionalTestPartIds.length
     ? await prisma.part.findMany({
         where: {
@@ -345,7 +349,13 @@ export default async function ReceivingTravelerDetailPage({
         select: {
           partNumber: true,
           functionalTestProcedure: {
-            select: { id: true, number: true, revision: true, title: true, status: true },
+            select: {
+              id: true,
+              number: true,
+              revision: true,
+              title: true,
+              status: true,
+            },
           },
         },
       })
@@ -354,6 +364,14 @@ export default async function ReceivingTravelerDetailPage({
   const canCompleteStock = traveler.status === "READY_TO_STOCK";
   const inInspection = traveler.status === "IN_INSPECTION";
   const isComplete = ["COMPLETE", "CLOSED"].includes(traveler.status);
+
+  // Parent: first child still in QA/Test for material-handler walk
+  const inspectionChild =
+    !traveler.parentId
+      ? traveler.children.find((c) =>
+          ["IN_INSPECTION", "READY_TO_STOCK", "PARTIAL"].includes(c.status)
+        )
+      : null;
 
   const canCloseGfp =
     isGfpTraveler && allReceived && traveler.status === "COMPLETE";
@@ -381,6 +399,26 @@ export default async function ReceivingTravelerDetailPage({
   const needsQaFlow = needsQa || qaPending.length > 0;
   const needsTestFlow = needsTest || testPending.length > 0;
 
+  // Infer where an inspection child should go from notes/status
+  let inspectionChildWhere: "QA" | "TEST" | "STATION" | null = null;
+  if (inspectionChild) {
+    const notes = (inspectionChild.notes || "").toLowerCase();
+    const needsVisual =
+      notes.includes("visual") || notes.includes("gd&t") || notes.includes("gd");
+    const needsFunctional =
+      notes.includes("functional") || notes.includes("test center");
+    if (needsVisual) {
+      // QA first when both visual and functional are on the same child
+      inspectionChildWhere = "QA";
+    } else if (needsFunctional) {
+      inspectionChildWhere = "TEST";
+    } else if (inspectionChild.status === "IN_INSPECTION") {
+      inspectionChildWhere = "QA";
+    } else {
+      inspectionChildWhere = "STATION";
+    }
+  }
+
   const nextStep = nextActionForTraveler({
     status: traveler.status,
     purpose,
@@ -397,6 +435,9 @@ export default async function ReceivingTravelerDetailPage({
     followChildId: parentHasOpenRemainderChild
       ? openRemainderChild!.id
       : null,
+    inspectionChildNumber: inspectionChild?.number ?? null,
+    inspectionChildId: inspectionChild?.id ?? null,
+    inspectionChildWhere,
     poId: po?.id,
   });
 
@@ -439,15 +480,15 @@ export default async function ReceivingTravelerDetailPage({
     }
   }
 
-  // ── Build chronological history timeline ─────────────────
+  // ── Slim material-handler timeline (traveler events — no INSP-#####) ──
   const timeline: TimelineEvent[] = [];
 
   timeline.push({
     at: traveler.createdAt,
     kind: "CREATED",
-    title: `Traveler ${traveler.number} created`,
+    title: `Traveler ${traveler.number} opened`,
     detail: isGfpTraveler
-      ? `GFP / ${traveler.travelerType}${traveler.customer ? ` · ${traveler.customer.name}` : ""}`
+      ? `GFP${traveler.customer ? ` · ${traveler.customer.name}` : ""}`
       : `PO ${po?.number} · ${po?.supplier.name}`,
     status: "CREATED",
   });
@@ -456,9 +497,10 @@ export default async function ReceivingTravelerDetailPage({
     timeline.push({
       at: traveler.createdAt,
       kind: "SPLIT",
-      title: `Split from parent ${traveler.parent.number}`,
+      title: `Split from ${traveler.parent.number}`,
       href: `/receiving/${traveler.parent.id}`,
-      status: "SPLIT",
+      status: "CHILD",
+      detail: "Work this card — parent is umbrella only",
     });
   }
 
@@ -466,134 +508,106 @@ export default async function ReceivingTravelerDetailPage({
     (a, b) => a.receivedAt.getTime() - b.receivedAt.getTime()
   )) {
     const who = r.receivedById
-      ? userNameById[r.receivedById] || "Receiver"
-      : "Receiver";
-    const lineSummary = r.lines
-      .map(
-        (l) =>
-          `${l.quantityReceived}× ${l.description.slice(0, 40)}${
-            l.lotNumber ? ` lot ${l.lotNumber}` : ""
-          }`
+      ? userNameById[r.receivedById] || "Dock"
+      : "Dock";
+    const effectiveStatus =
+      // Prefer live station work over stored status (legacy COMPLETE-with-open-insp)
+      allInspections.some(
+        (i) =>
+          i.receiptId === r.id &&
+          i.type !== "RECEIVING" &&
+          ["PENDING", "IN_PROGRESS"].includes(i.status)
       )
-      .join("; ");
+        ? "AWAITING_INSPECTION"
+        : r.status;
+    const needsMore = ["AWAITING_INSPECTION", "PARTIAL"].includes(
+      effectiveStatus
+    );
     timeline.push({
       at: r.receivedAt,
       kind: "RECEIPT",
-      title: `Received ${r.number}`,
-      detail: lineSummary || r.notes || undefined,
-      meta: `${who}${r.dd1149Attached ? " · DD1149" : ""}`,
-      status: r.status,
+      title: needsMore
+        ? `Docked ${r.number} — station work on child traveler(s)`
+        : `Dock complete ${r.number}`,
+      detail: r.lines
+        .map(
+          (l) =>
+            `${l.quantityReceived}× ${l.description.slice(0, 36)}${
+              l.lotNumber ? ` · ${l.lotNumber}` : ""
+            }`
+        )
+        .join("; "),
+      meta: who,
+      status: effectiveStatus,
     });
   }
 
-  for (const insp of allInspections) {
-    const partNo = insp.partId ? partNumById[insp.partId] : "—";
-    // RECEIVING = dock only — never mislabel as TEST/QA
-    const wc =
-      insp.type === "RECEIVING"
-        ? insp.workCenter || "DOCK"
-        : insp.workOrder?.workCenter ||
-          insp.workCenter ||
-          (["VISUAL", "GDT"].includes(insp.type) ? "QA" : "TEST");
-    const typeLabel =
-      insp.type === "GDT"
-        ? "GD&T"
-        : insp.type === "VISUAL"
-          ? "Visual"
-          : insp.type === "FUNCTIONAL"
-            ? "Functional / power"
-            : insp.type === "RECEIVING"
-              ? "Dock acceptance"
-              : insp.type;
-    // Dock-only that already passed: single timeline event (no fake PENDING open)
-    if (insp.type === "RECEIVING" && insp.status === "PASSED") {
-      timeline.push({
-        at: insp.completedAt || insp.createdAt,
-        kind: "INSPECTION_DONE",
-        title: `Dock acceptance · ${insp.number}`,
-        detail: `Part ${partNo} · dock only (no QA/Test)${
-          insp.lotNumber ? ` · lot ${insp.lotNumber}` : ""
-        }`,
-        status: "PASSED",
-        meta: "DOCK",
-      });
-    } else {
-      timeline.push({
-        at: insp.createdAt,
-        kind: "INSPECTION_OPENED",
-        title: `${typeLabel} opened · ${insp.number}`,
-        detail: `Part ${partNo} · ${
-          insp.type === "RECEIVING" ? "dock" : `station ${wc}`
-        }${insp.lotNumber ? ` · lot ${insp.lotNumber}` : ""}`,
-        href: insp.workOrderId
-          ? `/work-orders/${insp.workOrderId}`
-          : undefined,
-        status: insp.status,
-        meta: insp.workOrder?.number,
-      });
-      if (insp.completedAt && insp.status !== "PENDING") {
-        const resultBits = insp.results
-          .map(
-            (r) =>
-              `${r.characteristic}: ${r.result}${
-                r.measuredValue ? ` (${r.measuredValue})` : ""
-              }`
-          )
-          .join("; ");
-        timeline.push({
-          at: insp.completedAt,
-          kind: "INSPECTION_DONE",
-          title: `${typeLabel} ${insp.status.toLowerCase()} · ${insp.number}`,
-          detail:
-            resultBits ||
-            `Qty pass ${insp.quantityPassed} / fail ${insp.quantityFailed}`,
-          status: insp.status,
-          meta: wc,
-        });
-      }
-    }
-    for (const ncr of insp.ncrs) {
-      timeline.push({
-        at: ncr.createdAt,
-        kind: "NCR",
-        title: `NCR ${ncr.number} · ${ncr.title}`,
-        detail: ncr.mrbCases[0]
-          ? `MRB ${ncr.mrbCases[0].number} (${ncr.mrbCases[0].status})`
-          : ncr.status,
-        status: ncr.severity,
-        href: "/quality",
-      });
-    }
+  // Station progress without INSP numbers
+  const qaDone = allInspections.filter(
+    (i) => ["VISUAL", "GDT"].includes(i.type) && i.status === "PASSED"
+  );
+  const testDone = allInspections.filter(
+    (i) => i.type === "FUNCTIONAL" && i.status === "PASSED"
+  );
+  for (const insp of qaDone) {
+    timeline.push({
+      at: insp.completedAt || insp.createdAt,
+      kind: "STATION",
+      title: `QA passed · ${partNumById[insp.partId || ""] || "part"}`,
+      detail: insp.lotNumber ? `Lot ${insp.lotNumber}` : undefined,
+      status: "PASSED",
+      meta: "QA",
+    });
+  }
+  for (const insp of testDone) {
+    timeline.push({
+      at: insp.completedAt || insp.createdAt,
+      kind: "STATION",
+      title: `Test Center passed · ${partNumById[insp.partId || ""] || "part"}`,
+      detail: insp.lotNumber ? `Lot ${insp.lotNumber}` : undefined,
+      status: "PASSED",
+      meta: "TEST",
+    });
+  }
+  for (const insp of allInspections.filter((i) => i.status === "FAILED")) {
+    timeline.push({
+      at: insp.completedAt || insp.createdAt,
+      kind: "NCR",
+      title: `Failed at ${
+        ["VISUAL", "GDT"].includes(insp.type) ? "QA" : "Test"
+      } · ${partNumById[insp.partId || ""] || "part"}`,
+      status: "FAILED",
+      href: "/quality",
+    });
   }
 
-  for (const tx of materialTxns) {
+  for (const tx of materialTxns.filter((t) =>
+    ["PUTAWAY", "RECEIPT"].includes(t.type)
+  )) {
+    if (tx.type === "RECEIPT") continue; // covered by receipt events
     timeline.push({
       at: tx.createdAt,
-      kind: tx.type,
-      title: `${tx.type.replace(/_/g, " ")}${tx.quantity ? ` · qty ${tx.quantity}` : ""}`,
-      detail: [
-        tx.fromLocation && tx.toLocation
-          ? `${tx.fromLocation} → ${tx.toLocation}`
-          : tx.toLocation
-            ? `→ ${tx.toLocation}`
-            : tx.fromLocation || null,
-        tx.lotNumber ? `Lot ${tx.lotNumber}` : null,
-        tx.serialNumber ? `S/N ${tx.serialNumber}` : null,
-        tx.notes,
-      ]
-        .filter(Boolean)
-        .join(" · "),
-      meta: tx.reference || undefined,
-      status: tx.type,
+      kind: "PUTAWAY",
+      title: `Put away · qty ${tx.quantity || ""}`.trim(),
+      detail: [tx.fromLocation, tx.toLocation].filter(Boolean).join(" → "),
+      status: "PUTAWAY",
     });
   }
 
   for (const c of traveler.children) {
+    const notes = (c.notes || "").toLowerCase();
+    const dest = notes.includes("functional")
+      ? "→ Test Center"
+      : notes.includes("visual") || notes.includes("gd")
+        ? "→ QA"
+        : notes.includes("remainder") || c.status === "WAITING"
+          ? "dock remainder"
+          : "station work";
     timeline.push({
       at: c.createdAt,
       kind: "CHILD",
-      title: `Child traveler ${c.number}`,
-      detail: `Remainder / split · ${c.status}`,
+      title: `Child ${c.number} created`,
+      detail: dest,
       href: `/receiving/${c.id}`,
       status: c.status,
     });
@@ -603,17 +617,79 @@ export default async function ReceivingTravelerDetailPage({
     timeline.push({
       at: traveler.updatedAt,
       kind: "COMPLETE",
-      title: `Traveler ${traveler.status.toLowerCase()}`,
-      detail: "Receiving lifecycle finished",
+      title: `${traveler.number} complete`,
+      detail: "Receiving finished",
       status: traveler.status,
     });
   }
 
   timeline.sort((a, b) => a.at.getTime() - b.at.getTime());
 
-  const completedInspections = allInspections.filter((i) =>
-    ["PASSED", "FAILED", "WAIVED"].includes(i.status)
+  // Station work (QA / Test) — keep RECEIVING dock records separate
+  const stationWork = allInspections.filter((i) => i.type !== "RECEIVING");
+  const dockWork = allInspections.filter((i) => i.type === "RECEIVING");
+  const openStationWork = stationWork.filter((i) =>
+    ["PENDING", "IN_PROGRESS"].includes(i.status)
   );
+  const stationPassed = stationWork.filter((i) => i.status === "PASSED").length;
+  const stationFailed = stationWork.filter((i) => i.status === "FAILED").length;
+
+  // Effective receipt badge: never show COMPLETE while station work is still open
+  const openInspByReceipt = new Map<string, number>();
+  for (const i of openStationWork) {
+    if (!i.receiptId) continue;
+    openInspByReceipt.set(
+      i.receiptId,
+      (openInspByReceipt.get(i.receiptId) || 0) + 1
+    );
+  }
+  function displayReceiptStatus(r: { id: string; status: string }) {
+    if ((openInspByReceipt.get(r.id) || 0) > 0) return "AWAITING_INSPECTION";
+    if (
+      r.status === "COMPLETE" &&
+      stationWork.some(
+        (i) =>
+          i.receiptId === r.id &&
+          ["PENDING", "IN_PROGRESS"].includes(i.status)
+      )
+    ) {
+      return "AWAITING_INSPECTION";
+    }
+    return r.status;
+  }
+
+  function childDestination(c: {
+    notes: string | null;
+    status: string;
+  }): { label: string; where: "QA" | "TEST" | "DOCK" | "STOCK" | "DONE" } {
+    const notes = (c.notes || "").toLowerCase();
+    if (["COMPLETE", "CLOSED"].includes(c.status)) {
+      return { label: "Done", where: "DONE" };
+    }
+    if (c.status === "READY_TO_STOCK") {
+      return { label: "Ready — put away at dock", where: "STOCK" };
+    }
+    if (notes.includes("remainder") || c.status === "WAITING") {
+      return { label: "Dock — receive remainder", where: "DOCK" };
+    }
+    const needsVisual =
+      notes.includes("visual") || notes.includes("gd&t") || notes.includes("gd");
+    const needsFunctional =
+      notes.includes("functional") || notes.includes("test center");
+    if (needsVisual && needsFunctional) {
+      return { label: "Take to QA first, then Test lab", where: "QA" };
+    }
+    if (needsFunctional) {
+      return { label: "Take to Test Center / test lab", where: "TEST" };
+    }
+    if (needsVisual || notes.includes("qa") || c.status === "IN_INSPECTION") {
+      return { label: "Take to QA workcenter", where: "QA" };
+    }
+    if (c.status === "PARTIAL") {
+      return { label: "Dock — partial", where: "DOCK" };
+    }
+    return { label: "Station work", where: "QA" };
+  }
 
   return (
     <div className="space-y-6">
@@ -730,25 +806,102 @@ export default async function ReceivingTravelerDetailPage({
         <Card className="border-sky-900/40">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm">
-              Child travelers — {traveler.number}-01, -02, …
+              Child travelers — walk these with the material
             </CardTitle>
             <p className="text-xs text-slate-500">
-              Sequential only. Each card is a line of material (or remainder) —
-              not “the QA dash” or “the Test dash”. Open the card and do whatever
-              it still needs.
+              Parent holds dock-complete lines only. For QA / functional work,
+              take the physical material and the matching child traveler card
+              to that workcenter. Put away only after the child is ready to stock.
             </p>
           </CardHeader>
-          <CardContent className="flex flex-wrap gap-2">
-            {traveler.children.map((c) => (
-              <Link
-                key={c.id}
-                href={`/receiving/${c.id}`}
-                className="rounded border border-slate-700 px-2 py-1.5 font-mono text-xs text-sky-400 hover:border-sky-600"
-              >
-                <span className="font-semibold">{c.number}</span>
-                <StatusBadge status={c.status} className="ml-1.5" />
-              </Link>
-            ))}
+          <CardContent className="space-y-2">
+            {traveler.children.map((c) => {
+              const dest = childDestination(c);
+              const border =
+                dest.where === "TEST"
+                  ? "border-violet-700/50 hover:border-violet-500"
+                  : dest.where === "QA"
+                    ? "border-amber-700/50 hover:border-amber-500"
+                    : dest.where === "STOCK"
+                      ? "border-teal-700/50 hover:border-teal-500"
+                      : dest.where === "DONE"
+                        ? "border-slate-800"
+                        : "border-slate-700 hover:border-sky-600";
+              return (
+                <Link
+                  key={c.id}
+                  href={`/receiving/${c.id}`}
+                  className={`flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 ${border}`}
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono text-sm font-semibold text-sky-400">
+                      {c.number}
+                    </span>
+                    <StatusBadge status={c.status} />
+                  </div>
+                  <span
+                    className={`text-xs font-medium ${
+                      dest.where === "TEST"
+                        ? "text-violet-300"
+                        : dest.where === "QA"
+                          ? "text-amber-300"
+                          : dest.where === "STOCK"
+                            ? "text-teal-300"
+                            : dest.where === "DONE"
+                              ? "text-slate-500"
+                              : "text-slate-400"
+                    }`}
+                  >
+                    {dest.label}
+                  </span>
+                </Link>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Material-handler walk card on child travelers still in station work */}
+      {isChildTraveler && inInspection && (
+        <Card
+          className={
+            testPending.length > 0 && qaPending.length === 0
+              ? "border-violet-500/40 bg-violet-500/5"
+              : "border-amber-500/40 bg-amber-500/5"
+          }
+        >
+          <CardContent className="space-y-2 p-4 text-sm">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+              Material handler
+            </p>
+            <p className="text-base font-semibold text-slate-100">
+              {testPending.length > 0 && qaPending.length === 0
+                ? "Send this material to the Test Center / test lab"
+                : testPending.length > 0 && qaPending.length > 0
+                  ? "Send to QA first, then Test Center"
+                  : "Send this material to the QA workcenter"}
+            </p>
+            <p className="text-xs text-slate-400">
+              Bring traveler <span className="font-mono text-sky-400">{traveler.number}</span>{" "}
+              with the parts. Station work is done on this child card — not the parent.
+              After pass, return here to put away.
+            </p>
+            <div className="flex flex-wrap gap-2 pt-1">
+              {(qaPending.length > 0 || (needsQa && testPending.length === 0)) && (
+                <Link href="/qa">
+                  <Button size="sm" variant="secondary">
+                    Open QA queue
+                  </Button>
+                </Link>
+              )}
+              {(testPending.length > 0 || needsTest) && (
+                <Link href="/test-center">
+                  <Button size="sm" variant="secondary">
+                    Open Test Center
+                  </Button>
+                </Link>
+              )}
+            </div>
           </CardContent>
         </Card>
       )}
@@ -995,13 +1148,17 @@ export default async function ReceivingTravelerDetailPage({
         </Card>
       )}
 
-      {/* ═══════════════ FULL HISTORY (esp. completed) ═══════════════ */}
+      {/* ═══════════════ History (traveler-centric, no INSP-#####) ═══════════════ */}
       <Card className="border-slate-700">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <History className="h-4 w-4 text-teal-400" />
-            Full history timeline
+            History
           </CardTitle>
+          <p className="text-xs text-slate-500">
+            Dock receipts, child travelers, station results, putaway — no
+            inspection ticket numbers.
+          </p>
         </CardHeader>
         <CardContent>
           {timeline.length === 0 ? (
@@ -1074,7 +1231,7 @@ export default async function ReceivingTravelerDetailPage({
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-mono text-teal-400">{r.number}</span>
-                    <StatusBadge status={r.status} />
+                    <StatusBadge status={displayReceiptStatus(r)} />
                     {r.dd1149Attached && (
                       <span className="text-[10px] text-violet-400">DD1149</span>
                     )}
@@ -1086,6 +1243,12 @@ export default async function ReceivingTravelerDetailPage({
                       : ""}
                   </span>
                 </div>
+                {displayReceiptStatus(r) === "AWAITING_INSPECTION" && (
+                  <p className="mt-1 text-xs text-amber-300/90">
+                    Dock qty received — QA / functional still open on child
+                    traveler(s). Not complete until that work is put away.
+                  </p>
+                )}
                 {r.notes && (
                   <p className="mt-1 text-xs text-slate-500">{r.notes}</p>
                 )}
@@ -1128,41 +1291,87 @@ export default async function ReceivingTravelerDetailPage({
         </Card>
       )}
 
-      {/* Inspections / tests */}
-      {allInspections.length > 0 && (
+      {/* Station work — no INSP-##### tickets; work lives on travelers */}
+      {(stationWork.length > 0 || dockWork.some((i) => i.status === "PENDING")) && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <FlaskConical className="h-4 w-4 text-violet-400" />
-              Inspections &amp; tests ({allInspections.length})
-              {completedInspections.length > 0 && (
+              Station work
+              {(stationPassed > 0 || stationFailed > 0 || openStationWork.length > 0) && (
                 <span className="font-normal text-xs text-slate-500">
-                  · {completedInspections.filter((i) => i.status === "PASSED").length}{" "}
-                  passed
-                  {completedInspections.filter((i) => i.status === "FAILED").length
-                    ? ` · ${completedInspections.filter((i) => i.status === "FAILED").length} failed`
+                  {openStationWork.length > 0
+                    ? ` · ${openStationWork.length} open`
                     : ""}
+                  {stationPassed > 0 ? ` · ${stationPassed} passed` : ""}
+                  {stationFailed > 0 ? ` · ${stationFailed} failed` : ""}
                 </span>
               )}
             </CardTitle>
+            <p className="text-xs text-slate-500">
+              QA (visual / GD&amp;T) and Test Center work for this receive.
+              Work the matching{" "}
+              <span className="text-slate-400">child traveler</span> — not a
+              separate inspection ticket.
+            </p>
           </CardHeader>
           <CardContent className="space-y-3">
-            {allInspections.map((insp) => {
+            {/* Pending dock attest only (rare) */}
+            {dockWork
+              .filter((i) => i.status === "PENDING")
+              .map((insp) => (
+                <div
+                  key={insp.id}
+                  className="rounded-lg border border-amber-900/40 bg-amber-500/5 p-3 text-sm"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-amber-200">Dock acceptance</span>
+                    <StatusBadge status={insp.status} />
+                    <span className="font-mono text-teal-400">
+                      {insp.partId ? partNumById[insp.partId] : "—"}
+                    </span>
+                  </div>
+                  <form
+                    id="dock-attest"
+                    action={actionAttestDockAcceptance}
+                    className="mt-2 flex flex-wrap items-center gap-2"
+                  >
+                    <input type="hidden" name="inspectionId" value={insp.id} />
+                    <input type="hidden" name="travelerId" value={id} />
+                    <span className="text-[11px] text-amber-300">
+                      Sign dock acceptance to clear putaway for dock-only lines.
+                    </span>
+                    <Input
+                      name="notes"
+                      placeholder="Note (optional)"
+                      className="h-8 w-44 text-xs"
+                    />
+                    <Button type="submit" size="sm">
+                      Attest & clear
+                    </Button>
+                  </form>
+                </div>
+              ))}
+
+            {stationWork.map((insp) => {
               const partNo = insp.partId ? partNumById[insp.partId] : "—";
-              const wc =
-                insp.type === "RECEIVING"
-                  ? insp.workCenter || "DOCK"
-                  : insp.workOrder?.workCenter ||
-                    insp.workCenter ||
-                    (["VISUAL", "GDT"].includes(insp.type)
-                      ? "QA-01"
-                      : "TEST-01");
-              const area =
-                insp.type === "RECEIVING"
-                  ? "Dock"
-                  : ["VISUAL", "GDT"].includes(insp.type)
-                    ? "QA"
-                    : "Test";
+              const area = ["VISUAL", "GDT"].includes(insp.type) ? "QA" : "Test Center";
+              const typeLabel =
+                insp.type === "GDT"
+                  ? "GD&T / visual"
+                  : insp.type === "VISUAL"
+                    ? "Visual"
+                    : "Functional";
+              // Prefer child traveler that owns this station work
+              const linkedChild =
+                traveler.children.find((c) =>
+                  ["IN_INSPECTION", "READY_TO_STOCK", "COMPLETE"].includes(
+                    c.status
+                  )
+                ) ||
+                (isChildTraveler ? traveler : null);
+              const workHref =
+                area === "QA" ? "/qa" : "/test-center";
               return (
                 <div
                   key={insp.id}
@@ -1171,14 +1380,16 @@ export default async function ReceivingTravelerDetailPage({
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-mono text-sky-400">
-                          {insp.number}
+                        <span className="font-medium text-slate-200">
+                          {typeLabel}
                         </span>
-                        <StatusBadge status={insp.type} />
                         <StatusBadge status={insp.status} />
-                        <span className="font-mono text-[10px] text-slate-500">
+                        <span
+                          className={`text-[11px] font-medium ${
+                            area === "QA" ? "text-amber-300" : "text-violet-300"
+                          }`}
+                        >
                           @ {area}
-                          {insp.type !== "RECEIVING" ? ` · ${wc}` : ""}
                         </span>
                       </div>
                       <p className="mt-1 font-mono text-teal-400">{partNo}</p>
@@ -1186,23 +1397,42 @@ export default async function ReceivingTravelerDetailPage({
                         Qty {insp.quantity}
                         {insp.lotNumber ? ` · Lot ${insp.lotNumber}` : ""}
                         {insp.serialNumber ? ` · S/N ${insp.serialNumber}` : ""}
-                        {insp.plannedPutawayCode
-                          ? ` · Planned putaway ${insp.plannedPutawayCode}`
-                          : ""}
                       </p>
-                      {insp.workOrder && (
-                        <Link
-                          href={`/work-orders/${insp.workOrder.id}`}
-                          className="mt-0.5 inline-block font-mono text-xs text-sky-400 hover:underline"
-                        >
-                          WO {insp.workOrder.number}
-                        </Link>
-                      )}
+                      {isChildTraveler ? (
+                        <p className="mt-1 text-xs text-sky-400/90">
+                          On this traveler · {traveler.number}
+                        </p>
+                      ) : traveler.children.length > 0 ? (
+                        <p className="mt-1 text-xs text-slate-500">
+                          Work on child traveler
+                          {linkedChild ? (
+                            <>
+                              {" "}
+                              <Link
+                                href={`/receiving/${linkedChild.id}`}
+                                className="font-mono text-sky-400 hover:underline"
+                              >
+                                {linkedChild.number}
+                              </Link>
+                            </>
+                          ) : (
+                            " (see children above)"
+                          )}
+                          {" · "}
+                          <Link
+                            href={workHref}
+                            className="text-sky-400 hover:underline"
+                          >
+                            {area} queue
+                          </Link>
+                        </p>
+                      ) : null}
                     </div>
                     <div className="text-right text-[10px] text-slate-600">
-                      <p>Opened {fmtWhen(insp.createdAt)}</p>
-                      {insp.completedAt && (
+                      {insp.completedAt ? (
                         <p>Done {fmtWhen(insp.completedAt)}</p>
+                      ) : (
+                        <p>Opened {fmtWhen(insp.createdAt)}</p>
                       )}
                       {(insp.quantityPassed > 0 || insp.quantityFailed > 0) && (
                         <p className="text-slate-400">
@@ -1244,37 +1474,6 @@ export default async function ReceivingTravelerDetailPage({
                   )}
                   {insp.notes && (
                     <p className="mt-1 text-xs text-slate-500">{insp.notes}</p>
-                  )}
-                  {insp.documents.length > 0 && (
-                    <p className="mt-1 text-[11px] text-slate-500">
-                      {insp.documents.length} document(s) on inspection
-                    </p>
-                  )}
-                  {insp.type === "RECEIVING" && insp.status === "PENDING" && (
-                    <form
-                      id="dock-attest"
-                      action={actionAttestDockAcceptance}
-                      className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-amber-900/50 bg-amber-500/5 p-2"
-                    >
-                      <input
-                        type="hidden"
-                        name="inspectionId"
-                        value={insp.id}
-                      />
-                      <input type="hidden" name="travelerId" value={id} />
-                      <span className="text-[11px] text-amber-300">
-                        Dock acceptance was not signed at receive — attest it
-                        to clear this inspection and release putaway.
-                      </span>
-                      <Input
-                        name="notes"
-                        placeholder="Note (optional)"
-                        className="h-8 w-44 text-xs"
-                      />
-                      <Button type="submit" size="sm">
-                        Attest & clear
-                      </Button>
-                    </form>
                   )}
                   {insp.ncrs.length > 0 && (
                     <div className="mt-2 space-y-1">
@@ -1506,7 +1705,7 @@ export default async function ReceivingTravelerDetailPage({
             </span>
             <span className="flex items-center gap-1">
               <FlaskConical className="h-3.5 w-3.5" />
-              {allInspections.length} inspection(s)
+              {stationWork.length} station check(s)
             </span>
             <span className="flex items-center gap-1">
               <MapPin className="h-3.5 w-3.5" />

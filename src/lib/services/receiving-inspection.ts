@@ -891,6 +891,17 @@ export async function completeReceivingAfterInspection(params: {
     data: { status: "COMPLETE" },
   });
 
+  // Receipts that were AWAITING_INSPECTION are complete only after putaway
+  if (receiptIds.length > 0) {
+    await prisma.receipt.updateMany({
+      where: {
+        id: { in: receiptIds },
+        status: { in: ["AWAITING_INSPECTION", "PARTIAL"] },
+      },
+      data: { status: "COMPLETE" },
+    });
+  }
+
   // If PO fully qty-received and no open inspection travelers, leave PO as RECEIVED
   if (traveler.purchaseOrderId) {
     const po = traveler.purchaseOrder;

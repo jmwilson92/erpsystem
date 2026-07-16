@@ -144,6 +144,24 @@ export async function receivePurchaseOrder(params: {
     return pl.quantityReceived + add >= pl.quantity;
   });
 
+  // Receipt status = dock qty only. COMPLETE only when no QA/Test routing on this
+  // receive (dock putaway path). Lines needing inspection stay non-complete so
+  // handlers don't think the job is finished at the dock.
+  const linesNeedingInspect = receiveLines.filter((l) => {
+    const poLine = po.lines.find((pl) => pl.id === l.poLineId);
+    const part = poLine?.part;
+    return (
+      !!part &&
+      (part.requiresGdtInspection || part.requiresFunctionalTest)
+    );
+  });
+  const receiptStatus =
+    linesNeedingInspect.length > 0
+      ? "AWAITING_INSPECTION"
+      : wouldBeFull
+        ? "COMPLETE"
+        : "PARTIAL";
+
   const receipt = await prisma.receipt.create({
     data: {
       number: receiptNumber,
@@ -152,7 +170,7 @@ export async function receivePurchaseOrder(params: {
       receivedById: params.receivedById,
       packingSlip: params.packingSlip,
       notes: params.notes,
-      status: wouldBeFull ? "COMPLETE" : "PARTIAL",
+      status: receiptStatus,
       dd1149Attached: receivingGovt && (params.dd1149Docs?.length || 0) > 0,
       lines: {
         create: receiveLines.map((l) => {
@@ -816,7 +834,12 @@ export async function receiveGfpTraveler(params: {
       receivedById: params.receivedById,
       packingSlip: params.packingSlip,
       notes: params.notes,
-      status: wouldBeFull ? "COMPLETE" : "PARTIAL",
+      // COMPLETE only for dock-only putaway. Lines needing QA/Test stay open.
+      status: willRouteInspect
+        ? "AWAITING_INSPECTION"
+        : wouldBeFull
+          ? "COMPLETE"
+          : "PARTIAL",
       dd1149Attached: (params.dd1149Docs?.length || 0) > 0,
       lines: {
         create: receiveLines.map((l) => {

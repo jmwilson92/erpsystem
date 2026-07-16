@@ -104,6 +104,7 @@ export function statusColor(status: string): string {
     WAITING: "bg-amber-500/15 text-amber-400 border-amber-500/30",
     SHORT: "bg-amber-500/15 text-amber-400 border-amber-500/30",
     PARTIAL: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+    AWAITING_INSPECTION: "bg-amber-500/15 text-amber-400 border-amber-500/30",
     STOCK_CHECK: "bg-amber-500/15 text-amber-400 border-amber-500/30",
     PROTOTYPE: "bg-amber-500/15 text-amber-400 border-amber-500/30",
     IN_REVIEW: "bg-amber-500/15 text-amber-400 border-amber-500/30",
