@@ -4,17 +4,23 @@ import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 
 /**
- * PR approval — charge-code routing + configurable thresholds.
+ * PR approval pipeline (charge-aware + buyer package + thresholds).
  *
- * Policy steps (minAmount = kicks in at this $):
- *  - CHARGE_OWNER: WBS owner / project PM, or production mgr for SO product line
- *  - CHARGE_ESCALATION: program owner (project path) or product owner / exec (SO)
- *  - ROLE / USER: classic role or fixed user (e.g. Finance ≥ $25k)
+ * Typical flow:
+ *  1. REQUEST_CONFIRM — charge owner confirms demand is real / OK to process
+ *  2. BUYER_PACKAGE — purchasing verifies prices, sole-source, quotes, docs
+ *  3. PURCHASE_APPROVAL — same charge owner approves to buy (after buyer package)
+ *  4. CHARGE_ESCALATION / ROLE — company $ thresholds (program, finance, …)
  *
- * No more fake “Sales order owner” step-0. Sequential: step N before N+1.
+ * Charge owner = WBS owner / project PM, or production mgr for SO product line.
+ * Escalation = program owner (project) or product owner / exec (SO).
  */
 
 export type RoutingKey =
+  | "REQUEST_CONFIRM"
+  | "BUYER_PACKAGE"
+  | "PURCHASE_APPROVAL"
+  /** @deprecated use REQUEST_CONFIRM — still resolved as charge owner */
   | "CHARGE_OWNER"
   | "CHARGE_ESCALATION"
   | "ROLE"
@@ -374,9 +380,20 @@ export async function startPrApprovalWorkflow(params: {
   const charge = await resolveChargeContext(pr.id);
   const amount = pr.totalEstimate || 0;
 
-  // Steps that apply for this dollar amount (threshold)
+  // Pipeline core (request → buyer → purchase) always runs at min $0.
+  // Threshold steps (escalation, finance) only when amount >= minAmount.
+  const CORE_ALWAYS = new Set([
+    "REQUEST_CONFIRM",
+    "BUYER_PACKAGE",
+    "PURCHASE_APPROVAL",
+    "CHARGE_OWNER", // legacy alias for request confirm
+  ]);
   const applicable = policy.steps
-    .filter((s) => amount >= (s.minAmount || 0))
+    .filter((s) => {
+      const r = s.routingKey || "ROLE";
+      if (CORE_ALWAYS.has(r)) return true;
+      return amount >= (s.minAmount || 0);
+    })
     .sort((a, b) => a.stepOrder - b.stepOrder);
 
   await prisma.approval.deleteMany({
@@ -388,38 +405,56 @@ export async function startPrApprovalWorkflow(params: {
     stepOrder: number;
     stage: string;
     approverId: string | null;
+    routingKey: string;
   }[] = [];
   let stepOrder = 0;
+  /** Person who will do purchase approval — escalation skipped if same human */
+  let purchaseApproverId: string | null = null;
 
   for (const step of applicable) {
     const routing = (step.routingKey || "ROLE") as RoutingKey;
     let approverId: string | null | undefined;
     let stage = step.name;
 
-    if (routing === "CHARGE_OWNER") {
+    if (
+      routing === "REQUEST_CONFIRM" ||
+      routing === "PURCHASE_APPROVAL" ||
+      routing === "CHARGE_OWNER"
+    ) {
+      // Same charge owner for demand confirm AND final buy approval (intentional)
       approverId = charge.ownerUserId;
-      stage = `${step.name} — ${charge.ownerLabel}`;
+      const phase =
+        routing === "PURCHASE_APPROVAL"
+          ? "approve to purchase"
+          : "confirm demand";
+      stage = `${step.name} — ${charge.ownerLabel} (${phase})`;
       if (!approverId) {
         approverId = await fallbackUserForRole(
           step.approverRole || "PURCHASING"
         );
       }
-    } else if (routing === "CHARGE_ESCALATION") {
-      // Only meaningful when charge context can escalate
-      if (charge.kind === "GENERAL" && !charge.escalationUserId) {
-        // Still allow if minAmount hit — admin/exec
-        approverId = await fallbackUserForRole(
-          step.approverRole || "ADMIN"
-        );
-        stage = `${step.name} — ${charge.escalationLabel}`;
-      } else {
-        approverId = charge.escalationUserId;
-        stage = `${step.name} — ${charge.escalationLabel}`;
-        if (!approverId) {
-          approverId = await fallbackUserForRole(
-            step.approverRole || "EXECUTIVE"
-          );
+      if (routing === "PURCHASE_APPROVAL" || routing === "CHARGE_OWNER") {
+        // track last owner step as purchase approver for escalation dedupe
+        if (routing === "PURCHASE_APPROVAL") purchaseApproverId = approverId;
+        if (routing === "CHARGE_OWNER" && !purchaseApproverId) {
+          purchaseApproverId = approverId;
         }
+      }
+      if (routing === "REQUEST_CONFIRM") {
+        // also remember for escalation skip
+      }
+    } else if (routing === "BUYER_PACKAGE") {
+      // Purchasing workbench: prices, sole-source, quotes, docs — not charge owner
+      approverId = step.approverUserId || null;
+      stage = `${step.name} — purchasing package (quotes, prices, docs)`;
+      // leave role-based if no user pin
+    } else if (routing === "CHARGE_ESCALATION") {
+      approverId = charge.escalationUserId;
+      stage = `${step.name} — ${charge.escalationLabel}`;
+      if (!approverId) {
+        approverId = await fallbackUserForRole(
+          step.approverRole || "EXECUTIVE"
+        );
       }
     } else if (routing === "USER") {
       approverId = step.approverUserId || null;
@@ -428,7 +463,6 @@ export async function startPrApprovalWorkflow(params: {
       // ROLE — optional pin specific user still supported
       approverId = step.approverUserId || null;
       if (!approverId && step.approverRole) {
-        // Finance pin: prefer CFO title when ACCOUNTING/EXECUTIVE
         if (
           step.approverRole === "ACCOUNTING" ||
           /cfo|finance|controller/i.test(step.name)
@@ -452,16 +486,23 @@ export async function startPrApprovalWorkflow(params: {
         }
       }
       if (!approverId && step.approverRole) {
-        // Leave unassigned — role-based canUserApproveStep
         stage = step.name;
       }
     }
 
-    // Skip escalation step when same person as charge owner (no double-approve)
+    // Escalation only after purchase approval — skip if same human as owner
+    // (thresholds still apply for finance ROLE steps)
     if (
       routing === "CHARGE_ESCALATION" &&
       approverId &&
-      approvals.some((a) => a.approverId === approverId)
+      (approverId === purchaseApproverId ||
+        approvals.some(
+          (a) =>
+            a.approverId === approverId &&
+            (a.routingKey === "PURCHASE_APPROVAL" ||
+              a.routingKey === "REQUEST_CONFIRM" ||
+              a.routingKey === "CHARGE_OWNER")
+        ))
     ) {
       continue;
     }
@@ -483,6 +524,7 @@ export async function startPrApprovalWorkflow(params: {
       stepOrder: ap.stepOrder,
       stage: ap.stage,
       approverId: ap.approverId,
+      routingKey: routing,
     });
   }
 
@@ -579,9 +621,17 @@ export async function canUserApproveStep(params: {
   }
 
   const routing = step.routingKey || "ROLE";
-  if (routing === "CHARGE_OWNER" || routing === "CHARGE_ESCALATION") {
-    // Unassigned charge step — purchasing / exec can clear so work isn't stuck
+  if (
+    routing === "REQUEST_CONFIRM" ||
+    routing === "PURCHASE_APPROVAL" ||
+    routing === "CHARGE_OWNER" ||
+    routing === "CHARGE_ESCALATION"
+  ) {
+    // Unassigned charge step — purchasing / exec / production can clear
     return ["PURCHASING", "EXECUTIVE", "PM", "PRODUCTION"].includes(role);
+  }
+  if (routing === "BUYER_PACKAGE") {
+    return role === "PURCHASING" || role === "EXECUTIVE";
   }
 
   if (step.approverRole) {
@@ -663,12 +713,38 @@ export async function decidePrApproval(params: {
   if (!allowed) {
     const who = current.approverId
       ? "the assigned charge owner / manager (or ADMIN)"
-      : current.policyStep?.approverRole
-        ? `role ${current.policyStep.approverRole} (or ADMIN)`
-        : "an authorized approver (or ADMIN)";
+      : current.policyStep?.routingKey === "BUYER_PACKAGE"
+        ? "PURCHASING (or ADMIN)"
+        : current.policyStep?.approverRole
+          ? `role ${current.policyStep.approverRole} (or ADMIN)`
+          : "an authorized approver (or ADMIN)";
     throw new Error(
       `You are not authorized for step "${current.stage}". Need ${who}.`
     );
+  }
+
+  // Buyer must attach a package before releasing back to the owner
+  if (
+    params.decision === "APPROVED" &&
+    current.policyStep?.routingKey === "BUYER_PACKAGE"
+  ) {
+    const fresh = await prisma.purchaseRequest.findUnique({
+      where: { id: pr.id },
+      select: {
+        buyerConfirmedPrices: true,
+        quoteFileUrl: true,
+        buyerNotes: true,
+      },
+    });
+    const hasPackage =
+      !!fresh?.buyerConfirmedPrices ||
+      !!fresh?.quoteFileUrl ||
+      !!(fresh?.buyerNotes && fresh.buyerNotes.trim().length > 8);
+    if (!hasPackage) {
+      throw new Error(
+        "Buyer package incomplete — confirm prices and/or attach a supplier quote (and notes) before sending back to the charge owner."
+      );
+    }
   }
 
   await prisma.approval.update({
@@ -871,29 +947,46 @@ export async function saveApprovalPolicy(params: {
   return policy;
 }
 
-const DEFAULT_CHARGE_STEPS = [
+const DEFAULT_PIPELINE_STEPS = [
   {
     stepOrder: 1,
-    name: "Charge owner",
+    name: "Confirm demand",
     minAmount: 0,
-    routingKey: "CHARGE_OWNER",
+    routingKey: "REQUEST_CONFIRM",
     approverRole: "PURCHASING",
   },
   {
     stepOrder: 2,
-    name: "Charge escalation",
+    name: "Buyer package",
+    minAmount: 0,
+    routingKey: "BUYER_PACKAGE",
+    approverRole: "PURCHASING",
+  },
+  {
+    stepOrder: 3,
+    name: "Approve to purchase",
+    minAmount: 0,
+    routingKey: "PURCHASE_APPROVAL",
+    approverRole: "PURCHASING",
+  },
+  {
+    stepOrder: 4,
+    name: "Threshold escalation",
     minAmount: 10000,
     routingKey: "CHARGE_ESCALATION",
     approverRole: "EXECUTIVE",
   },
   {
-    stepOrder: 3,
+    stepOrder: 5,
     name: "Finance / controller",
     minAmount: 25000,
     routingKey: "ROLE",
     approverRole: "ACCOUNTING",
   },
 ];
+
+const PIPELINE_DESC =
+  "1) Charge owner confirms demand. 2) Buyer verifies prices, sole-source, quotes, docs and packages the PR. 3) Same charge owner approves to purchase. 4+) Company $ thresholds (program/product escalation, finance). Edit min $ on this page.";
 
 export async function ensureDefaultPrApprovalPolicy() {
   const existing = await prisma.approvalPolicy.findFirst({
@@ -904,38 +997,53 @@ export async function ensureDefaultPrApprovalPolicy() {
   if (!existing) {
     return prisma.approvalPolicy.create({
       data: {
-        name: "Charge-code PR approval",
+        name: "Demand → buyer package → purchase",
         entityType: "PurchaseRequest",
-        description:
-          "Project/WBS → WBS owner or project PM, then program owner above threshold. Sales order → production manager for the product line, then product owner/exec above threshold. Finance above company $ threshold. Edit amounts on the Approvals settings page.",
+        description: PIPELINE_DESC,
         isActive: true,
         isDefault: true,
-        steps: { create: DEFAULT_CHARGE_STEPS },
+        steps: { create: DEFAULT_PIPELINE_STEPS },
       },
       include: { steps: true },
     });
   }
 
-  // Upgrade legacy “Buyer / Finance / Admin” default to charge-code routing
-  const hasCharge = existing.steps.some(
-    (s) =>
-      s.routingKey === "CHARGE_OWNER" || s.routingKey === "CHARGE_ESCALATION"
-  );
-  if (!hasCharge && existing.isDefault) {
+  // Upgrade defaults that lack the buyer/purchase loop
+  const keys = new Set(existing.steps.map((s) => s.routingKey || ""));
+  const hasPipeline =
+    keys.has("BUYER_PACKAGE") &&
+    (keys.has("PURCHASE_APPROVAL") || keys.has("REQUEST_CONFIRM"));
+  if (!hasPipeline && existing.isDefault) {
     await prisma.approvalPolicyStep.deleteMany({
       where: { policyId: existing.id },
     });
     return prisma.approvalPolicy.update({
       where: { id: existing.id },
       data: {
-        name: "Charge-code PR approval",
-        description:
-          "Project/WBS → WBS owner or project PM, then program owner above threshold. Sales order → production manager for the product line, then product owner/exec above threshold. Finance above company $ threshold. Edit amounts on the Approvals settings page.",
-        steps: { create: DEFAULT_CHARGE_STEPS },
+        name: "Demand → buyer package → purchase",
+        description: PIPELINE_DESC,
+        steps: { create: DEFAULT_PIPELINE_STEPS },
       },
       include: { steps: { orderBy: { stepOrder: "asc" } } },
     });
   }
 
   return existing;
+}
+
+/** CTA label for the current step on PR detail */
+export function approvalActionLabel(routingKey?: string | null, stage?: string) {
+  switch (routingKey) {
+    case "REQUEST_CONFIRM":
+    case "CHARGE_OWNER":
+      return "Confirm demand — release to buyer";
+    case "BUYER_PACKAGE":
+      return "Package complete — send to owner";
+    case "PURCHASE_APPROVAL":
+      return "Approve to purchase";
+    case "CHARGE_ESCALATION":
+      return "Approve escalation";
+    default:
+      return stage ? `Approve — ${stage}` : "Approve step";
+  }
 }

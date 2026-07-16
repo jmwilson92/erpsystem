@@ -152,10 +152,12 @@ model ApprovalPolicyStep {
   minAmount       Float  @default(0)
   /**
    * How this step picks an approver at submit time:
-   * - CHARGE_OWNER: WBS owner / project PM (project-coded) or production mgr (SO-coded)
-   * - CHARGE_ESCALATION: program owner (project) or product owner / exec (SO) when over threshold
-   * - ROLE: use approverRole (PURCHASING, ACCOUNTING, …)
-   * - USER: use approverUserId
+   * - REQUEST_CONFIRM: charge owner confirms demand (WBS/PM or SO production mgr)
+   * - BUYER_PACKAGE: purchasing packages quotes/prices/docs then releases
+   * - PURCHASE_APPROVAL: same charge owner approves to buy
+   * - CHARGE_ESCALATION: program/product/exec when PR $ ≥ minAmount (after purchase)
+   * - ROLE / USER: fixed role or person (e.g. Finance)
+   * - CHARGE_OWNER: legacy alias for REQUEST_CONFIRM
    */
   routingKey      String  @default("ROLE")
   // Who may approve when routingKey = ROLE (or fallback if charge person missing)

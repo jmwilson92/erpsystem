@@ -18,14 +18,22 @@ export const dynamic = "force-dynamic";
 
 const ROUTING_OPTIONS: { value: string; label: string }[] = [
   {
-    value: "CHARGE_OWNER",
-    label: "Charge owner (WBS/PM or production mgr)",
+    value: "REQUEST_CONFIRM",
+    label: "1 · Charge owner confirms demand",
+  },
+  {
+    value: "BUYER_PACKAGE",
+    label: "2 · Buyer package (quotes / prices / docs)",
+  },
+  {
+    value: "PURCHASE_APPROVAL",
+    label: "3 · Charge owner approves to purchase",
   },
   {
     value: "CHARGE_ESCALATION",
-    label: "Charge escalation (program / product / exec)",
+    label: "4+ · Threshold escalation (program / exec)",
   },
-  { value: "ROLE", label: "Fixed role (e.g. Finance)" },
+  { value: "ROLE", label: "Fixed role (e.g. Finance ≥ $)" },
   { value: "USER", label: "Specific user only" },
 ];
 
@@ -61,31 +69,27 @@ export default async function PrApprovalSettingsPage() {
       <Card className="border-slate-700">
         <CardContent className="space-y-3 p-4 text-sm text-slate-400">
           <p className="font-medium text-slate-200">How routing works</p>
-          <ul className="list-inside list-disc space-y-1.5 text-xs leading-relaxed">
+          <ol className="list-decimal space-y-1.5 pl-4 text-xs leading-relaxed">
             <li>
-              <strong className="text-teal-400">Project + WBS</strong> — Charge
-              owner = WBS owner (else project PM). Escalation = program owner
-              when PR $ ≥ that step’s min amount.
+              <strong className="text-teal-400">Confirm demand</strong> — same
+              charge owner (WBS/PM or SO production mgr) says the need is real.
             </li>
             <li>
-              <strong className="text-teal-400">Sales order</strong> — Charge
-              owner = production manager for the product line (product owner /
-              PRODUCTION role). Escalation = product owner / exec above
-              threshold. No duplicate “SO owner” step.
+              <strong className="text-teal-400">Buyer package</strong> —
+              purchasing checks prices, sole-source, quotes, docs; attaches the
+              package; sends back to the owner.
             </li>
             <li>
-              <strong className="text-teal-400">General / stock</strong> — Buyer
-              / purchasing, then admin/exec on escalation.
+              <strong className="text-teal-400">Approve to purchase</strong> —
+              <em>same</em> charge owner signs the buy (not a second random
+              person).
             </li>
             <li>
-              <strong className="text-teal-400">Min $</strong> — step only runs
-              when PR estimate ≥ that amount. Edit thresholds below anytime.
+              <strong className="text-teal-400">Thresholds</strong> — company min
+              $ on escalation / finance steps only (e.g. program ≥ $10k, finance
+              ≥ $25k). Edit amounts below.
             </li>
-            <li>
-              <strong className="text-teal-400">ROLE / USER</strong> — company
-              steps (e.g. Finance ≥ $25k) independent of charge code.
-            </li>
-          </ul>
+          </ol>
         </CardContent>
       </Card>
 
@@ -213,22 +217,36 @@ export default async function PrApprovalSettingsPage() {
                 const defaultRouting =
                   step?.routingKey ||
                   (i === 0
-                    ? "CHARGE_OWNER"
+                    ? "REQUEST_CONFIRM"
                     : i === 1
-                      ? "CHARGE_ESCALATION"
-                      : "ROLE");
+                      ? "BUYER_PACKAGE"
+                      : i === 2
+                        ? "PURCHASE_APPROVAL"
+                        : i === 3
+                          ? "CHARGE_ESCALATION"
+                          : "ROLE");
                 const defaultMin =
                   step?.minAmount ??
-                  (i === 0 ? 0 : i === 1 ? 10000 : i === 2 ? 25000 : 0);
+                  (i === 0 || i === 1 || i === 2
+                    ? 0
+                    : i === 3
+                      ? 10000
+                      : i === 4
+                        ? 25000
+                        : 0);
                 const defaultName =
                   step?.name ||
                   (i === 0
-                    ? "Charge owner"
+                    ? "Confirm demand"
                     : i === 1
-                      ? "Charge escalation"
+                      ? "Buyer package"
                       : i === 2
-                        ? "Finance / controller"
-                        : "");
+                        ? "Approve to purchase"
+                        : i === 3
+                          ? "Threshold escalation"
+                          : i === 4
+                            ? "Finance / controller"
+                            : "");
                 return (
                   <div
                     key={i}

@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { actionApprovePr, actionAttachPrQuote } from "@/app/actions";
 import {
+  approvalActionLabel,
   canUserApproveStep,
   getPrApprovals,
 } from "@/lib/services/pr-approval";
@@ -290,16 +291,24 @@ export default async function PrDetailPage({
                       {a.status === "PENDING"
                         ? a.approver
                           ? `Needs ${a.approver.name}`
-                          : a.policyStep?.routingKey === "CHARGE_OWNER" ||
-                              a.policyStep?.routingKey === "CHARGE_ESCALATION"
-                            ? "Needs assigned charge manager (or ADMIN)"
-                            : a.policyStep?.approverRole
-                              ? `Needs role ${a.policyStep.approverRole}`
-                              : "Needs authorized approver"
+                          : a.policyStep?.routingKey === "BUYER_PACKAGE"
+                            ? "Needs PURCHASING (package quotes / prices)"
+                            : a.policyStep?.routingKey === "REQUEST_CONFIRM" ||
+                                a.policyStep?.routingKey ===
+                                  "PURCHASE_APPROVAL" ||
+                                a.policyStep?.routingKey === "CHARGE_OWNER" ||
+                                a.policyStep?.routingKey === "CHARGE_ESCALATION"
+                              ? "Needs assigned charge manager (or ADMIN)"
+                              : a.policyStep?.approverRole
+                                ? `Needs role ${a.policyStep.approverRole}`
+                                : "Needs authorized approver"
                         : a.policyStep?.approverRole
                           ? `Role ${a.policyStep.approverRole}`
                           : "Approver"}
                       {a.minAmount > 0 &&
+                        a.policyStep?.routingKey !== "REQUEST_CONFIRM" &&
+                        a.policyStep?.routingKey !== "BUYER_PACKAGE" &&
+                        a.policyStep?.routingKey !== "PURCHASE_APPROVAL" &&
                         ` · ≥ ${formatCurrency(a.minAmount)}`}
                       {a.policyStep?.routingKey &&
                         a.policyStep.routingKey !== "ROLE" &&
@@ -333,6 +342,12 @@ export default async function PrDetailPage({
               )}
               {canDecide && (
                 <div className="space-y-2 border-t border-slate-800 pt-3">
+                  {currentStep?.policyStep?.routingKey === "BUYER_PACKAGE" && (
+                    <p className="text-[11px] text-sky-300/90">
+                      Before sending back: confirm prices and/or attach a quote
+                      on this PR (buyer fields above / quote upload).
+                    </p>
+                  )}
                   <form action={actionApprovePr} className="space-y-2">
                     <input type="hidden" name="id" value={pr.id} />
                     <input type="hidden" name="decision" value="APPROVED" />
@@ -342,7 +357,10 @@ export default async function PrDetailPage({
                       placeholder="Comment (optional)"
                     />
                     <Button type="submit" size="sm" className="w-full">
-                      Approve — {currentStep?.stage || "current step"}
+                      {approvalActionLabel(
+                        currentStep?.policyStep?.routingKey,
+                        currentStep?.stage
+                      )}
                     </Button>
                   </form>
                   <form action={actionApprovePr} className="space-y-2">
