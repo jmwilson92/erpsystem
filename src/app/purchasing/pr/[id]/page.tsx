@@ -8,7 +8,10 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { actionApprovePr, actionAttachPrQuote } from "@/app/actions";
-import { getPrApprovals } from "@/lib/services/pr-approval";
+import {
+  canUserApproveStep,
+  getPrApprovals,
+} from "@/lib/services/pr-approval";
 import { QuoteFileField } from "@/components/purchasing/quote-file-field";
 import { ActivityTimeline } from "@/components/shared/activity-timeline";
 import Link from "next/link";
@@ -81,17 +84,28 @@ export default async function PrDetailPage({
   const currentStep = approvals.find(
     (a) => a.stepOrder === pr.currentStepOrder && a.status === "PENDING"
   );
-  const roleOk =
-    currentUser?.role === "ADMIN" ||
-    !currentStep?.policyStep?.approverRole ||
-    currentUser?.role === currentStep.policyStep.approverRole ||
-    (currentStep?.policyStep?.approverUserId &&
-      currentStep.policyStep.approverUserId === currentUser?.id);
+  // Same rules as the server action — never show Approve if decide will throw
+  const roleOk = currentStep
+    ? await canUserApproveStep({
+        userId: currentUser?.id,
+        userRole: currentUser?.role,
+        approvalId: currentStep.id,
+      })
+    : false;
   // A requester can never approve their own PR (segregation of duties)
   const isRequester =
     !!currentUser?.id && currentUser.id === pr.requestedById;
   const canDecide =
-    pr.status === "SUBMITTED" && !!currentStep && !!roleOk && !isRequester;
+    pr.status === "SUBMITTED" && !!currentStep && roleOk && !isRequester;
+  const waitingOn =
+    currentStep && !canDecide && pr.status === "SUBMITTED"
+      ? currentStep.approver
+        ? currentStep.approver.name
+        : currentStep.policyStep?.approverRole ||
+          (/sales order/i.test(currentStep.stage)
+            ? "ADMIN, PURCHASING, or EXECUTIVE"
+            : "an authorized approver")
+      : null;
 
   const lineTotal = pr.lines.reduce(
     (s, l) => s + l.quantity * l.estimatedUnitCost,
@@ -273,12 +287,22 @@ export default async function PrDetailPage({
                       {a.stepOrder}. {a.stage}
                     </p>
                     <p className="text-[11px] text-slate-500">
-                      {a.policyStep?.approverRole
-                        ? `Needs ${a.policyStep.approverRole}`
-                        : "Any approver"}
+                      {a.status === "PENDING"
+                        ? a.approver
+                          ? `Needs ${a.approver.name}`
+                          : a.policyStep?.approverRole
+                            ? `Needs role ${a.policyStep.approverRole}`
+                            : /sales order/i.test(a.stage)
+                              ? "Needs ADMIN, PURCHASING, or EXECUTIVE"
+                              : "Needs ADMIN or PURCHASING"
+                        : a.policyStep?.approverRole
+                          ? `Role ${a.policyStep.approverRole}`
+                          : "Approver"}
                       {a.minAmount > 0 &&
                         ` · ≥ ${formatCurrency(a.minAmount)}`}
-                      {a.approver && ` · ${a.approver.name}`}
+                      {a.status !== "PENDING" &&
+                        a.approver &&
+                        ` · ${a.approver.name}`}
                       {a.decidedAt && ` · ${formatDate(a.decidedAt)}`}
                     </p>
                     {a.comments && (
@@ -294,6 +318,13 @@ export default async function PrDetailPage({
                 <p className="border-t border-slate-800 pt-3 text-[11px] text-slate-500">
                   You submitted this request — it must be approved by someone
                   else.
+                </p>
+              )}
+              {waitingOn && !isRequester && (
+                <p className="border-t border-slate-800 pt-3 text-[11px] text-amber-200/90">
+                  Waiting on <strong>{waitingOn}</strong> for “
+                  {currentStep?.stage}”. Switch persona (demo) or sign in as
+                  that role to approve.
                 </p>
               )}
               {canDecide && (

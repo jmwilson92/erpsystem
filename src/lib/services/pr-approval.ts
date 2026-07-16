@@ -77,10 +77,10 @@ export async function startPrApprovalWorkflow(params: {
   }
 
   // Resolve the specific person who owns Project / Program / Sales Order
-  // (not just a generic role title).
+  // (not just a generic role title). approverId optional = role-based step.
   let ownerApprovals: {
     stage: string;
-    approverId: string;
+    approverId?: string;
   }[] = [];
 
   // Reload PR with ownership links
@@ -154,32 +154,32 @@ export async function startPrApprovalWorkflow(params: {
     });
   }
 
-  // Sales-order charged PRs: no named SO owner field — use linked project PM if any
+  // Sales-order charged PRs: SO has no owner field. Add a commercial review
+  // step (not locked to one random ADMIN) so Purchasing/Admin can clear it.
   if (pr.salesOrderId && !ownerApprovals.length) {
     const so = await prisma.salesOrder.findUnique({
       where: { id: pr.salesOrderId },
       select: { id: true, number: true },
     });
     if (so) {
-      // Prefer explicit sales lead: admin/purchasing still processes after owner steps
-      const salesLead = await prisma.user.findFirst({
-        where: { role: "ADMIN", isActive: true },
-        select: { id: true },
+      ownerApprovals.push({
+        stage: `Sales order ${so.number} review`,
+        // no approverId — any ADMIN / PURCHASING / EXECUTIVE / PM
       });
-      if (salesLead) {
-        ownerApprovals.push({
-          stage: `Sales order ${so.number} owner`,
-          approverId: salesLead.id,
-        });
-      }
     }
   }
 
-  // Deduplicate by person
+  // Deduplicate by person (unassigned stages kept once by stage name)
   const seenOwners = new Set<string>();
+  const seenStages = new Set<string>();
   ownerApprovals = ownerApprovals.filter((o) => {
-    if (seenOwners.has(o.approverId)) return false;
-    seenOwners.add(o.approverId);
+    if (o.approverId) {
+      if (seenOwners.has(o.approverId)) return false;
+      seenOwners.add(o.approverId);
+      return true;
+    }
+    if (seenStages.has(o.stage)) return false;
+    seenStages.add(o.stage);
     return true;
   });
 
@@ -196,7 +196,7 @@ export async function startPrApprovalWorkflow(params: {
   const approvals = [];
   let stepOrder = 0;
 
-  // Owner steps first (specific people)
+  // Owner / commercial review steps first
   for (const o of ownerApprovals) {
     const ownerAp = await prisma.approval.create({
       data: {
@@ -206,7 +206,7 @@ export async function startPrApprovalWorkflow(params: {
         stepOrder: stepOrder++,
         minAmount: 0,
         status: "PENDING",
-        approverId: o.approverId,
+        approverId: o.approverId || undefined,
       },
     });
     approvals.push(ownerAp);
@@ -327,20 +327,32 @@ export async function canUserApproveStep(params: {
   });
   if (!approval || approval.status !== "PENDING") return false;
 
-  const step = approval.policyStep;
-  if (!step) {
-    // Legacy / free-form — any purchasing-ish role
-    return ["ADMIN", "PURCHASING"].includes(params.userRole || "");
+  const role = params.userRole || "";
+  // Admins can always clear a step (break-glass)
+  if (role === "ADMIN") return true;
+
+  // Person pinned on the approval row (PM, sponsor, CFO pin, etc.)
+  if (approval.approverId) {
+    if (approval.approverId === params.userId) return true;
+    // SO / commercial owner steps that were incorrectly pinned to one admin:
+    // still let Purchasing clear them so the dock isn't stuck.
+    if (
+      /sales order/i.test(approval.stage) &&
+      ["PURCHASING", "EXECUTIVE", "PM"].includes(role)
+    ) {
+      return true;
+    }
+    return false;
   }
 
-  // Specific person assigned on the approval row wins
-  if (approval.approverId) {
-    return (
-      approval.approverId === params.userId || params.userRole === "ADMIN"
-    );
+  const step = approval.policyStep;
+  if (!step) {
+    // Free-form / SO review without a named person
+    return ["PURCHASING", "EXECUTIVE", "PM"].includes(role);
   }
+
   if (step.approverUserId) {
-    return step.approverUserId === params.userId || params.userRole === "ADMIN";
+    return step.approverUserId === params.userId;
   }
   if (step.approverRole) {
     // CFO / accounting steps: allow EXECUTIVE finance or ACCOUNTING
@@ -349,17 +361,13 @@ export async function canUserApproveStep(params: {
       /cfo|finance|controller/i.test(approval.stage)
     ) {
       return (
-        params.userRole === "ACCOUNTING" ||
-        params.userRole === "EXECUTIVE" ||
-        params.userRole === "ADMIN"
+        role === "ACCOUNTING" ||
+        role === "EXECUTIVE"
       );
     }
-    return (
-      params.userRole === step.approverRole ||
-      params.userRole === "ADMIN"
-    );
+    return role === step.approverRole;
   }
-  return params.userRole === "ADMIN" || params.userRole === "PURCHASING";
+  return role === "PURCHASING" || role === "EXECUTIVE";
 }
 
 export async function decidePrApproval(params: {
@@ -429,8 +437,15 @@ export async function decidePrApproval(params: {
     approvalId: current.id,
   });
   if (!allowed) {
+    const who = current.approverId
+      ? "the assigned approver (or ADMIN)"
+      : current.policyStep?.approverRole
+        ? `role ${current.policyStep.approverRole} (or ADMIN)`
+        : /sales order/i.test(current.stage)
+          ? "ADMIN, PURCHASING, or EXECUTIVE"
+          : "ADMIN or PURCHASING";
     throw new Error(
-      `You are not authorized for step "${current.stage}". Need role ${current.policyStep?.approverRole || "ADMIN"} or assigned approver.`
+      `You are not authorized for step "${current.stage}". Need ${who}.`
     );
   }
 
