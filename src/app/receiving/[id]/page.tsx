@@ -1054,14 +1054,7 @@ export default async function ReceivingTravelerDetailPage({
         </Card>
       )}
 
-      <ReceivingStepper
-        {...stepState}
-        glideLabel={
-          traveler.number.includes("-")
-            ? traveler.number.split("-").slice(-1)[0]
-            : traveler.number.replace(/^RCV-T-?/, "").slice(-4)
-        }
-      />
+      <ReceivingStepper {...stepState} />
 
       {functionalTestCallouts.length > 0 && (
         <div className="rounded-xl border border-sky-500/30 bg-sky-500/5 p-3">
