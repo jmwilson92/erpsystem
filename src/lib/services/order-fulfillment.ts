@@ -1657,10 +1657,24 @@ export async function completeWorkOrderToStock(params: {
     where: { workOrderId: wo.id, status: "FAILED" },
   });
   if (pendingSteps > 0) {
-    throw new Error(`${pendingSteps} traveler step(s) still open — sign off before complete`);
+    throw new Error(
+      `${pendingSteps} traveler step(s) still open — sign off before putaway`
+    );
   }
   if (failedSteps > 0) {
-    throw new Error("Failed test steps on traveler — resolve NCR / hold before complete");
+    throw new Error(
+      "Failed test steps on traveler — resolve NCR / hold before putaway"
+    );
+  }
+  // Prefer putaway from Receiving after steps (READY_FOR_PUTAWAY)
+  if (
+    !["READY_FOR_PUTAWAY", "IN_PROGRESS", "KITTED", "RELEASED"].includes(
+      wo.status
+    )
+  ) {
+    throw new Error(
+      `WO must be ready for putaway at Receiving (status=${wo.status})`
+    );
   }
 
   const storageLoc =

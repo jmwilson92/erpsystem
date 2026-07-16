@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { actionSignOffStep } from "@/app/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,6 +13,8 @@ export function SignOffStepForm({
   passFailRequired,
   measureUom,
   expectedValue,
+  /** DOM id of this step card — keep scroll anchored after soft refresh */
+  stepAnchorId,
 }: {
   workOrderId: string;
   stepId: string;
@@ -19,7 +22,9 @@ export function SignOffStepForm({
   passFailRequired?: boolean;
   measureUom?: string | null;
   expectedValue?: string | null;
+  stepAnchorId?: string;
 }) {
+  const router = useRouter();
   const [pin, setPin] = useState("");
   const [measured, setMeasured] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -43,10 +48,27 @@ export function SignOffStepForm({
     fd.set("pinCode", pin.trim());
     if (measured) fd.set("measuredValue", measured);
     if (measureUom) fd.set("measureUom", measureUom);
+    const scrollY = window.scrollY;
     startTransition(async () => {
       try {
-        await actionSignOffStep(fd);
-        window.location.reload();
+        const outcome = await actionSignOffStep(fd);
+        // Soft refresh — stay put unless next open step is a different station
+        // or traveler is ready for Receiving putaway (then jump to guide at top).
+        if (outcome?.readyForPutaway || outcome?.stationChanged) {
+          window.scrollTo({ top: 0, behavior: "smooth" });
+          router.refresh();
+          return;
+        }
+        router.refresh();
+        // Restore scroll after RSC refresh paints
+        requestAnimationFrame(() => {
+          window.scrollTo(0, scrollY);
+          if (stepAnchorId) {
+            document
+              .getElementById(stepAnchorId)
+              ?.scrollIntoView({ block: "nearest", behavior: "instant" as ScrollBehavior });
+          }
+        });
       } catch (e) {
         setError(e instanceof Error ? e.message : "Sign-off failed");
       }

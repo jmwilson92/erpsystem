@@ -18,6 +18,8 @@ import {
 import { travelerPurpose } from "@/lib/services/receiving";
 import { listNextLabel } from "@/lib/services/receiving-ui";
 import { ReceivingQueueSearch } from "@/components/receiving/receiving-queue-search";
+import { StationNextGuideBanner } from "@/components/receiving/station-next-guide";
+import { actionCompleteWoToStock } from "@/app/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -35,8 +37,23 @@ export default async function ReceivingPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const sp = await searchParams;
-  const tab = pick(sp, "tab") === "complete" ? "complete" : "active";
+  const tabRaw = pick(sp, "tab");
+  const tab =
+    tabRaw === "complete"
+      ? "complete"
+      : tabRaw === "putaway"
+        ? "putaway"
+        : "active";
   const q = pick(sp, "q").trim().toLowerCase();
+
+  const woPutaways = await prisma.workOrder.findMany({
+    where: { status: "READY_FOR_PUTAWAY" },
+    include: {
+      part: { select: { partNumber: true, description: true } },
+      salesOrder: { select: { id: true, number: true } },
+    },
+    orderBy: { updatedAt: "asc" },
+  });
 
   const travelers = await prisma.receivingTraveler.findMany({
     orderBy: [{ updatedAt: "desc" }],
@@ -157,9 +174,10 @@ export default async function ReceivingPage({
 
   const activeCount = travelers.filter((t) => ACTIONABLE.has(t.status)).length;
 
-  function tabHref(nextTab: "active" | "complete") {
+  function tabHref(nextTab: "active" | "complete" | "putaway") {
     const p = new URLSearchParams();
     if (nextTab === "complete") p.set("tab", "complete");
+    if (nextTab === "putaway") p.set("tab", "putaway");
     if (q) p.set("q", q);
     const s = p.toString();
     return s ? `/receiving?${s}` : "/receiving";
@@ -168,8 +186,8 @@ export default async function ReceivingPage({
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Receiving travelers"
-        description="Dock queue — one next action per traveler. Children are -01, -02… per line (not QA/Test silos)."
+        title="Receiving"
+        description="Dock RCV travelers and finished-work-order putaway at the Receiving workcenter."
         actions={
           <div className="flex flex-wrap gap-2">
             <Link href="/receiving/new-gfp">
@@ -197,16 +215,16 @@ export default async function ReceivingPage({
           accent="violet"
         />
         <StatCard
-          title="Ready to put away"
-          value={readyStock}
+          title="WO putaway"
+          value={woPutaways.length}
           icon={MapPin}
           accent="teal"
         />
         <StatCard
-          title={tab === "complete" ? "Complete" : "GFP open"}
-          value={tab === "complete" ? completeCount : gfpCount}
-          icon={tab === "complete" ? CheckCircle2 : Shield}
-          accent={tab === "complete" ? "teal" : "violet"}
+          title={tab === "complete" ? "Complete" : "RCV ready putaway"}
+          value={tab === "complete" ? completeCount : readyStock}
+          icon={tab === "complete" ? CheckCircle2 : Package}
+          accent={tab === "complete" ? "teal" : "sky"}
         />
       </div>
 
@@ -221,7 +239,18 @@ export default async function ReceivingPage({
                 : "text-slate-400 hover:text-slate-200"
             )}
           >
-            Active ({activeCount})
+            RCV travelers ({activeCount})
+          </Link>
+          <Link
+            href={tabHref("putaway")}
+            className={cn(
+              "rounded-t-md px-3 py-1.5 text-sm",
+              tab === "putaway"
+                ? "border border-b-0 border-slate-700 bg-slate-900 text-slate-50"
+                : "text-slate-400 hover:text-slate-200"
+            )}
+          >
+            WO putaway ({woPutaways.length})
           </Link>
           <Link
             href={tabHref("complete")}
@@ -235,15 +264,86 @@ export default async function ReceivingPage({
             Completed ({completeCount})
           </Link>
         </div>
-        <Suspense
-          fallback={
-            <div className="h-9 min-w-[200px] max-w-md flex-1 rounded-md border border-slate-800 bg-slate-950" />
-          }
-        >
-          <ReceivingQueueSearch defaultValue={pick(sp, "q")} />
-        </Suspense>
+        {tab !== "putaway" && (
+          <Suspense
+            fallback={
+              <div className="h-9 min-w-[200px] max-w-md flex-1 rounded-md border border-slate-800 bg-slate-950" />
+            }
+          >
+            <ReceivingQueueSearch defaultValue={pick(sp, "q")} />
+          </Suspense>
+        )}
       </div>
 
+      {tab === "putaway" && (
+        <div className="space-y-3">
+          <StationNextGuideBanner
+            guide={{
+              kind: "PUTAWAY",
+              title: "Finished work orders — put away at Receiving",
+              detail:
+                "These travelers finished all build / QA / Test steps. Put finished goods into stock here. Material handlers bring units from the line to this workcenter.",
+              href: "/floor",
+              label: "Floor board",
+            }}
+          />
+          {woPutaways.length === 0 ? (
+            <div className="rounded-xl border border-slate-800 py-10 text-center text-sm text-slate-500">
+              No work orders waiting for putaway.
+            </div>
+          ) : (
+            woPutaways.map((wo) => (
+              <div
+                key={wo.id}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-teal-900/40 bg-teal-500/5 p-4"
+              >
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Link
+                      href={`/work-orders/${wo.id}`}
+                      className="font-mono text-base font-semibold text-teal-400 hover:underline"
+                    >
+                      {wo.number}
+                    </Link>
+                    <StatusBadge status={wo.status} />
+                    {wo.workCenter && (
+                      <span className="font-mono text-[10px] text-slate-500">
+                        @ {wo.workCenter}
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-1 font-mono text-sm text-slate-300">
+                    {wo.part?.partNumber || "—"} × {wo.quantity}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    {wo.part?.description || wo.description || ""}
+                    {wo.salesOrder ? ` · ${wo.salesOrder.number}` : ""}
+                  </p>
+                  <p className="mt-1 text-xs text-teal-200/90">
+                    What to do next: put away to stock, then the unit is available
+                    for shipping / kitting demand.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Link href={`/work-orders/${wo.id}`}>
+                    <Button size="sm" variant="outline">
+                      Open traveler
+                    </Button>
+                  </Link>
+                  <form action={actionCompleteWoToStock}>
+                    <input type="hidden" name="workOrderId" value={wo.id} />
+                    <Button type="submit" size="sm">
+                      Put away → stock
+                    </Button>
+                  </form>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {tab !== "putaway" && (
       <div className="overflow-x-auto rounded-xl border border-slate-800">
         <table className="w-full min-w-[980px] text-sm">
           <thead className="bg-slate-900/90 text-[10px] uppercase tracking-wide text-slate-500">
@@ -421,6 +521,7 @@ export default async function ReceivingPage({
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

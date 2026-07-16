@@ -682,7 +682,7 @@ export async function actionSignOffStep(formData: FormData) {
 
   if (!user) throw new Error("No user");
 
-  await signOffStep({
+  const outcome = await signOffStep({
     workOrderId,
     stepId,
     userId: user.id,
@@ -699,6 +699,46 @@ export async function actionSignOffStep(formData: FormData) {
   revalidatePath("/test-center");
   revalidatePath("/quality");
   revalidatePath("/inventory");
+  revalidatePath("/receiving");
+
+  // Client uses this to decide scroll-to-top vs stay in place
+  return {
+    stationChanged: outcome.stationChanged,
+    nextStepId: outcome.nextStepId,
+    nextWorkCenter: outcome.nextWorkCenter,
+    allStepsComplete: outcome.allStepsComplete,
+    readyForPutaway: outcome.readyForPutaway,
+  };
+}
+
+export async function actionSendWoToReceivingPutaway(
+  formData: FormData
+): Promise<void> {
+  const workOrderId = formData.get("workOrderId") as string;
+  const user = await getCurrentUser();
+  const { sendWorkOrderToReceivingPutaway } = await import(
+    "@/lib/services/work-orders"
+  );
+  try {
+    const r = await sendWorkOrderToReceivingPutaway({
+      workOrderId,
+      userId: user?.id,
+      reason: "Material handler deliver to Receiving",
+    });
+    await flashToast(
+      `Take unit to Receiving (${r.workCenter}) for putaway — do not stock from the line`
+    );
+  } catch (e) {
+    await flashToast(
+      e instanceof Error ? e.message : "Could not send to Receiving",
+      "error"
+    );
+  }
+  revalidateFulfillmentPaths([
+    `/work-orders/${workOrderId}`,
+    "/receiving",
+    "/floor",
+  ]);
 }
 
 export async function actionUpdateWoStatus(formData: FormData) {

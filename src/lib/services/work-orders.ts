@@ -609,13 +609,54 @@ export async function signOffStep(params: {
     }
   }
 
-  // When all steps signed (no fails) → material handler putaway queue
+  // Station context for client (scroll top only when next open step changes WC)
+  const signedStation =
+    completion.assignedWorkCenter ||
+    step.workCenter ||
+    step.requiredArea ||
+    null;
+
+  const nextOpen = await prisma.workOrderStepCompletion.findFirst({
+    where: {
+      workOrderId: params.workOrderId,
+      status: { in: ["PENDING", "IN_PROGRESS"] },
+    },
+    include: {
+      step: {
+        select: {
+          id: true,
+          stepNumber: true,
+          workCenter: true,
+          requiredArea: true,
+        },
+      },
+    },
+    orderBy: { step: { stepNumber: "asc" } },
+  });
+
+  const nextStation =
+    nextOpen?.assignedWorkCenter ||
+    nextOpen?.step.workCenter ||
+    nextOpen?.step.requiredArea ||
+    null;
+
+  const stationChanged = Boolean(
+    nextOpen &&
+      signedStation &&
+      nextStation &&
+      signedStation.toUpperCase() !== nextStation.toUpperCase()
+  );
+
+  // When all steps signed (no fails) → Receiving putaway (not ship/MH)
   const remaining = await prisma.workOrderStepCompletion.count({
     where: {
       workOrderId: params.workOrderId,
       status: { in: ["PENDING", "IN_PROGRESS"] },
     },
   });
+  let allStepsComplete = remaining === 0;
+  let readyForPutaway = false;
+
   if (remaining === 0) {
     const failed = await prisma.workOrderStepCompletion.count({
       where: { workOrderId: params.workOrderId, status: "FAILED" },
@@ -629,35 +670,16 @@ export async function signOffStep(params: {
         ["IN_PROGRESS", "RELEASED", "KITTED"].includes(wo.status) &&
         wo.type !== "TASK_ONLY"
       ) {
-        const mh =
-          (await prisma.workCenter.findFirst({
-            where: {
-              isActive: true,
-              OR: [
-                { code: { startsWith: "SHIP" } },
-                { code: { startsWith: "MH" } },
-                { department: { contains: "Logistic" } },
-              ],
-            },
-          })) ||
-          (await prisma.workCenter.findFirst({
-            where: { code: "SHIP-01", isActive: true },
-          }));
-        await updateWorkOrderStatus({
+        await sendWorkOrderToReceivingPutaway({
           workOrderId: wo.id,
-          toStatus: "READY_FOR_PUTAWAY",
           userId: params.userId,
-          notes: `All WI steps complete — route to material handler${
-            mh ? ` (${mh.code})` : ""
-          } for putaway`,
+          reason: "All WI steps complete",
         });
-        if (mh) {
-          await prisma.workOrder.update({
-            where: { id: wo.id },
-            data: { workCenter: mh.code, department: mh.area || "MANUFACTURING" },
-          });
-        }
+        readyForPutaway = true;
+        allStepsComplete = true;
       }
+    } else {
+      allStepsComplete = false;
     }
   }
 
@@ -670,10 +692,83 @@ export async function signOffStep(params: {
       workOrderId: params.workOrderId,
       stepId: params.stepId,
       result: params.result,
+      stationChanged,
+      nextStepId: nextOpen?.stepId || null,
     },
   });
 
-  return updated;
+  return {
+    completion: updated,
+    stationChanged: readyForPutaway ? true : stationChanged,
+    nextStepId: nextOpen?.stepId || null,
+    nextWorkCenter: nextStation,
+    signedWorkCenter: signedStation,
+    allStepsComplete,
+    readyForPutaway,
+  };
+}
+
+/** Park finished traveler at Receiving for FG putaway. */
+export async function sendWorkOrderToReceivingPutaway(params: {
+  workOrderId: string;
+  userId?: string;
+  reason?: string;
+}) {
+  const wo = await prisma.workOrder.findUnique({
+    where: { id: params.workOrderId },
+  });
+  if (!wo) throw new Error("Work order not found");
+  if (["COMPLETED", "CLOSED", "CANCELLED"].includes(wo.status)) {
+    throw new Error(`WO already ${wo.status}`);
+  }
+
+  // Prefer a RECEIVING-area station
+  const rec =
+    (await prisma.workCenter.findFirst({
+      where: { area: "RECEIVING", isActive: true },
+      orderBy: [{ isDefault: "desc" }, { sortOrder: "asc" }],
+    })) ||
+    (await prisma.workCenter.findFirst({
+      where: {
+        isActive: true,
+        OR: [
+          { code: { startsWith: "REC" } },
+          { code: { startsWith: "RCV" } },
+          { name: { contains: "Receiv" } },
+        ],
+      },
+    }));
+
+  const code = rec?.code || "REC-01";
+
+  await prisma.workOrder.update({
+    where: { id: wo.id },
+    data: {
+      status: "READY_FOR_PUTAWAY",
+      workCenter: code,
+      department: "RECEIVING",
+      statusHistory: {
+        create: {
+          fromStatus: wo.status,
+          toStatus: "READY_FOR_PUTAWAY",
+          userId: params.userId,
+          notes:
+            params.reason ||
+            `Take finished unit to Receiving (${code}) for putaway to stock`,
+        },
+      },
+    },
+  });
+
+  await logAudit({
+    entityType: "WorkOrder",
+    entityId: wo.id,
+    action: "SENT_TO_RECEIVING_PUTAWAY",
+    userId: params.userId,
+    metadata: { workCenter: code },
+  });
+
+  return { workCenter: code };
 }
 
 export async function getFloorBoardData() {

@@ -15,6 +15,7 @@ import {
   actionCompleteKit,
   actionStartProduction,
   actionCompleteWoToStock,
+  actionSendWoToReceivingPutaway,
   actionReassignStepStation,
   actionCreateProductionEngIssue,
   actionAlignBusinessPriority,
@@ -29,10 +30,11 @@ import {
   MoveMaterialFromQuery,
 } from "@/components/work-orders/station-reassign-form";
 import { generateQrDataUrl, workOrderQrPayload } from "@/lib/qr";
-import { CheckCircle2, Circle, FlaskConical, FileDown } from "lucide-react";
+import { CheckCircle2, Circle, FlaskConical, FileDown, MapPin } from "lucide-react";
 import Link from "next/link";
 import { Textarea } from "@/components/ui/textarea";
 import { ActivityTimeline } from "@/components/shared/activity-timeline";
+import { StationNextGuideBanner } from "@/components/receiving/station-next-guide";
 import {
   MaterialGenealogyCard,
   TraceChainCard,
@@ -155,13 +157,22 @@ export default async function WorkOrderDetailPage({
   const allStepsComplete =
     failedStepCount === 0 &&
     (total === 0 || (done === total && openStepCount === 0));
-  // Sign-off once production is running (or already on floor statuses)
-  const canSign = ["IN_PROGRESS", "RELEASED", "KITTED"].includes(wo.status);
+  // Sign-off only while production is running
+  const canSign = wo.status === "IN_PROGRESS";
   const canStartProduction =
-    ["KITTED", "RELEASED", "READY_TO_KIT"].includes(wo.status) ||
-    wo.kitStatus === "KITTED";
-  const canCompleteToStock =
-    wo.status === "IN_PROGRESS" && allStepsComplete;
+    !allStepsComplete &&
+    !["IN_PROGRESS", "READY_FOR_PUTAWAY", "COMPLETED", "CLOSED"].includes(
+      wo.status
+    ) &&
+    (["KITTED", "RELEASED", "READY_TO_KIT"].includes(wo.status) ||
+      wo.kitStatus === "KITTED");
+  const readyForReceivingPutaway =
+    wo.status === "READY_FOR_PUTAWAY" ||
+    (allStepsComplete &&
+      wo.status === "IN_PROGRESS" &&
+      failedStepCount === 0 &&
+      total > 0);
+  const canCompleteToStock = wo.status === "READY_FOR_PUTAWAY";
   const materialShorts = material.requirements.filter((r) => r.short > 0);
 
   return (
@@ -225,7 +236,7 @@ export default async function WorkOrderDetailPage({
                 </Button>
               </form>
             )}
-            {canStartProduction && wo.status !== "IN_PROGRESS" && (
+            {canStartProduction && (
               <form action={actionStartProduction}>
                 <input type="hidden" name="workOrderId" value={wo.id} />
                 <Button type="submit" size="sm">
@@ -260,11 +271,11 @@ export default async function WorkOrderDetailPage({
                     Hold
                   </Button>
                 </form>
-                {canCompleteToStock ? (
-                  <form action={actionCompleteWoToStock}>
+                {allStepsComplete && failedStepCount === 0 ? (
+                  <form action={actionSendWoToReceivingPutaway}>
                     <input type="hidden" name="workOrderId" value={wo.id} />
                     <Button type="submit" size="sm">
-                      Complete → stock
+                      Send to Receiving
                     </Button>
                   </form>
                 ) : (
@@ -273,15 +284,23 @@ export default async function WorkOrderDetailPage({
                     title={
                       failedStepCount > 0
                         ? "Resolve failed steps / NCR first"
-                        : `${openStepCount || total - done} step(s) still open — sign off the traveler first`
+                        : `${openStepCount || total - done} step(s) still open`
                     }
                   >
                     {failedStepCount > 0
                       ? "Steps failed — hold / NCR"
-                      : `Sign off steps (${done}/${total}) before stock`}
+                      : `Sign off steps (${done}/${total})`}
                   </span>
                 )}
               </>
+            )}
+            {canCompleteToStock && (
+              <form action={actionCompleteWoToStock}>
+                <input type="hidden" name="workOrderId" value={wo.id} />
+                <Button type="submit" size="sm">
+                  Put away → stock
+                </Button>
+              </form>
             )}
             {wo.status === "ON_HOLD" && (
               <form action={actionUpdateWoStatus}>
@@ -305,6 +324,41 @@ export default async function WorkOrderDetailPage({
           area: c.area,
         }))}
       />
+
+      {readyForReceivingPutaway && (
+        <div className="space-y-2">
+          <StationNextGuideBanner
+            guide={{
+              kind: "TO_DOCK",
+              title: "Take finished unit to Receiving for putaway",
+              detail: `All traveler steps are signed. Walk ${wo.number} to the Receiving workcenter (${wo.workCenter || "REC-01"}). Put away to stock only at Receiving — not on the build line.`,
+              href: "/receiving?tab=putaway",
+              label: "Receiving putaway queue",
+              travelerNumber: wo.number,
+              travelerId: wo.id,
+            }}
+          />
+          <div className="flex flex-wrap gap-2">
+            {wo.status !== "READY_FOR_PUTAWAY" && (
+              <form action={actionSendWoToReceivingPutaway}>
+                <input type="hidden" name="workOrderId" value={wo.id} />
+                <Button type="submit" size="sm">
+                  <MapPin className="mr-1.5 h-3.5 w-3.5" />
+                  Deliver to Receiving
+                </Button>
+              </form>
+            )}
+            {canCompleteToStock && (
+              <form action={actionCompleteWoToStock}>
+                <input type="hidden" name="workOrderId" value={wo.id} />
+                <Button type="submit" size="sm" variant="secondary">
+                  Put away → stock (at Receiving)
+                </Button>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-2">
         <StatusBadge status={wo.status} {...workOrderHoldProvenance(wo)} />
@@ -709,6 +763,7 @@ export default async function WorkOrderDetailPage({
               return (
                 <div
                   key={step.id}
+                  id={`wo-step-${step.id}`}
                   className={`rounded-lg border p-4 ${
                     failed
                       ? "border-red-500/40 bg-red-500/5"
@@ -826,6 +881,7 @@ export default async function WorkOrderDetailPage({
                             passFailRequired={step.passFailRequired}
                             measureUom={step.measureUom}
                             expectedValue={step.expectedValue}
+                            stepAnchorId={`wo-step-${step.id}`}
                           />
                         </div>
                       )}
@@ -859,9 +915,7 @@ export default async function WorkOrderDetailPage({
         </Card>
       )}
 
-      {wo.instructions.length > 0 &&
-        wo.status !== "IN_PROGRESS" &&
-        canStartProduction && (
+      {wo.instructions.length > 0 && canStartProduction && (
           <Card className="border-teal-900/40 bg-teal-500/5">
             <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
               <div>
