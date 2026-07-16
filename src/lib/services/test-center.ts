@@ -271,12 +271,97 @@ export async function getTestCenterQueue() {
           number: true,
           travelerId: true,
           purchaseOrderId: true,
-          traveler: { select: { id: true, number: true, travelerType: true } },
+          traveler: {
+            select: {
+              id: true,
+              number: true,
+              travelerType: true,
+              status: true,
+              currentWorkCenter: true,
+              parentId: true,
+            },
+          },
           purchaseOrder: { select: { id: true, number: true } },
         },
       })
     : [];
   const receiptMap = Object.fromEntries(receipts.map((r) => [r.id, r]));
+
+  // Child travelers that own inventory when receipt.traveler is parent/null
+  const invIdsForSnap = [
+    ...new Set(
+      receivingInspections
+        .map((i) => i.inventoryItemId)
+        .filter((id): id is string => Boolean(id))
+    ),
+  ];
+  const snapTravelers =
+    invIdsForSnap.length > 0
+      ? await prisma.receivingTraveler.findMany({
+          where: {
+            status: {
+              in: ["IN_INSPECTION", "READY_TO_STOCK", "PARTIAL"],
+            },
+            OR: invIdsForSnap.map((id) => ({
+              openLinesSnapshot: { contains: id },
+            })),
+          },
+          select: {
+            id: true,
+            number: true,
+            status: true,
+            currentWorkCenter: true,
+            parentId: true,
+            openLinesSnapshot: true,
+          },
+        })
+      : [];
+  const travelerByInspId: Record<
+    string,
+    {
+      id: string;
+      number: string;
+      status: string;
+      currentWorkCenter: string | null;
+      parentId: string | null;
+    } | null
+  > = {};
+  for (const insp of receivingInspections) {
+    const fromReceipt =
+      (insp.receiptId && receiptMap[insp.receiptId]?.traveler) || null;
+    let resolved: {
+      id: string;
+      number: string;
+      status: string;
+      currentWorkCenter: string | null;
+      parentId: string | null;
+    } | null = fromReceipt
+      ? {
+          id: fromReceipt.id,
+          number: fromReceipt.number,
+          status: fromReceipt.status,
+          currentWorkCenter: fromReceipt.currentWorkCenter,
+          parentId: fromReceipt.parentId,
+        }
+      : null;
+    if (!resolved && insp.inventoryItemId) {
+      const hit = snapTravelers.find(
+        (s) =>
+          s.openLinesSnapshot?.includes(insp.inventoryItemId!) &&
+          !!s.parentId
+      );
+      if (hit) {
+        resolved = {
+          id: hit.id,
+          number: hit.number,
+          status: hit.status,
+          currentWorkCenter: hit.currentWorkCenter,
+          parentId: hit.parentId,
+        };
+      }
+    }
+    travelerByInspId[insp.id] = resolved;
+  }
 
   // Production test groups = area steps for WOs not already listed as "at TEST station"
   const testWoIds = new Set(testCenterWos.map((w) => w.id));
@@ -332,6 +417,7 @@ export async function getTestCenterQueue() {
     testStepGroups: stepQueue.groups,
     partMap,
     receiptMap,
+    travelerByInspId,
     stats: {
       openReceiving: receivingInspections.length,
       openInspectionWos: testCenterWos.filter((w) => w.type === "INSPECTION")
@@ -447,12 +533,106 @@ export async function getQaInspectionQueue() {
     (sc) => !qaWoIds.has(sc.workOrderId)
   );
 
+  // Map inspections → receiving traveler (prefer child RCV-T-…-0N, not INSP-#####)
+  const receiptIds = [
+    ...new Set(
+      allQaInspections
+        .map((i) => i.receiptId)
+        .filter((id): id is string => Boolean(id))
+    ),
+  ];
+  const invIds = [
+    ...new Set(
+      allQaInspections
+        .map((i) => i.inventoryItemId)
+        .filter((id): id is string => Boolean(id))
+    ),
+  ];
+  const receipts = receiptIds.length
+    ? await prisma.receipt.findMany({
+        where: { id: { in: receiptIds } },
+        select: {
+          id: true,
+          number: true,
+          travelerId: true,
+          traveler: {
+            select: {
+              id: true,
+              number: true,
+              status: true,
+              currentWorkCenter: true,
+              parentId: true,
+            },
+          },
+          purchaseOrder: { select: { id: true, number: true } },
+        },
+      })
+    : [];
+  const receiptMap = Object.fromEntries(receipts.map((r) => [r.id, r]));
+
+  // Fallback: children that own inventory via openLinesSnapshot
+  const snapTravelers =
+    invIds.length > 0
+      ? await prisma.receivingTraveler.findMany({
+          where: {
+            status: {
+              in: ["IN_INSPECTION", "READY_TO_STOCK", "PARTIAL"],
+            },
+            OR: invIds.map((id) => ({
+              openLinesSnapshot: { contains: id },
+            })),
+          },
+          select: {
+            id: true,
+            number: true,
+            status: true,
+            currentWorkCenter: true,
+            parentId: true,
+            openLinesSnapshot: true,
+          },
+        })
+      : [];
+
+  type TravelerRef = {
+    id: string;
+    number: string;
+    status: string;
+    currentWorkCenter: string | null;
+    parentId: string | null;
+  };
+  const travelerByInspId: Record<string, TravelerRef | null> = {};
+  for (const insp of allQaInspections) {
+    let t: TravelerRef | null = null;
+    if (insp.receiptId && receiptMap[insp.receiptId]?.traveler) {
+      t = receiptMap[insp.receiptId].traveler!;
+    }
+    if (!t && insp.inventoryItemId) {
+      const hit = snapTravelers.find(
+        (s) =>
+          s.openLinesSnapshot?.includes(insp.inventoryItemId!) &&
+          !!s.parentId
+      );
+      if (hit) {
+        t = {
+          id: hit.id,
+          number: hit.number,
+          status: hit.status,
+          currentWorkCenter: hit.currentWorkCenter,
+          parentId: hit.parentId,
+        };
+      }
+    }
+    travelerByInspId[insp.id] = t;
+  }
+
   return {
     qaInspections: allQaInspections,
     qaWos,
     continuitySteps,
     continuityGroups,
     partMap,
+    receiptMap,
+    travelerByInspId,
     stats: {
       openInspections: allQaInspections.length,
       openWos: qaWos.length,

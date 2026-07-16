@@ -168,6 +168,10 @@ export default async function TestCenterPage({
           const receipt = first.receiptId
             ? data.receiptMap[first.receiptId]
             : null;
+          const traveler =
+            data.travelerByInspId?.[first.id] ||
+            receipt?.traveler ||
+            null;
           const key = group.workOrder?.id || first.id;
 
           return (
@@ -176,12 +180,12 @@ export default async function TestCenterPage({
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
-                      {receipt?.traveler ? (
+                      {traveler ? (
                         <Link
-                          href={`/receiving/${receipt.traveler.id}`}
+                          href={`/receiving/${traveler.id}`}
                           className="font-mono text-base font-semibold text-violet-300 hover:underline"
                         >
-                          {receipt.traveler.number}
+                          {traveler.number}
                         </Link>
                       ) : group.workOrder ? (
                         <Link
@@ -192,11 +196,21 @@ export default async function TestCenterPage({
                         </Link>
                       ) : (
                         <span className="font-mono text-violet-300">
-                          {first.number}
+                          Receiving functional
                         </span>
                       )}
                       <StatusBadge status="RECEIVING" />
                       <StatusBadge status="TEST" />
+                      {(traveler as { currentWorkCenter?: string | null } | null)
+                        ?.currentWorkCenter && (
+                        <span className="font-mono text-[10px] text-slate-500">
+                          @{" "}
+                          {
+                            (traveler as { currentWorkCenter?: string | null })
+                              .currentWorkCenter
+                          }
+                        </span>
+                      )}
                     </div>
                     <p className="mt-1 font-mono text-sm text-teal-400">
                       {part?.partNumber || "—"}
@@ -207,12 +221,12 @@ export default async function TestCenterPage({
                       {` · Qty ${first.quantity}`}
                     </p>
                     <div className="mt-1 flex flex-wrap gap-2 text-xs">
-                      {receipt?.traveler && (
+                      {traveler && (
                         <Link
-                          href={`/receiving/${receipt.traveler.id}`}
+                          href={`/receiving/${traveler.id}`}
                           className="font-mono text-sky-400 hover:underline"
                         >
-                          {receipt.traveler.number}
+                          {traveler.number}
                         </Link>
                       )}
                       {receipt?.purchaseOrder && (
@@ -223,16 +237,14 @@ export default async function TestCenterPage({
                           {receipt.purchaseOrder.number}
                         </Link>
                       )}
-                      {receipt && (
-                        <span className="font-mono text-slate-600">
-                          {receipt.number}
-                        </span>
-                      )}
                       {first.plannedPutawayCode && (
                         <span className="text-slate-600">
                           → {first.plannedPutawayCode}
                         </span>
                       )}
+                      <span className="text-slate-600">
+                        Scan into traveler to charge time
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -245,10 +257,9 @@ export default async function TestCenterPage({
                   >
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-mono text-xs text-slate-400">
-                          {insp.number}
+                        <span className="text-xs font-medium text-slate-300">
+                          Functional / power
                         </span>
-                        <StatusBadge status={insp.type} />
                         <StatusBadge status={insp.status} />
                       </div>
                       {insp.notes && (

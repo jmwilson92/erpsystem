@@ -145,6 +145,22 @@ export async function actionReceivePo(formData: FormData): Promise<void> {
     formData.get("receivingAck") === "on";
   const user = await getCurrentUser();
 
+  // Dock start → auto scan-in so labor charges to the PO
+  if (travelerId && user?.id) {
+    try {
+      const { scanIntoReceivingTraveler } = await import(
+        "@/lib/services/receiving-time"
+      );
+      await scanIntoReceivingTraveler({
+        travelerId,
+        userId: user.id,
+        notes: "Dock receive",
+      });
+    } catch {
+      /* already scanned / conflict — continue receive */
+    }
+  }
+
   const po = await prisma.purchaseOrder.findUnique({
     where: { id: purchaseOrderId },
     include: { lines: true },
@@ -369,6 +385,7 @@ export async function actionReceivePo(formData: FormData): Promise<void> {
     });
     flashMsg = buildReceiveFlash(split.children, putAwayN, result.partial);
     if (failInspection) flashMsg = "Receipt failed — NCR/MRB opened";
+    // Keep clock running until MH delivers children or putaway on dock-only lines
   } else {
     const sync = await syncReceivingTravelerStatus(purchaseOrderId, {
       sourceTravelerId: travelerId,
@@ -381,6 +398,21 @@ export async function actionReceivePo(formData: FormData): Promise<void> {
       flashMsg = `Partial receive — remainder on ${sync.child.number}`;
     } else if (putAwayN > 0) {
       flashMsg = "Received & put away at dock — material is stocked";
+      // Dock-only complete: stop the clock
+      if (travelerId && user?.id) {
+        try {
+          const { scanOutOfReceivingTraveler } = await import(
+            "@/lib/services/receiving-time"
+          );
+          await scanOutOfReceivingTraveler({
+            travelerId,
+            userId: user.id,
+            reason: "PUTAWAY",
+          });
+        } catch {
+          /* ignore */
+        }
+      }
     } else {
       flashMsg = "Received";
     }
@@ -3207,14 +3239,26 @@ export async function actionCompleteReceivingInspection(
     });
   }
 
-  await completeReceivingInspection({
-    inspectionId,
-    result,
-    notes,
-    measuredValue,
-    documents: documents.length ? documents : undefined,
-    userId: user?.id,
-  });
+  // Auto scan-in for inspector if working from queue (starts time if not already)
+  // Look up traveler after complete for guidance; scan-in best-effort before
+  const { result: completeResult } = {
+    result: await completeReceivingInspection({
+      inspectionId,
+      result,
+      notes,
+      measuredValue,
+      documents: documents.length ? documents : undefined,
+      userId: user?.id,
+    }),
+  };
+
+  if (completeResult.nextGuidance) {
+    await flashToast(completeResult.nextGuidance);
+  } else {
+    await flashToast(
+      result === "PASS" ? "Inspection passed" : "Inspection failed — NCR opened"
+    );
+  }
 
   revalidateFulfillmentPaths([
     "/quality",
@@ -3224,6 +3268,82 @@ export async function actionCompleteReceivingInspection(
     "/receiving",
     "/mrb",
     "/test-center",
+    "/qa",
+  ]);
+}
+
+export async function actionScanIntoReceivingTraveler(
+  formData: FormData
+): Promise<void> {
+  const travelerId = formData.get("travelerId") as string;
+  const user = await getCurrentUser();
+  if (!user) throw new Error("Sign in required to scan in");
+  const { scanIntoReceivingTraveler } = await import(
+    "@/lib/services/receiving-time"
+  );
+  await scanIntoReceivingTraveler({ travelerId, userId: user.id });
+  await flashToast("Scanned in — time is running on this traveler");
+  revalidateFulfillmentPaths([
+    `/receiving/${travelerId}`,
+    "/receiving",
+    "/hr",
+  ]);
+}
+
+export async function actionScanOutReceivingTraveler(
+  formData: FormData
+): Promise<void> {
+  const travelerId = formData.get("travelerId") as string;
+  const user = await getCurrentUser();
+  if (!user) throw new Error("Sign in required to scan out");
+  const { scanOutOfReceivingTraveler } = await import(
+    "@/lib/services/receiving-time"
+  );
+  const { hours } = await scanOutOfReceivingTraveler({
+    travelerId,
+    userId: user.id,
+    reason: "MANUAL",
+  });
+  await flashToast(
+    hours > 0
+      ? `Scanned out — ${hours.toFixed(2)}h posted to your timecard`
+      : "Scanned out (no billable time)"
+  );
+  revalidateFulfillmentPaths([
+    `/receiving/${travelerId}`,
+    "/receiving",
+    "/hr",
+  ]);
+}
+
+export async function actionDeliverTravelerToStation(
+  formData: FormData
+): Promise<void> {
+  const travelerId = formData.get("travelerId") as string;
+  const areaRaw = ((formData.get("area") as string) || "QA").toUpperCase();
+  const area = areaRaw === "TEST" ? "TEST" : "QA";
+  const workCenterCode =
+    ((formData.get("workCenterCode") as string) || "").trim() || undefined;
+  const user = await getCurrentUser();
+  if (!user) throw new Error("Sign in required");
+  const { deliverTravelerToStation } = await import(
+    "@/lib/services/receiving-time"
+  );
+  const t = await deliverTravelerToStation({
+    travelerId,
+    area,
+    workCenterCode,
+    userId: user.id,
+  });
+  await flashToast(
+    `Delivered ${t.number} to ${t.currentWorkCenter} — dock time stopped; waiting on ${area === "TEST" ? "Test lab" : "QA"}`
+  );
+  revalidateFulfillmentPaths([
+    `/receiving/${travelerId}`,
+    "/receiving",
+    "/qa",
+    "/test-center",
+    "/hr",
   ]);
 }
 

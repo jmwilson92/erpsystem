@@ -8,7 +8,7 @@ import fs from "fs";
 // test-drive sandbox copies re-materialize from the migrated master whenever
 // the schema changes — otherwise a sandbox created before a new column would
 // keep failing with "column does not exist" even after `prisma db push`.
-const PRISMA_CLIENT_EPOCH = "pr-buyer-time-v27";
+const PRISMA_CLIENT_EPOCH = "rcv-station-scan-v28";
 
 /** Cookie that puts a request into a private test-drive sandbox. */
 export const SANDBOX_COOKIE = "forge-sandbox";
@@ -115,6 +115,28 @@ function ensureSqliteSchema(file: string) {
         const teNames = new Set(teCols.map((c) => c.name));
         if (teNames.size > 0 && !teNames.has("purchaseRequestId")) {
           db.exec("ALTER TABLE TimeEntry ADD COLUMN purchaseRequestId TEXT");
+        }
+        if (teNames.size > 0 && !teNames.has("receivingTravelerId")) {
+          db.exec("ALTER TABLE TimeEntry ADD COLUMN receivingTravelerId TEXT");
+        }
+      } catch {
+        /* ignore */
+      }
+      try {
+        const rtCols = db
+          .prepare("PRAGMA table_info(ReceivingTraveler)")
+          .all() as { name: string }[];
+        const rtNames = new Set(rtCols.map((c) => c.name));
+        const rtAdds: [string, string][] = [
+          ["currentWorkCenter", "TEXT"],
+          ["atStationSince", "DATETIME"],
+          ["activeScanUserId", "TEXT"],
+          ["activeScanAt", "DATETIME"],
+        ];
+        for (const [col, def] of rtAdds) {
+          if (rtNames.size > 0 && !rtNames.has(col)) {
+            db.exec(`ALTER TABLE ReceivingTraveler ADD COLUMN ${col} ${def}`);
+          }
         }
       } catch {
         /* ignore */

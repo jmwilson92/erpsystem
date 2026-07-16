@@ -160,18 +160,54 @@ export default async function QaModulePage({
 
           {qaQueue.qaInspections.map((insp) => {
             const part = insp.partId ? qaQueue.partMap[insp.partId] : null;
+            const traveler = qaQueue.travelerByInspId?.[insp.id] || null;
+            const receipt = insp.receiptId
+              ? qaQueue.receiptMap?.[insp.receiptId]
+              : null;
+            const displayNumber =
+              traveler?.number ||
+              receipt?.traveler?.number ||
+              insp.workOrder?.number ||
+              null;
+            const displayHref = traveler
+              ? `/receiving/${traveler.id}`
+              : receipt?.traveler
+                ? `/receiving/${receipt.traveler.id}`
+                : insp.workOrder
+                  ? `/work-orders/${insp.workOrder.id}`
+                  : null;
             return (
               <Card key={insp.id} className="border-sky-900/30">
                 <CardContent className="grid gap-4 p-4 lg:grid-cols-2">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-sm text-sky-300">
-                        {insp.number}
-                      </span>
-                      <StatusBadge status={insp.type} />
+                      {displayHref && displayNumber ? (
+                        <Link
+                          href={displayHref}
+                          className="font-mono text-sm font-semibold text-sky-300 hover:underline"
+                        >
+                          {displayNumber}
+                        </Link>
+                      ) : (
+                        <span className="font-mono text-sm text-sky-300">
+                          Receiving QA
+                        </span>
+                      )}
+                      <StatusBadge
+                        status={
+                          insp.type === "GDT"
+                            ? "GDT"
+                            : insp.type === "VISUAL"
+                              ? "VISUAL"
+                              : insp.type
+                        }
+                      />
                       <StatusBadge status={insp.status} />
                       <span className="font-mono text-[10px] text-slate-500">
-                        {insp.workCenter || "QA-01"}
+                        @{" "}
+                        {traveler?.currentWorkCenter ||
+                          insp.workCenter ||
+                          "QA-01"}
                       </span>
                     </div>
                     <p className="mt-1 font-mono text-teal-400">
@@ -181,23 +217,30 @@ export default async function QaModulePage({
                       {part?.description || ""}
                       {insp.lotNumber ? ` · Lot ${insp.lotNumber}` : ""}
                     </p>
-                    {insp.workOrder && (
+                    {receipt?.purchaseOrder && (
                       <Link
-                        href={`/work-orders/${insp.workOrder.id}`}
+                        href={`/purchasing/po/${receipt.purchaseOrder.id}`}
                         className="mt-1 inline-block font-mono text-xs text-sky-400 hover:underline"
                       >
-                        {insp.workOrder.number}
+                        {receipt.purchaseOrder.number}
                       </Link>
                     )}
-                    {/* Receiving inspections live on RCV travelers — not WOs */}
                     <p className="mt-1 text-[10px] text-slate-600">
                       Opened {formatDate(insp.createdAt)}
-                      {insp.receiptId ? " · from receiving traveler" : ""}
+                      {displayNumber
+                        ? " · scan into traveler to charge time"
+                        : ""}
                     </p>
                   </div>
                   <CompleteInspectionForm
                     inspectionId={insp.id}
-                    typeLabel={insp.type}
+                    typeLabel={
+                      insp.type === "GDT"
+                        ? "GD&T / visual"
+                        : insp.type === "VISUAL"
+                          ? "Visual"
+                          : insp.type
+                    }
                     requireDocs
                   />
                 </CardContent>

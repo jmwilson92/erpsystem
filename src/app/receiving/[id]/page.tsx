@@ -10,6 +10,9 @@ import {
   actionCloseGfpTraveler,
   actionCompleteReceivingPutaway,
   actionAttestDockAcceptance,
+  actionScanIntoReceivingTraveler,
+  actionScanOutReceivingTraveler,
+  actionDeliverTravelerToStation,
 } from "@/app/actions";
 import { ReceiveForm } from "@/components/receiving/receive-form";
 import { ReceivingNextStep } from "@/components/receiving/receiving-next-step";
@@ -19,6 +22,11 @@ import {
   stepperState,
 } from "@/lib/services/receiving-ui";
 import { travelerPurpose } from "@/lib/services/receiving";
+import {
+  inferDeliverArea,
+  stationAreaOf,
+} from "@/lib/services/receiving-time";
+import { getCurrentUser } from "@/lib/auth";
 import Link from "next/link";
 import {
   GitBranch,
@@ -365,20 +373,29 @@ export default async function ReceivingTravelerDetailPage({
   const inInspection = traveler.status === "IN_INSPECTION";
   const isComplete = ["COMPLETE", "CLOSED"].includes(traveler.status);
 
-  // Parent: first child still in QA/Test for material-handler walk
+  // Parent: children still needing MH walk / waiting at station
+  const openChildren = !traveler.parentId
+    ? traveler.children.filter((c) =>
+        ["IN_INSPECTION", "READY_TO_STOCK", "PARTIAL"].includes(c.status)
+      )
+    : [];
+  const waitingChild =
+    openChildren.find((c) => !!c.currentWorkCenter) || null;
   const inspectionChild =
-    !traveler.parentId
-      ? traveler.children.find((c) =>
-          ["IN_INSPECTION", "READY_TO_STOCK", "PARTIAL"].includes(c.status)
-        )
-      : null;
+    openChildren.find((c) => !c.currentWorkCenter && c.status === "IN_INSPECTION") ||
+    openChildren.find((c) => c.status === "IN_INSPECTION") ||
+    openChildren[0] ||
+    null;
 
   const canCloseGfp =
     isGfpTraveler && allReceived && traveler.status === "COMPLETE";
 
-  const locations = await prisma.location.findMany({
-    orderBy: [{ type: "asc" }, { code: "asc" }],
-  });
+  const [locations, currentUser] = await Promise.all([
+    prisma.location.findMany({
+      orderBy: [{ type: "asc" }, { code: "asc" }],
+    }),
+    getCurrentUser().catch(() => null),
+  ]);
 
   const openInspections = allInspections
     .filter((i) => ["PENDING", "IN_PROGRESS"].includes(i.status))
@@ -399,25 +416,48 @@ export default async function ReceivingTravelerDetailPage({
   const needsQaFlow = needsQa || qaPending.length > 0;
   const needsTestFlow = needsTest || testPending.length > 0;
 
-  // Infer where an inspection child should go from notes/status
-  let inspectionChildWhere: "QA" | "TEST" | "STATION" | null = null;
-  if (inspectionChild) {
-    const notes = (inspectionChild.notes || "").toLowerCase();
+  function childWhere(c: {
+    notes: string | null;
+    status: string;
+    currentWorkCenter: string | null;
+  }): "QA" | "TEST" | "STATION" {
+    const area = stationAreaOf(c);
+    if (area === "TEST") return "TEST";
+    if (area === "QA") return "QA";
+    const notes = (c.notes || "").toLowerCase();
     const needsVisual =
       notes.includes("visual") || notes.includes("gd&t") || notes.includes("gd");
     const needsFunctional =
       notes.includes("functional") || notes.includes("test center");
-    if (needsVisual) {
-      // QA first when both visual and functional are on the same child
-      inspectionChildWhere = "QA";
-    } else if (needsFunctional) {
-      inspectionChildWhere = "TEST";
-    } else if (inspectionChild.status === "IN_INSPECTION") {
-      inspectionChildWhere = "QA";
-    } else {
-      inspectionChildWhere = "STATION";
-    }
+    if (needsVisual) return "QA";
+    if (needsFunctional) return "TEST";
+    if (c.status === "IN_INSPECTION") return "QA";
+    return "STATION";
   }
+
+  const inspectionChildWhere = inspectionChild
+    ? childWhere(inspectionChild)
+    : null;
+  const waitingChildWhere = waitingChild ? childWhere(waitingChild) : null;
+
+  const atStationArea = stationAreaOf(traveler);
+  const deliverArea = isChildTraveler
+    ? inferDeliverArea({
+        notes: traveler.notes,
+        needsQa,
+        needsTest,
+        hasQaPending: qaPending.length > 0,
+        hasTestPending: testPending.length > 0,
+      })
+    : null;
+  const needsDeliver =
+    isChildTraveler &&
+    inInspection &&
+    !traveler.currentWorkCenter &&
+    (qaPending.length > 0 ||
+      testPending.length > 0 ||
+      needsQa ||
+      needsTest);
 
   const nextStep = nextActionForTraveler({
     status: traveler.status,
@@ -435,11 +475,29 @@ export default async function ReceivingTravelerDetailPage({
     followChildId: parentHasOpenRemainderChild
       ? openRemainderChild!.id
       : null,
-    inspectionChildNumber: inspectionChild?.number ?? null,
-    inspectionChildId: inspectionChild?.id ?? null,
-    inspectionChildWhere,
+    // Prefer waiting (already delivered) over "take to" for parent
+    waitingChildNumber: waitingChild?.number ?? null,
+    waitingChildId: waitingChild?.id ?? null,
+    waitingChildWhere,
+    waitingChildStation: waitingChild?.currentWorkCenter ?? null,
+    inspectionChildNumber:
+      !waitingChild && inspectionChild ? inspectionChild.number : null,
+    inspectionChildId:
+      !waitingChild && inspectionChild ? inspectionChild.id : null,
+    inspectionChildWhere: !waitingChild ? inspectionChildWhere : null,
+    atStationCode: traveler.currentWorkCenter,
+    atStationArea,
+    needsDeliver,
+    deliverArea,
     poId: po?.id,
   });
+
+  const iAmScannedIn =
+    !!currentUser &&
+    traveler.activeScanUserId === currentUser.id &&
+    !!traveler.activeScanAt;
+  const someoneScannedIn =
+    !!traveler.activeScanUserId && !!traveler.activeScanAt;
 
   const stepState = stepperState({
     status: traveler.status,
@@ -661,13 +719,27 @@ export default async function ReceivingTravelerDetailPage({
   function childDestination(c: {
     notes: string | null;
     status: string;
-  }): { label: string; where: "QA" | "TEST" | "DOCK" | "STOCK" | "DONE" } {
+    currentWorkCenter: string | null;
+  }): { label: string; where: "QA" | "TEST" | "DOCK" | "STOCK" | "DONE" | "WAITING" } {
     const notes = (c.notes || "").toLowerCase();
     if (["COMPLETE", "CLOSED"].includes(c.status)) {
       return { label: "Done", where: "DONE" };
     }
     if (c.status === "READY_TO_STOCK") {
       return { label: "Ready — put away at dock", where: "STOCK" };
+    }
+    if (c.currentWorkCenter) {
+      const area = stationAreaOf(c);
+      if (area === "TEST") {
+        return {
+          label: `At ${c.currentWorkCenter} — waiting on Test lab`,
+          where: "WAITING",
+        };
+      }
+      return {
+        label: `At ${c.currentWorkCenter} — waiting on QA`,
+        where: "WAITING",
+      };
     }
     if (notes.includes("remainder") || c.status === "WAITING") {
       return { label: "Dock — receive remainder", where: "DOCK" };
@@ -743,7 +815,94 @@ export default async function ReceivingTravelerDetailPage({
         }
       />
 
-      <ReceivingNextStep {...nextStep} />
+      <ReceivingNextStep
+        {...nextStep}
+        deliverSlot={
+          nextStep.showDeliverButton && nextStep.deliverArea ? (
+            <form action={actionDeliverTravelerToStation}>
+              <input type="hidden" name="travelerId" value={traveler.id} />
+              <input type="hidden" name="area" value={nextStep.deliverArea} />
+              <Button type="submit" size="sm">
+                Delivered to{" "}
+                {nextStep.deliverArea === "TEST" ? "Test Center" : "QA"}
+              </Button>
+            </form>
+          ) : undefined
+        }
+      />
+
+      {/* Labor scan strip */}
+      {!isComplete && (
+        <Card className="border-slate-700/80">
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 p-3">
+            <div className="text-sm">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                Time clock
+              </p>
+              {iAmScannedIn ? (
+                <p className="text-teal-300">
+                  You are scanned in
+                  {traveler.activeScanAt
+                    ? ` since ${fmtWhen(traveler.activeScanAt)}`
+                    : ""}
+                  {traveler.currentWorkCenter
+                    ? ` · @ ${traveler.currentWorkCenter}`
+                    : " · dock / traveler"}
+                </p>
+              ) : someoneScannedIn ? (
+                <p className="text-amber-300">
+                  Another user is scanned into this traveler
+                </p>
+              ) : (
+                <p className="text-slate-400">
+                  Scan in to charge time to the PO project / WBS. Scan out on
+                  deliver, putaway, or when station work finishes.
+                </p>
+              )}
+              {po && (
+                <p className="mt-0.5 font-mono text-[10px] text-slate-600">
+                  Charge · PO {po.number}
+                  {po.project?.number ? ` · ${po.project.number}` : ""}
+                  {po.wbsElement?.code ? ` / ${po.wbsElement.code}` : ""}
+                </p>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {!iAmScannedIn && !someoneScannedIn && (
+                <form action={actionScanIntoReceivingTraveler}>
+                  <input type="hidden" name="travelerId" value={traveler.id} />
+                  <Button type="submit" size="sm" variant="secondary">
+                    Scan in
+                  </Button>
+                </form>
+              )}
+              {iAmScannedIn && (
+                <form action={actionScanOutReceivingTraveler}>
+                  <input type="hidden" name="travelerId" value={traveler.id} />
+                  <Button type="submit" size="sm" variant="outline">
+                    Scan out
+                  </Button>
+                </form>
+              )}
+              {needsDeliver && nextStep.deliverArea && (
+                <form action={actionDeliverTravelerToStation}>
+                  <input type="hidden" name="travelerId" value={traveler.id} />
+                  <input
+                    type="hidden"
+                    name="area"
+                    value={nextStep.deliverArea}
+                  />
+                  <Button type="submit" size="sm">
+                    Delivered to{" "}
+                    {nextStep.deliverArea === "TEST" ? "Test Center" : "QA"}
+                  </Button>
+                </form>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <ReceivingStepper {...stepState} />
 
       {functionalTestCallouts.length > 0 && (
@@ -822,11 +981,13 @@ export default async function ReceivingTravelerDetailPage({
                   ? "border-violet-700/50 hover:border-violet-500"
                   : dest.where === "QA"
                     ? "border-amber-700/50 hover:border-amber-500"
-                    : dest.where === "STOCK"
-                      ? "border-teal-700/50 hover:border-teal-500"
-                      : dest.where === "DONE"
-                        ? "border-slate-800"
-                        : "border-slate-700 hover:border-sky-600";
+                    : dest.where === "WAITING"
+                      ? "border-slate-600 hover:border-slate-400"
+                      : dest.where === "STOCK"
+                        ? "border-teal-700/50 hover:border-teal-500"
+                        : dest.where === "DONE"
+                          ? "border-slate-800"
+                          : "border-slate-700 hover:border-sky-600";
               return (
                 <Link
                   key={c.id}
@@ -838,6 +999,11 @@ export default async function ReceivingTravelerDetailPage({
                       {c.number}
                     </span>
                     <StatusBadge status={c.status} />
+                    {c.currentWorkCenter && (
+                      <span className="font-mono text-[10px] text-slate-500">
+                        @ {c.currentWorkCenter}
+                      </span>
+                    )}
                   </div>
                   <span
                     className={`text-xs font-medium ${
@@ -845,11 +1011,13 @@ export default async function ReceivingTravelerDetailPage({
                         ? "text-violet-300"
                         : dest.where === "QA"
                           ? "text-amber-300"
-                          : dest.where === "STOCK"
-                            ? "text-teal-300"
-                            : dest.where === "DONE"
-                              ? "text-slate-500"
-                              : "text-slate-400"
+                          : dest.where === "WAITING"
+                            ? "text-slate-300"
+                            : dest.where === "STOCK"
+                              ? "text-teal-300"
+                              : dest.where === "DONE"
+                                ? "text-slate-500"
+                                : "text-slate-400"
                     }`}
                   >
                     {dest.label}
@@ -865,36 +1033,86 @@ export default async function ReceivingTravelerDetailPage({
       {isChildTraveler && inInspection && (
         <Card
           className={
-            testPending.length > 0 && qaPending.length === 0
-              ? "border-violet-500/40 bg-violet-500/5"
-              : "border-amber-500/40 bg-amber-500/5"
+            traveler.currentWorkCenter
+              ? "border-slate-600 bg-slate-800/30"
+              : testPending.length > 0 && qaPending.length === 0
+                ? "border-violet-500/40 bg-violet-500/5"
+                : "border-amber-500/40 bg-amber-500/5"
           }
         >
           <CardContent className="space-y-2 p-4 text-sm">
             <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
               Material handler
             </p>
-            <p className="text-base font-semibold text-slate-100">
-              {testPending.length > 0 && qaPending.length === 0
-                ? "Send this material to the Test Center / test lab"
-                : testPending.length > 0 && qaPending.length > 0
-                  ? "Send to QA first, then Test Center"
-                  : "Send this material to the QA workcenter"}
-            </p>
-            <p className="text-xs text-slate-400">
-              Bring traveler <span className="font-mono text-sky-400">{traveler.number}</span>{" "}
-              with the parts. Station work is done on this child card — not the parent.
-              After pass, return here to put away.
-            </p>
+            {traveler.currentWorkCenter ? (
+              <>
+                <p className="text-base font-semibold text-slate-100">
+                  Waiting on{" "}
+                  {stationAreaOf(traveler) === "TEST"
+                    ? "Test lab"
+                    : "QA"}{" "}
+                  to send back
+                </p>
+                <p className="text-xs text-slate-400">
+                  Material is parked at{" "}
+                  <span className="font-mono text-sky-400">
+                    {traveler.currentWorkCenter}
+                  </span>{" "}
+                  with traveler{" "}
+                  <span className="font-mono text-sky-400">
+                    {traveler.number}
+                  </span>
+                  . No MH move until station work finishes — then put away (or
+                  next station).
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-base font-semibold text-slate-100">
+                  {testPending.length > 0 && qaPending.length === 0
+                    ? "Send this material to the Test Center / test lab"
+                    : testPending.length > 0 && qaPending.length > 0
+                      ? "Send to QA first, then Test Center"
+                      : "Send this material to the QA workcenter"}
+                </p>
+                <p className="text-xs text-slate-400">
+                  Bring traveler{" "}
+                  <span className="font-mono text-sky-400">
+                    {traveler.number}
+                  </span>{" "}
+                  with the parts. Tap{" "}
+                  <strong className="text-slate-300">Delivered</strong> when you
+                  drop it off — that parks the traveler and stops dock time.
+                </p>
+              </>
+            )}
             <div className="flex flex-wrap gap-2 pt-1">
-              {(qaPending.length > 0 || (needsQa && testPending.length === 0)) && (
+              {!traveler.currentWorkCenter && nextStep.deliverArea && (
+                <form action={actionDeliverTravelerToStation}>
+                  <input type="hidden" name="travelerId" value={traveler.id} />
+                  <input
+                    type="hidden"
+                    name="area"
+                    value={nextStep.deliverArea}
+                  />
+                  <Button type="submit" size="sm">
+                    Delivered to{" "}
+                    {nextStep.deliverArea === "TEST" ? "Test Center" : "QA"}
+                  </Button>
+                </form>
+              )}
+              {(qaPending.length > 0 ||
+                (needsQa && testPending.length === 0) ||
+                stationAreaOf(traveler) === "QA") && (
                 <Link href="/qa">
                   <Button size="sm" variant="secondary">
                     Open QA queue
                   </Button>
                 </Link>
               )}
-              {(testPending.length > 0 || needsTest) && (
+              {(testPending.length > 0 ||
+                needsTest ||
+                stationAreaOf(traveler) === "TEST") && (
                 <Link href="/test-center">
                   <Button size="sm" variant="secondary">
                     Open Test Center

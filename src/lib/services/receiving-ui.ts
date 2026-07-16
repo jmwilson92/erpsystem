@@ -24,6 +24,17 @@ export function nextActionForTraveler(params: {
   inspectionChildNumber?: string | null;
   inspectionChildId?: string | null;
   inspectionChildWhere?: "QA" | "TEST" | "STATION" | null;
+  /** Child already parked at QA/Test — waiting on station */
+  waitingChildNumber?: string | null;
+  waitingChildId?: string | null;
+  waitingChildWhere?: "QA" | "TEST" | "STATION" | null;
+  waitingChildStation?: string | null;
+  /** This traveler is already at a station */
+  atStationCode?: string | null;
+  atStationArea?: "QA" | "TEST" | "DOCK" | null;
+  /** Needs deliver handoff (not yet at station) */
+  needsDeliver?: boolean;
+  deliverArea?: "QA" | "TEST" | null;
   poId?: string | null;
 }): {
   kind: NextStepKind;
@@ -35,6 +46,9 @@ export function nextActionForTraveler(params: {
   secondaryLabel?: string;
   childNumber?: string;
   primaryIsAnchor?: boolean;
+  /** Server actions: deliver form */
+  showDeliverButton?: boolean;
+  deliverArea?: "QA" | "TEST" | null;
 } {
   if (params.followChildId && params.followChildNumber) {
     return {
@@ -47,7 +61,63 @@ export function nextActionForTraveler(params: {
     };
   }
 
-  // Parent umbrella: material already peeled to inspection children
+  // Parent: child already at QA/Test — MH waits for return
+  if (params.waitingChildId && params.waitingChildNumber) {
+    const where =
+      params.waitingChildWhere === "TEST"
+        ? "Test lab"
+        : params.waitingChildWhere === "QA"
+          ? "QA"
+          : "station";
+    const st = params.waitingChildStation
+      ? ` @ ${params.waitingChildStation}`
+      : "";
+    return {
+      kind: "WAITING_STATION",
+      title: `Waiting on ${where} to send back`,
+      detail: `${params.waitingChildNumber} is at ${where}${st}. Material handler: no action until ${where} finishes and the traveler returns for putaway (or next station).`,
+      primaryHref: `/receiving/${params.waitingChildId}`,
+      primaryLabel: `Open ${params.waitingChildNumber}`,
+      secondaryHref:
+        params.waitingChildWhere === "TEST" ? "/test-center" : "/qa",
+      secondaryLabel:
+        params.waitingChildWhere === "TEST" ? "Test queue" : "QA queue",
+      childNumber: params.waitingChildNumber,
+    };
+  }
+
+  // This card is parked at a station — inspector should scan in
+  if (
+    params.atStationCode &&
+    params.atStationArea &&
+    params.atStationArea !== "DOCK" &&
+    (params.inInspection || params.status === "IN_INSPECTION")
+  ) {
+    const where = params.atStationArea === "TEST" ? "Test Center" : "QA";
+    return {
+      kind: params.atStationArea === "TEST" ? "AT_TEST" : "AT_QA",
+      title: `At ${params.atStationCode} — scan in to work`,
+      detail: `Material is at ${where}. Scan into this traveler to start your time, complete the open work, then the system will guide putaway or the next station.`,
+      primaryHref: params.atStationArea === "TEST" ? "/test-center" : "/qa",
+      primaryLabel: `Open ${where} queue`,
+    };
+  }
+
+  // Child needs deliver handoff before station work starts
+  if (params.needsDeliver && params.deliverArea) {
+    const where = params.deliverArea === "TEST" ? "Test Center" : "QA";
+    return {
+      kind: "DELIVER",
+      title: `Take material to ${where}`,
+      detail: `Walk this traveler and the material to ${where}. Tap “Delivered to ${where}” when you drop it off — that parks the traveler at the station and stops dock time.`,
+      showDeliverButton: true,
+      deliverArea: params.deliverArea,
+      secondaryHref: params.deliverArea === "TEST" ? "/test-center" : "/qa",
+      secondaryLabel: `${where} queue`,
+    };
+  }
+
+  // Parent umbrella: material already peeled to inspection children (not yet delivered)
   if (params.inspectionChildId && params.inspectionChildNumber) {
     const where =
       params.inspectionChildWhere === "TEST"
@@ -58,7 +128,7 @@ export function nextActionForTraveler(params: {
     return {
       kind: "FOLLOW_CHILD",
       title: `Take material with ${params.inspectionChildNumber}`,
-      detail: `Walk this child traveler to ${where}. Parent only holds dock-complete lines. Do not stock until that child is put away.`,
+      detail: `Walk this child traveler to ${where}. Open the child and tap Delivered when you drop material off. Parent only holds dock-complete lines.`,
       primaryHref: `/receiving/${params.inspectionChildId}`,
       primaryLabel: `Open ${params.inspectionChildNumber}`,
       secondaryHref:

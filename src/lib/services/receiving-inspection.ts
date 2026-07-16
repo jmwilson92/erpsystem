@@ -481,6 +481,39 @@ export async function completeReceivingInspection(params: {
     throw new Error(`Inspection already ${insp.status}`);
   }
 
+  // Ensure inspector is on the clock for the linked traveler (auto scan-in)
+  if (params.userId && insp.receiptId) {
+    const receipt = await prisma.receipt.findUnique({
+      where: { id: insp.receiptId },
+      select: { travelerId: true },
+    });
+    let tid = receipt?.travelerId || null;
+    if (!tid && insp.inventoryItemId) {
+      const hit = await prisma.receivingTraveler.findFirst({
+        where: {
+          status: { in: ["IN_INSPECTION", "READY_TO_STOCK", "PARTIAL"] },
+          openLinesSnapshot: { contains: insp.inventoryItemId },
+        },
+        select: { id: true },
+      });
+      tid = hit?.id || null;
+    }
+    if (tid) {
+      try {
+        const { scanIntoReceivingTraveler } = await import(
+          "@/lib/services/receiving-time"
+        );
+        await scanIntoReceivingTraveler({
+          travelerId: tid,
+          userId: params.userId,
+          notes: `Station work ${insp.type}`,
+        });
+      } catch {
+        /* already scanned by someone else — still allow complete */
+      }
+    }
+  }
+
   const status = params.result === "PASS" ? "PASSED" : "FAILED";
   const docType: DocType =
     insp.type === "FUNCTIONAL"
@@ -574,8 +607,11 @@ export async function completeReceivingInspection(params: {
   });
 
   // Receiving material lives on RCV travelers — advance via inventory item
+  let inventoryResult: Awaited<
+    ReturnType<typeof tryCompleteInventoryReceivingInspections>
+  > | null = null;
   if (insp.inventoryItemId) {
-    await tryCompleteInventoryReceivingInspections({
+    inventoryResult = await tryCompleteInventoryReceivingInspections({
       inventoryItemId: insp.inventoryItemId,
       userId: params.userId,
     });
@@ -587,15 +623,72 @@ export async function completeReceivingInspection(params: {
     });
   }
 
+  // Clock out inspector labor on this traveler if they were scanned in
+  let nextGuidance: string | null = null;
+  if (insp.receiptId) {
+    const receipt = await prisma.receipt.findUnique({
+      where: { id: insp.receiptId },
+      select: { travelerId: true },
+    });
+    let travelerId = receipt?.travelerId || null;
+    if (!travelerId && insp.inventoryItemId) {
+      const hit = await prisma.receivingTraveler.findFirst({
+        where: {
+          status: {
+            in: ["IN_INSPECTION", "READY_TO_STOCK", "PARTIAL"],
+          },
+          openLinesSnapshot: { contains: insp.inventoryItemId },
+        },
+        select: { id: true },
+      });
+      travelerId = hit?.id || null;
+    }
+    if (travelerId && params.userId) {
+      const t = await prisma.receivingTraveler.findUnique({
+        where: { id: travelerId },
+      });
+      if (t?.activeScanUserId === params.userId && t.activeScanAt) {
+        const { scanOutOfReceivingTraveler } = await import(
+          "@/lib/services/receiving-time"
+        );
+        await scanOutOfReceivingTraveler({
+          travelerId: t.id,
+          userId: params.userId,
+          reason: "INSPECTION_DONE",
+        });
+      }
+      // Refresh for guidance
+      const refreshed = await prisma.receivingTraveler.findUnique({
+        where: { id: travelerId },
+      });
+      if (params.result === "FAIL") {
+        nextGuidance =
+          "Failed — open NCR / MRB. Hold material; do not put away.";
+      } else if (refreshed?.status === "READY_TO_STOCK") {
+        nextGuidance = `PASS — take ${refreshed.number} back to the dock and put away to stock.`;
+      } else if (inventoryResult && "spawnedFunctional" in inventoryResult && inventoryResult.spawnedFunctional) {
+        nextGuidance = `PASS at QA — deliver ${refreshed?.number || "child traveler"} to Test Center for functional, then dock putaway.`;
+      } else if (refreshed?.status === "IN_INSPECTION") {
+        nextGuidance = `Still open work on ${refreshed.number} — check queue for remaining station steps.`;
+      } else {
+        nextGuidance = "Inspection recorded — check the receiving traveler for next step.";
+      }
+    }
+  }
+
   await logAudit({
     entityType: "Inspection",
     entityId: insp.id,
     action: status,
     userId: params.userId,
-    metadata: { type: insp.type, result: params.result },
+    metadata: {
+      type: insp.type,
+      result: params.result,
+      nextGuidance,
+    },
   });
 
-  return { status };
+  return { status, nextGuidance };
 }
 
 /**
@@ -816,6 +909,20 @@ async function markTravelersForInventory(
       data: {
         status,
         notes,
+        // READY_TO_STOCK → leave station; material returns to dock for putaway
+        ...(status === "READY_TO_STOCK"
+          ? { currentWorkCenter: null, atStationSince: null }
+          : stationHint === "TEST"
+            ? {
+                // Functional still open — keep / move toward test (MH re-delivers)
+                currentWorkCenter: t.currentWorkCenter?.toUpperCase().includes("TEST")
+                  ? t.currentWorkCenter
+                  : null,
+                atStationSince: t.currentWorkCenter?.toUpperCase().includes("TEST")
+                  ? t.atStationSince
+                  : null,
+              }
+            : {}),
         openLinesSnapshot:
           status === "READY_TO_STOCK"
             ? JSON.stringify({
@@ -886,9 +993,25 @@ export async function completeReceivingAfterInspection(params: {
     });
   }
 
+  // Close open labor scan on putaway (dock time ends)
+  if (traveler.activeScanAt && traveler.activeScanUserId) {
+    const { scanOutOfReceivingTraveler } = await import(
+      "@/lib/services/receiving-time"
+    );
+    await scanOutOfReceivingTraveler({
+      travelerId: traveler.id,
+      userId: traveler.activeScanUserId,
+      reason: "PUTAWAY",
+    });
+  }
+
   await prisma.receivingTraveler.update({
     where: { id: traveler.id },
-    data: { status: "COMPLETE" },
+    data: {
+      status: "COMPLETE",
+      currentWorkCenter: null,
+      atStationSince: null,
+    },
   });
 
   // Receipts that were AWAITING_INSPECTION are complete only after putaway

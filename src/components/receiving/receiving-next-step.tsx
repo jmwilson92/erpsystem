@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -19,7 +20,9 @@ export type NextStepKind =
   | "PUTAWAY"
   | "ATTEST"
   | "DONE"
-  | "FOLLOW_CHILD";
+  | "FOLLOW_CHILD"
+  | "DELIVER"
+  | "WAITING_STATION";
 
 export function ReceivingNextStep({
   kind,
@@ -32,6 +35,8 @@ export function ReceivingNextStep({
   childNumber,
   /** When true, primary is an in-page anchor (e.g. #receive-form) */
   primaryIsAnchor,
+  /** Deliver form rendered by parent page (needs server action) */
+  deliverSlot,
 }: {
   kind: NextStepKind;
   title: string;
@@ -42,6 +47,7 @@ export function ReceivingNextStep({
   secondaryLabel?: string;
   childNumber?: string;
   primaryIsAnchor?: boolean;
+  deliverSlot?: ReactNode;
 }) {
   const styles: Record<
     NextStepKind,
@@ -89,6 +95,18 @@ export function ReceivingNextStep({
       icon: ArrowRight,
       accent: "text-sky-300",
     },
+    DELIVER: {
+      border: "border-amber-500/50",
+      bg: "bg-amber-500/10",
+      icon: ArrowRight,
+      accent: "text-amber-200",
+    },
+    WAITING_STATION: {
+      border: "border-slate-500/40",
+      bg: "bg-slate-800/40",
+      icon: ClipboardCheck,
+      accent: "text-slate-200",
+    },
   };
 
   const s = styles[kind];
@@ -115,6 +133,7 @@ export function ReceivingNextStep({
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
+          {deliverSlot}
           {primaryHref && primaryLabel && (
             primaryIsAnchor ? (
               <a href={primaryHref}>

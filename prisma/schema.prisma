@@ -2750,17 +2750,26 @@ model ReceivingTraveler {
   children        ReceivingTraveler[] @relation("TravelerChildren")
   // Optional snapshot of remaining line qtys at split (JSON: { poLineId, openQty }[])
   openLinesSnapshot String?
+  /// Physical station holding this traveler (QA-01, TEST-01, DOCK, null = not parked)
+  currentWorkCenter String?
+  /// When material was delivered / scanned into that station
+  atStationSince  DateTime?
+  /// Open labor scan on this traveler (dock / QA / Test)
+  activeScanUserId String?
+  activeScanAt    DateTime?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   lines           ReceivingTravelerLine[]
   receipts        Receipt[]
+  timeEntries     TimeEntry[]
 
   @@index([status])
   @@index([purchaseOrderId])
   @@index([customerId])
   @@index([parentId])
   @@index([travelerType])
+  @@index([currentWorkCenter])
 }
 
 // Expected lines on a traveler (required for non-PO GFP; optional snapshot for PO)
@@ -3641,9 +3650,12 @@ model TimeEntry {
   /// Buyer package work charged to the PR's program/SO/direct/indirect
   purchaseRequestId String?
   purchaseRequest   PurchaseRequest? @relation(fields: [purchaseRequestId], references: [id], onDelete: SetNull)
+  /// Dock / QA / Test labor charged to the receiving traveler (PO project/WBS)
+  receivingTravelerId String?
+  receivingTraveler   ReceivingTraveler? @relation(fields: [receivingTravelerId], references: [id], onDelete: SetNull)
   date        DateTime
   hours       Float
-  type        String   @default("REGULAR") // REGULAR, OT, OVERHEAD, PTO, SICK, HOLIDAY, ENG_SCAN, BUYER
+  type        String   @default("REGULAR") // REGULAR, OT, OVERHEAD, PTO, SICK, HOLIDAY, ENG_SCAN, BUYER, RECEIVING
   timesheetId String?
   timesheet   Timesheet? @relation(fields: [timesheetId], references: [id], onDelete: SetNull)
   /// Optional WBS element for project labor distribution
@@ -3664,6 +3676,7 @@ model TimeEntry {
   @@index([engTaskId])
   @@index([campaignId])
   @@index([purchaseRequestId])
+  @@index([receivingTravelerId])
   @@index([date])
 }
 
