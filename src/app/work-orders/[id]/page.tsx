@@ -10,7 +10,7 @@ import { Progress } from "@/components/ui/progress";
 import { formatDate, formatCurrency } from "@/lib/utils";
 import {
   actionUpdateWoStatus,
-  actionPlanWoMaterials,
+  actionCheckWoMaterials,
   actionCreateKit,
   actionCompleteKit,
   actionStartProduction,
@@ -151,21 +151,10 @@ export default async function WorkOrderDetailPage({
               </Button>
             </Link>
             {wo.bomHeader && (
-              <form
-                action={actionPlanWoMaterials}
-                className="flex flex-wrap items-center gap-2"
-              >
+              <form action={actionCheckWoMaterials}>
                 <input type="hidden" name="workOrderId" value={wo.id} />
-                <label className="flex items-center gap-1.5 rounded border border-slate-700 bg-slate-900/80 px-2 py-1 text-[11px] text-slate-400">
-                  <input
-                    type="checkbox"
-                    name="bypassStockCheck"
-                    className="rounded border-slate-600"
-                  />
-                  Bypass stock — PR full BOM
-                </label>
                 <Button type="submit" size="sm" variant="outline">
-                  Check material / create PRs
+                  Check material
                 </Button>
               </form>
             )}
@@ -528,7 +517,7 @@ export default async function WorkOrderDetailPage({
         )}
       </div>
 
-      {/* Material readiness */}
+      {/* Material readiness — shortage visibility only; PRs from SO / MRS plan */}
       {material.requirements.length > 0 && (
         <Card>
           <CardHeader>
@@ -540,6 +529,23 @@ export default async function WorkOrderDetailPage({
                 <StatusBadge status="WAITING_MATERIAL" />
               )}
             </CardTitle>
+            <p className="text-xs text-slate-500">
+              Live stock vs BOM. Purchase requests are planned from the sales
+              order (or MRS), not from this traveler — use{" "}
+              <strong className="font-medium text-slate-400">Check material</strong>{" "}
+              above to refresh readiness.
+              {wo.salesOrder && (
+                <>
+                  {" "}
+                  <Link
+                    href={`/sales/${wo.salesOrder.id}`}
+                    className="text-sky-400 hover:underline"
+                  >
+                    Open {wo.salesOrder.number}
+                  </Link>
+                </>
+              )}
+            </p>
           </CardHeader>
           <CardContent>
             <table className="w-full text-sm">

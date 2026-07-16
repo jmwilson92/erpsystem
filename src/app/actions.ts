@@ -2876,18 +2876,41 @@ export async function actionUpdateCustomer(formData: FormData): Promise<void> {
   redirect(`/customers/${id}`);
 }
 
-export async function actionPlanWoMaterials(formData: FormData): Promise<void> {
+/**
+ * WO page: shortage check only — does NOT create purchase requests.
+ * PRs for build material are planned from the sales order (or MRS), not per-WO spam.
+ */
+export async function actionCheckWoMaterials(formData: FormData): Promise<void> {
   const workOrderId = formData.get("workOrderId") as string;
-  const bypassStockCheck =
-    formData.get("bypassStockCheck") === "true" ||
-    formData.get("bypassStockCheck") === "on";
   const user = await getCurrentUser();
-  await planWorkOrderMaterials({
+  const { refreshWorkOrderMaterialReadiness } = await import(
+    "@/lib/services/order-fulfillment"
+  );
+  const result = await refreshWorkOrderMaterialReadiness(
     workOrderId,
-    userId: user?.id,
-    bypassStockCheck,
-  });
-  revalidateFulfillmentPaths([`/work-orders/${workOrderId}`]);
+    user?.id
+  );
+  if (result.allAvailable) {
+    await flashToast("Material check — all BOM components available (ready to kit)");
+  } else {
+    const shortList = result.shortages
+      .map((s) => `${s.partNumber} (−${s.short})`)
+      .join(", ");
+    await flashToast(
+      `Material short: ${shortList}. PRs are created from the sales order plan, not from the traveler.`,
+      "error"
+    );
+  }
+  revalidateFulfillmentPaths([
+    `/work-orders/${workOrderId}`,
+    "/kitting",
+    "/purchasing",
+  ]);
+}
+
+/** @deprecated Prefer actionCheckWoMaterials — kept so old forms don't break */
+export async function actionPlanWoMaterials(formData: FormData): Promise<void> {
+  return actionCheckWoMaterials(formData);
 }
 
 export async function actionPutAwayItemWithLocation(
