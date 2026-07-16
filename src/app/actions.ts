@@ -2878,7 +2878,7 @@ export async function actionUpdateCustomer(formData: FormData): Promise<void> {
 
 /**
  * WO page: shortage check only — does NOT create purchase requests.
- * PRs for build material are planned from the sales order (or MRS), not per-WO spam.
+ * Opens a printable material shortage report when lines are short.
  */
 export async function actionCheckWoMaterials(formData: FormData): Promise<void> {
   const workOrderId = formData.get("workOrderId") as string;
@@ -2890,22 +2890,19 @@ export async function actionCheckWoMaterials(formData: FormData): Promise<void> 
     workOrderId,
     user?.id
   );
-  if (result.allAvailable) {
-    await flashToast("Material check — all BOM components available (ready to kit)");
-  } else {
-    const shortList = result.shortages
-      .map((s) => `${s.partNumber} (−${s.short})`)
-      .join(", ");
-    await flashToast(
-      `Material short: ${shortList}. PRs are created from the sales order plan, not from the traveler.`,
-      "error"
-    );
-  }
   revalidateFulfillmentPaths([
     `/work-orders/${workOrderId}`,
     "/kitting",
     "/purchasing",
   ]);
+  if (result.allAvailable) {
+    await flashToast(
+      "Material check — all BOM components available (ready to kit)"
+    );
+    return;
+  }
+  // Printable PDF / paper report for the short list
+  redirect(`/print/material-shortage/${workOrderId}`);
 }
 
 /** @deprecated Prefer actionCheckWoMaterials — kept so old forms don't break */
@@ -3434,8 +3431,18 @@ export async function actionCompleteKit(formData: FormData): Promise<void> {
 export async function actionStartProduction(formData: FormData): Promise<void> {
   const workOrderId = formData.get("workOrderId") as string;
   const user = await getCurrentUser("PRODUCTION");
-  await startProductionFromKit({ workOrderId, userId: user?.id });
-  revalidateFulfillmentPaths([`/work-orders/${workOrderId}`]);
+  try {
+    await startProductionFromKit({ workOrderId, userId: user?.id });
+    await flashToast(
+      "Production started — sign off traveler steps from the work instructions below"
+    );
+  } catch (e) {
+    await flashToast(
+      e instanceof Error ? e.message : "Could not start production",
+      "error"
+    );
+  }
+  revalidateFulfillmentPaths([`/work-orders/${workOrderId}`, "/floor"]);
 }
 
 export async function actionCompleteWoToStock(formData: FormData): Promise<void> {

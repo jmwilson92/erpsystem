@@ -1605,34 +1605,24 @@ export async function startProductionFromKit(params: {
   workOrderId: string;
   userId?: string;
 }) {
-  const wo = await prisma.workOrder.findUnique({ where: { id: params.workOrderId } });
-  if (!wo) throw new Error("Work order not found");
-  if (!["KITTED", "RELEASED"].includes(wo.status) && wo.kitStatus !== "KITTED") {
-    throw new Error(`WO must be KITTED before production start (status=${wo.status})`);
-  }
-
-  const updated = await prisma.workOrder.update({
-    where: { id: wo.id },
-    data: {
-      status: "IN_PROGRESS",
-      actualStart: wo.actualStart || new Date(),
-      statusHistory: {
-        create: {
-          fromStatus: wo.status,
-          toStatus: "IN_PROGRESS",
-          userId: params.userId,
-          notes: "Production started — first traveler step active",
-        },
-      },
-    },
+  // Shared start path: seed WI steps + IN_PROGRESS
+  const { startWorkOrderProduction } = await import(
+    "@/lib/services/work-orders"
+  );
+  const updated = await startWorkOrderProduction({
+    workOrderId: params.workOrderId,
+    userId: params.userId,
   });
 
+  const wo = await prisma.workOrder.findUnique({
+    where: { id: params.workOrderId },
+  });
   await recordTrace({
     eventType: "PRODUCTION_START",
-    workOrderId: wo.id,
-    salesOrderId: wo.salesOrderId,
-    partId: wo.partId,
-    notes: "Assembly process started on floor",
+    workOrderId: params.workOrderId,
+    salesOrderId: wo?.salesOrderId,
+    partId: wo?.partId,
+    notes: "Assembly process started on floor — traveler steps active",
     userId: params.userId,
   });
 

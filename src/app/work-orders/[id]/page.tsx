@@ -20,6 +20,7 @@ import {
   actionAlignBusinessPriority,
 } from "@/app/actions";
 import { checkBomMaterialAvailability } from "@/lib/services/order-fulfillment";
+import { ensureWorkOrderTravelerSteps } from "@/lib/services/work-orders";
 import { listWorkCenters } from "@/lib/services/workcenters";
 import { SignOffStepForm } from "@/components/work-orders/sign-off-form";
 import { WorkOrderQrLabel } from "@/components/work-orders/qr-label";
@@ -28,7 +29,7 @@ import {
   MoveMaterialFromQuery,
 } from "@/components/work-orders/station-reassign-form";
 import { generateQrDataUrl, workOrderQrPayload } from "@/lib/qr";
-import { CheckCircle2, Circle, FlaskConical } from "lucide-react";
+import { CheckCircle2, Circle, FlaskConical, FileDown } from "lucide-react";
 import Link from "next/link";
 import { Textarea } from "@/components/ui/textarea";
 import { ActivityTimeline } from "@/components/shared/activity-timeline";
@@ -43,12 +44,37 @@ import {
 
 export const dynamic = "force-dynamic";
 
+const stepInclude = {
+  workInstruction: {
+    include: {
+      steps: {
+        orderBy: { stepNumber: "asc" as const },
+        include: {
+          testProcedure: {
+            select: {
+              id: true,
+              number: true,
+              revision: true,
+              title: true,
+              status: true,
+            },
+          },
+        },
+      },
+    },
+  },
+};
+
 export default async function WorkOrderDetailPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+
+  // Seed WI traveler steps before load if missing
+  await ensureWorkOrderTravelerSteps({ workOrderId: id }).catch(() => null);
+
   const [wo, workCenters, priorities] = await Promise.all([
     prisma.workOrder.findUnique({
       where: { id },
@@ -62,11 +88,8 @@ export default async function WorkOrderDetailPage({
         materialRequisition: true,
         businessPriority: true,
         instructions: {
-          include: {
-            workInstruction: {
-              include: { steps: { orderBy: { stepNumber: "asc" } } },
-            },
-          },
+          include: stepInclude,
+          orderBy: { sequence: "asc" },
         },
         stepCompletions: true,
         statusHistory: { orderBy: { createdAt: "asc" } },
@@ -122,7 +145,12 @@ export default async function WorkOrderDetailPage({
     ["SIGNED", "PASSED", "SKIPPED"].includes(s.status)
   ).length;
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  // Sign-off once production is running (or already on floor statuses)
   const canSign = ["IN_PROGRESS", "RELEASED", "KITTED"].includes(wo.status);
+  const canStartProduction =
+    ["KITTED", "RELEASED", "READY_TO_KIT"].includes(wo.status) ||
+    wo.kitStatus === "KITTED";
+  const materialShorts = material.requirements.filter((r) => r.short > 0);
 
   return (
     <div className="space-y-6">
@@ -151,12 +179,22 @@ export default async function WorkOrderDetailPage({
               </Button>
             </Link>
             {wo.bomHeader && (
-              <form action={actionCheckWoMaterials}>
-                <input type="hidden" name="workOrderId" value={wo.id} />
-                <Button type="submit" size="sm" variant="outline">
-                  Check material
-                </Button>
-              </form>
+              <>
+                <form action={actionCheckWoMaterials}>
+                  <input type="hidden" name="workOrderId" value={wo.id} />
+                  <Button type="submit" size="sm" variant="outline">
+                    Check material
+                  </Button>
+                </form>
+                {materialShorts.length > 0 && (
+                  <Link href={`/print/material-shortage/${wo.id}`}>
+                    <Button size="sm" variant="outline">
+                      <FileDown className="mr-1.5 h-3.5 w-3.5" />
+                      Print shortage list
+                    </Button>
+                  </Link>
+                )}
+              </>
             )}
             {(wo.status === "READY_TO_KIT" || wo.kitStatus === "READY_TO_KIT") &&
               !openKit && (
@@ -175,16 +213,14 @@ export default async function WorkOrderDetailPage({
                 </Button>
               </form>
             )}
-            {(wo.status === "KITTED" ||
-              (completeKit && wo.status !== "IN_PROGRESS" && wo.status !== "COMPLETED")) &&
-              wo.status !== "COMPLETED" && (
-                <form action={actionStartProduction}>
-                  <input type="hidden" name="workOrderId" value={wo.id} />
-                  <Button type="submit" size="sm">
-                    Start production
-                  </Button>
-                </form>
-              )}
+            {canStartProduction && wo.status !== "IN_PROGRESS" && (
+              <form action={actionStartProduction}>
+                <input type="hidden" name="workOrderId" value={wo.id} />
+                <Button type="submit" size="sm">
+                  Start production
+                </Button>
+              </form>
+            )}
             {wo.status === "BACKLOG" && (
               <form action={actionUpdateWoStatus}>
                 <input type="hidden" name="workOrderId" value={wo.id} />
@@ -200,15 +236,6 @@ export default async function WorkOrderDetailPage({
                 <input type="hidden" name="toStatus" value="RELEASED" />
                 <Button type="submit" size="sm" variant="secondary">
                   Release
-                </Button>
-              </form>
-            )}
-            {wo.status === "RELEASED" && (
-              <form action={actionUpdateWoStatus}>
-                <input type="hidden" name="workOrderId" value={wo.id} />
-                <input type="hidden" name="toStatus" value="IN_PROGRESS" />
-                <Button type="submit" size="sm">
-                  Start
                 </Button>
               </form>
             )}
@@ -689,8 +716,32 @@ export default async function WorkOrderDetailPage({
                       <p className="mt-1 text-sm text-slate-400">{step.instructions}</p>
                       {step.isTestStep && (
                         <p className="mt-1 text-xs text-amber-400/80">
-                          Criteria: {step.testCriteria} · Expected: {step.expectedValue}
+                          Criteria: {step.testCriteria}
+                          {step.expectedValue
+                            ? ` · Expected: ${step.expectedValue}`
+                            : ""}
                         </p>
+                      )}
+                      {step.testProcedure && (
+                        <div className="mt-2 rounded border border-violet-500/30 bg-violet-500/5 px-2.5 py-2 text-xs">
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-violet-400">
+                            Functional / test procedure
+                          </p>
+                          <Link
+                            href={`/test-procedures/${step.testProcedure.id}`}
+                            className="mt-0.5 inline-flex flex-wrap items-center gap-1.5 font-mono text-violet-300 hover:underline"
+                          >
+                            {step.testProcedure.number} Rev{" "}
+                            {step.testProcedure.revision}
+                            <span className="font-sans text-slate-300">
+                              — {step.testProcedure.title}
+                            </span>
+                          </Link>
+                          <StatusBadge
+                            status={step.testProcedure.status}
+                            className="ml-1.5"
+                          />
+                        </div>
                       )}
                       {comp && (
                         <form
@@ -762,11 +813,49 @@ export default async function WorkOrderDetailPage({
 
       {wo.instructions.length === 0 && (
         <Card>
-          <CardContent className="py-8 text-center text-slate-500">
-            No work instructions attached. Task-only or manual WO.
+          <CardContent className="space-y-2 py-8 text-center text-slate-500">
+            <p>No work instructions linked to this traveler yet.</p>
+            <p className="text-xs">
+              Attach a released WI for part{" "}
+              <span className="font-mono text-teal-400">
+                {wo.part?.partNumber || "—"}
+              </span>{" "}
+              under Work Instructions, then refresh — steps will seed
+              automatically.
+            </p>
+            <Link href="/work-instructions">
+              <Button size="sm" variant="outline" className="mt-2">
+                Open work instructions
+              </Button>
+            </Link>
           </CardContent>
         </Card>
       )}
+
+      {wo.instructions.length > 0 &&
+        wo.status !== "IN_PROGRESS" &&
+        canStartProduction && (
+          <Card className="border-teal-900/40 bg-teal-500/5">
+            <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+              <div>
+                <p className="text-sm font-semibold text-teal-200">
+                  Ready to run traveler steps
+                </p>
+                <p className="text-xs text-slate-400">
+                  {total} step(s) from work instructions
+                  {done > 0 ? ` · ${done} already signed` : ""}. Start production
+                  to unlock sign-off on the floor.
+                </p>
+              </div>
+              <form action={actionStartProduction}>
+                <input type="hidden" name="workOrderId" value={wo.id} />
+                <Button type="submit" size="sm">
+                  Start production
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        )}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>

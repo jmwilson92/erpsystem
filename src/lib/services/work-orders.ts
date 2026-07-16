@@ -297,6 +297,169 @@ export async function createWorkOrder(params: {
   return wo;
 }
 
+/**
+ * Ensure the traveler has work instructions + step completions from released WIs.
+ * Safe to call on every WO open — idempotent.
+ */
+export async function ensureWorkOrderTravelerSteps(params: {
+  workOrderId: string;
+  userId?: string;
+}) {
+  const wo = await prisma.workOrder.findUnique({
+    where: { id: params.workOrderId },
+    include: {
+      instructions: true,
+      stepCompletions: { select: { stepId: true } },
+      part: { select: { id: true, partNumber: true } },
+    },
+  });
+  if (!wo) throw new Error("Work order not found");
+
+  let wiIds = wo.instructions.map((i) => i.workInstructionId);
+
+  // Attach released WI for the part if none linked
+  if (wiIds.length === 0 && wo.partId) {
+    const linked = await prisma.workInstruction.findMany({
+      where: {
+        partId: wo.partId,
+        status: { in: ["RELEASED", "CERTIFIED", "APPROVED"] },
+      },
+      orderBy: [{ revision: "desc" }, { updatedAt: "desc" }],
+      take: 3,
+    });
+    // Prefer RELEASED first
+    const ordered = [
+      ...linked.filter((w) => w.status === "RELEASED"),
+      ...linked.filter((w) => w.status !== "RELEASED"),
+    ].slice(0, 1);
+
+    let seq = 1;
+    for (const wi of ordered) {
+      await prisma.workOrderInstruction.create({
+        data: {
+          workOrderId: wo.id,
+          workInstructionId: wi.id,
+          sequence: seq++,
+        },
+      });
+      wiIds.push(wi.id);
+    }
+
+    // Fall back: any released WI that lists this part via product? skip
+    if (wiIds.length === 0) {
+      // Last resort: latest WI for part any status except CANCELLED
+      const any = await prisma.workInstruction.findFirst({
+        where: {
+          partId: wo.partId,
+          status: { notIn: ["CANCELLED", "OBSOLETE", "SUPERSEDED"] },
+        },
+        orderBy: { revision: "desc" },
+      });
+      if (any) {
+        await prisma.workOrderInstruction.create({
+          data: {
+            workOrderId: wo.id,
+            workInstructionId: any.id,
+            sequence: 1,
+          },
+        });
+        wiIds.push(any.id);
+      }
+    }
+  }
+
+  if (wiIds.length === 0) {
+    return { attached: 0, stepsSeeded: 0, wiIds: [] as string[] };
+  }
+
+  const existing = new Set(wo.stepCompletions.map((c) => c.stepId));
+  const steps = await prisma.workInstructionStep.findMany({
+    where: { workInstructionId: { in: wiIds } },
+    orderBy: { stepNumber: "asc" },
+  });
+
+  let stepsSeeded = 0;
+  for (const step of steps) {
+    if (existing.has(step.id)) continue;
+    await prisma.workOrderStepCompletion.create({
+      data: {
+        workOrderId: wo.id,
+        stepId: step.id,
+        status: "PENDING",
+      },
+    });
+    stepsSeeded += 1;
+  }
+
+  if (stepsSeeded > 0) {
+    await seedStepAssignments(wo.id, wo.workCenter || undefined);
+  }
+
+  return { attached: wiIds.length, stepsSeeded, wiIds };
+}
+
+/**
+ * Start floor work on a traveler — moves to IN_PROGRESS and ensures WI steps exist.
+ * Allowed from KITTED, RELEASED, READY_TO_KIT (or kitStatus KITTED).
+ */
+export async function startWorkOrderProduction(params: {
+  workOrderId: string;
+  userId?: string;
+}) {
+  const wo = await prisma.workOrder.findUnique({
+    where: { id: params.workOrderId },
+  });
+  if (!wo) throw new Error("Work order not found");
+
+  const allowed = new Set([
+    "KITTED",
+    "RELEASED",
+    "READY_TO_KIT",
+    "IN_PROGRESS",
+  ]);
+  const kitOk = wo.kitStatus === "KITTED";
+  if (!allowed.has(wo.status) && !kitOk) {
+    throw new Error(
+      `Cannot start production from status ${wo.status}. Release the WO or complete kitting first.`
+    );
+  }
+
+  await ensureWorkOrderTravelerSteps({
+    workOrderId: wo.id,
+    userId: params.userId,
+  });
+
+  if (wo.status === "IN_PROGRESS") {
+    return wo;
+  }
+
+  const updated = await prisma.workOrder.update({
+    where: { id: wo.id },
+    data: {
+      status: "IN_PROGRESS",
+      actualStart: wo.actualStart || new Date(),
+      statusHistory: {
+        create: {
+          fromStatus: wo.status,
+          toStatus: "IN_PROGRESS",
+          userId: params.userId,
+          notes: "Production started — traveler steps open for sign-off",
+        },
+      },
+    },
+  });
+
+  await logAudit({
+    entityType: "WorkOrder",
+    entityId: wo.id,
+    action: "PRODUCTION_START",
+    userId: params.userId,
+    metadata: { from: wo.status },
+  });
+
+  return updated;
+}
+
 export async function updateWorkOrderStatus(params: {
   workOrderId: string;
   toStatus: string;
