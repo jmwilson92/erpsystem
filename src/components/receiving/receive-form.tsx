@@ -76,6 +76,12 @@ export function ReceiveForm({
     (l) => !l.requiresGdtInspection && !l.requiresFunctionalTest
   );
   const anyRouteInspect = needsQa || needsTest;
+  const allRouteInspect =
+    openLines.length > 0 &&
+    openLines.every(
+      (l) => l.requiresGdtInspection || l.requiresFunctionalTest
+    );
+  const mixedModes = anyBypassLine && anyRouteInspect;
   // Gov prop only on GFP receiving travelers (not PO dock)
   const gfpContext = isGfpTraveler;
 
@@ -159,8 +165,8 @@ export function ReceiveForm({
       setError("Enter a quantity greater than 0 for at least one line.");
       return;
     }
-    // Putaway only required when completing dock (no QA/Test route)
-    if (!failInspection && !anyRouteInspect && !putaway) {
+    // Putaway required for any standard (bypass) lines — not when every line routes to QA/Test
+    if (!failInspection && !allRouteInspect && !putaway) {
       setError("Select where this material will be stocked (putaway location).");
       return;
     }
@@ -234,35 +240,39 @@ export function ReceiveForm({
   }
 
   return (
-    <form onSubmit={submit} className="space-y-5">
+    <form id="receive-form" onSubmit={submit} className="space-y-5">
       <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-200/90">
-        <strong className="font-medium">Partial receives supported.</strong> Enter only
-        the qty that arrived. Attach packing list, CoC, and material certs below.
+        <strong className="font-medium">Partial receives are fine.</strong> Enter only
+        the qty that arrived. Open qty becomes a child traveler like{" "}
+        <span className="font-mono">RCV-T-00005-02</span>.
       </div>
+
+      {anyBypassLine && (
+        <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-200/90">
+          <strong className="font-medium">Dock putaway:</strong> lines with no
+          QA / functional test go straight into stock when you sign off and pick
+          a putaway location. No child traveler needed for those.
+        </div>
+      )}
 
       {anyRouteInspect && (
         <div className="flex items-start gap-2 rounded-lg border border-violet-500/30 bg-violet-500/10 px-3 py-2 text-xs text-violet-200">
           <FlaskConical className="mt-0.5 h-4 w-4 shrink-0" />
           <span>
-            One or more lines require receiving tests. Results are{" "}
-            <strong>not entered at the dock</strong> — they stay Pending until completed
-            in the station queue. Routing order:{" "}
-            {needsQa && needsTest ? (
-              <>
-                <strong>QA first</strong> (visual / GD&amp;T), then{" "}
-                <strong>Test Center</strong> (functional / power).
-              </>
-            ) : needsQa ? (
-              <>
-                <strong>QA</strong> (visual / GD&amp;T).
-              </>
-            ) : (
-              <>
-                <strong>Test Center</strong> (functional / power).
-              </>
-            )}{" "}
-            Traveler stays open until tests pass, then returns here for putaway.
+            Lines that need further checks each get the next child traveler{" "}
+            <span className="font-mono">RCV-T-xxxxx-01</span>,{" "}
+            <span className="font-mono">-02</span>, … —{" "}
+            <strong>not siloed by QA vs Test</strong>. Each child is just that
+            line of material; do whatever inspections it shows (visual, GD&amp;T,
+            functional), then put away on that same card. No work orders.
           </span>
+        </div>
+      )}
+
+      {mixedModes && (
+        <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs text-sky-200">
+          One submit: standard lines → put away at dock now; lines needing checks
+          → sequential child travelers (-01, -02…) for you to finish and stock.
         </div>
       )}
 
@@ -454,16 +464,24 @@ export function ReceiveForm({
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
           <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-            Stock / putaway location <span className="text-amber-400">*</span>
+            Stock / putaway location{" "}
+            {!allRouteInspect && !failInspection && (
+              <span className="text-amber-400">*</span>
+            )}
+            {allRouteInspect && (
+              <span className="normal-case text-slate-600"> (optional home bin)</span>
+            )}
           </label>
           <select
             className="mt-1 flex h-9 w-full rounded-md border border-slate-700 bg-slate-950 px-2 text-sm text-slate-200"
             value={putaway}
             onChange={(e) => setPutaway(e.target.value)}
             disabled={failInspection}
-            required={!failInspection}
+            required={!failInspection && !allRouteInspect}
           >
-            <option value="">Select stocking area…</option>
+            <option value="">
+              {allRouteInspect ? "Optional — after tests…" : "Select stocking area…"}
+            </option>
             {(gfpContext ? gfpLocations.length ? gfpLocations : stockLocations : stockLocations).map(
               (loc) => (
                 <option key={loc.code} value={loc.code}>
@@ -474,11 +492,13 @@ export function ReceiveForm({
             )}
           </select>
           <p className="mt-1 text-[11px] text-slate-600">
-            {anyRouteInspect
-              ? "Optional planned stock location — putaway happens when material returns from QA/Test."
-              : gfpContext
-                ? "GFP traveler — putaway to a GFP area."
-                : "Required on pass."}
+            {allRouteInspect
+              ? "Not required now — you put away on the child traveler after QA/Test pass."
+              : anyRouteInspect
+                ? "Required for standard lines; also used as planned bin after tests."
+                : gfpContext
+                  ? "GFP traveler — putaway to a GFP area."
+                  : "Required — where stock goes after dock acceptance."}
           </p>
         </div>
         <div>
@@ -570,15 +590,23 @@ export function ReceiveForm({
         </label>
       )}
 
-      <label className="flex items-center gap-2 text-sm text-rose-300/90">
-        <input
-          type="checkbox"
-          checked={failInspection}
-          onChange={(e) => setFailInspection(e.target.checked)}
-          className="rounded border-slate-600"
-        />
-        Force fail entire receipt → open NCR / MRB (skip putaway &amp; test queue)
-      </label>
+      <div className="rounded-lg border border-rose-900/50 bg-rose-500/5 p-3 space-y-2">
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-rose-400/90">
+          Damage / reject entire receipt
+        </p>
+        <label className="flex items-start gap-2 text-sm text-rose-200/90">
+          <input
+            type="checkbox"
+            checked={failInspection}
+            onChange={(e) => setFailInspection(e.target.checked)}
+            className="mt-0.5 rounded border-slate-600"
+          />
+          <span>
+            Force fail → open NCR / MRB (skip putaway and test queue). Use only when
+            the whole delivery is bad.
+          </span>
+        </label>
+      </div>
 
       {error && (
         <div className="flex items-start gap-2 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
@@ -591,11 +619,15 @@ export function ReceiveForm({
         <Button type="submit" disabled={pending || !anyQty}>
           {pending
             ? "Working…"
-            : routeLabel
-              ? routeLabel
-              : partialPreview
-                ? "Receive partial"
-                : "Receive & put away"}
+            : failInspection
+              ? "Fail receipt → MRB"
+              : routeLabel && allRouteInspect
+                ? routeLabel
+                : routeLabel && mixedModes
+                  ? "Receive (split stock + QA/Test)"
+                  : partialPreview
+                    ? "Receive partial"
+                    : "Receive & put away"}
         </Button>
         <Button
           type="button"

@@ -98,8 +98,23 @@ export default async function PoDetailPage({
             </Link>
             {traveler && (
               <Link href={`/receiving/${traveler.id}`}>
-                <Button size="sm" variant="secondary">
-                  Receiving {traveler.number}
+                <Button
+                  size="sm"
+                  variant={
+                    ["IN_INSPECTION", "READY_TO_STOCK", "WAITING", "PARTIAL"].includes(
+                      traveler.status
+                    )
+                      ? "default"
+                      : "secondary"
+                  }
+                >
+                  {traveler.status === "READY_TO_STOCK"
+                    ? `Put away ${traveler.number}`
+                    : traveler.status === "IN_INSPECTION"
+                      ? `Finish receiving ${traveler.number}`
+                      : ["WAITING", "PARTIAL"].includes(traveler.status)
+                        ? `Receive ${traveler.number}`
+                        : `Receiving ${traveler.number}`}
                 </Button>
               </Link>
             )}

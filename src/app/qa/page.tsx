@@ -189,8 +189,10 @@ export default async function QaModulePage({
                         {insp.workOrder.number}
                       </Link>
                     )}
+                    {/* Receiving inspections live on RCV travelers — not WOs */}
                     <p className="mt-1 text-[10px] text-slate-600">
                       Opened {formatDate(insp.createdAt)}
+                      {insp.receiptId ? " · from receiving traveler" : ""}
                     </p>
                   </div>
                   <CompleteInspectionForm

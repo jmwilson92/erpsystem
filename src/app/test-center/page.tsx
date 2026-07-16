@@ -176,7 +176,14 @@ export default async function TestCenterPage({
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
-                      {group.workOrder ? (
+                      {receipt?.traveler ? (
+                        <Link
+                          href={`/receiving/${receipt.traveler.id}`}
+                          className="font-mono text-base font-semibold text-violet-300 hover:underline"
+                        >
+                          {receipt.traveler.number}
+                        </Link>
+                      ) : group.workOrder ? (
                         <Link
                           href={`/work-orders/${group.workOrder.id}`}
                           className="font-mono text-base font-semibold text-violet-300 hover:underline"
@@ -189,9 +196,7 @@ export default async function TestCenterPage({
                         </span>
                       )}
                       <StatusBadge status="RECEIVING" />
-                      {group.workOrder && (
-                        <StatusBadge status={group.workOrder.status} />
-                      )}
+                      <StatusBadge status="TEST" />
                     </div>
                     <p className="mt-1 font-mono text-sm text-teal-400">
                       {part?.partNumber || "—"}

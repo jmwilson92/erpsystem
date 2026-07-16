@@ -213,10 +213,14 @@ export async function receivePurchaseOrder(params: {
     mrbId?: string;
     inventoryItemId?: string;
     routedToTest?: boolean;
+    /** First station for this line: QA (visual/GD&T), TEST (functional only), or null (dock putaway). */
+    station?: "QA" | "TEST" | null;
     workOrderId?: string | null;
   }[] = [];
   const putAwayItems: string[] = [];
   const testRouted: string[] = [];
+  const routedQa: string[] = [];
+  const routedTest: string[] = [];
   let attachedReceiptPaperwork = false;
 
   for (const line of receipt.lines) {
@@ -392,7 +396,11 @@ export async function receivePurchaseOrder(params: {
         notes: fail
           ? "Received — failed inspection"
           : needsTest
-            ? `Received — routed to TEST-01 (planned putaway ${params.putawayLocationCode || "TBD"})`
+            ? `Received — route on RCV child traveler (QA/Test; putaway after pass${
+                params.putawayLocationCode
+                  ? `; planned ${params.putawayLocationCode}`
+                  : ""
+              })`
             : `Received — putaway to ${params.putawayLocationCode || "stock"}`,
         userId: params.receivedById,
       },
@@ -417,6 +425,7 @@ export async function receivePurchaseOrder(params: {
     let primaryInspectionId = "";
     let routedToTest = false;
     let workOrderId: string | null = null;
+    let lineStation: "QA" | "TEST" | null = null;
 
     if (fail) {
       // Hard dock fail (legacy / force fail) — quarantine path, no TEST route
@@ -480,7 +489,10 @@ export async function receivePurchaseOrder(params: {
       routedToTest = routed.routedToTest;
       workOrderId = routed.workOrderId;
       primaryInspectionId = routed.inspectionIds[0] || "";
+      lineStation = routed.station;
       testRouted.push(invItem.id);
+      if (routed.station === "TEST") routedTest.push(invItem.id);
+      else routedQa.push(invItem.id);
       // Attach line docs to first inspection if present
       if (routed.inspectionIds[0] && paperDocs.length) {
         await prisma.receivingDocument.updateMany({
@@ -492,7 +504,7 @@ export async function receivePurchaseOrder(params: {
         });
       }
     } else {
-      // Bypass test WC — standard receiving inspection + putaway
+      // No QA / functional — dock acceptance + put away immediately when acked
       const inspCount = await prisma.inspection.count();
       // No GD&T/functional required: the DOCK acceptance is the only
       // inspection, and it is only "signed" when the receiver actually
@@ -575,6 +587,7 @@ export async function receivePurchaseOrder(params: {
       mrbId,
       inventoryItemId: invItem.id,
       routedToTest,
+      station: lineStation,
       workOrderId,
     });
   }
@@ -623,13 +636,13 @@ export async function receivePurchaseOrder(params: {
     await refreshAllWaitingMaterial(params.receivedById);
   }
 
-  // Traveler stays open while in QA/Test
+  // Child RCV travelers own IN_INSPECTION — parent is split in actionReceivePo.
+  // Soft-mark source so UI updates if split is skipped for any reason.
   if (params.travelerId && testRouted.length > 0) {
     await prisma.receivingTraveler.update({
       where: { id: params.travelerId },
       data: {
         status: "IN_INSPECTION",
-        notes: undefined, // leave notes
       },
     });
   }
@@ -647,6 +660,7 @@ export async function receivePurchaseOrder(params: {
       partial: !allReceived,
       routedToInspection: testRouted.length,
       governmentProperty: receivingGovt,
+      noWorkOrder: true,
     },
   });
 
@@ -657,6 +671,18 @@ export async function receivePurchaseOrder(params: {
     allReceived,
     partial: !allReceived,
     testRouted: testRouted.length,
+    routedInventoryItemIds: testRouted,
+    /** Inventory put away at dock (no QA/Test). */
+    putAwayInventoryItemIds: putAwayItems.filter((id) => !testRouted.includes(id)),
+    /** Grouped for child RCV travelers — separate QA vs functional-only Test. */
+    routedGroups: [
+      ...(routedQa.length
+        ? [{ station: "QA" as const, inventoryItemIds: routedQa }]
+        : []),
+      ...(routedTest.length
+        ? [{ station: "TEST" as const, inventoryItemIds: routedTest }]
+        : []),
+    ],
     governmentProperty: receivingGovt,
     inInspection: testRouted.length > 0,
   };
@@ -842,6 +868,8 @@ export async function receiveGfpTraveler(params: {
 
   const putAwayItems: string[] = [];
   const testRouted: string[] = [];
+  const routedQa: string[] = [];
+  const routedTest: string[] = [];
 
   for (const line of receipt.lines) {
     if (!line.partId) {
@@ -960,9 +988,13 @@ export async function receiveGfpTraveler(params: {
         functionalResult: lineParams?.functionalResult,
         userId: params.receivedById,
       });
-      if (routed.deferPutaway) testRouted.push(invItem.id);
-      else putAwayItems.push(invItem.id);
+      if (routed.deferPutaway) {
+        testRouted.push(invItem.id);
+        if (routed.station === "TEST") routedTest.push(invItem.id);
+        else routedQa.push(invItem.id);
+      } else putAwayItems.push(invItem.id);
     } else {
+      // Dock-only GFP — put away when receiver attests
       const acked = params.receivingAck === true;
       if (acked) putAwayItems.push(invItem.id);
       const inspCount = await prisma.inspection.count();
@@ -1036,6 +1068,7 @@ export async function receiveGfpTraveler(params: {
       lines: receiveLines.length,
       dd1149: true,
       inInspection: testRouted.length > 0,
+      noWorkOrder: true,
     },
   });
 
@@ -1044,6 +1077,16 @@ export async function receiveGfpTraveler(params: {
     allReceived: wouldBeFull,
     partial: !wouldBeFull,
     inInspection: testRouted.length > 0,
+    routedInventoryItemIds: testRouted,
+    putAwayInventoryItemIds: putAwayItems.filter((id) => !testRouted.includes(id)),
+    routedGroups: [
+      ...(routedQa.length
+        ? [{ station: "QA" as const, inventoryItemIds: routedQa }]
+        : []),
+      ...(routedTest.length
+        ? [{ station: "TEST" as const, inventoryItemIds: routedTest }]
+        : []),
+    ],
   };
 }
 

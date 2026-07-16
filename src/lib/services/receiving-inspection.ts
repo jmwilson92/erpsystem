@@ -2,7 +2,6 @@
 
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
-import { createWorkOrder } from "@/lib/services/work-orders";
 import {
   putAwayInventory,
   recordTrace,
@@ -73,10 +72,11 @@ export async function saveReceivingDocuments(params: {
 }
 
 /**
- * After dock receive for a line: route inspections by workload.
- * - GD&T / visual → QA-01 (DMM / dimensional / visual — Quality)
- * - Functional (power applied) → TEST-01 (Test Center)
- * Putaway deferred until all linked inspections pass.
+ * After dock receive for a line: open inspections on the receiving traveler
+ * (no work orders). Material moves as child RCV-T travelers.
+ * - GD&T / visual → QA station queue
+ * - Functional (power) → Test Center queue (after QA if both required)
+ * Putaway deferred until all linked inspections pass → READY_TO_STOCK.
  */
 export async function routeReceivingLineForInspection(params: {
   partId: string;
@@ -105,72 +105,16 @@ export async function routeReceivingLineForInspection(params: {
       workOrderId: null as string | null,
       inspectionIds: [] as string[],
       deferPutaway: false,
+      station: null as "QA" | "TEST" | null,
     };
   }
 
   const inspectionIds: string[] = [];
-  let primaryWoId: string | null = null;
 
-  async function openInspectionWo(opts: {
-    area: "QA" | "TEST";
-    description: string;
-    estimatedMinutes: number;
-    notes: string;
-  }) {
-    const station = await getDefaultWorkCenter(opts.area);
-    const code = station?.code || (opts.area === "QA" ? "QA-01" : "TEST-01");
-    const wo = await createWorkOrder({
-      type: "INSPECTION",
-      partId: part!.id,
-      quantity: params.quantity,
-      workCenter: code,
-      department: opts.area,
-      description: opts.description,
-      travelerNotes: [
-        `Receive lot ${params.lotNumber || "—"}`,
-        params.plannedPutawayCode
-          ? `Planned putaway: ${params.plannedPutawayCode}`
-          : null,
-        opts.notes,
-      ]
-        .filter(Boolean)
-        .join(" · "),
-      createdById: params.userId,
-      priority: "HIGH",
-      requiresInspection: true,
-    });
-    await prisma.workOrder.update({
-      where: { id: wo.id },
-      data: {
-        status: "RELEASED",
-        workCenter: code,
-        department: opts.area,
-        estimatedMinutes: opts.estimatedMinutes,
-        statusHistory: {
-          create: {
-            fromStatus: "PLANNED",
-            toStatus: "RELEASED",
-            userId: params.userId,
-            notes: `Routed to ${code} (${opts.area})`,
-          },
-        },
-      },
-    });
-    if (!primaryWoId) primaryWoId = wo.id;
-    return { wo, code };
-  }
-
-  // If both QA + functional needed: always QA first (visual/GD&T). Functional opens after QA passes.
-  // If only functional: route straight to TEST.
+  // QA first when visual/GD&T required; functional-only goes straight to TEST.
   if (needsGdt) {
-    const { wo: qaWo, code: qaCode } = await openInspectionWo({
-      area: "QA",
-      description: `Receiving QA — ${part.partNumber} (visual + GD&T)`,
-      estimatedMinutes: 45,
-      notes: needsFunctional
-        ? "QA first; functional TEST after visual/GD&T pass"
-        : "QA workload: visual / GD&T",
-    });
+    const station = await getDefaultWorkCenter("QA");
+    const qaCode = station?.code || "QA-01";
 
     const visualStatus =
       params.visualResult === "PASS"
@@ -189,7 +133,6 @@ export async function routeReceivingLineForInspection(params: {
       type: "VISUAL",
       status: visualStatus,
       partId: part.id,
-      workOrderId: qaWo.id,
       purchaseOrderId: params.purchaseOrderId,
       receiptId: params.receiptId,
       inventoryItemId: params.inventoryItemId,
@@ -199,8 +142,8 @@ export async function routeReceivingLineForInspection(params: {
       plannedPutawayCode: params.plannedPutawayCode,
       userId: params.userId,
       notes: needsFunctional
-        ? "Receiving visual (QA) — functional TEST queued after pass"
-        : "Receiving visual (QA)",
+        ? "Receiving visual (QA) — functional TEST after pass · no WO"
+        : "Receiving visual (QA) · no WO",
       characteristics: [
         {
           characteristic: "Visual condition",
@@ -220,7 +163,6 @@ export async function routeReceivingLineForInspection(params: {
       type: "GDT",
       status: gdtStatus,
       partId: part.id,
-      workOrderId: qaWo.id,
       purchaseOrderId: params.purchaseOrderId,
       receiptId: params.receiptId,
       inventoryItemId: params.inventoryItemId,
@@ -229,7 +171,7 @@ export async function routeReceivingLineForInspection(params: {
       workCenter: qaCode,
       plannedPutawayCode: params.plannedPutawayCode,
       userId: params.userId,
-      notes: "GD&T / dimensional (QA)",
+      notes: "GD&T / dimensional (QA) · no WO",
       characteristics: [
         {
           characteristic: "GD&T / dimensional",
@@ -251,14 +193,12 @@ export async function routeReceivingLineForInspection(params: {
       lotNumber: params.lotNumber,
       quantity: params.quantity,
       purchaseOrderId: params.purchaseOrderId || undefined,
-      workOrderId: qaWo.id,
       toLocation: qaCode,
-      notes: `Routed to ${qaCode} (QA) for visual + GD&T — WO ${qaWo.number}`,
-      metadata: { needsFunctionalNext: needsFunctional },
+      notes: `Take material to ${qaCode} (QA) for visual + GD&T — stays on RCV traveler`,
+      metadata: { needsFunctionalNext: needsFunctional, noWorkOrder: true },
       userId: params.userId,
     });
   } else if (needsFunctional) {
-    // Functional only — straight to TEST
     const ids = await spawnFunctionalReceivingInspection({
       partId: part.id,
       partNumber: part.partNumber,
@@ -272,7 +212,6 @@ export async function routeReceivingLineForInspection(params: {
       userId: params.userId,
     });
     inspectionIds.push(...ids.inspectionIds);
-    if (!primaryWoId) primaryWoId = ids.workOrderId;
   }
 
   const failed = await prisma.inspection.findMany({
@@ -286,11 +225,9 @@ export async function routeReceivingLineForInspection(params: {
       lotNumber: params.lotNumber || undefined,
       createdById: params.userId,
       inventoryItemId: params.inventoryItemId,
-      workOrderId: f.workOrderId || undefined,
     });
   }
 
-  // Advance QA→TEST handoff or READY_TO_STOCK (no auto putaway — back to dock)
   await tryCompleteInventoryReceivingInspections({
     inventoryItemId: params.inventoryItemId,
     userId: params.userId,
@@ -307,18 +244,20 @@ export async function routeReceivingLineForInspection(params: {
       needsGdt,
       needsFunctional,
       qaFirst: needsGdt && needsFunctional,
+      noWorkOrder: true,
     },
   });
 
   return {
     routedToTest: true as const,
-    workOrderId: primaryWoId,
+    workOrderId: null as string | null,
     inspectionIds,
     deferPutaway: true,
+    station: (needsGdt ? "QA" : "TEST") as "QA" | "TEST",
   };
 }
 
-/** Spawn powered functional inspection on default TEST station. */
+/** Open powered functional inspection on TEST station — no work order. */
 export async function spawnFunctionalReceivingInspection(params: {
   partId: string;
   partNumber: string;
@@ -333,43 +272,6 @@ export async function spawnFunctionalReceivingInspection(params: {
 }) {
   const station = await getDefaultWorkCenter("TEST");
   const code = station?.code || "TEST-01";
-  const wo = await createWorkOrder({
-    type: "INSPECTION",
-    partId: params.partId,
-    quantity: params.quantity,
-    workCenter: code,
-    department: "TEST",
-    description: `Receiving functional — ${params.partNumber} (power applied)`,
-    travelerNotes: [
-      `Receive lot ${params.lotNumber || "—"}`,
-      params.plannedPutawayCode
-        ? `Planned putaway: ${params.plannedPutawayCode}`
-        : null,
-      "Test: powered functional",
-    ]
-      .filter(Boolean)
-      .join(" · "),
-    createdById: params.userId,
-    priority: "HIGH",
-    requiresInspection: true,
-  });
-  await prisma.workOrder.update({
-    where: { id: wo.id },
-    data: {
-      status: "RELEASED",
-      workCenter: code,
-      department: "TEST",
-      estimatedMinutes: 60,
-      statusHistory: {
-        create: {
-          fromStatus: "PLANNED",
-          toStatus: "RELEASED",
-          userId: params.userId,
-          notes: `Routed to ${code} (TEST)`,
-        },
-      },
-    },
-  });
 
   const fnStatus =
     params.functionalResult === "PASS"
@@ -381,7 +283,6 @@ export async function spawnFunctionalReceivingInspection(params: {
     type: "FUNCTIONAL",
     status: fnStatus,
     partId: params.partId,
-    workOrderId: wo.id,
     purchaseOrderId: params.purchaseOrderId,
     receiptId: params.receiptId,
     inventoryItemId: params.inventoryItemId,
@@ -390,7 +291,7 @@ export async function spawnFunctionalReceivingInspection(params: {
     workCenter: code,
     plannedPutawayCode: params.plannedPutawayCode,
     userId: params.userId,
-    notes: "Receiving functional test (power applied)",
+    notes: "Receiving functional test (power applied) · no WO",
     characteristics: [
       {
         characteristic: "Functional test",
@@ -411,20 +312,20 @@ export async function spawnFunctionalReceivingInspection(params: {
     lotNumber: params.lotNumber,
     quantity: params.quantity,
     purchaseOrderId: params.purchaseOrderId || undefined,
-    workOrderId: wo.id,
     toLocation: code,
-    notes: `Routed to ${code} (TEST) for functional — WO ${wo.number}`,
+    notes: `Take material to ${code} (Test) for functional — stays on RCV traveler`,
+    metadata: { noWorkOrder: true },
     userId: params.userId,
   });
 
-  return { workOrderId: wo.id, inspectionIds: [fn.id] };
+  return { workOrderId: null as string | null, inspectionIds: [fn.id] };
 }
 
 async function createInspection(params: {
   type: string;
   status: string;
   partId: string;
-  workOrderId: string;
+  workOrderId?: string | null;
   purchaseOrderId?: string | null;
   receiptId: string;
   inventoryItemId: string;
@@ -454,7 +355,7 @@ async function createInspection(params: {
       type: params.type,
       status: params.status,
       partId: params.partId,
-      workOrderId: params.workOrderId,
+      workOrderId: params.workOrderId || undefined,
       purchaseOrderId: params.purchaseOrderId || undefined,
       receiptId: params.receiptId,
       inventoryItemId: params.inventoryItemId,
@@ -641,6 +542,7 @@ export async function completeReceivingInspection(params: {
       inventoryItemId: insp.inventoryItemId || undefined,
       workOrderId: insp.workOrderId || undefined,
     });
+    // Optional legacy: hold linked production WO if one exists
     if (insp.workOrderId) {
       await prisma.workOrder.update({
         where: { id: insp.workOrderId },
@@ -654,19 +556,6 @@ export async function completeReceivingInspection(params: {
               notes: `${insp.type} failed — held for MRB`,
             },
           },
-        },
-      });
-    }
-  } else if (insp.workOrderId) {
-    const wo = await prisma.workOrder.findUnique({
-      where: { id: insp.workOrderId },
-    });
-    if (wo && ["RELEASED", "PLANNED"].includes(wo.status)) {
-      await prisma.workOrder.update({
-        where: { id: wo.id },
-        data: {
-          status: "IN_PROGRESS",
-          actualStart: wo.actualStart || new Date(),
         },
       });
     }
@@ -684,15 +573,16 @@ export async function completeReceivingInspection(params: {
     userId: params.userId,
   });
 
-  if (insp.workOrderId) {
-    await tryCompleteReceivingTestWo({
-      workOrderId: insp.workOrderId,
-      userId: params.userId,
-    });
-  }
+  // Receiving material lives on RCV travelers — advance via inventory item
   if (insp.inventoryItemId) {
     await tryCompleteInventoryReceivingInspections({
       inventoryItemId: insp.inventoryItemId,
+      userId: params.userId,
+    });
+  } else if (insp.workOrderId) {
+    // Legacy inspection WOs (if any remain)
+    await tryCompleteReceivingTestWo({
+      workOrderId: insp.workOrderId,
       userId: params.userId,
     });
   }
@@ -823,12 +713,22 @@ export async function tryCompleteInventoryReceivingInspections(params: {
       plannedPutawayCode: sample.plannedPutawayCode || undefined,
       userId: params.userId,
     });
-    await markTravelersForInventory(item.id, "IN_INSPECTION", params.userId);
+    await markTravelersForInventory(
+      item.id,
+      "IN_INSPECTION",
+      params.userId,
+      "TEST"
+    );
     return { ready: false, spawnedFunctional: true };
   }
 
   // All required inspections passed — return to receiving for putaway (do not putaway here)
-  await markTravelersForInventory(item.id, "READY_TO_STOCK", params.userId);
+  await markTravelersForInventory(
+    item.id,
+    "READY_TO_STOCK",
+    params.userId,
+    "DOCK"
+  );
 
   await recordTrace({
     eventType: "READY_TO_STOCK",
@@ -836,7 +736,7 @@ export async function tryCompleteInventoryReceivingInspections(params: {
     lotNumber: item.lotNumber,
     quantity: item.quantityOnHand,
     notes:
-      "QA/Test complete — return to receiving to put away and complete traveler",
+      "QA/Test complete — take RCV traveler back to dock to put away",
     userId: params.userId,
   });
 
@@ -846,11 +746,12 @@ export async function tryCompleteInventoryReceivingInspections(params: {
 async function markTravelersForInventory(
   inventoryItemId: string,
   status: "IN_INSPECTION" | "READY_TO_STOCK",
-  userId?: string
+  userId?: string,
+  stationHint?: "QA" | "TEST" | "DOCK"
 ) {
   const inspections = await prisma.inspection.findMany({
     where: { inventoryItemId, receiptId: { not: null } },
-    select: { receiptId: true },
+    select: { receiptId: true, type: true, status: true, workCenter: true },
   });
   const receiptIds = [
     ...new Set(
@@ -859,34 +760,77 @@ async function markTravelersForInventory(
         .filter((id): id is string => Boolean(id))
     ),
   ];
-  if (!receiptIds.length) return;
 
-  const receipts = await prisma.receipt.findMany({
-    where: { id: { in: receiptIds } },
-    select: { travelerId: true },
+  const travelerIdSet = new Set<string>();
+
+  if (receiptIds.length) {
+    const receipts = await prisma.receipt.findMany({
+      where: { id: { in: receiptIds } },
+      select: { travelerId: true },
+    });
+    for (const r of receipts) {
+      if (r.travelerId) travelerIdSet.add(r.travelerId);
+    }
+  }
+
+  // Also match children that own this inventory via openLinesSnapshot
+  // (used when one receipt has both QA and TEST functional children).
+  const snapHits = await prisma.receivingTraveler.findMany({
+    where: {
+      status: {
+        in: ["WAITING", "PARTIAL", "IN_INSPECTION", "READY_TO_STOCK"],
+      },
+      openLinesSnapshot: { contains: inventoryItemId },
+    },
+    select: { id: true },
   });
-  const travelerIds = [
-    ...new Set(
-      receipts
-        .map((r) => r.travelerId)
-        .filter((id): id is string => Boolean(id))
-    ),
-  ];
+  for (const t of snapHits) travelerIdSet.add(t.id);
 
-  for (const id of travelerIds) {
+  if (!travelerIdSet.size) return;
+
+  for (const id of travelerIdSet) {
     const t = await prisma.receivingTraveler.findUnique({ where: { id } });
     if (!t || ["CLOSED", "COMPLETE"].includes(t.status)) continue;
     // Don't downgrade READY_TO_STOCK back to IN_INSPECTION
     if (status === "IN_INSPECTION" && t.status === "READY_TO_STOCK") continue;
+
+    // Only move the child that actually owns this inventory when possible
+    const owns =
+      !t.openLinesSnapshot ||
+      t.openLinesSnapshot.includes(inventoryItemId) ||
+      !t.parentId;
+    if (t.parentId && t.openLinesSnapshot && !owns) continue;
+
+    // Status drives the job — child is not “the QA dash” or “the Test dash”
+    let notes = t.notes || "";
+    if (status === "READY_TO_STOCK") {
+      notes = `${t.number} · BACK TO DOCK — inspections complete. Put away to stock.`;
+    } else if (stationHint === "TEST") {
+      notes = `${t.number} · In process — functional / power still open, then put away.`;
+    } else if (stationHint === "QA") {
+      notes = `${t.number} · In process — visual / GD&T still open (then any further tests), then put away.`;
+    }
+
     await prisma.receivingTraveler.update({
       where: { id },
-      data: { status },
+      data: {
+        status,
+        notes,
+        openLinesSnapshot:
+          status === "READY_TO_STOCK"
+            ? JSON.stringify({
+                purpose: "CHILD",
+                inventoryItemIds: [inventoryItemId],
+              })
+            : t.openLinesSnapshot,
+      },
     });
     await logAudit({
       entityType: "ReceivingTraveler",
       entityId: id,
       action: status,
       userId,
+      metadata: { stationHint, inventoryItemId },
     });
   }
 }

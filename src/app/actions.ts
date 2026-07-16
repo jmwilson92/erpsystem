@@ -12,6 +12,7 @@ import {
   createReceivingTravelerForPo,
   createCustomerGfpTraveler,
   syncReceivingTravelerStatus,
+  splitTravelerAfterReceive,
   closePurchaseOrderFromReceiving,
   closeGfpTraveler,
 } from "@/lib/services/receiving";
@@ -94,6 +95,40 @@ function parseDocPrefix(formData: FormData, prefix: string) {
     docs.push({ url, fileName, caption });
   }
   return docs;
+}
+
+/** One clear toast after dock receive — dock putaway + sequential children. */
+function buildReceiveFlash(
+  children: { number: string; purpose: string }[],
+  putAwayCount: number,
+  partial: boolean
+): string {
+  const parts: string[] = [];
+  if (putAwayCount > 0) {
+    parts.push(
+      `${putAwayCount} line(s) put away at dock (no further checks — stocked)`
+    );
+  }
+  const workChildren = children.filter(
+    (c) => c.purpose === "CHILD" || c.purpose === "QA" || c.purpose === "TEST"
+  );
+  if (workChildren.length === 1) {
+    parts.push(
+      `Child ${workChildren[0].number} — finish open inspections, then put away`
+    );
+  } else if (workChildren.length > 1) {
+    parts.push(
+      `Children ${workChildren.map((c) => c.number).join(", ")} — one per line; each finishes its own checks then put away`
+    );
+  }
+  const rem = children.find((c) => c.purpose === "REMAINDER");
+  if (rem) parts.push(`Remainder open on ${rem.number}`);
+  if (!parts.length) {
+    return partial
+      ? "Partial receive recorded"
+      : "Received & put away at dock — material is stocked";
+  }
+  return parts.join(" · ");
 }
 
 export async function actionReceivePo(formData: FormData): Promise<void> {
@@ -244,13 +279,34 @@ export async function actionReceivePo(formData: FormData): Promise<void> {
       contractNumber,
     });
 
-    if (!result.inInspection) {
+    let flashMsg = "Received GFP material";
+    const gfpPutAway = result.putAwayInventoryItemIds?.length || 0;
+    const gfpGroups = result.routedGroups || [];
+    if (
+      result.receipt?.id &&
+      (gfpGroups.length > 0 || result.partial || gfpPutAway > 0)
+    ) {
+      const split = await splitTravelerAfterReceive({
+        sourceTravelerId: travelerId,
+        receiptId: result.receipt.id,
+        routedGroups: gfpGroups,
+        routedInventoryItemIds: result.routedInventoryItemIds || [],
+        putAwayCount: gfpPutAway,
+        userId: user?.id,
+        createRemainderIfOpen: result.partial,
+      });
+      flashMsg = buildReceiveFlash(split.children, gfpPutAway, result.partial);
+    } else {
       await syncReceivingTravelerStatus(null, {
         sourceTravelerId: travelerId,
         userId: user?.id,
         createChildIfPartial: result.partial,
       });
+      flashMsg = result.partial
+        ? "Partial GFP receive — remainder child owns open qty"
+        : "Received & put away at dock — GFP material stocked";
     }
+    await flashToast(flashMsg);
 
     revalidateFulfillmentPaths([
       "/receiving",
@@ -260,6 +316,7 @@ export async function actionReceivePo(formData: FormData): Promise<void> {
       "/quality",
       "/floor",
       "/test-center",
+      "/qa",
     ]);
     return;
   }
@@ -295,14 +352,40 @@ export async function actionReceivePo(formData: FormData): Promise<void> {
       Object.keys(govPropNumbers).length > 0 ? govPropNumbers : undefined,
   });
 
-  // Keep traveler open (IN_INSPECTION) when routed — don't mark complete
-  if (!result.inInspection) {
-    await syncReceivingTravelerStatus(purchaseOrderId, {
+  // Always resolve traveler family: never leave open qty stranded behind IN_INSPECTION
+  let flashMsg = "Received";
+  const putAwayN = result.putAwayInventoryItemIds?.length || 0;
+  const groups = result.routedGroups || [];
+
+  if (travelerId && result.receipt?.id && (groups.length > 0 || result.partial)) {
+    const split = await splitTravelerAfterReceive({
+      sourceTravelerId: travelerId,
+      receiptId: result.receipt.id,
+      routedGroups: groups,
+      routedInventoryItemIds: result.routedInventoryItemIds || [],
+      putAwayCount: putAwayN,
+      userId: user?.id,
+      createRemainderIfOpen: result.partial,
+    });
+    flashMsg = buildReceiveFlash(split.children, putAwayN, result.partial);
+    if (failInspection) flashMsg = "Receipt failed — NCR/MRB opened";
+  } else {
+    const sync = await syncReceivingTravelerStatus(purchaseOrderId, {
       sourceTravelerId: travelerId,
       userId: user?.id,
       createChildIfPartial: result.partial,
     });
+    if (failInspection) {
+      flashMsg = "Receipt failed — NCR/MRB opened";
+    } else if (result.partial && sync.child) {
+      flashMsg = `Partial receive — remainder on ${sync.child.number}`;
+    } else if (putAwayN > 0) {
+      flashMsg = "Received & put away at dock — material is stocked";
+    } else {
+      flashMsg = "Received";
+    }
   }
+  await flashToast(flashMsg);
 
   revalidateFulfillmentPaths([
     "/purchasing",
@@ -317,6 +400,7 @@ export async function actionReceivePo(formData: FormData): Promise<void> {
     "/work-orders",
     "/government-property",
     "/test-center",
+    "/qa",
   ]);
 }
 
@@ -337,6 +421,9 @@ export async function actionCompleteReceivingPutaway(
     putawayLocationCode,
     userId: user?.id,
   });
+  await flashToast(
+    "Put away complete — material stocked; waiting WOs rechecked for kit readiness"
+  );
   revalidateFulfillmentPaths([
     `/receiving/${travelerId}`,
     "/receiving",
@@ -344,6 +431,8 @@ export async function actionCompleteReceivingPutaway(
     "/quality",
     "/test-center",
     "/government-property",
+    "/work-orders",
+    "/qa",
   ]);
 }
 

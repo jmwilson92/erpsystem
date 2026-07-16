@@ -12,6 +12,13 @@ import {
   actionAttestDockAcceptance,
 } from "@/app/actions";
 import { ReceiveForm } from "@/components/receiving/receive-form";
+import { ReceivingNextStep } from "@/components/receiving/receiving-next-step";
+import { ReceivingStepper } from "@/components/receiving/receiving-stepper";
+import {
+  nextActionForTraveler,
+  stepperState,
+} from "@/lib/services/receiving-ui";
+import { travelerPurpose } from "@/lib/services/receiving";
 import Link from "next/link";
 import {
   GitBranch,
@@ -246,6 +253,14 @@ export default async function ReceivingTravelerDetailPage({
     return lotNumbers.length === 0 && partIdsFromReceipts.includes(inv.partId);
   });
 
+  const purpose = travelerPurpose(traveler);
+
+  // GFP + in-process children: traveler lines. PO dock/remainder: PO lines (open only).
+  const useChildLines =
+    purpose === "CHILD" ||
+    (!!traveler.parentId &&
+      ["IN_INSPECTION", "READY_TO_STOCK"].includes(traveler.status));
+
   const displayLines = isGfpTraveler
     ? traveler.lines.map((l) => ({
         id: l.id,
@@ -260,31 +275,60 @@ export default async function ReceivingTravelerDetailPage({
         requiresFunctionalTest: l.part?.requiresFunctionalTest ?? false,
         isTravelerLine: true,
       }))
-    : (po?.lines || []).map((l) => ({
-        id: l.id,
-        lineNumber: l.lineNumber,
-        description: l.description,
-        quantity: l.quantity,
-        quantityReceived: l.quantityReceived,
-        partNumber: l.part?.partNumber,
-        partId: l.partId,
-        uom: l.uom,
-        requiresGdtInspection: l.part?.requiresGdtInspection ?? false,
-        requiresFunctionalTest: l.part?.requiresFunctionalTest ?? false,
-        isTravelerLine: false,
-      }));
+    : useChildLines
+      ? traveler.lines.map((l) => ({
+          id: l.id,
+          lineNumber: l.lineNumber,
+          description: l.description,
+          quantity: l.quantity,
+          quantityReceived: l.quantityReceived,
+          partNumber: l.part?.partNumber,
+          partId: l.partId,
+          uom: l.uom,
+          requiresGdtInspection: l.part?.requiresGdtInspection ?? false,
+          requiresFunctionalTest: l.part?.requiresFunctionalTest ?? false,
+          isTravelerLine: true,
+        }))
+      : (po?.lines || [])
+          .filter((l) =>
+            purpose === "REMAINDER" ? l.quantityReceived < l.quantity : true
+          )
+          .map((l) => ({
+            id: l.id,
+            lineNumber: l.lineNumber,
+            description: l.description,
+            quantity: l.quantity,
+            quantityReceived: l.quantityReceived,
+            partNumber: l.part?.partNumber,
+            partId: l.partId,
+            uom: l.uom,
+            requiresGdtInspection: l.part?.requiresGdtInspection ?? false,
+            requiresFunctionalTest: l.part?.requiresFunctionalTest ?? false,
+            isTravelerLine: false,
+          }));
 
-  const allReceived = displayLines.every(
-    (l) => l.quantityReceived >= l.quantity
+  const allReceived =
+    displayLines.length > 0 &&
+    displayLines.every((l) => l.quantityReceived >= l.quantity);
+
+  // Prefer working remainder children instead of the parent umbrella
+  const openRemainderChild = traveler.children.find((c) =>
+    ["WAITING", "PARTIAL"].includes(c.status)
   );
+  const parentHasOpenRemainderChild =
+    !traveler.parentId && !!openRemainderChild;
+
   const canReceive =
     ["WAITING", "PARTIAL"].includes(traveler.status) &&
+    !parentHasOpenRemainderChild &&
+    purpose !== "CHILD" &&
+    !["IN_INSPECTION", "READY_TO_STOCK"].includes(traveler.status) &&
     displayLines.some((l) => l.quantityReceived < l.quantity) &&
     (isGfpTraveler ||
-      (po &&
-        ["ISSUED", "ACKNOWLEDGED", "PARTIAL_RECEIPT", "RECEIVED"].includes(
-          po.status
-        ) &&
+      !po ||
+      (["ISSUED", "ACKNOWLEDGED", "PARTIAL_RECEIPT", "RECEIVED"].includes(
+        po.status
+      ) &&
         po.status !== "CLOSED" &&
         po.status !== "CANCELLED"));
 
@@ -328,6 +372,44 @@ export default async function ReceivingTravelerDetailPage({
     ["VISUAL", "GDT"].includes(i.type)
   );
   const testPending = openInspections.filter((i) => i.type === "FUNCTIONAL");
+  const pendingDockAttest = openInspections.filter(
+    (i) => i.type === "RECEIVING"
+  );
+  const needsQa = displayLines.some((l) => l.requiresGdtInspection);
+  const needsTest = displayLines.some((l) => l.requiresFunctionalTest);
+  // Stepper from part flags + actual open inspections (child is not QA/Test-siloed)
+  const needsQaFlow = needsQa || qaPending.length > 0;
+  const needsTestFlow = needsTest || testPending.length > 0;
+
+  const nextStep = nextActionForTraveler({
+    status: traveler.status,
+    purpose,
+    canReceive,
+    canCompleteStock,
+    inInspection,
+    hasQaPending: qaPending.length > 0,
+    hasTestPending: testPending.length > 0,
+    hasPendingDockAttest: pendingDockAttest.length > 0 && !canReceive,
+    isComplete,
+    followChildNumber: parentHasOpenRemainderChild
+      ? openRemainderChild!.number
+      : null,
+    followChildId: parentHasOpenRemainderChild
+      ? openRemainderChild!.id
+      : null,
+    poId: po?.id,
+  });
+
+  const stepState = stepperState({
+    status: traveler.status,
+    needsQa: needsQaFlow,
+    needsTest: needsTestFlow,
+    isComplete,
+    hasReceipt: receipts.length > 0,
+    hasQaPending: qaPending.length > 0,
+    hasTestPending: testPending.length > 0,
+    canCompleteStock,
+  });
 
   let locationLabel: string | null = null;
   let locationDetail: string | null = null;
@@ -532,6 +614,21 @@ export default async function ReceivingTravelerDetailPage({
                 </Button>
               </Link>
             )}
+            {inInspection && qaPending.length > 0 && (
+              <Link href="/qa">
+                <Button size="sm">Go to QA</Button>
+              </Link>
+            )}
+            {inInspection && testPending.length > 0 && qaPending.length === 0 && (
+              <Link href="/test-center">
+                <Button size="sm">Go to Test</Button>
+              </Link>
+            )}
+            {canCompleteStock && (
+              <a href="#putaway-form">
+                <Button size="sm">Put away</Button>
+              </a>
+            )}
             {canCloseGfp && (
               <form action={actionCloseGfpTraveler}>
                 <input type="hidden" name="travelerId" value={traveler.id} />
@@ -543,6 +640,9 @@ export default async function ReceivingTravelerDetailPage({
           </div>
         }
       />
+
+      <ReceivingNextStep {...nextStep} />
+      <ReceivingStepper {...stepState} />
 
       {functionalTestCallouts.length > 0 && (
         <div className="rounded-xl border border-sky-500/30 bg-sky-500/5 p-3">
@@ -574,6 +674,11 @@ export default async function ReceivingTravelerDetailPage({
 
       <div className="flex flex-wrap gap-2">
         <StatusBadge status={traveler.status} />
+        {traveler.parentId && (
+          <span className="rounded border border-slate-700 px-2 py-0.5 text-[10px] text-slate-400">
+            child
+          </span>
+        )}
         <StatusBadge status={traveler.travelerType} />
         {po && <StatusBadge status={po.status} />}
         {traveler.parent && (
@@ -598,16 +703,24 @@ export default async function ReceivingTravelerDetailPage({
       {traveler.children.length > 0 && (
         <Card className="border-sky-900/40">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Child travelers (remainders)</CardTitle>
+            <CardTitle className="text-sm">
+              Child travelers — {traveler.number}-01, -02, …
+            </CardTitle>
+            <p className="text-xs text-slate-500">
+              Sequential only. Each card is a line of material (or remainder) —
+              not “the QA dash” or “the Test dash”. Open the card and do whatever
+              it still needs.
+            </p>
           </CardHeader>
           <CardContent className="flex flex-wrap gap-2">
             {traveler.children.map((c) => (
               <Link
                 key={c.id}
                 href={`/receiving/${c.id}`}
-                className="rounded border border-slate-700 px-2 py-1 font-mono text-xs text-sky-400 hover:border-sky-600"
+                className="rounded border border-slate-700 px-2 py-1.5 font-mono text-xs text-sky-400 hover:border-sky-600"
               >
-                {c.number} · <StatusBadge status={c.status} className="ml-1" />
+                <span className="font-semibold">{c.number}</span>
+                <StatusBadge status={c.status} className="ml-1.5" />
               </Link>
             ))}
           </CardContent>
@@ -788,13 +901,14 @@ export default async function ReceivingTravelerDetailPage({
       )}
 
       {canCompleteStock && (
-        <Card className="border-teal-900/40">
+        <Card id="putaway-form" className="border-teal-900/40">
           <CardHeader>
             <CardTitle>Complete putaway</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="mb-3 text-xs text-slate-500">
               Inspections passed — put away and close this receiving traveler.
+              Material is not available for kitting until this step finishes.
             </p>
             <form
               action={actionCompleteReceivingPutaway}
@@ -832,7 +946,7 @@ export default async function ReceivingTravelerDetailPage({
       )}
 
       {canReceive && (
-        <Card className="border-teal-900/40">
+        <Card id="receive-form" className="border-teal-900/40">
           <CardHeader>
             <CardTitle>Receive material</CardTitle>
           </CardHeader>
@@ -1013,9 +1127,12 @@ export default async function ReceivingTravelerDetailPage({
                 insp.workOrder?.workCenter ||
                 insp.workCenter ||
                 (["VISUAL", "GDT"].includes(insp.type) ? "QA-01" : "TEST-01");
-              const area = ["VISUAL", "GDT", "RECEIVING"].includes(insp.type)
-                ? "QA"
-                : "Test";
+              const area =
+                insp.type === "RECEIVING"
+                  ? "Dock"
+                  : ["VISUAL", "GDT"].includes(insp.type)
+                    ? "QA"
+                    : "Test";
               return (
                 <div
                   key={insp.id}
@@ -1030,7 +1147,8 @@ export default async function ReceivingTravelerDetailPage({
                         <StatusBadge status={insp.type} />
                         <StatusBadge status={insp.status} />
                         <span className="font-mono text-[10px] text-slate-500">
-                          @ {area} · {wc}
+                          @ {area}
+                          {insp.type !== "RECEIVING" ? ` · ${wc}` : ""}
                         </span>
                       </div>
                       <p className="mt-1 font-mono text-teal-400">{partNo}</p>
@@ -1104,6 +1222,7 @@ export default async function ReceivingTravelerDetailPage({
                   )}
                   {insp.type === "RECEIVING" && insp.status === "PENDING" && (
                     <form
+                      id="dock-attest"
                       action={actionAttestDockAcceptance}
                       className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-amber-900/50 bg-amber-500/5 p-2"
                     >
