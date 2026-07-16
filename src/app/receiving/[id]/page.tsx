@@ -456,8 +456,62 @@ export default async function ReceivingTravelerDetailPage({
     getCurrentUser().catch(() => null),
   ]);
 
+  // Scope open inspections to THIS traveler for next-step / station routing.
+  // Parents may see PO-wide history, but children must not inherit sibling QA noise.
+  const childInvIds = new Set<string>();
+  if (isChildTraveler && traveler.openLinesSnapshot) {
+    try {
+      const snap = JSON.parse(traveler.openLinesSnapshot) as {
+        inventoryItemIds?: string[];
+      };
+      for (const id of snap.inventoryItemIds || []) childInvIds.add(id);
+    } catch {
+      /* ignore */
+    }
+  }
+  const childPartIds = new Set(
+    displayLines.map((l) => l.partId).filter((id): id is string => !!id)
+  );
+  const childLots = new Set(
+    displayLines
+      .map((l) => ("notes" in l ? String((l as { notes?: string }).notes || "") : ""))
+      .join(" ")
+      .match(/Lot\s+(\S+)/gi)
+      ?.map((m) => m.replace(/Lot\s+/i, "")) || []
+  );
+  // Also lot from traveler line notes
+  for (const l of traveler.lines) {
+    if (l.notes?.startsWith("Lot ")) childLots.add(l.notes.slice(4).trim());
+  }
+  const thisTravelerReceiptIds = new Set(traveler.receipts.map((r) => r.id));
+
+  function inspectionBelongsHere(i: {
+    type: string;
+    inventoryItemId: string | null;
+    partId: string | null;
+    lotNumber: string | null;
+    receiptId: string | null;
+  }): boolean {
+    if (!isChildTraveler) return true;
+    if (i.inventoryItemId && childInvIds.has(i.inventoryItemId)) return true;
+    if (i.lotNumber && childLots.has(i.lotNumber)) return true;
+    // Receipt reassigned to this child
+    if (i.receiptId && thisTravelerReceiptIds.has(i.receiptId)) return true;
+    // Part match only when we have inv/lot empty (weak) — require part + no conflicting siblings
+    if (
+      childInvIds.size === 0 &&
+      childLots.size === 0 &&
+      i.partId &&
+      childPartIds.has(i.partId)
+    ) {
+      return true;
+    }
+    return false;
+  }
+
   const openInspections = allInspections
     .filter((i) => ["PENDING", "IN_PROGRESS"].includes(i.status))
+    .filter(inspectionBelongsHere)
     .map((i) => ({
       ...i,
       partNumber: i.partId ? partNumById[i.partId] : undefined,
@@ -469,11 +523,13 @@ export default async function ReceivingTravelerDetailPage({
   const pendingDockAttest = openInspections.filter(
     (i) => i.type === "RECEIVING"
   );
+  // Part flags only for THIS traveler's lines (not whole PO)
   const needsQa = displayLines.some((l) => l.requiresGdtInspection);
   const needsTest = displayLines.some((l) => l.requiresFunctionalTest);
-  // Stepper from part flags + actual open inspections (child is not QA/Test-siloed)
-  const needsQaFlow = needsQa || qaPending.length > 0;
-  const needsTestFlow = needsTest || testPending.length > 0;
+  // Stepper / next: open inspections win over part flags for station
+  const needsQaFlow = qaPending.length > 0 || (needsQa && testPending.length === 0);
+  const needsTestFlow =
+    testPending.length > 0 || (needsTest && qaPending.length === 0);
 
   function childWhere(c: {
     notes: string | null;
@@ -483,14 +539,10 @@ export default async function ReceivingTravelerDetailPage({
     const area = stationAreaOf(c);
     if (area === "TEST") return "TEST";
     if (area === "QA") return "QA";
-    const notes = (c.notes || "").toLowerCase();
-    const needsVisual =
-      notes.includes("visual") || notes.includes("gd&t") || notes.includes("gd");
-    const needsFunctional =
-      notes.includes("functional") || notes.includes("test center");
-    if (needsVisual) return "QA";
-    if (needsFunctional) return "TEST";
-    if (c.status === "IN_INSPECTION") return "QA";
+    const inferred = inferDeliverArea({ notes: c.notes });
+    if (inferred === "TEST") return "TEST";
+    if (inferred === "QA") return "QA";
+    if (c.status === "IN_INSPECTION") return "STATION";
     return "STATION";
   }
 
@@ -503,8 +555,10 @@ export default async function ReceivingTravelerDetailPage({
   const deliverArea = isChildTraveler
     ? inferDeliverArea({
         notes: traveler.notes,
-        needsQa,
-        needsTest,
+        // Only use part flags when we have no open insp on this child
+        needsQa: qaPending.length === 0 && testPending.length === 0 ? needsQa : false,
+        needsTest:
+          qaPending.length === 0 && testPending.length === 0 ? needsTest : false,
         hasQaPending: qaPending.length > 0,
         hasTestPending: testPending.length > 0,
       })
@@ -582,7 +636,26 @@ export default async function ReceivingTravelerDetailPage({
   let locationDetail: string | null = null;
   let locationHref: string | null = null;
   if (inInspection) {
-    if (qaPending.length > 0) {
+    const destHint =
+      deliverArea ||
+      stationAreaOf(traveler) ||
+      (needsTest && !needsQa ? "TEST" : needsQa ? "QA" : null);
+    if (traveler.currentWorkCenter) {
+      const area =
+        stationAreaOf(traveler) ||
+        (traveler.currentWorkCenter.toUpperCase().includes("TEST")
+          ? "TEST"
+          : "QA");
+      locationLabel =
+        area === "TEST"
+          ? `Test Center — ${traveler.currentWorkCenter}`
+          : `QA — ${traveler.currentWorkCenter}`;
+      locationDetail =
+        area === "TEST"
+          ? "Parked at Test for functional / power"
+          : "Parked at QA for visual / GD&T";
+      locationHref = area === "TEST" ? "/test-center" : "/qa";
+    } else if (qaPending.length > 0) {
       const wc =
         qaPending[0].workOrder?.workCenter ||
         qaPending[0].workCenter ||
@@ -598,11 +671,18 @@ export default async function ReceivingTravelerDetailPage({
       locationLabel = `Test Center — ${wc}`;
       locationDetail = `Functional / power test in progress (${testPending.length} open)`;
       locationHref = "/test-center";
-    } else {
-      locationLabel = "QA / Test handoff";
-      locationDetail =
-        "No open inspections found — check QA or Test Center queues";
+    } else if (destHint === "TEST") {
+      locationLabel = "Test Center";
+      locationDetail = "Functional / power — deliver to Test, not QA";
+      locationHref = "/test-center";
+    } else if (destHint === "QA") {
+      locationLabel = "QA";
+      locationDetail = "Visual / GD&T — deliver to QA workcenter";
       locationHref = "/qa";
+    } else {
+      locationLabel = "Station handoff";
+      locationDetail = "Check child notes for QA vs Test Center";
+      locationHref = "/receiving";
     }
   }
 
@@ -797,7 +877,9 @@ export default async function ReceivingTravelerDetailPage({
       return { label: "Ready — put away at dock", where: "STOCK" };
     }
     if (c.currentWorkCenter) {
-      const area = stationAreaOf(c);
+      const area =
+        stationAreaOf(c) ||
+        (c.currentWorkCenter.toUpperCase().includes("TEST") ? "TEST" : "QA");
       if (area === "TEST") {
         return {
           label: `At ${c.currentWorkCenter} — waiting on Test lab`,
@@ -812,17 +894,18 @@ export default async function ReceivingTravelerDetailPage({
     if (notes.includes("remainder") || c.status === "WAITING") {
       return { label: "Dock — receive remainder", where: "DOCK" };
     }
-    const needsVisual =
-      notes.includes("visual") || notes.includes("gd&t") || notes.includes("gd");
-    const needsFunctional =
-      notes.includes("functional") || notes.includes("test center");
-    if (needsVisual && needsFunctional) {
-      return { label: "Take to QA first, then Test lab", where: "QA" };
-    }
-    if (needsFunctional) {
+    const dest = inferDeliverArea({ notes: c.notes });
+    if (dest === "TEST") {
       return { label: "Take to Test Center / test lab", where: "TEST" };
     }
-    if (needsVisual || notes.includes("qa") || c.status === "IN_INSPECTION") {
+    // Both visual + functional in notes → QA first
+    if (
+      (/\bvisual\b/.test(notes) || notes.includes("gd&t")) &&
+      /\bfunctional\b/.test(notes)
+    ) {
+      return { label: "Take to QA first, then Test lab", where: "QA" };
+    }
+    if (dest === "QA") {
       return { label: "Take to QA workcenter", where: "QA" };
     }
     if (c.status === "PARTIAL") {

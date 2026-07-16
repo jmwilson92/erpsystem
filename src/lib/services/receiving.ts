@@ -543,12 +543,21 @@ export async function splitTravelerAfterReceive(params: {
 
     if (receiptLine) usedReceiptLineIds.add(receiptLine.id);
 
-    const needs: string[] = [];
-    if (inv.part?.requiresGdtInspection) needs.push("visual/GD&T");
-    if (inv.part?.requiresFunctionalTest) needs.push("functional");
-    const needLabel = needs.length ? needs.join(" + ") : "receiving checks";
+    const needsGdt = !!inv.part?.requiresGdtInspection;
+    const needsFunc = !!inv.part?.requiresFunctionalTest;
     const partLabel =
       inv.part?.partNumber || receiptLine?.description?.slice(0, 40) || "material";
+    // Explicit station in notes so UI never mis-routes functional to QA
+    let workNote: string;
+    if (needsGdt && needsFunc) {
+      workNote = `${number} · ${partLabel} — take to QA first (visual/GD&T), then Test Center (functional), then put away.`;
+    } else if (needsFunc) {
+      workNote = `${number} · ${partLabel} — take to Test Center for functional / power, then put away.`;
+    } else if (needsGdt) {
+      workNote = `${number} · ${partLabel} — take to QA for visual / GD&T, then put away.`;
+    } else {
+      workNote = `${number} · ${partLabel} — complete open receiving checks, then put away.`;
+    }
 
     const child = await prisma.receivingTraveler.create({
       data: {
@@ -561,11 +570,7 @@ export async function splitTravelerAfterReceive(params: {
         parentId: root.id,
         status: "IN_INSPECTION",
         expectedDate: source.expectedDate || undefined,
-        notes: handlerNote(
-          "CHILD",
-          number,
-          `${number} · ${partLabel} — complete open work (${needLabel}), then put away at dock.`
-        ),
+        notes: handlerNote("CHILD", number, workNote),
         openLinesSnapshot: snapshotJson(
           "CHILD",
           [

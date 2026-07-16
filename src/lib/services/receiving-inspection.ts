@@ -899,9 +899,9 @@ async function markTravelersForInventory(
     if (status === "READY_TO_STOCK") {
       notes = `${t.number} · BACK TO DOCK — inspections complete. Put away to stock.`;
     } else if (stationHint === "TEST") {
-      notes = `${t.number} · In process — functional / power still open, then put away.`;
+      notes = `${t.number} · In process — take to Test Center; functional / power still open, then put away.`;
     } else if (stationHint === "QA") {
-      notes = `${t.number} · In process — visual / GD&T still open (then any further tests), then put away.`;
+      notes = `${t.number} · In process — take to QA; visual / GD&T still open (then any further tests), then put away.`;
     }
 
     await prisma.receivingTraveler.update({

@@ -541,17 +541,17 @@ export function stationAreaOf(traveler: {
   currentWorkCenter?: string | null;
   notes?: string | null;
 }): StationArea | null {
-  return (
-    areaFromWorkCenter(traveler.currentWorkCenter) ||
-    (traveler.notes?.toLowerCase().includes("test center")
-      ? "TEST"
-      : traveler.notes?.toLowerCase().includes("at qa")
-        ? "QA"
-        : null)
-  );
+  const fromWc = areaFromWorkCenter(traveler.currentWorkCenter);
+  if (fromWc) return fromWc;
+  if (!traveler.notes) return null;
+  return inferDeliverArea({ notes: traveler.notes });
 }
 
-/** Infer deliver target from child notes / open inspection types. */
+/**
+ * Infer deliver / station target.
+ * Priority: open inspections → notes → part flags.
+ * Functional-only → Test Center. Any open visual/GD&T → QA first.
+ */
 export function inferDeliverArea(params: {
   notes?: string | null;
   needsQa?: boolean;
@@ -559,20 +559,30 @@ export function inferDeliverArea(params: {
   hasQaPending?: boolean;
   hasTestPending?: boolean;
 }): "QA" | "TEST" {
+  // 1) Live open inspections on THIS traveler (caller must scope, not whole PO)
+  if (params.hasQaPending) return "QA";
+  if (params.hasTestPending) return "TEST";
+
   const notes = (params.notes || "").toLowerCase();
-  const needsVisual =
-    params.hasQaPending ||
-    params.needsQa ||
-    notes.includes("visual") ||
+  const notesVisual =
+    /\bvisual\b/.test(notes) ||
     notes.includes("gd&t") ||
-    notes.includes("gd");
-  const needsFunctional =
-    params.hasTestPending ||
-    params.needsTest ||
-    notes.includes("functional") ||
-    notes.includes("test center");
-  // QA first when both
-  if (needsVisual) return "QA";
-  if (needsFunctional) return "TEST";
+    /\bgdt\b/.test(notes);
+  const notesFunctional =
+    /\bfunctional\b/.test(notes) ||
+    notes.includes("test center") ||
+    notes.includes("test lab") ||
+    /\bpower\b/.test(notes);
+
+  // 2) Notes describing open work
+  if (notesVisual && notesFunctional) return "QA"; // QA first, then Test
+  if (notesFunctional && !notesVisual) return "TEST";
+  if (notesVisual) return "QA";
+
+  // 3) Part flags only when no open inspections / notes
+  if (params.needsQa && params.needsTest) return "QA";
+  if (params.needsTest && !params.needsQa) return "TEST";
+  if (params.needsQa) return "QA";
+  if (params.needsTest) return "TEST";
   return "QA";
 }
