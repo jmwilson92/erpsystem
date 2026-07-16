@@ -488,10 +488,13 @@ export default async function ReceivingTravelerDetailPage({
 
   for (const insp of allInspections) {
     const partNo = insp.partId ? partNumById[insp.partId] : "—";
+    // RECEIVING = dock only — never mislabel as TEST/QA
     const wc =
-      insp.workOrder?.workCenter ||
-      insp.workCenter ||
-      (["VISUAL", "GDT"].includes(insp.type) ? "QA" : "TEST");
+      insp.type === "RECEIVING"
+        ? insp.workCenter || "DOCK"
+        : insp.workOrder?.workCenter ||
+          insp.workCenter ||
+          (["VISUAL", "GDT"].includes(insp.type) ? "QA" : "TEST");
     const typeLabel =
       insp.type === "GDT"
         ? "GD&T"
@@ -499,32 +502,55 @@ export default async function ReceivingTravelerDetailPage({
           ? "Visual"
           : insp.type === "FUNCTIONAL"
             ? "Functional / power"
-            : insp.type;
-    timeline.push({
-      at: insp.createdAt,
-      kind: "INSPECTION_OPENED",
-      title: `${typeLabel} inspection opened · ${insp.number}`,
-      detail: `Part ${partNo} · station ${wc}${insp.lotNumber ? ` · lot ${insp.lotNumber}` : ""}`,
-      href: insp.workOrderId
-        ? `/work-orders/${insp.workOrderId}`
-        : undefined,
-      status: "PENDING",
-      meta: insp.workOrder?.number,
-    });
-    if (insp.completedAt) {
-      const resultBits = insp.results
-        .map((r) => `${r.characteristic}: ${r.result}${r.measuredValue ? ` (${r.measuredValue})` : ""}`)
-        .join("; ");
+            : insp.type === "RECEIVING"
+              ? "Dock acceptance"
+              : insp.type;
+    // Dock-only that already passed: single timeline event (no fake PENDING open)
+    if (insp.type === "RECEIVING" && insp.status === "PASSED") {
       timeline.push({
-        at: insp.completedAt,
+        at: insp.completedAt || insp.createdAt,
         kind: "INSPECTION_DONE",
-        title: `${typeLabel} ${insp.status.toLowerCase()} · ${insp.number}`,
-        detail:
-          resultBits ||
-          `Qty pass ${insp.quantityPassed} / fail ${insp.quantityFailed}`,
-        status: insp.status,
-        meta: wc,
+        title: `Dock acceptance · ${insp.number}`,
+        detail: `Part ${partNo} · dock only (no QA/Test)${
+          insp.lotNumber ? ` · lot ${insp.lotNumber}` : ""
+        }`,
+        status: "PASSED",
+        meta: "DOCK",
       });
+    } else {
+      timeline.push({
+        at: insp.createdAt,
+        kind: "INSPECTION_OPENED",
+        title: `${typeLabel} opened · ${insp.number}`,
+        detail: `Part ${partNo} · ${
+          insp.type === "RECEIVING" ? "dock" : `station ${wc}`
+        }${insp.lotNumber ? ` · lot ${insp.lotNumber}` : ""}`,
+        href: insp.workOrderId
+          ? `/work-orders/${insp.workOrderId}`
+          : undefined,
+        status: insp.status,
+        meta: insp.workOrder?.number,
+      });
+      if (insp.completedAt && insp.status !== "PENDING") {
+        const resultBits = insp.results
+          .map(
+            (r) =>
+              `${r.characteristic}: ${r.result}${
+                r.measuredValue ? ` (${r.measuredValue})` : ""
+              }`
+          )
+          .join("; ");
+        timeline.push({
+          at: insp.completedAt,
+          kind: "INSPECTION_DONE",
+          title: `${typeLabel} ${insp.status.toLowerCase()} · ${insp.number}`,
+          detail:
+            resultBits ||
+            `Qty pass ${insp.quantityPassed} / fail ${insp.quantityFailed}`,
+          status: insp.status,
+          meta: wc,
+        });
+      }
     }
     for (const ncr of insp.ncrs) {
       timeline.push({
@@ -1124,9 +1150,13 @@ export default async function ReceivingTravelerDetailPage({
             {allInspections.map((insp) => {
               const partNo = insp.partId ? partNumById[insp.partId] : "—";
               const wc =
-                insp.workOrder?.workCenter ||
-                insp.workCenter ||
-                (["VISUAL", "GDT"].includes(insp.type) ? "QA-01" : "TEST-01");
+                insp.type === "RECEIVING"
+                  ? insp.workCenter || "DOCK"
+                  : insp.workOrder?.workCenter ||
+                    insp.workCenter ||
+                    (["VISUAL", "GDT"].includes(insp.type)
+                      ? "QA-01"
+                      : "TEST-01");
               const area =
                 insp.type === "RECEIVING"
                   ? "Dock"

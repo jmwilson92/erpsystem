@@ -504,16 +504,15 @@ export async function receivePurchaseOrder(params: {
         });
       }
     } else {
-      // No QA / functional — dock acceptance + put away immediately when acked
-      const inspCount = await prisma.inspection.count();
-      // No GD&T/functional required: the DOCK acceptance is the only
-      // inspection, and it is only "signed" when the receiver actually
-      // attested to it (receivingAck). Otherwise it stays PENDING with
-      // the visual characteristic unattested — never fabricated as PASS.
-      const acked = params.receivingAck === true;
+      // No QA / functional — this is dock-only material. Putaway + dock ack
+      // is the whole job; never leave a hanging PENDING "inspection" that
+      // looks like TEST/QA work.
+      const acked =
+        params.receivingAck === true || !!params.putawayLocationCode;
       const docCount = paperDocs.filter((d) =>
         ["PACKING_LIST", "COC", "MATERIAL_CERT"].includes(d.docType)
       ).length;
+      const inspCount = await prisma.inspection.count();
       const inspection = await prisma.inspection.create({
         data: {
           number: `INSP-${String(inspCount + 1).padStart(5, "0")}`,
@@ -529,9 +528,14 @@ export async function receivePurchaseOrder(params: {
           quantityFailed: 0,
           inspectorId: acked ? params.receivedById : null,
           completedAt: acked ? new Date() : null,
+          workCenter: "DOCK",
           plannedPutawayCode: params.putawayLocationCode,
           notes: acked
-            ? `Dock acceptance attested by receiver — putaway ${params.putawayLocationCode || ""}`
+            ? `Dock only — accepted and put away${
+                params.putawayLocationCode
+                  ? ` to ${params.putawayLocationCode}`
+                  : ""
+              }`
             : "Dock acceptance NOT attested — awaiting receiver sign-off",
           results: {
             create: [
@@ -568,8 +572,8 @@ export async function receivePurchaseOrder(params: {
         purchaseOrderId: po.id,
         inspectionId: inspection.id,
         notes: acked
-          ? `Receiving ${inspection.number}: dock acceptance attested`
-          : `Receiving ${inspection.number}: awaiting receiver sign-off`,
+          ? `Dock acceptance ${inspection.number}: put away (no QA/Test required)`
+          : `Dock acceptance ${inspection.number}: awaiting receiver sign-off`,
         userId: params.receivedById,
       });
     }
@@ -994,8 +998,9 @@ export async function receiveGfpTraveler(params: {
         else routedQa.push(invItem.id);
       } else putAwayItems.push(invItem.id);
     } else {
-      // Dock-only GFP — put away when receiver attests
-      const acked = params.receivingAck === true;
+      // Dock-only GFP — putaway + ack is the whole job (not TEST/QA)
+      const acked =
+        params.receivingAck === true || !!params.putawayLocationCode;
       if (acked) putAwayItems.push(invItem.id);
       const inspCount = await prisma.inspection.count();
       await prisma.inspection.create({
@@ -1011,10 +1016,11 @@ export async function receiveGfpTraveler(params: {
           quantityPassed: acked ? line.quantityReceived : 0,
           inspectorId: acked ? params.receivedById : null,
           completedAt: acked ? new Date() : null,
+          workCenter: "DOCK",
           plannedPutawayCode: params.putawayLocationCode,
           notes: acked
-            ? "GFP customer receive — dock acceptance attested"
-            : "GFP customer receive — awaiting receiver sign-off",
+            ? "GFP dock only — accepted and put away (no QA/Test)"
+            : "GFP dock — awaiting receiver sign-off",
           results: {
             create: [
               {
