@@ -8,7 +8,7 @@ import fs from "fs";
 // test-drive sandbox copies re-materialize from the migrated master whenever
 // the schema changes — otherwise a sandbox created before a new column would
 // keep failing with "column does not exist" even after `prisma db push`.
-const PRISMA_CLIENT_EPOCH = "pr-pipeline-buyer-v24";
+const PRISMA_CLIENT_EPOCH = "pr-pipeline-buyer-v25-schema-heal";
 
 /** Cookie that puts a request into a private test-drive sandbox. */
 export const SANDBOX_COOKIE = "forge-sandbox";
@@ -64,7 +64,43 @@ function pruneStaleSandboxEpochs() {
   }
 }
 
+/**
+ * Self-heal SQLite files that lag the Prisma schema (common when sandboxes
+ * were copied before a column landed, or db push wasn't run). Safe to re-run.
+ */
+function ensureSqliteSchema(file: string) {
+  if (!fs.existsSync(file)) return;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const Database = require("better-sqlite3") as typeof import("better-sqlite3");
+    const db = new Database(file);
+    try {
+      const cols = db
+        .prepare("PRAGMA table_info(ApprovalPolicyStep)")
+        .all() as { name: string }[];
+      const names = new Set(cols.map((c) => c.name));
+      if (names.size > 0 && !names.has("routingKey")) {
+        db.exec(
+          "ALTER TABLE ApprovalPolicyStep ADD COLUMN routingKey TEXT NOT NULL DEFAULT 'ROLE'"
+        );
+      }
+      const prCols = db
+        .prepare("PRAGMA table_info(PurchaseRequest)")
+        .all() as { name: string }[];
+      const prNames = new Set(prCols.map((c) => c.name));
+      if (prNames.size > 0 && !prNames.has("wbsElementId")) {
+        db.exec("ALTER TABLE PurchaseRequest ADD COLUMN wbsElementId TEXT");
+      }
+    } finally {
+      db.close();
+    }
+  } catch {
+    // best-effort — prisma db push remains the source of truth
+  }
+}
+
 function createClientForFile(file: string) {
+  ensureSqliteSchema(file);
   const adapter = new PrismaBetterSqlite3({ url: `file:${file}` });
   return new PrismaClient({ adapter });
 }
@@ -80,7 +116,9 @@ function getMasterClient() {
   if (globalForPrisma.prisma) {
     void globalForPrisma.prisma.$disconnect().catch(() => undefined);
   }
-  const client = createClientForFile(masterDbPath());
+  const master = masterDbPath();
+  ensureSqliteSchema(master);
+  const client = createClientForFile(master);
   if (process.env.NODE_ENV !== "production") {
     globalForPrisma.prisma = client;
     globalForPrisma.prismaEpoch = PRISMA_CLIENT_EPOCH;
@@ -104,14 +142,20 @@ export async function materializeSandbox(id: string) {
   const dir = sandboxDir();
   fs.mkdirSync(dir, { recursive: true });
   const target = sandboxDbPath(id);
-  if (fs.existsSync(target)) return target;
+  if (fs.existsSync(target)) {
+    // Heal in place — don't keep serving a pre-migration sandbox forever
+    ensureSqliteSchema(target);
+    return target;
+  }
   // Flush the master WAL so the copy contains the latest writes.
   try {
     await getMasterClient().$queryRawUnsafe("PRAGMA wal_checkpoint(TRUNCATE)");
   } catch {
     // checkpoint is best-effort
   }
+  ensureSqliteSchema(masterDbPath());
   fs.copyFileSync(masterDbPath(), target);
+  ensureSqliteSchema(target);
   return target;
 }
 
