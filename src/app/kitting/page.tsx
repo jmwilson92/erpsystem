@@ -5,7 +5,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatDate } from "@/lib/utils";
 import { actionCompleteKit, actionCreateKit } from "@/app/actions";
-import { getAvailableInventory } from "@/lib/services/order-fulfillment";
+import {
+  getAvailableInventory,
+  checkBomMaterialAvailability,
+} from "@/lib/services/order-fulfillment";
 import {
   getUpcomingKits,
   sweepKitReadiness,
@@ -21,7 +24,7 @@ export default async function KittingPage() {
   await sweepKitReadiness().catch(() => []);
 
   const upcoming = await getUpcomingKits();
-  const [kits, readyWos] = await Promise.all([
+  const [kits, readyWosRaw] = await Promise.all([
     prisma.kitOrder.findMany({
       orderBy: { createdAt: "desc" },
       include: {
@@ -40,11 +43,32 @@ export default async function KittingPage() {
             status: { notIn: ["COMPLETED", "CLOSED", "CANCELLED"] },
           },
         ],
+        // Exclude WOs that already have an open kit traveler
+        kitOrders: { none: { status: { in: ["OPEN", "PICKING"] } } },
       },
       include: { part: true, salesOrder: true },
       orderBy: { dueDate: "asc" },
     }),
   ]);
+
+  // Live availability — don't offer Create kit when stock is short
+  const readyChecks = await Promise.all(
+    readyWosRaw.map(async (wo) => {
+      const check = await checkBomMaterialAvailability(wo.id);
+      return {
+        wo,
+        allAvailable: check.allAvailable,
+        shorts: check.requirements
+          .filter((r) => r.short > 0)
+          .map((r) => ({
+            partNumber: r.partNumber,
+            short: r.short,
+          })),
+      };
+    })
+  );
+  const readyWos = readyChecks.filter((r) => r.allAvailable);
+  const falseReady = readyChecks.filter((r) => !r.allAvailable);
 
   // Prefetch bin locations for open kit lines
   const openPartIds = [
@@ -160,12 +184,15 @@ export default async function KittingPage() {
         <Card>
           <CardHeader>
             <CardTitle>Ready to kit</CardTitle>
+            <p className="text-xs text-slate-500">
+              Material covers the full BOM — open a kit traveler to pick.
+            </p>
           </CardHeader>
           <CardContent className="space-y-2">
-            {readyWos.map((wo) => (
+            {readyWos.map(({ wo }) => (
               <div
                 key={wo.id}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 p-3"
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-900/40 p-3"
               >
                 <div>
                   <Link
@@ -198,6 +225,48 @@ export default async function KittingPage() {
                     Create kit order
                   </Button>
                 </form>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {falseReady.length > 0 && (
+        <Card className="border-amber-900/40">
+          <CardHeader>
+            <CardTitle className="text-base text-amber-200">
+              Marked ready but material short
+            </CardTitle>
+            <p className="text-xs text-slate-500">
+              These WOs show READY TO KIT but stock no longer covers the BOM.
+              Receive / put away the short parts — or open the traveler for
+              details.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {falseReady.map(({ wo, shorts }) => (
+              <div
+                key={wo.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 p-3"
+              >
+                <div>
+                  <Link
+                    href={`/work-orders/${wo.id}`}
+                    className="font-mono text-teal-400 hover:underline"
+                  >
+                    {wo.number}
+                  </Link>
+                  <span className="ml-2 text-sm text-slate-300">
+                    {wo.part?.partNumber} × {wo.quantity}
+                  </span>
+                  <p className="mt-1 text-[11px] text-rose-300">
+                    Short:{" "}
+                    {shorts
+                      .map((s) => `${s.partNumber} (−${s.short})`)
+                      .join(", ")}
+                  </p>
+                </div>
+                <span className="text-xs text-slate-500">Awaiting material</span>
               </div>
             ))}
           </CardContent>

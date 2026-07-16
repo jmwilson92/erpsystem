@@ -3357,11 +3357,33 @@ export async function actionDeliverTravelerToStation(
 export async function actionCreateKit(formData: FormData): Promise<void> {
   const workOrderId = formData.get("workOrderId") as string;
   const user = await getCurrentUser("PRODUCTION");
-  const kit = await createKitOrder({ workOrderId, userId: user?.id });
-  revalidateFulfillmentPaths([
-    `/work-orders/${workOrderId}`,
-    `/kitting/${kit.id}`,
-  ]);
+  try {
+    const kit = await createKitOrder({ workOrderId, userId: user?.id });
+    await flashToast(`Kit order ${kit.number} opened — pick from locations`);
+    revalidateFulfillmentPaths([
+      `/work-orders/${workOrderId}`,
+      `/kitting/${kit.id}`,
+      "/kitting",
+    ]);
+  } catch (e) {
+    const msg =
+      e instanceof Error ? e.message : "Could not create kit order";
+    // Soft-fail: toast the shortage instead of a runtime error page
+    await flashToast(msg, "error");
+    // Demote false READY_TO_KIT if stock no longer covers the BOM
+    try {
+      const { refreshWorkOrderMaterialReadiness } = await import(
+        "@/lib/services/order-fulfillment"
+      );
+      await refreshWorkOrderMaterialReadiness(workOrderId, user?.id);
+    } catch {
+      /* best-effort */
+    }
+    revalidateFulfillmentPaths([
+      `/work-orders/${workOrderId}`,
+      "/kitting",
+    ]);
+  }
 }
 
 export async function actionCompleteKit(formData: FormData): Promise<void> {

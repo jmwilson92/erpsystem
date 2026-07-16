@@ -942,9 +942,13 @@ export async function planWorkOrderMaterials(params: {
 }
 
 /**
- * Re-check materials after receipts/putaway. Promote WO to READY_TO_KIT when full.
+ * Re-check materials after receipts/putaway.
+ * Promote to READY_TO_KIT when full; demote back to WAITING_MATERIAL when short.
  */
-export async function refreshWorkOrderMaterialReadiness(workOrderId: string, userId?: string) {
+export async function refreshWorkOrderMaterialReadiness(
+  workOrderId: string,
+  userId?: string
+) {
   const check = await checkBomMaterialAvailability(workOrderId);
   const shortages = check.requirements.filter((r) => r.short > 0);
   const { allAvailable } = check;
@@ -973,6 +977,28 @@ export async function refreshWorkOrderMaterialReadiness(workOrderId: string, use
       salesOrderId: wo.salesOrderId,
       notes: "All components available after receipt/putaway",
       userId,
+    });
+  } else if (
+    !allAvailable &&
+    (wo.status === "READY_TO_KIT" || wo.kitStatus === "READY_TO_KIT")
+  ) {
+    // Stock moved / overstated ready — send back to waiting material
+    await prisma.workOrder.update({
+      where: { id: workOrderId },
+      data: {
+        kitStatus: "WAITING_MATERIAL",
+        status: "WAITING_MATERIAL",
+        statusHistory: {
+          create: {
+            fromStatus: wo.status,
+            toStatus: "WAITING_MATERIAL",
+            userId,
+            notes: `Material short: ${shortages
+              .map((s) => `${s.partNumber} (−${s.short})`)
+              .join(", ")}`,
+          },
+        },
+      },
     });
   }
 
