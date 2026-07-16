@@ -1078,6 +1078,20 @@ export async function completeReceivingAfterInspection(params: {
     userId: params.userId,
   });
 
+  // If only waiting on station (no more putaway/deliver), stop MH clock
+  try {
+    const { scanOutFamilyIfNoMhWork } = await import(
+      "@/lib/services/receiving-time"
+    );
+    await scanOutFamilyIfNoMhWork({
+      travelerId: traveler.id,
+      userId: params.userId,
+      reason: "WAITING_STATION",
+    });
+  } catch {
+    /* non-fatal */
+  }
+
   await refreshAllWaitingMaterial(params.userId);
 
   // Receive→kit handoff: freshly stocked material may complete a WO's

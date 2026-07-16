@@ -3335,9 +3335,16 @@ export async function actionDeliverTravelerToStation(
     workCenterCode,
     userId: user.id,
   });
-  await flashToast(
-    `Delivered ${t.number} to ${t.currentWorkCenter} — dock time stopped; waiting on ${area === "TEST" ? "Test lab" : "QA"}`
-  );
+  const idle = t.autoScanOut;
+  if (idle && idle.scannedOut > 0) {
+    await flashToast(
+      `Delivered ${t.number} to ${t.currentWorkCenter}. No more dock moves — scanned out (${idle.hours.toFixed(2)}h). Waiting on ${area === "TEST" ? "Test lab" : "QA"} to send back.`
+    );
+  } else {
+    await flashToast(
+      `Delivered ${t.number} to ${t.currentWorkCenter} — take the next child if any, or put away ready material.`
+    );
+  }
   revalidateFulfillmentPaths([
     `/receiving/${travelerId}`,
     "/receiving",

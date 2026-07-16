@@ -266,6 +266,148 @@ export async function scanOutOfReceivingTraveler(params: {
 }
 
 /**
+ * True when the material handler still has dock work on this traveler family:
+ * receive remainder, deliver undelivered children, or put away ready-to-stock.
+ * False when everything is only waiting on QA/Test (or done) — MH should be clocked out.
+ */
+export async function materialHandlerHasOpenWork(
+  travelerId: string
+): Promise<{
+  hasWork: boolean;
+  reason: string | null;
+  rootId: string;
+}> {
+  const t = await prisma.receivingTraveler.findUnique({
+    where: { id: travelerId },
+    select: { id: true, parentId: true },
+  });
+  if (!t) {
+    return { hasWork: false, reason: null, rootId: travelerId };
+  }
+  const rootId = t.parentId || t.id;
+  const family = await prisma.receivingTraveler.findMany({
+    where: { OR: [{ id: rootId }, { parentId: rootId }] },
+    select: {
+      id: true,
+      parentId: true,
+      status: true,
+      number: true,
+      currentWorkCenter: true,
+      openLinesSnapshot: true,
+    },
+  });
+
+  // Remainder / dock receive still open
+  for (const c of family) {
+    if (["WAITING", "PARTIAL"].includes(c.status)) {
+      return {
+        hasWork: true,
+        reason: `receive/dock ${c.number}`,
+        rootId,
+      };
+    }
+  }
+  // Putaway ready
+  for (const c of family) {
+    if (c.status === "READY_TO_STOCK") {
+      return {
+        hasWork: true,
+        reason: `put away ${c.number}`,
+        rootId,
+      };
+    }
+  }
+  // Undelivered station children (not parked yet)
+  for (const c of family) {
+    if (
+      c.status === "IN_INSPECTION" &&
+      c.parentId &&
+      !c.currentWorkCenter
+    ) {
+      return {
+        hasWork: true,
+        reason: `deliver ${c.number}`,
+        rootId,
+      };
+    }
+  }
+  // Root itself still in inspection without being a pure umbrella wait
+  const root = family.find((x) => x.id === rootId);
+  if (
+    root &&
+    root.status === "IN_INSPECTION" &&
+    !root.parentId &&
+    family.filter((x) => x.parentId === rootId).length === 0
+  ) {
+    // Solo traveler at dock/inspection without children — MH may still work it
+    if (!root.currentWorkCenter) {
+      return { hasWork: true, reason: `work ${root.number}`, rootId };
+    }
+  }
+
+  return { hasWork: false, reason: null, rootId };
+}
+
+/**
+ * Clock out every open scan on the traveler family when MH has nothing left
+ * until material returns from QA/Test (or putaway is needed later).
+ */
+export async function scanOutFamilyIfNoMhWork(params: {
+  travelerId: string;
+  userId?: string;
+  reason?: string;
+}): Promise<{ scannedOut: number; hours: number }> {
+  const { hasWork, rootId } = await materialHandlerHasOpenWork(
+    params.travelerId
+  );
+  if (hasWork) {
+    return { scannedOut: 0, hours: 0 };
+  }
+
+  const family = await prisma.receivingTraveler.findMany({
+    where: {
+      OR: [{ id: rootId }, { parentId: rootId }],
+      activeScanAt: { not: null },
+      activeScanUserId: { not: null },
+    },
+    select: {
+      id: true,
+      number: true,
+      activeScanUserId: true,
+    },
+  });
+
+  let scannedOut = 0;
+  let hours = 0;
+  for (const f of family) {
+    if (!f.activeScanUserId) continue;
+    const result = await scanOutOfReceivingTraveler({
+      travelerId: f.id,
+      userId: f.activeScanUserId,
+      reason: params.reason || "WAITING_STATION",
+    });
+    scannedOut += 1;
+    hours += result.hours;
+  }
+
+  if (scannedOut > 0) {
+    await logAudit({
+      entityType: "ReceivingTraveler",
+      entityId: rootId,
+      action: "RCV_AUTO_SCAN_OUT_NO_MH_WORK",
+      userId: params.userId,
+      metadata: {
+        scannedOut,
+        hours,
+        reason: params.reason || "WAITING_STATION",
+      },
+    });
+  }
+
+  return { scannedOut, hours };
+}
+
+/**
  * Material handler: mark child delivered to QA or Test workcenter.
  * Closes any open MH scan (time stops) and parks the traveler at the station.
  */
@@ -348,6 +490,14 @@ export async function deliverTravelerToStation(params: {
     });
   }
 
+  // If nothing left for MH (no more delivers / putaways / dock receive),
+  // auto scan-out parent + siblings so time stops until material returns.
+  const idle = await scanOutFamilyIfNoMhWork({
+    travelerId: traveler.id,
+    userId: params.userId,
+    reason: "WAITING_STATION",
+  });
+
   await logAudit({
     entityType: "ReceivingTraveler",
     entityId: traveler.id,
@@ -357,10 +507,12 @@ export async function deliverTravelerToStation(params: {
       area: params.area,
       workCenter: code,
       number: traveler.number,
+      autoScanOut: idle.scannedOut,
+      autoScanHours: idle.hours,
     },
   });
 
-  return updated;
+  return { ...updated, autoScanOut: idle };
 }
 
 /** Clear station parking when material returns to dock (READY_TO_STOCK) or put away. */
