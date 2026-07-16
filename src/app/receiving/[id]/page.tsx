@@ -94,6 +94,54 @@ export default async function ReceivingTravelerDetailPage({
   });
   if (!traveler) notFound();
 
+  // Heal parent status if children finished while root was stuck PARTIAL
+  if (!traveler.parentId && traveler.children.length > 0) {
+    try {
+      const { reconcileRootTravelerStatus } = await import(
+        "@/lib/services/receiving"
+      );
+      const healed = await reconcileRootTravelerStatus({
+        travelerId: traveler.id,
+      });
+      if (healed && healed.status !== traveler.status) {
+        // Re-fetch full traveler after status heal
+        const refreshed = await prisma.receivingTraveler.findUnique({
+          where: { id: traveler.id },
+          include: {
+            parent: true,
+            children: { orderBy: { createdAt: "asc" } },
+            customer: true,
+            lines: { include: { part: true }, orderBy: { lineNumber: "asc" } },
+            purchaseOrder: {
+              include: {
+                supplier: true,
+                lines: {
+                  include: { part: true },
+                  orderBy: { lineNumber: "asc" },
+                },
+                project: true,
+                wbsElement: true,
+                receipts: {
+                  orderBy: { receivedAt: "desc" },
+                  include: { lines: true },
+                },
+              },
+            },
+            receipts: {
+              orderBy: { receivedAt: "desc" },
+              include: { lines: true },
+            },
+          },
+        });
+        if (refreshed) {
+          Object.assign(traveler, refreshed);
+        }
+      }
+    } catch {
+      /* non-fatal */
+    }
+  }
+
   const isGfpTraveler = !traveler.purchaseOrderId;
   const po = traveler.purchaseOrder;
   const receipts = isGfpTraveler ? traveler.receipts : po?.receipts || [];
@@ -376,16 +424,27 @@ export default async function ReceivingTravelerDetailPage({
   // Parent: children still needing MH walk / waiting at station
   const openChildren = !traveler.parentId
     ? traveler.children.filter((c) =>
-        ["IN_INSPECTION", "READY_TO_STOCK", "PARTIAL"].includes(c.status)
+        ["IN_INSPECTION", "READY_TO_STOCK", "PARTIAL", "WAITING"].includes(
+          c.status
+        )
       )
     : [];
-  const waitingChild =
-    openChildren.find((c) => !!c.currentWorkCenter) || null;
+  // READY_TO_STOCK children — put away first (don't block on siblings at QA)
+  const putawayChild =
+    openChildren.find((c) => c.status === "READY_TO_STOCK") || null;
+  // Already delivered / parked at a station
+  const waitingAtStation = openChildren.filter(
+    (c) => !!c.currentWorkCenter && c.status === "IN_INSPECTION"
+  );
+  const waitingChild = waitingAtStation[0] || null;
+  // Next undelivered station child (priority over "waiting" message)
   const inspectionChild =
-    openChildren.find((c) => !c.currentWorkCenter && c.status === "IN_INSPECTION") ||
-    openChildren.find((c) => c.status === "IN_INSPECTION") ||
-    openChildren[0] ||
-    null;
+    openChildren.find(
+      (c) =>
+        c.status === "IN_INSPECTION" &&
+        !c.currentWorkCenter &&
+        c.id !== putawayChild?.id
+    ) || null;
 
   const canCloseGfp =
     isGfpTraveler && allReceived && traveler.status === "COMPLETE";
@@ -475,16 +534,25 @@ export default async function ReceivingTravelerDetailPage({
     followChildId: parentHasOpenRemainderChild
       ? openRemainderChild!.id
       : null,
-    // Prefer waiting (already delivered) over "take to" for parent
-    waitingChildNumber: waitingChild?.number ?? null,
-    waitingChildId: waitingChild?.id ?? null,
-    waitingChildWhere,
-    waitingChildStation: waitingChild?.currentWorkCenter ?? null,
-    inspectionChildNumber:
-      !waitingChild && inspectionChild ? inspectionChild.number : null,
-    inspectionChildId:
-      !waitingChild && inspectionChild ? inspectionChild.id : null,
-    inspectionChildWhere: !waitingChild ? inspectionChildWhere : null,
+    // Putaway-ready children first, then undelivered, then waiting-only
+    putawayChildNumber: putawayChild?.number ?? null,
+    putawayChildId: putawayChild?.id ?? null,
+    inspectionChildNumber: inspectionChild?.number ?? null,
+    inspectionChildId: inspectionChild?.id ?? null,
+    inspectionChildWhere,
+    waitingChildNumber:
+      !inspectionChild && !putawayChild
+        ? waitingChild?.number ?? null
+        : null,
+    waitingChildId:
+      !inspectionChild && !putawayChild ? waitingChild?.id ?? null : null,
+    waitingChildWhere:
+      !inspectionChild && !putawayChild ? waitingChildWhere : null,
+    waitingChildStation:
+      !inspectionChild && !putawayChild
+        ? waitingChild?.currentWorkCenter ?? null
+        : null,
+    waitingChildCount: waitingAtStation.length,
     atStationCode: traveler.currentWorkCenter,
     atStationArea,
     needsDeliver,

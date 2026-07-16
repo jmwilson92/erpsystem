@@ -24,11 +24,15 @@ export function nextActionForTraveler(params: {
   inspectionChildNumber?: string | null;
   inspectionChildId?: string | null;
   inspectionChildWhere?: "QA" | "TEST" | "STATION" | null;
-  /** Child already parked at QA/Test — waiting on station */
+  /** Child already parked at QA/Test — info only when no other MH work */
   waitingChildNumber?: string | null;
   waitingChildId?: string | null;
   waitingChildWhere?: "QA" | "TEST" | "STATION" | null;
   waitingChildStation?: string | null;
+  waitingChildCount?: number;
+  /** Child READY_TO_STOCK — put away now (priority over waiting) */
+  putawayChildNumber?: string | null;
+  putawayChildId?: string | null;
   /** This traveler is already at a station */
   atStationCode?: string | null;
   atStationArea?: "QA" | "TEST" | "DOCK" | null;
@@ -61,32 +65,46 @@ export function nextActionForTraveler(params: {
     };
   }
 
-  // Parent: child already at QA/Test — MH waits for return
-  if (params.waitingChildId && params.waitingChildNumber) {
-    const where =
-      params.waitingChildWhere === "TEST"
-        ? "Test lab"
-        : params.waitingChildWhere === "QA"
-          ? "QA"
-          : "station";
-    const st = params.waitingChildStation
-      ? ` @ ${params.waitingChildStation}`
-      : "";
+  // 1) Put away children that are ready — don't block on other kids at QA
+  if (params.putawayChildId && params.putawayChildNumber) {
     return {
-      kind: "WAITING_STATION",
-      title: `Waiting on ${where} to send back`,
-      detail: `${params.waitingChildNumber} is at ${where}${st}. Material handler: no action until ${where} finishes and the traveler returns for putaway (or next station).`,
-      primaryHref: `/receiving/${params.waitingChildId}`,
-      primaryLabel: `Open ${params.waitingChildNumber}`,
-      secondaryHref:
-        params.waitingChildWhere === "TEST" ? "/test-center" : "/qa",
-      secondaryLabel:
-        params.waitingChildWhere === "TEST" ? "Test queue" : "QA queue",
-      childNumber: params.waitingChildNumber,
+      kind: "PUTAWAY",
+      title: `Put away ${params.putawayChildNumber}`,
+      detail:
+        "This child passed station work and is ready for stock. Open it and put away — other children can still be at QA/Test.",
+      primaryHref: `/receiving/${params.putawayChildId}`,
+      primaryLabel: `Open ${params.putawayChildNumber}`,
+      childNumber: params.putawayChildNumber,
     };
   }
 
-  // This card is parked at a station — inspector should scan in
+  // 2) Next undelivered child — keep MH moving while others wait at station
+  if (params.inspectionChildId && params.inspectionChildNumber) {
+    const where =
+      params.inspectionChildWhere === "TEST"
+        ? "Test Center"
+        : params.inspectionChildWhere === "QA"
+          ? "QA"
+          : "QA / Test";
+    const waitingNote =
+      params.waitingChildCount && params.waitingChildCount > 0
+        ? ` (${params.waitingChildCount} other child(ren) already at a station — no need to wait on them).`
+        : "";
+    return {
+      kind: "FOLLOW_CHILD",
+      title: `Take material with ${params.inspectionChildNumber}`,
+      detail: `Walk this child to ${where} and tap Delivered when you drop it off.${waitingNote}`,
+      primaryHref: `/receiving/${params.inspectionChildId}`,
+      primaryLabel: `Open ${params.inspectionChildNumber}`,
+      secondaryHref:
+        params.inspectionChildWhere === "TEST" ? "/test-center" : "/qa",
+      secondaryLabel:
+        params.inspectionChildWhere === "TEST" ? "Test Center queue" : "QA queue",
+      childNumber: params.inspectionChildNumber,
+    };
+  }
+
+  // 3) This card is parked at a station — inspector should scan in
   if (
     params.atStationCode &&
     params.atStationArea &&
@@ -103,7 +121,7 @@ export function nextActionForTraveler(params: {
     };
   }
 
-  // Child needs deliver handoff before station work starts
+  // 4) Child needs deliver handoff before station work starts
   if (params.needsDeliver && params.deliverArea) {
     const where = params.deliverArea === "TEST" ? "Test Center" : "QA";
     return {
@@ -117,27 +135,28 @@ export function nextActionForTraveler(params: {
     };
   }
 
-  // Parent umbrella: material already peeled to inspection children (not yet delivered)
-  if (params.inspectionChildId && params.inspectionChildNumber) {
+  // 5) Only when nothing else to deliver/putaway — wait on station return
+  if (params.waitingChildId && params.waitingChildNumber) {
     const where =
-      params.inspectionChildWhere === "TEST"
-        ? "Test Center"
-        : params.inspectionChildWhere === "QA"
+      params.waitingChildWhere === "TEST"
+        ? "Test lab"
+        : params.waitingChildWhere === "QA"
           ? "QA"
-          : "QA / Test";
+          : "station";
+    const st = params.waitingChildStation
+      ? ` @ ${params.waitingChildStation}`
+      : "";
     return {
-      kind: "FOLLOW_CHILD",
-      title: `Take material with ${params.inspectionChildNumber}`,
-      detail: `Walk this child traveler to ${where}. Open the child and tap Delivered when you drop material off. Parent only holds dock-complete lines.`,
-      primaryHref: `/receiving/${params.inspectionChildId}`,
-      primaryLabel: `Open ${params.inspectionChildNumber}`,
+      kind: "WAITING_STATION",
+      title: `Waiting on ${where} to send back`,
+      detail: `${params.waitingChildNumber} is at ${where}${st}. All other dock moves are done — when ${where} finishes, put away (or take it to the next station).`,
+      primaryHref: `/receiving/${params.waitingChildId}`,
+      primaryLabel: `Open ${params.waitingChildNumber}`,
       secondaryHref:
-        params.inspectionChildWhere === "TEST"
-          ? "/test-center"
-          : "/qa",
+        params.waitingChildWhere === "TEST" ? "/test-center" : "/qa",
       secondaryLabel:
-        params.inspectionChildWhere === "TEST" ? "Test Center queue" : "QA queue",
-      childNumber: params.inspectionChildNumber,
+        params.waitingChildWhere === "TEST" ? "Test queue" : "QA queue",
+      childNumber: params.waitingChildNumber,
     };
   }
 

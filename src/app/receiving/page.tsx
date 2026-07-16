@@ -1,9 +1,10 @@
+import { Suspense } from "react";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { StatCard } from "@/components/shared/stat-card";
 import { Button } from "@/components/ui/button";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate, cn } from "@/lib/utils";
 import Link from "next/link";
 import {
   Package,
@@ -16,8 +17,17 @@ import {
 } from "lucide-react";
 import { travelerPurpose } from "@/lib/services/receiving";
 import { listNextLabel } from "@/lib/services/receiving-ui";
+import { ReceivingQueueSearch } from "@/components/receiving/receiving-queue-search";
 
 export const dynamic = "force-dynamic";
+
+function pick(
+  sp: Record<string, string | string[] | undefined>,
+  key: string
+): string {
+  const v = sp[key];
+  return Array.isArray(v) ? v[0] || "" : v || "";
+}
 
 export default async function ReceivingPage({
   searchParams,
@@ -25,14 +35,21 @@ export default async function ReceivingPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const sp = await searchParams;
-  const showComplete =
-    (Array.isArray(sp.show) ? sp.show[0] : sp.show) === "all";
+  const tab = pick(sp, "tab") === "complete" ? "complete" : "active";
+  const q = pick(sp, "q").trim().toLowerCase();
 
   const travelers = await prisma.receivingTraveler.findMany({
-    orderBy: [{ status: "asc" }, { expectedDate: "asc" }],
+    orderBy: [{ updatedAt: "desc" }],
     include: {
       parent: { select: { number: true } },
-      children: { select: { id: true, number: true, status: true } },
+      children: {
+        select: {
+          id: true,
+          number: true,
+          status: true,
+          currentWorkCenter: true,
+        },
+      },
       customer: { select: { name: true, code: true } },
       lines: true,
       purchaseOrder: {
@@ -74,11 +91,12 @@ export default async function ReceivingPage({
 
   const waiting = travelers.filter((t) => t.status === "WAITING").length;
   const partial = travelers.filter((t) => t.status === "PARTIAL").length;
-  const atInspect = travelers.filter((t) => t.status === "IN_INSPECTION").length;
+  const atInspect = travelers.filter((t) => t.status === "IN_INSPECTION")
+    .length;
   const readyStock = travelers.filter(
     (t) => t.status === "READY_TO_STOCK"
   ).length;
-  const complete = travelers.filter((t) =>
+  const completeCount = travelers.filter((t) =>
     ["COMPLETE", "CLOSED"].includes(t.status)
   ).length;
   const gfpCount = travelers.filter((t) => t.isGovernmentProperty).length;
@@ -100,19 +118,52 @@ export default async function ReceivingPage({
   };
 
   let rows = travelers.filter((t) =>
-    showComplete ? true : ACTIONABLE.has(t.status)
+    tab === "complete"
+      ? ["COMPLETE", "CLOSED"].includes(t.status)
+      : ACTIONABLE.has(t.status)
   );
 
-  // Sort: putaway & inspection first, then dock; children after parents in group
+  if (q) {
+    rows = rows.filter((t) => {
+      const hay = [
+        t.number,
+        t.notes,
+        t.contractNumber,
+        t.parent?.number,
+        t.purchaseOrder?.number,
+        t.purchaseOrder?.supplier.name,
+        t.purchaseOrder?.project?.number,
+        t.customer?.name,
+        t.customer?.code,
+        ...t.children.map((c) => c.number),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }
+
+  // Sort: putaway & inspection first on active; complete by updated
   rows = [...rows].sort((a, b) => {
+    if (tab === "complete") {
+      return b.updatedAt.getTime() - a.updatedAt.getTime();
+    }
     const ra = statusRank[a.status] ?? 9;
     const rb = statusRank[b.status] ?? 9;
     if (ra !== rb) return ra - rb;
-    // Group family: root number then child
-    const an = a.parentId ? a.number : a.number;
-    const bn = b.parentId ? b.number : b.number;
-    return an.localeCompare(bn);
+    return a.number.localeCompare(b.number);
   });
+
+  const activeCount = travelers.filter((t) => ACTIONABLE.has(t.status)).length;
+
+  function tabHref(nextTab: "active" | "complete") {
+    const p = new URLSearchParams();
+    if (nextTab === "complete") p.set("tab", "complete");
+    if (q) p.set("q", q);
+    const s = p.toString();
+    return s ? `/receiving?${s}` : "/receiving";
+  }
 
   return (
     <div className="space-y-6">
@@ -121,11 +172,6 @@ export default async function ReceivingPage({
         description="Dock queue — one next action per traveler. Children are -01, -02… per line (not QA/Test silos)."
         actions={
           <div className="flex flex-wrap gap-2">
-            <Link href={showComplete ? "/receiving" : "/receiving?show=all"}>
-              <Button size="sm" variant="outline">
-                {showComplete ? "Hide complete" : "Show complete"}
-              </Button>
-            </Link>
             <Link href="/receiving/new-gfp">
               <Button size="sm">
                 <Shield className="mr-1.5 h-3.5 w-3.5" />
@@ -137,7 +183,12 @@ export default async function ReceivingPage({
       />
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <StatCard title="Waiting dock" value={waiting} icon={Clock} accent="amber" />
+        <StatCard
+          title="Waiting dock"
+          value={waiting}
+          icon={Clock}
+          accent="amber"
+        />
         <StatCard title="Partial" value={partial} icon={Package} accent="sky" />
         <StatCard
           title="At QA / Test"
@@ -152,11 +203,45 @@ export default async function ReceivingPage({
           accent="teal"
         />
         <StatCard
-          title={showComplete ? "Complete" : "GFP"}
-          value={showComplete ? complete : gfpCount}
-          icon={showComplete ? CheckCircle2 : Shield}
-          accent={showComplete ? "teal" : "violet"}
+          title={tab === "complete" ? "Complete" : "GFP open"}
+          value={tab === "complete" ? completeCount : gfpCount}
+          icon={tab === "complete" ? CheckCircle2 : Shield}
+          accent={tab === "complete" ? "teal" : "violet"}
         />
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap gap-2 border-b border-slate-800 pb-0">
+          <Link
+            href={tabHref("active")}
+            className={cn(
+              "rounded-t-md px-3 py-1.5 text-sm",
+              tab === "active"
+                ? "border border-b-0 border-slate-700 bg-slate-900 text-slate-50"
+                : "text-slate-400 hover:text-slate-200"
+            )}
+          >
+            Active ({activeCount})
+          </Link>
+          <Link
+            href={tabHref("complete")}
+            className={cn(
+              "rounded-t-md px-3 py-1.5 text-sm",
+              tab === "complete"
+                ? "border border-b-0 border-slate-700 bg-slate-900 text-slate-50"
+                : "text-slate-400 hover:text-slate-200"
+            )}
+          >
+            Completed ({completeCount})
+          </Link>
+        </div>
+        <Suspense
+          fallback={
+            <div className="h-9 min-w-[200px] max-w-md flex-1 rounded-md border border-slate-800 bg-slate-950" />
+          }
+        >
+          <ReceivingQueueSearch defaultValue={pick(sp, "q")} />
+        </Suspense>
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-slate-800">
@@ -194,12 +279,29 @@ export default async function ReceivingPage({
               );
               const hasQa = types.some((x) => ["VISUAL", "GDT"].includes(x));
               const hasTest = types.some((x) => x === "FUNCTIONAL");
-              const next = listNextLabel({
+              // Parent: surface putaway / deliver child in Next column
+              let next = listNextLabel({
                 status: t.status,
                 purpose,
                 hasQaPending: hasQa,
                 hasTestPending: hasTest,
               });
+              if (!t.parentId && t.children.length > 0) {
+                const ready = t.children.find(
+                  (c) => c.status === "READY_TO_STOCK"
+                );
+                const undelivered = t.children.find(
+                  (c) => c.status === "IN_INSPECTION" && !c.currentWorkCenter
+                );
+                const waiting = t.children.find(
+                  (c) => c.status === "IN_INSPECTION" && !!c.currentWorkCenter
+                );
+                if (ready) next = `Put away ${ready.number}`;
+                else if (undelivered) next = `Deliver ${undelivered.number}`;
+                else if (waiting) next = `Waiting ${waiting.number}`;
+                else if (["COMPLETE", "CLOSED"].includes(t.status))
+                  next = "Done";
+              }
               const isChild = !!t.parentId;
 
               return (
@@ -228,6 +330,11 @@ export default async function ReceivingPage({
                         child of {t.parent.number}
                       </p>
                     )}
+                    {t.currentWorkCenter && (
+                      <p className="font-mono text-[10px] text-amber-400/80">
+                        @ {t.currentWorkCenter}
+                      </p>
+                    )}
                     {t.notes && (
                       <p className="mt-0.5 max-w-xs truncate text-[10px] text-slate-500">
                         {t.notes}
@@ -237,13 +344,15 @@ export default async function ReceivingPage({
                   <td className="px-3 py-2">
                     <span
                       className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium ${
-                        next === "Put away"
+                        next.startsWith("Put away")
                           ? "border-teal-500/40 bg-teal-500/10 text-teal-300"
-                          : next.startsWith("At ")
+                          : next.startsWith("Deliver")
                             ? "border-amber-500/40 bg-amber-500/10 text-amber-300"
-                            : next === "Done"
-                              ? "border-slate-700 text-slate-500"
-                              : "border-sky-500/40 bg-sky-500/10 text-sky-300"
+                            : next.startsWith("Waiting") || next.startsWith("At ")
+                              ? "border-slate-600 bg-slate-800/50 text-slate-300"
+                              : next === "Done"
+                                ? "border-slate-700 text-slate-500"
+                                : "border-sky-500/40 bg-sky-500/10 text-sky-300"
                       }`}
                     >
                       {next}
@@ -258,7 +367,9 @@ export default async function ReceivingPage({
                         {t.purchaseOrder.number}
                       </Link>
                     ) : (
-                      <span className="text-xs text-violet-400">No PO · GFP</span>
+                      <span className="text-xs text-violet-400">
+                        No PO · GFP
+                      </span>
                     )}
                   </td>
                   <td className="px-3 py-2 text-slate-300">
@@ -302,9 +413,11 @@ export default async function ReceivingPage({
         </table>
         {rows.length === 0 && (
           <div className="py-10 text-center text-sm text-slate-500">
-            {showComplete
-              ? "No receiving travelers. Issue a PO from Purchasing to create one."
-              : "Nothing in the dock queue. Toggle “Show complete” for history."}
+            {q
+              ? `No travelers match “${pick(sp, "q")}”.`
+              : tab === "complete"
+                ? "No completed travelers yet."
+                : "Nothing in the active dock queue. Check the Completed tab for history."}
           </div>
         )}
       </div>

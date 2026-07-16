@@ -939,6 +939,21 @@ async function markTravelersForInventory(
       userId,
       metadata: { stationHint, inventoryItemId },
     });
+
+    // Keep parent notes/status in sync (e.g. child READY_TO_STOCK → put away guide)
+    if (t.parentId) {
+      try {
+        const { reconcileRootTravelerStatus } = await import(
+          "@/lib/services/receiving"
+        );
+        await reconcileRootTravelerStatus({
+          travelerId: t.parentId,
+          userId,
+        });
+      } catch {
+        /* non-fatal */
+      }
+    }
   }
 }
 
@@ -963,26 +978,54 @@ export async function completeReceivingAfterInspection(params: {
     );
   }
 
-  // Put away all RECEIVING stock linked to this traveler's receipts
+  // Put away RECEIVING stock: receipts on this traveler + snapshot inventory ids
   const receiptIds = traveler.receipts.map((r) => r.id);
-  const inspections = await prisma.inspection.findMany({
-    where: {
-      receiptId: { in: receiptIds },
-      inventoryItemId: { not: null },
-      status: "PASSED",
-    },
-    select: { inventoryItemId: true, plannedPutawayCode: true },
-  });
+  const snap = traveler.openLinesSnapshot
+    ? (() => {
+        try {
+          return JSON.parse(traveler.openLinesSnapshot) as {
+            inventoryItemIds?: string[];
+          };
+        } catch {
+          return null;
+        }
+      })()
+    : null;
+  const snapInvIds = snap?.inventoryItemIds || [];
+
+  const inspections = receiptIds.length
+    ? await prisma.inspection.findMany({
+        where: {
+          receiptId: { in: receiptIds },
+          inventoryItemId: { not: null },
+          status: "PASSED",
+        },
+        select: { inventoryItemId: true, plannedPutawayCode: true },
+      })
+    : [];
+  // Also inspections tied to snapshot inventory (receipt may live on sibling)
+  const snapInspections =
+    snapInvIds.length > 0
+      ? await prisma.inspection.findMany({
+          where: {
+            inventoryItemId: { in: snapInvIds },
+            status: "PASSED",
+          },
+          select: { inventoryItemId: true, plannedPutawayCode: true },
+        })
+      : [];
+  const inspRows = [...inspections, ...snapInspections];
   const invIds = [
     ...new Set(
-      inspections
-        .map((i) => i.inventoryItemId)
-        .filter((id): id is string => Boolean(id))
+      [
+        ...inspRows.map((i) => i.inventoryItemId),
+        ...snapInvIds,
+      ].filter((id): id is string => Boolean(id))
     ),
   ];
 
   for (const inventoryItemId of invIds) {
-    const planned = inspections.find(
+    const planned = inspRows.find(
       (i) => i.inventoryItemId === inventoryItemId
     )?.plannedPutawayCode;
     await putAwayInventory({
@@ -1011,6 +1054,7 @@ export async function completeReceivingAfterInspection(params: {
       status: "COMPLETE",
       currentWorkCenter: null,
       atStationSince: null,
+      notes: `${traveler.number} · Put away complete.`,
     },
   });
 
@@ -1025,22 +1069,14 @@ export async function completeReceivingAfterInspection(params: {
     });
   }
 
-  // If PO fully qty-received and no open inspection travelers, leave PO as RECEIVED
-  if (traveler.purchaseOrderId) {
-    const po = traveler.purchaseOrder;
-    if (po) {
-      const allQty = po.lines.every((l) => l.quantityReceived >= l.quantity);
-      const openInsp = await prisma.receivingTraveler.count({
-        where: {
-          purchaseOrderId: po.id,
-          status: { in: ["WAITING", "PARTIAL", "IN_INSPECTION", "READY_TO_STOCK"] },
-        },
-      });
-      if (allQty && openInsp === 0) {
-        // ok
-      }
-    }
-  }
+  // Roll parent umbrella to COMPLETE when all children done
+  const { reconcileRootTravelerStatus } = await import(
+    "@/lib/services/receiving"
+  );
+  await reconcileRootTravelerStatus({
+    travelerId: traveler.id,
+    userId: params.userId,
+  });
 
   await refreshAllWaitingMaterial(params.userId);
 

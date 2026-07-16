@@ -50,6 +50,114 @@ export function travelerPurpose(
   return "CHILD";
 }
 
+const DONE_STATUSES = new Set(["COMPLETE", "CLOSED"]);
+const OPEN_STATUSES = new Set([
+  "WAITING",
+  "PARTIAL",
+  "IN_INSPECTION",
+  "READY_TO_STOCK",
+]);
+
+/**
+ * After a child finishes putaway (or all station work settles), roll parent
+ * umbrella status: COMPLETE when no open children and no open PO/traveler qty.
+ */
+export async function reconcileRootTravelerStatus(params: {
+  travelerId: string;
+  userId?: string;
+}) {
+  const t = await prisma.receivingTraveler.findUnique({
+    where: { id: params.travelerId },
+    select: {
+      id: true,
+      parentId: true,
+      number: true,
+      status: true,
+      purchaseOrderId: true,
+    },
+  });
+  if (!t) return null;
+
+  const rootId = t.parentId || t.id;
+  const family = await prisma.receivingTraveler.findMany({
+    where: { OR: [{ id: rootId }, { parentId: rootId }] },
+    select: {
+      id: true,
+      parentId: true,
+      status: true,
+      number: true,
+      openLinesSnapshot: true,
+      lines: { select: { quantity: true, quantityReceived: true } },
+    },
+  });
+  const root = family.find((x) => x.id === rootId);
+  if (!root || DONE_STATUSES.has(root.status)) return root;
+
+  const children = family.filter((x) => x.parentId === rootId);
+  const openChildren = children.filter((c) => OPEN_STATUSES.has(c.status));
+
+  let openOnPo = false;
+  if (t.purchaseOrderId) {
+    const poLines = await prisma.purchaseOrderLine.findMany({
+      where: { purchaseOrderId: t.purchaseOrderId },
+      select: { quantity: true, quantityReceived: true },
+    });
+    openOnPo = poLines.some((l) => l.quantityReceived < l.quantity);
+  } else {
+    openOnPo = root.lines.some((l) => l.quantityReceived < l.quantity);
+  }
+
+  // Remainder child still waiting counts as open work
+  const hasOpenRemainder = children.some(
+    (c) =>
+      travelerPurpose(c) === "REMAINDER" &&
+      ["WAITING", "PARTIAL"].includes(c.status)
+  );
+
+  let nextStatus = root.status;
+  let notes: string | undefined;
+
+  if (openChildren.length === 0 && !openOnPo && !hasOpenRemainder) {
+    nextStatus = "COMPLETE";
+    notes = `${root.number} · Parent complete — all child travelers finished and put away.`;
+  } else if (openChildren.some((c) => c.status === "READY_TO_STOCK")) {
+    nextStatus = "PARTIAL";
+    const ready = openChildren.filter((c) => c.status === "READY_TO_STOCK");
+    notes = `${root.number} · Parent — put away ${ready.map((c) => c.number).join(", ")} at dock; other station work may still be open.`;
+  } else if (openChildren.length > 0 || openOnPo) {
+    nextStatus = openOnPo || hasOpenRemainder ? "PARTIAL" : "PARTIAL";
+    const atStation = openChildren.filter((c) => c.status === "IN_INSPECTION");
+    const bits: string[] = [];
+    if (atStation.length)
+      bits.push(`${atStation.length} child(ren) in process`);
+    if (hasOpenRemainder || openOnPo) bits.push("open remainder / PO qty");
+    notes = `${root.number} · Parent — ${bits.join("; ") || "work in progress"}. Follow -01, -02… children.`;
+  }
+
+  if (nextStatus !== root.status || (notes && notes !== undefined)) {
+    const updated = await prisma.receivingTraveler.update({
+      where: { id: rootId },
+      data: {
+        status: nextStatus,
+        ...(notes ? { notes } : {}),
+      },
+    });
+    await logAudit({
+      entityType: "ReceivingTraveler",
+      entityId: rootId,
+      action: nextStatus === "COMPLETE" ? "ROOT_COMPLETE" : "ROOT_RECONCILE",
+      userId: params.userId,
+      metadata: {
+        number: root.number,
+        openChildren: openChildren.map((c) => c.number),
+        openOnPo,
+      },
+    });
+    return updated;
+  }
+  return root;
+}
+
 /** Parent RCV-T-00005 → next free RCV-T-00005-01, RCV-T-00005-02, … (pure sequence). */
 export function nextChildTravelerNumber(
   parentNumber: string,
