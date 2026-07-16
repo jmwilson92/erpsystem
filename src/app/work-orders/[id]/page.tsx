@@ -144,12 +144,24 @@ export default async function WorkOrderDetailPage({
   const done = wo.stepCompletions.filter((s) =>
     ["SIGNED", "PASSED", "SKIPPED"].includes(s.status)
   ).length;
+  const failedStepCount = wo.stepCompletions.filter(
+    (s) => s.status === "FAILED"
+  ).length;
+  const openStepCount = wo.stepCompletions.filter((s) =>
+    ["PENDING", "IN_PROGRESS"].includes(s.status)
+  ).length;
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  // All traveler steps signed (or no steps on a task-only WO)
+  const allStepsComplete =
+    failedStepCount === 0 &&
+    (total === 0 || (done === total && openStepCount === 0));
   // Sign-off once production is running (or already on floor statuses)
   const canSign = ["IN_PROGRESS", "RELEASED", "KITTED"].includes(wo.status);
   const canStartProduction =
     ["KITTED", "RELEASED", "READY_TO_KIT"].includes(wo.status) ||
     wo.kitStatus === "KITTED";
+  const canCompleteToStock =
+    wo.status === "IN_PROGRESS" && allStepsComplete;
   const materialShorts = material.requirements.filter((r) => r.short > 0);
 
   return (
@@ -248,12 +260,27 @@ export default async function WorkOrderDetailPage({
                     Hold
                   </Button>
                 </form>
-                <form action={actionCompleteWoToStock}>
-                  <input type="hidden" name="workOrderId" value={wo.id} />
-                  <Button type="submit" size="sm">
-                    Complete → stock
-                  </Button>
-                </form>
+                {canCompleteToStock ? (
+                  <form action={actionCompleteWoToStock}>
+                    <input type="hidden" name="workOrderId" value={wo.id} />
+                    <Button type="submit" size="sm">
+                      Complete → stock
+                    </Button>
+                  </form>
+                ) : (
+                  <span
+                    className="inline-flex items-center rounded-md border border-slate-700 px-2.5 py-1.5 text-xs text-slate-500"
+                    title={
+                      failedStepCount > 0
+                        ? "Resolve failed steps / NCR first"
+                        : `${openStepCount || total - done} step(s) still open — sign off the traveler first`
+                    }
+                  >
+                    {failedStepCount > 0
+                      ? "Steps failed — hold / NCR"
+                      : `Sign off steps (${done}/${total}) before stock`}
+                  </span>
+                )}
               </>
             )}
             {wo.status === "ON_HOLD" && (

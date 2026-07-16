@@ -3448,16 +3448,31 @@ export async function actionStartProduction(formData: FormData): Promise<void> {
 export async function actionCompleteWoToStock(formData: FormData): Promise<void> {
   const workOrderId = formData.get("workOrderId") as string;
   const user = await getCurrentUser();
-  const result = await completeWorkOrderToStock({
-    workOrderId,
-    userId: user?.id,
-  });
-  revalidateFulfillmentPaths([
-    `/work-orders/${workOrderId}`,
-    "/shipping",
-    "/sales",
-  ]);
-  void result;
+  try {
+    const result = await completeWorkOrderToStock({
+      workOrderId,
+      userId: user?.id,
+    });
+    await flashToast(
+      result?.serialNumber
+        ? `WO complete → stock · S/N ${result.serialNumber}`
+        : "WO complete — finished goods in stock"
+    );
+    revalidateFulfillmentPaths([
+      `/work-orders/${workOrderId}`,
+      "/shipping",
+      "/sales",
+      "/inventory",
+    ]);
+  } catch (e) {
+    await flashToast(
+      e instanceof Error
+        ? e.message
+        : "Cannot complete to stock until traveler steps are signed off",
+      "error"
+    );
+    revalidateFulfillmentPaths([`/work-orders/${workOrderId}`]);
+  }
 }
 
 export async function actionPutAwayItem(formData: FormData): Promise<void> {
