@@ -355,83 +355,107 @@ export default async function PrDetailPage({
                 <form action={actionSaveBuyerPackage} className="space-y-5">
                   <input type="hidden" name="id" value={pr.id} />
 
-                  <div className="overflow-hidden rounded-xl border border-slate-800">
-                    <div className="grid grid-cols-12 gap-2 border-b border-slate-800 bg-slate-900/60 px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-                      <div className="col-span-4">Item</div>
-                      <div className="col-span-2 text-right">Qty</div>
-                      <div className="col-span-2 text-right">Unit $</div>
-                      <div className="col-span-2 text-right">Ext.</div>
-                      <div className="col-span-2">Notes</div>
-                    </div>
-                    {pr.lines.map((l) => (
-                      <div
-                        key={l.id}
-                        className="grid grid-cols-12 items-start gap-2 border-b border-slate-800/60 px-3 py-2 text-sm last:border-0"
-                      >
-                        <div className="col-span-4 min-w-0 space-y-1">
-                          {l.partId && partMap.get(l.partId) && (
-                            <Link
-                              href={`/items/${l.partId}`}
-                              className="font-mono text-xs text-teal-400 hover:underline"
-                            >
-                              {partMap.get(l.partId)}
-                            </Link>
-                          )}
-                          <Input
-                            name={`desc_${l.id}`}
-                            defaultValue={l.description}
-                            className="h-8 text-xs"
-                          />
-                        </div>
-                        <div className="col-span-2">
-                          <Input
-                            name={`qty_${l.id}`}
-                            type="number"
-                            step="any"
-                            min={0}
-                            defaultValue={l.quantity}
-                            className="h-8 text-right tabular-nums"
-                          />
-                        </div>
-                        <div className="col-span-2">
-                          <Input
-                            name={`cost_${l.id}`}
-                            type="number"
-                            step="0.01"
-                            min={0}
-                            defaultValue={l.estimatedUnitCost}
-                            className="h-8 text-right tabular-nums"
-                          />
-                        </div>
-                        <div className="col-span-2 pt-1.5 text-right tabular-nums text-slate-300">
-                          {formatCurrency(l.quantity * l.estimatedUnitCost)}
-                        </div>
-                        <div className="col-span-2">
-                          <Input
-                            name={`notes_${l.id}`}
-                            defaultValue={l.notes || ""}
-                            placeholder="Line note"
-                            className="h-8 text-xs"
-                          />
-                        </div>
-                      </div>
-                    ))}
-                    <div className="flex justify-end border-t border-slate-800 bg-slate-950/40 px-3 py-2 text-sm">
-                      <span className="text-slate-500">Total est. · </span>
-                      <span className="ml-1 font-medium tabular-nums text-slate-100">
-                        {formatCurrency(lineTotal || pr.totalEstimate)}
-                      </span>
-                    </div>
+                  <div className="overflow-x-auto rounded-xl border border-slate-800">
+                    <table className="w-full min-w-[720px] text-sm">
+                      <thead className="bg-slate-900/80 text-[10px] uppercase tracking-wide text-slate-500">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-semibold">
+                            Item / description
+                          </th>
+                          <th className="w-24 px-2 py-2 text-right font-semibold">
+                            Qty
+                          </th>
+                          <th className="w-28 px-2 py-2 text-right font-semibold">
+                            Unit $
+                          </th>
+                          <th className="w-24 px-2 py-2 text-right font-semibold">
+                            Ext.
+                          </th>
+                          <th className="w-40 px-2 py-2 text-left font-semibold">
+                            Notes
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pr.lines.map((l) => (
+                          <tr
+                            key={l.id}
+                            className="border-t border-slate-800/70 align-middle"
+                          >
+                            <td className="px-3 py-2">
+                              {l.partId && partMap.get(l.partId) && (
+                                <Link
+                                  href={`/items/${l.partId}`}
+                                  className="mb-1 block font-mono text-xs text-teal-400 hover:underline"
+                                >
+                                  {partMap.get(l.partId)}
+                                </Link>
+                              )}
+                              <Input
+                                name={`desc_${l.id}`}
+                                defaultValue={l.description}
+                                className="h-9 w-full min-w-[12rem] text-xs"
+                              />
+                            </td>
+                            <td className="px-2 py-2">
+                              <Input
+                                name={`qty_${l.id}`}
+                                type="number"
+                                step="any"
+                                min={0}
+                                defaultValue={l.quantity}
+                                className="h-9 w-full text-right tabular-nums"
+                              />
+                            </td>
+                            <td className="px-2 py-2">
+                              <Input
+                                name={`cost_${l.id}`}
+                                type="number"
+                                step="0.01"
+                                min={0}
+                                defaultValue={l.estimatedUnitCost}
+                                className="h-9 w-full text-right tabular-nums"
+                              />
+                            </td>
+                            <td className="px-2 py-2 text-right tabular-nums text-slate-300">
+                              {formatCurrency(l.quantity * l.estimatedUnitCost)}
+                            </td>
+                            <td className="px-2 py-2">
+                              <Input
+                                name={`notes_${l.id}`}
+                                defaultValue={l.notes || ""}
+                                placeholder="Line note"
+                                className="h-9 w-full text-xs"
+                              />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="border-t border-slate-800 bg-slate-950/50">
+                          <td
+                            colSpan={3}
+                            className="px-3 py-2 text-right text-xs text-slate-500"
+                          >
+                            Total est.
+                          </td>
+                          <td className="px-2 py-2 text-right font-medium tabular-nums text-slate-100">
+                            {formatCurrency(lineTotal || pr.totalEstimate)}
+                          </td>
+                          <td />
+                        </tr>
+                      </tfoot>
+                    </table>
                   </div>
 
                   <div className="grid gap-3 sm:grid-cols-2">
-                    <div>
-                      <label className="text-[10px] uppercase text-slate-500">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                         Preferred supplier
                       </label>
                       <select
                         name="supplierId"
-                        className={`${selectClass} mt-0.5`}
+                        className={selectClass}
                         defaultValue={pr.supplierId || ""}
                       >
                         <option value="">— None —</option>
@@ -442,13 +466,13 @@ export default async function PrDetailPage({
                         ))}
                       </select>
                     </div>
-                    <div>
-                      <label className="text-[10px] uppercase text-slate-500">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                         Charge type
                       </label>
                       <select
                         name="chargeType"
-                        className={`${selectClass} mt-0.5`}
+                        className={selectClass}
                         defaultValue={
                           pr.chargeType || charge?.chargeType || "DIRECT"
                         }
@@ -459,13 +483,13 @@ export default async function PrDetailPage({
                         <option value="INDIRECT">INDIRECT</option>
                       </select>
                     </div>
-                    <div>
-                      <label className="text-[10px] uppercase text-slate-500">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                         Project
                       </label>
                       <select
                         name="projectId"
-                        className={`${selectClass} mt-0.5`}
+                        className={selectClass}
                         defaultValue={pr.projectId || ""}
                       >
                         <option value="">— None —</option>
@@ -476,13 +500,13 @@ export default async function PrDetailPage({
                         ))}
                       </select>
                     </div>
-                    <div>
-                      <label className="text-[10px] uppercase text-slate-500">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                         WBS
                       </label>
                       <select
                         name="wbsElementId"
-                        className={`${selectClass} mt-0.5`}
+                        className={selectClass}
                         defaultValue={pr.wbsElementId || ""}
                       >
                         <option value="">— None —</option>
@@ -494,13 +518,13 @@ export default async function PrDetailPage({
                       </select>
                     </div>
                     {glList.length > 0 && (
-                      <div className="sm:col-span-2">
-                        <label className="text-[10px] uppercase text-slate-500">
+                      <div className="space-y-1 sm:col-span-2">
+                        <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                           GL / charge account
                         </label>
                         <select
                           name="glAccountId"
-                          className={`${selectClass} mt-0.5`}
+                          className={selectClass}
                           defaultValue={pr.glAccountId || ""}
                         >
                           <option value="">— None —</option>
@@ -578,11 +602,17 @@ export default async function PrDetailPage({
                     </p>
                   )}
 
-                  <div className="flex flex-wrap gap-2">
-                    <Button type="submit" size="sm" variant="secondary">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="submit"
+                      size="sm"
+                      variant="secondary"
+                      name="intent"
+                      value="save"
+                    >
                       Save package
                     </Button>
-                    {isBuyerStep && canDecide && (
+                    {isBuyerStep && (
                       <Button
                         type="submit"
                         size="sm"
@@ -591,6 +621,12 @@ export default async function PrDetailPage({
                       >
                         Confirm package — send to owner
                       </Button>
+                    )}
+                    {pr.buyerWorkStartedAt && (
+                      <span className="text-[11px] text-emerald-400/90">
+                        On the clock since{" "}
+                        {formatDate(pr.buyerWorkStartedAt, "MMM d, HH:mm")}
+                      </span>
                     )}
                   </div>
                 </form>

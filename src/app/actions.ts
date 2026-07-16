@@ -1598,7 +1598,6 @@ export async function actionSaveBuyerPackage(
     };
   });
 
-  const { saveBuyerPackage } = await import("@/lib/services/pr-buyer");
   const chargeTypeRaw = ((formData.get("chargeType") as string) || "").trim();
   const chargeType = (
     ["PROGRAM", "SALES_ORDER", "DIRECT", "INDIRECT"].includes(chargeTypeRaw)
@@ -1610,6 +1609,17 @@ export async function actionSaveBuyerPackage(
     ((formData.get("quoteFileUrl") as string) || "").trim() || undefined;
   const quoteFileName =
     ((formData.get("quoteFileName") as string) || "").trim() || undefined;
+
+  const { saveBuyerPackage, ensureBuyerScanIn, confirmBuyerPackageStep } =
+    await import("@/lib/services/pr-buyer");
+
+  // Scan-in when buyer starts/saves work (if not already on the clock)
+  if (user?.id) {
+    await ensureBuyerScanIn({
+      purchaseRequestId: id,
+      userId: user.id,
+    });
+  }
 
   await saveBuyerPackage({
     purchaseRequestId: id,
@@ -1644,23 +1654,29 @@ export async function actionSaveBuyerPackage(
   });
 
   if (confirmPackage) {
-    // Advance BUYER_PACKAGE step if it's current
-    await decidePrApproval({
+    // Always advance the BUYER_PACKAGE step specifically (not a random open step)
+    const result = await confirmBuyerPackageStep({
       purchaseRequestId: id,
-      decision: "APPROVED",
+      userId: user?.id,
+      userRole: user?.role,
       comments:
         ((formData.get("comments") as string) || "").trim() ||
         "Buyer package confirmed",
-      userId: user?.id,
-      userRole: user?.role,
     });
-    await flashToast("Buyer package confirmed — sent to charge owner");
+    const next =
+      result.status === "SUBMITTED" && "nextStep" in result && result.nextStep
+        ? ` Next: ${result.nextStep}`
+        : result.status === "APPROVED"
+          ? " PR fully approved."
+          : "";
+    await flashToast(`Buyer package confirmed — sent to charge owner.${next}`);
   } else {
-    await flashToast("Buyer package saved");
+    await flashToast("Buyer package saved (still on the clock until confirm)");
   }
 
   revalidatePath(`/purchasing/pr/${id}`);
   revalidatePath("/purchasing");
+  revalidatePath("/hr/timesheet");
 }
 
 export async function actionAssignPrBuyer(formData: FormData): Promise<void> {

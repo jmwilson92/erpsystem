@@ -2639,6 +2639,9 @@ model PurchaseRequest {
   assignedById    String?
   assignedBy      User?    @relation("PrAssignedBy", fields: [assignedById], references: [id], onDelete: SetNull)
   assignedAt      DateTime?
+  /// Buyer "scanned in" — time on this PR until package confirm (auto clock-out)
+  buyerWorkStartedAt   DateTime?
+  buyerWorkStartedById String?
   /// Supplier quote attached to the request; carried onto the PO at convert
   quoteFileUrl    String?
   quoteFileName   String?
@@ -2653,6 +2656,7 @@ model PurchaseRequest {
   lines           PurchaseRequestLine[]
   purchaseOrders  PurchaseOrder[]
   mrsLines        MaterialRequisitionLine[]
+  buyerTimeEntries TimeEntry[]
 
   @@index([workOrderId])
   @@index([workInstructionId])
@@ -3634,9 +3638,12 @@ model TimeEntry {
   saga        Saga?     @relation(fields: [sagaId], references: [id], onDelete: SetNull)
   engTaskId   String?
   engTask     EngTask?  @relation(fields: [engTaskId], references: [id], onDelete: SetNull)
+  /// Buyer package work charged to the PR's program/SO/direct/indirect
+  purchaseRequestId String?
+  purchaseRequest   PurchaseRequest? @relation(fields: [purchaseRequestId], references: [id], onDelete: SetNull)
   date        DateTime
   hours       Float
-  type        String   @default("REGULAR") // REGULAR, OT, OVERHEAD, PTO, SICK, HOLIDAY, ENG_SCAN
+  type        String   @default("REGULAR") // REGULAR, OT, OVERHEAD, PTO, SICK, HOLIDAY, ENG_SCAN, BUYER
   timesheetId String?
   timesheet   Timesheet? @relation(fields: [timesheetId], references: [id], onDelete: SetNull)
   /// Optional WBS element for project labor distribution
@@ -3656,6 +3663,7 @@ model TimeEntry {
   @@index([projectId])
   @@index([engTaskId])
   @@index([campaignId])
+  @@index([purchaseRequestId])
   @@index([date])
 }
 

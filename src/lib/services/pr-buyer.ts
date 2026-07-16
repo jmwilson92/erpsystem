@@ -221,6 +221,7 @@ export async function saveBuyerPackage(params: {
   return updated;
 }
 
+/** Assignment = scan-in for buyer time. Starts the clock for that person. */
 export async function assignPrBuyer(params: {
   purchaseRequestId: string;
   buyerUserId: string | null;
@@ -238,27 +239,265 @@ export async function assignPrBuyer(params: {
     if (!buyer?.isActive) throw new Error("Buyer user not found or inactive");
   }
 
+  // Clock out previous buyer if reassigning
+  if (
+    pr.buyerWorkStartedAt &&
+    pr.buyerWorkStartedById &&
+    pr.buyerWorkStartedById !== params.buyerUserId
+  ) {
+    await clockOutBuyerWork({
+      purchaseRequestId: pr.id,
+      userId: pr.buyerWorkStartedById,
+      reason: "REASSIGNED",
+    });
+  }
+
+  const now = new Date();
   const updated = await prisma.purchaseRequest.update({
     where: { id: pr.id },
     data: {
       assignedBuyerId: params.buyerUserId,
       assignedById: params.buyerUserId ? params.assignedById || null : null,
-      assignedAt: params.buyerUserId ? new Date() : null,
+      assignedAt: params.buyerUserId ? now : null,
+      // Scan-in on assign
+      buyerWorkStartedAt: params.buyerUserId ? now : null,
+      buyerWorkStartedById: params.buyerUserId || null,
     },
   });
 
   await logAudit({
     entityType: "PurchaseRequest",
     entityId: pr.id,
-    action: params.buyerUserId ? "BUYER_ASSIGNED" : "BUYER_UNASSIGNED",
+    action: params.buyerUserId ? "BUYER_SCAN_IN" : "BUYER_UNASSIGNED",
     userId: params.assignedById,
     metadata: {
       assignedBuyerId: params.buyerUserId,
       previousBuyerId: pr.assignedBuyerId,
+      startedAt: params.buyerUserId ? now.toISOString() : null,
     },
   });
 
   return updated;
+}
+
+/** Scan-in if this buyer is working the PR and not already clocked. */
+export async function ensureBuyerScanIn(params: {
+  purchaseRequestId: string;
+  userId: string;
+}) {
+  const pr = await prisma.purchaseRequest.findUnique({
+    where: { id: params.purchaseRequestId },
+  });
+  if (!pr) return null;
+  if (pr.buyerWorkStartedAt && pr.buyerWorkStartedById === params.userId) {
+    return pr;
+  }
+  // If someone else is on it, don't steal
+  if (pr.buyerWorkStartedAt && pr.buyerWorkStartedById !== params.userId) {
+    return pr;
+  }
+  const now = new Date();
+  const updated = await prisma.purchaseRequest.update({
+    where: { id: pr.id },
+    data: {
+      buyerWorkStartedAt: now,
+      buyerWorkStartedById: params.userId,
+      assignedBuyerId: pr.assignedBuyerId || params.userId,
+      assignedAt: pr.assignedAt || now,
+    },
+  });
+  await logAudit({
+    entityType: "PurchaseRequest",
+    entityId: pr.id,
+    action: "BUYER_SCAN_IN",
+    userId: params.userId,
+    metadata: { startedAt: now.toISOString() },
+  });
+  return updated;
+}
+
+/**
+ * Scan-out: post elapsed hours to the buyer's timesheet against the PR charge.
+ */
+export async function clockOutBuyerWork(params: {
+  purchaseRequestId: string;
+  userId: string;
+  reason?: string;
+}) {
+  const pr = await prisma.purchaseRequest.findUnique({
+    where: { id: params.purchaseRequestId },
+  });
+  if (!pr?.buyerWorkStartedAt || !pr.buyerWorkStartedById) {
+    return { hours: 0, entryId: null as string | null };
+  }
+  if (pr.buyerWorkStartedById !== params.userId) {
+    // Only the person who scanned in is clocked out (or force on reassign with their id)
+  }
+
+  const end = new Date();
+  const ms = end.getTime() - pr.buyerWorkStartedAt.getTime();
+  // Minimum 6 minutes (0.1h) if they did any work; cap reasonable day
+  let hours = Math.round((ms / 3600000) * 100) / 100;
+  if (hours < 0.1 && ms > 30_000) hours = 0.1;
+  if (hours > 12) hours = 12;
+
+  await prisma.purchaseRequest.update({
+    where: { id: pr.id },
+    data: {
+      buyerWorkStartedAt: null,
+      buyerWorkStartedById: null,
+    },
+  });
+
+  if (hours < 0.05) {
+    await logAudit({
+      entityType: "PurchaseRequest",
+      entityId: pr.id,
+      action: "BUYER_SCAN_OUT",
+      userId: params.userId,
+      metadata: { hours: 0, reason: params.reason || "CONFIRM", skipped: true },
+    });
+    return { hours: 0, entryId: null as string | null };
+  }
+
+  let chargeCode: string | null = null;
+  if (pr.chargeType === "INDIRECT") chargeCode = "IND-BUYER";
+  else if (pr.chargeType === "DIRECT") chargeCode = "DIR-BUYER";
+  else if (pr.chargeType === "SALES_ORDER") chargeCode = `SO-${pr.salesOrderId?.slice(-6) || "BUY"}`;
+  else if (pr.chargeType === "PROGRAM") chargeCode = null; // project/wbs carries it
+
+  const { getOrCreateTimesheet } = await import("@/lib/services/timesheets");
+  const date = new Date();
+  date.setHours(0, 0, 0, 0);
+  let timesheetId: string | null = null;
+  try {
+    const sheet = await getOrCreateTimesheet(params.userId, date);
+    if (["OPEN", "REJECTED"].includes(sheet.status)) {
+      timesheetId = sheet.id;
+    }
+  } catch {
+    /* leave unattached */
+  }
+
+  const laborRate = 65;
+  const entry = await prisma.timeEntry.create({
+    data: {
+      userId: params.userId,
+      timesheetId: timesheetId || undefined,
+      date,
+      hours,
+      type: "BUYER",
+      purchaseRequestId: pr.id,
+      projectId: pr.projectId || undefined,
+      wbsElementId: pr.wbsElementId || undefined,
+      chargeCode: chargeCode || undefined,
+      description: `Buyer package ${pr.number}${
+        params.reason ? ` (${params.reason})` : ""
+      }`,
+      status: "SUBMITTED",
+      laborRate,
+      costAmount: Math.round(hours * laborRate * 100) / 100,
+    },
+  });
+
+  await logAudit({
+    entityType: "PurchaseRequest",
+    entityId: pr.id,
+    action: "BUYER_SCAN_OUT",
+    userId: params.userId,
+    metadata: {
+      hours,
+      timeEntryId: entry.id,
+      timesheetId,
+      chargeType: pr.chargeType,
+      projectId: pr.projectId,
+      wbsElementId: pr.wbsElementId,
+      reason: params.reason || "CONFIRM",
+    },
+  });
+
+  return { hours, entryId: entry.id };
+}
+
+/**
+ * Complete the BUYER_PACKAGE approval step specifically (confirm, not generic approve).
+ */
+export async function confirmBuyerPackageStep(params: {
+  purchaseRequestId: string;
+  userId?: string;
+  userRole?: string;
+  comments?: string;
+}) {
+  const pr = await prisma.purchaseRequest.findUnique({
+    where: { id: params.purchaseRequestId },
+  });
+  if (!pr) throw new Error("Purchase request not found");
+  if (pr.status !== "SUBMITTED") {
+    throw new Error(`PR is ${pr.status}, not in pipeline`);
+  }
+
+  const gate = isBuyerPackageComplete({
+    buyerConfirmedPrices: pr.buyerConfirmedPrices,
+    quoteFileUrl: pr.quoteFileUrl,
+    buyerNotes: pr.buyerNotes,
+    soleSource: pr.soleSource,
+    soleSourceJustification: pr.soleSourceJustification,
+  });
+  if (!gate.ok) {
+    throw new Error(
+      `Buyer package incomplete — ${gate.missing.join("; ")}. Save the workbench with prices verified or a quote attached.`
+    );
+  }
+
+  // Find the buyer package step even if currentStepOrder is stale
+  const all = await prisma.approval.findMany({
+    where: {
+      entityType: "PurchaseRequest",
+      entityId: pr.id,
+    },
+    include: { policyStep: true },
+    orderBy: { stepOrder: "asc" },
+  });
+  const buyerStep = all.find(
+    (a) =>
+      a.status === "PENDING" &&
+      (a.policyStep?.routingKey === "BUYER_PACKAGE" ||
+        /buyer package/i.test(a.stage))
+  );
+  if (!buyerStep) {
+    const pending = all.filter((a) => a.status === "PENDING");
+    throw new Error(
+      pending.length
+        ? `No buyer package step open (current open: ${pending.map((p) => p.stage).join(", ")}). Refresh — you may need the demand-confirm step first.`
+        : "No open approval steps on this PR. Refresh the page."
+    );
+  }
+
+  // Align pointer then complete via shared decision path
+  await prisma.purchaseRequest.update({
+    where: { id: pr.id },
+    data: { currentStepOrder: buyerStep.stepOrder },
+  });
+
+  const { decidePrApproval } = await import("@/lib/services/pr-approval");
+  const result = await decidePrApproval({
+    purchaseRequestId: pr.id,
+    decision: "APPROVED",
+    comments: params.comments || "Buyer package confirmed",
+    userId: params.userId,
+    userRole: params.userRole,
+  });
+
+  // Auto scan-out → timecard
+  if (params.userId) {
+    await clockOutBuyerWork({
+      purchaseRequestId: pr.id,
+      userId: params.userId,
+      reason: "PACKAGE_CONFIRMED",
+    });
+  }
+
+  return result;
 }
 
 /** Whether the buyer package gate is satisfied for pipeline release. */

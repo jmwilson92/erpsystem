@@ -668,20 +668,37 @@ export async function decidePrApproval(params: {
     throw new Error(`PR is ${pr.status}, not awaiting approval`);
   }
 
+  // Prefer the PR's current step; fall back to first PENDING — never wipe the chain
   let current = await prisma.approval.findFirst({
     where: {
       entityType: "PurchaseRequest",
       entityId: pr.id,
       status: "PENDING",
-      ...(pr.currentStepOrder > 0
-        ? { stepOrder: pr.currentStepOrder }
-        : {}),
+      stepOrder: pr.currentStepOrder,
     },
     include: { policyStep: true },
-    orderBy: { stepOrder: "asc" },
   });
-
   if (!current) {
+    current = await prisma.approval.findFirst({
+      where: {
+        entityType: "PurchaseRequest",
+        entityId: pr.id,
+        status: "PENDING",
+      },
+      include: { policyStep: true },
+      orderBy: { stepOrder: "asc" },
+    });
+  }
+  if (!current) {
+    const existingCount = await prisma.approval.count({
+      where: { entityType: "PurchaseRequest", entityId: pr.id },
+    });
+    if (existingCount > 0) {
+      throw new Error(
+        "No open approval step — this PR may already be fully approved or rejected. Refresh the page."
+      );
+    }
+    // Brand-new PR with no rows yet
     const started = await startPrApprovalWorkflow({
       purchaseRequestId: pr.id,
       userId: params.userId,
@@ -696,10 +713,10 @@ export async function decidePrApproval(params: {
       where: {
         entityType: "PurchaseRequest",
         entityId: pr.id,
-        stepOrder: pr.currentStepOrder,
         status: "PENDING",
       },
       include: { policyStep: true },
+      orderBy: { stepOrder: "asc" },
     });
   }
   if (!current) throw new Error("No pending approval step found");
