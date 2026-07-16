@@ -16,6 +16,19 @@ import { StatusBadge } from "@/components/shared/status-badge";
 
 export const dynamic = "force-dynamic";
 
+const ROUTING_OPTIONS: { value: string; label: string }[] = [
+  {
+    value: "CHARGE_OWNER",
+    label: "Charge owner (WBS/PM or production mgr)",
+  },
+  {
+    value: "CHARGE_ESCALATION",
+    label: "Charge escalation (program / product / exec)",
+  },
+  { value: "ROLE", label: "Fixed role (e.g. Finance)" },
+  { value: "USER", label: "Specific user only" },
+];
+
 export default async function PrApprovalSettingsPage() {
   await ensureDefaultPrApprovalPolicy();
   const [policies, users] = await Promise.all([
@@ -35,7 +48,7 @@ export default async function PrApprovalSettingsPage() {
     <div className="space-y-6">
       <PageHeader
         title="PR approval rules"
-        description="Configure threshold-based multi-step approval for purchase requests"
+        description="Charge-code routing + $ thresholds — not a fake SO “owner” step"
         actions={
           <Link href="/purchasing?tab=prs">
             <Button size="sm" variant="outline">
@@ -46,18 +59,33 @@ export default async function PrApprovalSettingsPage() {
       />
 
       <Card className="border-slate-700">
-        <CardContent className="space-y-2 p-4 text-sm text-slate-400">
-          <p>
-            Each step applies when the PR estimated total is{" "}
-            <strong className="text-slate-200">≥ min amount</strong>. Steps run in order.
-            Only the current step can be approved (by the configured role or user).
-            ADMIN can always approve any step.
-          </p>
-          <p className="text-xs text-slate-600">
-            Demo tip: set <code className="text-teal-500">DEMO_USER_ROLE</code> in{" "}
-            <code className="text-teal-500">.env</code> to PURCHASING, ACCOUNTING, or ADMIN
-            to walk multi-step approvals as different people.
-          </p>
+        <CardContent className="space-y-3 p-4 text-sm text-slate-400">
+          <p className="font-medium text-slate-200">How routing works</p>
+          <ul className="list-inside list-disc space-y-1.5 text-xs leading-relaxed">
+            <li>
+              <strong className="text-teal-400">Project + WBS</strong> — Charge
+              owner = WBS owner (else project PM). Escalation = program owner
+              when PR $ ≥ that step’s min amount.
+            </li>
+            <li>
+              <strong className="text-teal-400">Sales order</strong> — Charge
+              owner = production manager for the product line (product owner /
+              PRODUCTION role). Escalation = product owner / exec above
+              threshold. No duplicate “SO owner” step.
+            </li>
+            <li>
+              <strong className="text-teal-400">General / stock</strong> — Buyer
+              / purchasing, then admin/exec on escalation.
+            </li>
+            <li>
+              <strong className="text-teal-400">Min $</strong> — step only runs
+              when PR estimate ≥ that amount. Edit thresholds below anytime.
+            </li>
+            <li>
+              <strong className="text-teal-400">ROLE / USER</strong> — company
+              steps (e.g. Finance ≥ $25k) independent of charge code.
+            </li>
+          </ul>
         </CardContent>
       </Card>
 
@@ -81,8 +109,9 @@ export default async function PrApprovalSettingsPage() {
                 <tr className="border-b border-slate-800 text-left text-[10px] uppercase text-slate-500">
                   <th className="pb-2">#</th>
                   <th className="pb-2">Step</th>
-                  <th className="pb-2">Min amount</th>
-                  <th className="pb-2">Approver role</th>
+                  <th className="pb-2">Min $</th>
+                  <th className="pb-2">Routing</th>
+                  <th className="pb-2">Fallback role</th>
                   <th className="pb-2">User lock</th>
                 </tr>
               </thead>
@@ -95,6 +124,9 @@ export default async function PrApprovalSettingsPage() {
                       <td className="py-2 text-slate-200">{s.name}</td>
                       <td className="py-2 tabular-nums text-slate-300">
                         {formatCurrency(s.minAmount)}
+                      </td>
+                      <td className="py-2 font-mono text-[10px] text-sky-400">
+                        {s.routingKey || "ROLE"}
                       </td>
                       <td className="py-2 font-mono text-xs text-teal-400">
                         {s.approverRole || "—"}
@@ -124,12 +156,16 @@ export default async function PrApprovalSettingsPage() {
             )}
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
-                <label className="text-[10px] uppercase text-slate-500">Name</label>
+                <label className="text-[10px] uppercase text-slate-500">
+                  Name
+                </label>
                 <Input
                   name="name"
                   required
                   className="mt-1"
-                  defaultValue={defaultPolicy?.name || "Standard PR approval"}
+                  defaultValue={
+                    defaultPolicy?.name || "Charge-code PR approval"
+                  }
                 />
               </div>
               <div className="flex items-end gap-4 pb-1">
@@ -154,31 +190,54 @@ export default async function PrApprovalSettingsPage() {
               </div>
             </div>
             <div>
-              <label className="text-[10px] uppercase text-slate-500">Description</label>
+              <label className="text-[10px] uppercase text-slate-500">
+                Description
+              </label>
               <Textarea
                 name="description"
                 rows={2}
                 className="mt-1"
                 defaultValue={
                   defaultPolicy?.description ||
-                  "Buyer reviews all PRs; controller above $5k; ops admin above $25k."
+                  "Charge owner, then escalation above threshold, then finance."
                 }
               />
             </div>
 
             <div className="space-y-3">
               <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                Steps (leave name blank to omit)
+                Steps — set min $ thresholds (blank name = omit)
               </p>
               {[0, 1, 2, 3, 4].map((i) => {
                 const step = defaultPolicy?.steps[i];
+                const defaultRouting =
+                  step?.routingKey ||
+                  (i === 0
+                    ? "CHARGE_OWNER"
+                    : i === 1
+                      ? "CHARGE_ESCALATION"
+                      : "ROLE");
+                const defaultMin =
+                  step?.minAmount ??
+                  (i === 0 ? 0 : i === 1 ? 10000 : i === 2 ? 25000 : 0);
+                const defaultName =
+                  step?.name ||
+                  (i === 0
+                    ? "Charge owner"
+                    : i === 1
+                      ? "Charge escalation"
+                      : i === 2
+                        ? "Finance / controller"
+                        : "");
                 return (
                   <div
                     key={i}
-                    className="grid gap-2 rounded-lg border border-slate-800 p-3 sm:grid-cols-5"
+                    className="grid gap-2 rounded-lg border border-slate-800 p-3 sm:grid-cols-6"
                   >
                     <div>
-                      <label className="text-[10px] uppercase text-slate-600">Order</label>
+                      <label className="text-[10px] uppercase text-slate-600">
+                        Order
+                      </label>
                       <Input
                         name={`step_order_${i}`}
                         type="number"
@@ -193,8 +252,8 @@ export default async function PrApprovalSettingsPage() {
                       <Input
                         name={`step_name_${i}`}
                         className="mt-0.5 h-9"
-                        defaultValue={step?.name || ""}
-                        placeholder={i === 0 ? "Buyer review" : "Optional step"}
+                        defaultValue={defaultName}
+                        placeholder="Optional step"
                       />
                     </div>
                     <div>
@@ -206,17 +265,44 @@ export default async function PrApprovalSettingsPage() {
                         type="number"
                         step="0.01"
                         className="mt-0.5 h-9"
-                        defaultValue={step?.minAmount ?? (i === 0 ? 0 : i === 1 ? 5000 : i === 2 ? 25000 : 0)}
+                        defaultValue={defaultMin}
                       />
                     </div>
-                    <div>
-                      <label className="text-[10px] uppercase text-slate-600">Role</label>
+                    <div className="sm:col-span-2">
+                      <label className="text-[10px] uppercase text-slate-600">
+                        Routing
+                      </label>
+                      <select
+                        name={`step_routing_${i}`}
+                        className={`${selectClass} mt-0.5`}
+                        defaultValue={defaultRouting}
+                      >
+                        {ROUTING_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="text-[10px] uppercase text-slate-600">
+                        Fallback / role
+                      </label>
                       <select
                         name={`step_role_${i}`}
                         className={`${selectClass} mt-0.5`}
-                        defaultValue={step?.approverRole || ""}
+                        defaultValue={
+                          step?.approverRole ||
+                          (i === 0
+                            ? "PURCHASING"
+                            : i === 1
+                              ? "EXECUTIVE"
+                              : i === 2
+                                ? "ACCOUNTING"
+                                : "")
+                        }
                       >
-                        <option value="">Any (purchasing/admin)</option>
+                        <option value="">—</option>
                         {ROLES.map((r) => (
                           <option key={r} value={r}>
                             {r}
@@ -224,16 +310,16 @@ export default async function PrApprovalSettingsPage() {
                         ))}
                       </select>
                     </div>
-                    <div className="sm:col-span-5">
+                    <div className="sm:col-span-4">
                       <label className="text-[10px] uppercase text-slate-600">
-                        Or specific user (optional)
+                        Or specific user (USER routing / lock)
                       </label>
                       <select
                         name={`step_user_${i}`}
                         className={`${selectClass} mt-0.5`}
                         defaultValue={step?.approverUserId || ""}
                       >
-                        <option value="">— Role only —</option>
+                        <option value="">— None —</option>
                         {users.map((u) => (
                           <option key={u.id} value={u.id}>
                             {u.name} · {u.role}

@@ -147,10 +147,18 @@ model ApprovalPolicyStep {
   policyId        String
   policy          ApprovalPolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
   stepOrder       Int
-  name            String // e.g. Buyer review, Manager, Finance
+  name            String // e.g. Charge owner, Program escalation, Finance
   // Step applies when PR totalEstimate >= minAmount (USD)
   minAmount       Float  @default(0)
-  // Who may approve: role and/or specific user
+  /**
+   * How this step picks an approver at submit time:
+   * - CHARGE_OWNER: WBS owner / project PM (project-coded) or production mgr (SO-coded)
+   * - CHARGE_ESCALATION: program owner (project) or product owner / exec (SO) when over threshold
+   * - ROLE: use approverRole (PURCHASING, ACCOUNTING, …)
+   * - USER: use approverUserId
+   */
+  routingKey      String  @default("ROLE")
+  // Who may approve when routingKey = ROLE (or fallback if charge person missing)
   approverRole    String? // PURCHASING, ACCOUNTING, ADMIN, etc.
   approverUserId  String?
   required        Boolean @default(true)
@@ -1506,6 +1514,7 @@ model WbsElement {
 
   workOrders      WorkOrder[]
   purchaseOrders  PurchaseOrder[]
+  purchaseRequests PurchaseRequest[]
   tasks           ProjectTask[]
   campaigns       Campaign[]
 
@@ -2602,6 +2611,9 @@ model PurchaseRequest {
   materialRequisition   MaterialRequisition? @relation(fields: [materialRequisitionId], references: [id], onDelete: SetNull)
   projectId       String?
   project         Project? @relation(fields: [projectId], references: [id])
+  /// Optional WBS charge code — drives project-path PR approval (WBS owner → program)
+  wbsElementId    String?
+  wbsElement      WbsElement? @relation(fields: [wbsElementId], references: [id], onDelete: SetNull)
   salesOrderId    String?
   // Buyer-confirmed fields before convert
   buyerConfirmedPrices Boolean @default(false)
@@ -2626,6 +2638,9 @@ model PurchaseRequest {
   @@index([workInstructionId])
   @@index([status])
   @@index([materialRequisitionId])
+  @@index([projectId])
+  @@index([wbsElementId])
+  @@index([salesOrderId])
 }
 
 model PurchaseRequestLine {

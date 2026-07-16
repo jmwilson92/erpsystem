@@ -4,11 +4,21 @@ import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 
 /**
- * Configurable PR approval:
- * - Company defines ApprovalPolicy with ordered steps + minAmount thresholds
- * - When a PR is submitted, only steps where totalEstimate >= minAmount apply
- * - Sequential: step N must be approved before step N+1 becomes PENDING
+ * PR approval — charge-code routing + configurable thresholds.
+ *
+ * Policy steps (minAmount = kicks in at this $):
+ *  - CHARGE_OWNER: WBS owner / project PM, or production mgr for SO product line
+ *  - CHARGE_ESCALATION: program owner (project path) or product owner / exec (SO)
+ *  - ROLE / USER: classic role or fixed user (e.g. Finance ≥ $25k)
+ *
+ * No more fake “Sales order owner” step-0. Sequential: step N before N+1.
  */
+
+export type RoutingKey =
+  | "CHARGE_OWNER"
+  | "CHARGE_ESCALATION"
+  | "ROLE"
+  | "USER";
 
 export async function getDefaultApprovalPolicy(entityType = "PurchaseRequest") {
   return (
@@ -36,6 +46,292 @@ export async function listApprovalPolicies() {
   });
 }
 
+type ChargeContext = {
+  kind: "PROJECT" | "SALES_ORDER" | "GENERAL";
+  projectId?: string | null;
+  projectNumber?: string | null;
+  wbsId?: string | null;
+  wbsCode?: string | null;
+  programId?: string | null;
+  programCode?: string | null;
+  salesOrderId?: string | null;
+  salesOrderNumber?: string | null;
+  productName?: string | null;
+  /** First-line charge approver */
+  ownerUserId?: string | null;
+  ownerLabel: string;
+  /** Escalation above threshold */
+  escalationUserId?: string | null;
+  escalationLabel: string;
+};
+
+/** Resolve project / WBS / SO ownership for charge-based routing. */
+async function resolveChargeContext(
+  purchaseRequestId: string
+): Promise<ChargeContext> {
+  const pr = await prisma.purchaseRequest.findUnique({
+    where: { id: purchaseRequestId },
+    include: {
+      project: {
+        select: {
+          id: true,
+          number: true,
+          name: true,
+          projectManagerId: true,
+          sponsorId: true,
+          programId: true,
+          program: { select: { id: true, code: true, name: true, ownerId: true } },
+        },
+      },
+      wbsElement: {
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          ownerId: true,
+          projectId: true,
+        },
+      },
+      workOrder: {
+        select: {
+          projectId: true,
+          wbsElementId: true,
+          salesOrderId: true,
+          project: {
+            select: {
+              id: true,
+              number: true,
+              name: true,
+              projectManagerId: true,
+              sponsorId: true,
+              programId: true,
+              program: {
+                select: { id: true, code: true, name: true, ownerId: true },
+              },
+            },
+          },
+          wbsElement: {
+            select: { id: true, code: true, name: true, ownerId: true },
+          },
+          salesOrder: { select: { id: true, number: true } },
+        },
+      },
+    },
+  });
+
+  if (!pr) {
+    return {
+      kind: "GENERAL",
+      ownerLabel: "Buyer / purchasing",
+      escalationLabel: "Operations admin",
+    };
+  }
+
+  // Resolve WBS (direct or via WO)
+  type WbsSlice = {
+    id: string;
+    code: string;
+    name: string;
+    ownerId: string | null;
+    projectId?: string;
+  } | null;
+  let wbs: WbsSlice = pr.wbsElement;
+  if (!wbs && pr.workOrder?.wbsElement) {
+    wbs = {
+      ...pr.workOrder.wbsElement,
+      projectId: pr.workOrder.projectId || undefined,
+    };
+  }
+
+  // Resolve project (direct, WBS, or WO)
+  type ProjectSlice = {
+    id: string;
+    number: string;
+    name: string;
+    projectManagerId: string | null;
+    sponsorId: string | null;
+    programId: string | null;
+    program: {
+      id: string;
+      code: string;
+      name: string;
+      ownerId: string | null;
+    } | null;
+  } | null;
+  let project: ProjectSlice = pr.project;
+  if (!project && pr.workOrder?.project) project = pr.workOrder.project;
+  if (!project && wbs?.projectId) {
+    project = await prisma.project.findUnique({
+      where: { id: wbs.projectId },
+      select: {
+        id: true,
+        number: true,
+        name: true,
+        projectManagerId: true,
+        sponsorId: true,
+        programId: true,
+        program: { select: { id: true, code: true, name: true, ownerId: true } },
+      },
+    });
+  }
+
+  const salesOrderId =
+    pr.salesOrderId || pr.workOrder?.salesOrderId || null;
+
+  // ── Project / WBS path ─────────────────────────────────────
+  if (project || wbs) {
+    const ownerUserId =
+      wbs?.ownerId ||
+      project?.projectManagerId ||
+      project?.sponsorId ||
+      null;
+    const ownerLabel = wbs
+      ? `WBS ${wbs.code} owner${ownerUserId ? "" : " (unassigned → purchasing)"}`
+      : `Project ${project?.number || ""} PM${
+          ownerUserId ? "" : " (unassigned → purchasing)"
+        }`;
+
+    const escalationUserId = project?.program?.ownerId || null;
+    const escalationLabel = project?.program
+      ? `Program ${project.program.code} owner${
+          escalationUserId ? "" : " (unassigned → exec/admin)"
+        }`
+      : "Program / executive escalation";
+
+    return {
+      kind: "PROJECT",
+      projectId: project?.id,
+      projectNumber: project?.number,
+      wbsId: wbs?.id,
+      wbsCode: wbs?.code,
+      programId: project?.program?.id,
+      programCode: project?.program?.code,
+      ownerUserId,
+      ownerLabel,
+      escalationUserId,
+      escalationLabel,
+    };
+  }
+
+  // ── Sales order / product-line path ────────────────────────
+  if (salesOrderId) {
+    const so = await prisma.salesOrder.findUnique({
+      where: { id: salesOrderId },
+      select: {
+        id: true,
+        number: true,
+        lines: { select: { partId: true }, take: 40 },
+      },
+    });
+    const partIds = (so?.lines || [])
+      .map((l) => l.partId)
+      .filter((id): id is string => !!id);
+
+    let product: {
+      id: string;
+      name: string;
+      productLine: string | null;
+      productOwnerId: string | null;
+      engineeringLeadId: string | null;
+    } | null = null;
+
+    if (partIds.length) {
+      product = await prisma.product.findFirst({
+        where: {
+          OR: [
+            { topLevelPartId: { in: partIds } },
+            { partLinks: { some: { partId: { in: partIds } } } },
+          ],
+        },
+        select: {
+          id: true,
+          name: true,
+          productLine: true,
+          productOwnerId: true,
+          engineeringLeadId: true,
+        },
+      });
+    }
+
+    // Production manager: product owner, else eng lead, else PRODUCTION role
+    let ownerUserId =
+      product?.productOwnerId || product?.engineeringLeadId || null;
+    if (!ownerUserId) {
+      const prodMgr = await prisma.user.findFirst({
+        where: {
+          isActive: true,
+          OR: [
+            { role: "PRODUCTION", title: { contains: "Manager" } },
+            { role: "PRODUCTION" },
+            { title: { contains: "Production Manager" } },
+          ],
+        },
+        orderBy: { name: "asc" },
+      });
+      ownerUserId = prodMgr?.id || null;
+    }
+
+    const lineLabel =
+      product?.productLine || product?.name || so?.number || "product line";
+    const ownerLabel = `Production manager · ${lineLabel}`;
+
+    // Escalation: product owner if different, else EXECUTIVE
+    let escalationUserId: string | null = null;
+    if (
+      product?.productOwnerId &&
+      product.productOwnerId !== ownerUserId
+    ) {
+      escalationUserId = product.productOwnerId;
+    }
+    if (!escalationUserId) {
+      const exec = await prisma.user.findFirst({
+        where: {
+          isActive: true,
+          role: { in: ["EXECUTIVE", "ADMIN"] },
+        },
+        orderBy: { role: "desc" },
+      });
+      escalationUserId = exec?.id || null;
+    }
+
+    return {
+      kind: "SALES_ORDER",
+      salesOrderId: so?.id,
+      salesOrderNumber: so?.number,
+      productName: product?.name,
+      ownerUserId,
+      ownerLabel,
+      escalationUserId,
+      escalationLabel: product
+        ? `Product owner / exec · ${product.name}`
+        : "Executive escalation (SO)",
+    };
+  }
+
+  // ── General / stock / kanban ───────────────────────────────
+  const buyer = await prisma.user.findFirst({
+    where: { isActive: true, role: "PURCHASING" },
+  });
+  const admin = await prisma.user.findFirst({
+    where: { isActive: true, role: { in: ["ADMIN", "EXECUTIVE"] } },
+  });
+  return {
+    kind: "GENERAL",
+    ownerUserId: buyer?.id || null,
+    ownerLabel: "Buyer / purchasing",
+    escalationUserId: admin?.id || null,
+    escalationLabel: "Operations / admin",
+  };
+}
+
+async function fallbackUserForRole(role: string): Promise<string | null> {
+  const u = await prisma.user.findFirst({
+    where: { isActive: true, role },
+    orderBy: { name: "asc" },
+  });
+  return u?.id || null;
+}
+
 /** After PR is created as SUBMITTED, wire approvals from the active policy. */
 export async function startPrApprovalWorkflow(params: {
   purchaseRequestId: string;
@@ -56,7 +352,6 @@ export async function startPrApprovalWorkflow(params: {
     : await getDefaultApprovalPolicy();
 
   if (!policy || !policy.isActive || policy.steps.length === 0) {
-    // No policy configured → auto-approve (demo-friendly)
     await prisma.purchaseRequest.update({
       where: { id: pr.id },
       data: {
@@ -76,168 +371,99 @@ export async function startPrApprovalWorkflow(params: {
     return { status: "APPROVED" as const, approvals: [] };
   }
 
-  // Resolve the specific person who owns Project / Program / Sales Order
-  // (not just a generic role title). approverId optional = role-based step.
-  let ownerApprovals: {
-    stage: string;
-    approverId?: string;
-  }[] = [];
+  const charge = await resolveChargeContext(pr.id);
+  const amount = pr.totalEstimate || 0;
 
-  // Reload PR with ownership links
-  const prFull = await prisma.purchaseRequest.findUnique({
-    where: { id: pr.id },
-    include: {
-      project: {
-        select: {
-          id: true,
-          projectManagerId: true,
-          sponsorId: true,
-          programId: true,
-          program: { select: { ownerId: true } },
-        },
-      },
-      workOrder: {
-        select: {
-          projectId: true,
-          project: {
-            select: {
-              projectManagerId: true,
-              sponsorId: true,
-              program: { select: { ownerId: true } },
-            },
-          },
-          salesOrderId: true,
-        },
-      },
-    },
-  });
-
-  const project =
-    prFull?.project ||
-    prFull?.workOrder?.project ||
-    null;
-  if (project?.projectManagerId) {
-    ownerApprovals.push({
-      stage: "Project manager",
-      approverId: project.projectManagerId,
-    });
-  } else if (project?.sponsorId) {
-    ownerApprovals.push({
-      stage: "Project sponsor",
-      approverId: project.sponsorId,
-    });
-  } else if (pr.projectId) {
-    // Fallback: first PM/OWNER membership
-    const pm = await prisma.projectMember.findFirst({
-      where: {
-        projectId: pr.projectId,
-        role: { in: ["PM", "OWNER", "MANAGER"] },
-      },
-    });
-    if (pm) {
-      ownerApprovals.push({
-        stage: "Project owner",
-        approverId: pm.userId,
-      });
-    }
-  }
-
-  const programOwnerId =
-    project && "program" in project
-      ? (project as { program?: { ownerId?: string | null } | null }).program
-          ?.ownerId
-      : null;
-  if (programOwnerId) {
-    ownerApprovals.push({
-      stage: "Program owner",
-      approverId: programOwnerId,
-    });
-  }
-
-  // Sales-order charged PRs: SO has no owner field. Add a commercial review
-  // step (not locked to one random ADMIN) so Purchasing/Admin can clear it.
-  if (pr.salesOrderId && !ownerApprovals.length) {
-    const so = await prisma.salesOrder.findUnique({
-      where: { id: pr.salesOrderId },
-      select: { id: true, number: true },
-    });
-    if (so) {
-      ownerApprovals.push({
-        stage: `Sales order ${so.number} review`,
-        // no approverId — any ADMIN / PURCHASING / EXECUTIVE / PM
-      });
-    }
-  }
-
-  // Deduplicate by person (unassigned stages kept once by stage name)
-  const seenOwners = new Set<string>();
-  const seenStages = new Set<string>();
-  ownerApprovals = ownerApprovals.filter((o) => {
-    if (o.approverId) {
-      if (seenOwners.has(o.approverId)) return false;
-      seenOwners.add(o.approverId);
-      return true;
-    }
-    if (seenStages.has(o.stage)) return false;
-    seenStages.add(o.stage);
-    return true;
-  });
-
-  // Steps that apply for this dollar amount
+  // Steps that apply for this dollar amount (threshold)
   const applicable = policy.steps
-    .filter((s) => pr.totalEstimate >= s.minAmount)
+    .filter((s) => amount >= (s.minAmount || 0))
     .sort((a, b) => a.stepOrder - b.stepOrder);
 
-  // Clear prior approvals for re-submit cases
   await prisma.approval.deleteMany({
     where: { entityType: "PurchaseRequest", entityId: pr.id },
   });
 
-  const approvals = [];
+  const approvals: {
+    id: string;
+    stepOrder: number;
+    stage: string;
+    approverId: string | null;
+  }[] = [];
   let stepOrder = 0;
 
-  // Owner / commercial review steps first
-  for (const o of ownerApprovals) {
-    const ownerAp = await prisma.approval.create({
-      data: {
-        entityType: "PurchaseRequest",
-        entityId: pr.id,
-        stage: o.stage,
-        stepOrder: stepOrder++,
-        minAmount: 0,
-        status: "PENDING",
-        approverId: o.approverId || undefined,
-      },
-    });
-    approvals.push(ownerAp);
-  }
-
-  // CFO for any accounting/finance step (role ACCOUNTING or stage name match)
-  const cfoUser = await prisma.user.findFirst({
-    where: {
-      isActive: true,
-      OR: [
-        { title: { contains: "CFO" } },
-        { email: { contains: "cfo" } },
-        { role: "EXECUTIVE", department: "Finance" },
-      ],
-    },
-    orderBy: { name: "asc" },
-  });
-
   for (const step of applicable) {
-    const isFinance =
-      /finance|controller|accounting|cfo/i.test(step.name) ||
-      step.approverRole === "ACCOUNTING" ||
-      step.approverRole === "EXECUTIVE";
-
-    let approverId = step.approverUserId || undefined;
+    const routing = (step.routingKey || "ROLE") as RoutingKey;
+    let approverId: string | null | undefined;
     let stage = step.name;
 
-    if (isFinance && cfoUser) {
-      // Accounting approval requires the CFO specifically
-      approverId = cfoUser.id;
-      stage = step.name.includes("CFO") ? step.name : `${step.name} (CFO)`;
+    if (routing === "CHARGE_OWNER") {
+      approverId = charge.ownerUserId;
+      stage = `${step.name} — ${charge.ownerLabel}`;
+      if (!approverId) {
+        approverId = await fallbackUserForRole(
+          step.approverRole || "PURCHASING"
+        );
+      }
+    } else if (routing === "CHARGE_ESCALATION") {
+      // Only meaningful when charge context can escalate
+      if (charge.kind === "GENERAL" && !charge.escalationUserId) {
+        // Still allow if minAmount hit — admin/exec
+        approverId = await fallbackUserForRole(
+          step.approverRole || "ADMIN"
+        );
+        stage = `${step.name} — ${charge.escalationLabel}`;
+      } else {
+        approverId = charge.escalationUserId;
+        stage = `${step.name} — ${charge.escalationLabel}`;
+        if (!approverId) {
+          approverId = await fallbackUserForRole(
+            step.approverRole || "EXECUTIVE"
+          );
+        }
+      }
+    } else if (routing === "USER") {
+      approverId = step.approverUserId || null;
+      stage = step.name;
+    } else {
+      // ROLE — optional pin specific user still supported
+      approverId = step.approverUserId || null;
+      if (!approverId && step.approverRole) {
+        // Finance pin: prefer CFO title when ACCOUNTING/EXECUTIVE
+        if (
+          step.approverRole === "ACCOUNTING" ||
+          /cfo|finance|controller/i.test(step.name)
+        ) {
+          const cfo = await prisma.user.findFirst({
+            where: {
+              isActive: true,
+              OR: [
+                { title: { contains: "CFO" } },
+                { email: { contains: "cfo" } },
+                { role: "ACCOUNTING" },
+                { role: "EXECUTIVE", department: "Finance" },
+              ],
+            },
+            orderBy: { name: "asc" },
+          });
+          approverId = cfo?.id || null;
+          if (cfo && !step.name.includes("CFO")) {
+            stage = `${step.name} (CFO / finance)`;
+          }
+        }
+      }
+      if (!approverId && step.approverRole) {
+        // Leave unassigned — role-based canUserApproveStep
+        stage = step.name;
+      }
+    }
+
+    // Skip escalation step when same person as charge owner (no double-approve)
+    if (
+      routing === "CHARGE_ESCALATION" &&
+      approverId &&
+      approvals.some((a) => a.approverId === approverId)
+    ) {
+      continue;
     }
 
     const ap = await prisma.approval.create({
@@ -249,10 +475,15 @@ export async function startPrApprovalWorkflow(params: {
         minAmount: step.minAmount,
         policyStepId: step.id,
         status: "PENDING",
-        approverId,
+        approverId: approverId || undefined,
       },
     });
-    approvals.push(ap);
+    approvals.push({
+      id: ap.id,
+      stepOrder: ap.stepOrder,
+      stage: ap.stage,
+      approverId: ap.approverId,
+    });
   }
 
   if (approvals.length === 0) {
@@ -272,8 +503,9 @@ export async function startPrApprovalWorkflow(params: {
       action: "AUTO_APPROVED",
       userId: params.userId,
       metadata: {
-        reason: "No approval steps required",
-        amount: pr.totalEstimate,
+        reason: "No approval steps required for amount",
+        amount,
+        chargeKind: charge.kind,
         policyId: policy.id,
       },
     });
@@ -300,12 +532,13 @@ export async function startPrApprovalWorkflow(params: {
     metadata: {
       policyId: policy.id,
       policyName: policy.name,
-      steps: applicable.map((s) => ({
-        order: s.stepOrder,
-        name: s.name,
-        minAmount: s.minAmount,
+      chargeKind: charge.kind,
+      amount,
+      steps: approvals.map((a) => ({
+        order: a.stepOrder,
+        stage: a.stage,
+        approverId: a.approverId,
       })),
-      amount: pr.totalEstimate,
     },
   });
 
@@ -313,6 +546,7 @@ export async function startPrApprovalWorkflow(params: {
     status: "SUBMITTED" as const,
     approvals,
     currentStepOrder: firstOrder,
+    charge,
   };
 }
 
@@ -328,42 +562,34 @@ export async function canUserApproveStep(params: {
   if (!approval || approval.status !== "PENDING") return false;
 
   const role = params.userRole || "";
-  // Admins can always clear a step (break-glass)
   if (role === "ADMIN") return true;
 
-  // Person pinned on the approval row (PM, sponsor, CFO pin, etc.)
+  // Person pinned on the row (charge owner, program owner, CFO, …)
   if (approval.approverId) {
-    if (approval.approverId === params.userId) return true;
-    // SO / commercial owner steps that were incorrectly pinned to one admin:
-    // still let Purchasing clear them so the dock isn't stuck.
-    if (
-      /sales order/i.test(approval.stage) &&
-      ["PURCHASING", "EXECUTIVE", "PM"].includes(role)
-    ) {
-      return true;
-    }
-    return false;
+    return approval.approverId === params.userId;
   }
 
   const step = approval.policyStep;
   if (!step) {
-    // Free-form / SO review without a named person
     return ["PURCHASING", "EXECUTIVE", "PM"].includes(role);
   }
 
   if (step.approverUserId) {
     return step.approverUserId === params.userId;
   }
+
+  const routing = step.routingKey || "ROLE";
+  if (routing === "CHARGE_OWNER" || routing === "CHARGE_ESCALATION") {
+    // Unassigned charge step — purchasing / exec can clear so work isn't stuck
+    return ["PURCHASING", "EXECUTIVE", "PM", "PRODUCTION"].includes(role);
+  }
+
   if (step.approverRole) {
-    // CFO / accounting steps: allow EXECUTIVE finance or ACCOUNTING
     if (
       step.approverRole === "ACCOUNTING" ||
       /cfo|finance|controller/i.test(approval.stage)
     ) {
-      return (
-        role === "ACCOUNTING" ||
-        role === "EXECUTIVE"
-      );
+      return role === "ACCOUNTING" || role === "EXECUTIVE";
     }
     return role === step.approverRole;
   }
@@ -381,7 +607,6 @@ export async function decidePrApproval(params: {
     where: { id: params.purchaseRequestId },
   });
   if (!pr) throw new Error("Purchase request not found");
-  // Segregation of duties: the requester can't approve their own PR
   if (
     params.decision === "APPROVED" &&
     pr.requestedById &&
@@ -394,7 +619,6 @@ export async function decidePrApproval(params: {
     throw new Error(`PR is ${pr.status}, not awaiting approval`);
   }
 
-  // Legacy PRs without workflow rows — start policy now
   let current = await prisma.approval.findFirst({
     where: {
       entityType: "PurchaseRequest",
@@ -438,12 +662,10 @@ export async function decidePrApproval(params: {
   });
   if (!allowed) {
     const who = current.approverId
-      ? "the assigned approver (or ADMIN)"
+      ? "the assigned charge owner / manager (or ADMIN)"
       : current.policyStep?.approverRole
         ? `role ${current.policyStep.approverRole} (or ADMIN)`
-        : /sales order/i.test(current.stage)
-          ? "ADMIN, PURCHASING, or EXECUTIVE"
-          : "ADMIN or PURCHASING";
+        : "an authorized approver (or ADMIN)";
     throw new Error(
       `You are not authorized for step "${current.stage}". Need ${who}.`
     );
@@ -477,7 +699,6 @@ export async function decidePrApproval(params: {
     return { status: "REJECTED" as const };
   }
 
-  // Find next pending step by order
   const next = await prisma.approval.findFirst({
     where: {
       entityType: "PurchaseRequest",
@@ -507,7 +728,6 @@ export async function decidePrApproval(params: {
     return { status: "SUBMITTED" as const, nextStep: next.stage };
   }
 
-  // All steps done
   await prisma.purchaseRequest.update({
     where: { id: pr.id },
     data: {
@@ -522,7 +742,7 @@ export async function decidePrApproval(params: {
     entityId: pr.id,
     action: "APPROVED",
     userId: params.userId,
-    metadata: { finalStage: current.stage, comments: params.comments },
+    metadata: { stage: current.stage, comments: params.comments },
   });
   return { status: "APPROVED" as const };
 }
@@ -538,11 +758,6 @@ export async function getPrApprovals(purchaseRequestId: string) {
   });
 }
 
-/**
- * PRs actually awaiting THIS user's decision — the current pending step is
- * one they can approve, and they aren't the one who submitted it. Used for
- * the My Approvals count so operators don't see every submitted PR.
- */
 export async function countPrApprovalsForUser(params: {
   userId?: string;
   userRole?: string;
@@ -554,7 +769,6 @@ export async function countPrApprovalsForUser(params: {
   });
   let count = 0;
   for (const pr of prs) {
-    // A requester never approves their own PR
     if (pr.requestedById && pr.requestedById === params.userId) continue;
     const current = await prisma.approval.findFirst({
       where: {
@@ -589,6 +803,7 @@ export async function saveApprovalPolicy(params: {
     stepOrder: number;
     name: string;
     minAmount: number;
+    routingKey?: string | null;
     approverRole?: string | null;
     approverUserId?: string | null;
     required?: boolean;
@@ -602,8 +817,20 @@ export async function saveApprovalPolicy(params: {
     });
   }
 
+  const stepCreate = params.steps.map((s) => ({
+    stepOrder: s.stepOrder,
+    name: s.name,
+    minAmount: s.minAmount,
+    routingKey: (s.routingKey || "ROLE") as string,
+    approverRole: s.approverRole || null,
+    approverUserId: s.approverUserId || null,
+    required: s.required ?? true,
+  }));
+
   if (params.id) {
-    await prisma.approvalPolicyStep.deleteMany({ where: { policyId: params.id } });
+    await prisma.approvalPolicyStep.deleteMany({
+      where: { policyId: params.id },
+    });
     const policy = await prisma.approvalPolicy.update({
       where: { id: params.id },
       data: {
@@ -611,16 +838,7 @@ export async function saveApprovalPolicy(params: {
         description: params.description,
         isDefault: params.isDefault ?? false,
         isActive: params.isActive ?? true,
-        steps: {
-          create: params.steps.map((s) => ({
-            stepOrder: s.stepOrder,
-            name: s.name,
-            minAmount: s.minAmount,
-            approverRole: s.approverRole || null,
-            approverUserId: s.approverUserId || null,
-            required: s.required ?? true,
-          })),
-        },
+        steps: { create: stepCreate },
       },
       include: { steps: { orderBy: { stepOrder: "asc" } } },
     });
@@ -640,16 +858,7 @@ export async function saveApprovalPolicy(params: {
       description: params.description,
       isDefault: params.isDefault ?? false,
       isActive: params.isActive ?? true,
-      steps: {
-        create: params.steps.map((s) => ({
-          stepOrder: s.stepOrder,
-          name: s.name,
-          minAmount: s.minAmount,
-          approverRole: s.approverRole || null,
-          approverUserId: s.approverUserId || null,
-          required: s.required ?? true,
-        })),
-      },
+      steps: { create: stepCreate },
     },
     include: { steps: { orderBy: { stepOrder: "asc" } } },
   });
@@ -662,43 +871,71 @@ export async function saveApprovalPolicy(params: {
   return policy;
 }
 
+const DEFAULT_CHARGE_STEPS = [
+  {
+    stepOrder: 1,
+    name: "Charge owner",
+    minAmount: 0,
+    routingKey: "CHARGE_OWNER",
+    approverRole: "PURCHASING",
+  },
+  {
+    stepOrder: 2,
+    name: "Charge escalation",
+    minAmount: 10000,
+    routingKey: "CHARGE_ESCALATION",
+    approverRole: "EXECUTIVE",
+  },
+  {
+    stepOrder: 3,
+    name: "Finance / controller",
+    minAmount: 25000,
+    routingKey: "ROLE",
+    approverRole: "ACCOUNTING",
+  },
+];
+
 export async function ensureDefaultPrApprovalPolicy() {
   const existing = await prisma.approvalPolicy.findFirst({
     where: { entityType: "PurchaseRequest" },
-  });
-  if (existing) return existing;
-
-  return prisma.approvalPolicy.create({
-    data: {
-      name: "Standard PR approval",
-      entityType: "PurchaseRequest",
-      description:
-        "Buyer reviews all PRs; controller above $5k; ops admin above $25k.",
-      isActive: true,
-      isDefault: true,
-      steps: {
-        create: [
-          {
-            stepOrder: 1,
-            name: "Buyer review",
-            minAmount: 0,
-            approverRole: "PURCHASING",
-          },
-          {
-            stepOrder: 2,
-            name: "Finance / controller",
-            minAmount: 5000,
-            approverRole: "ACCOUNTING",
-          },
-          {
-            stepOrder: 3,
-            name: "Operations admin",
-            minAmount: 25000,
-            approverRole: "ADMIN",
-          },
-        ],
-      },
-    },
     include: { steps: true },
   });
+
+  if (!existing) {
+    return prisma.approvalPolicy.create({
+      data: {
+        name: "Charge-code PR approval",
+        entityType: "PurchaseRequest",
+        description:
+          "Project/WBS → WBS owner or project PM, then program owner above threshold. Sales order → production manager for the product line, then product owner/exec above threshold. Finance above company $ threshold. Edit amounts on the Approvals settings page.",
+        isActive: true,
+        isDefault: true,
+        steps: { create: DEFAULT_CHARGE_STEPS },
+      },
+      include: { steps: true },
+    });
+  }
+
+  // Upgrade legacy “Buyer / Finance / Admin” default to charge-code routing
+  const hasCharge = existing.steps.some(
+    (s) =>
+      s.routingKey === "CHARGE_OWNER" || s.routingKey === "CHARGE_ESCALATION"
+  );
+  if (!hasCharge && existing.isDefault) {
+    await prisma.approvalPolicyStep.deleteMany({
+      where: { policyId: existing.id },
+    });
+    return prisma.approvalPolicy.update({
+      where: { id: existing.id },
+      data: {
+        name: "Charge-code PR approval",
+        description:
+          "Project/WBS → WBS owner or project PM, then program owner above threshold. Sales order → production manager for the product line, then product owner/exec above threshold. Finance above company $ threshold. Edit amounts on the Approvals settings page.",
+        steps: { create: DEFAULT_CHARGE_STEPS },
+      },
+      include: { steps: { orderBy: { stepOrder: "asc" } } },
+    });
+  }
+
+  return existing;
 }

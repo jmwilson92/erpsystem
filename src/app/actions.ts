@@ -1475,6 +1475,7 @@ export async function actionSaveApprovalPolicy(formData: FormData): Promise<void
     stepOrder: number;
     name: string;
     minAmount: number;
+    routingKey?: string | null;
     approverRole?: string | null;
     approverUserId?: string | null;
   }[] = [];
@@ -1484,6 +1485,8 @@ export async function actionSaveApprovalPolicy(formData: FormData): Promise<void
     if (!stepName) continue;
     const stepOrder = Number(formData.get(`step_order_${i}`) || i + 1);
     const minAmount = Number(formData.get(`step_min_${i}`) || 0);
+    const routingKey =
+      ((formData.get(`step_routing_${i}`) as string) || "").trim() || "ROLE";
     const approverRole =
       ((formData.get(`step_role_${i}`) as string) || "").trim() || null;
     const approverUserId =
@@ -1492,6 +1495,7 @@ export async function actionSaveApprovalPolicy(formData: FormData): Promise<void
       stepOrder: Number.isFinite(stepOrder) ? stepOrder : i + 1,
       name: stepName,
       minAmount: Number.isFinite(minAmount) ? minAmount : 0,
+      routingKey,
       approverRole,
       approverUserId,
     });

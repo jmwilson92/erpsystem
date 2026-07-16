@@ -290,16 +290,20 @@ export default async function PrDetailPage({
                       {a.status === "PENDING"
                         ? a.approver
                           ? `Needs ${a.approver.name}`
-                          : a.policyStep?.approverRole
-                            ? `Needs role ${a.policyStep.approverRole}`
-                            : /sales order/i.test(a.stage)
-                              ? "Needs ADMIN, PURCHASING, or EXECUTIVE"
-                              : "Needs ADMIN or PURCHASING"
+                          : a.policyStep?.routingKey === "CHARGE_OWNER" ||
+                              a.policyStep?.routingKey === "CHARGE_ESCALATION"
+                            ? "Needs assigned charge manager (or ADMIN)"
+                            : a.policyStep?.approverRole
+                              ? `Needs role ${a.policyStep.approverRole}`
+                              : "Needs authorized approver"
                         : a.policyStep?.approverRole
                           ? `Role ${a.policyStep.approverRole}`
                           : "Approver"}
                       {a.minAmount > 0 &&
                         ` · ≥ ${formatCurrency(a.minAmount)}`}
+                      {a.policyStep?.routingKey &&
+                        a.policyStep.routingKey !== "ROLE" &&
+                        ` · ${a.policyStep.routingKey}`}
                       {a.status !== "PENDING" &&
                         a.approver &&
                         ` · ${a.approver.name}`}

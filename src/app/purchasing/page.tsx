@@ -763,17 +763,23 @@ export default async function PurchasingPage({
                               s.stepOrder === pr.currentStepOrder &&
                               s.status === "PENDING"
                           );
+                          if (!current) return null;
+                          // Server page — canUserApproveStep is async; use same rules as action
+                          // (approximated here: admin, assigned person, or matching role)
                           const roleOk =
                             currentUser?.role === "ADMIN" ||
-                            !current?.policyStep?.approverRole ||
-                            currentUser?.role === current.policyStep.approverRole ||
-                            (current?.policyStep?.approverUserId &&
-                              current.policyStep.approverUserId === currentUser?.id);
+                            (current.approverId
+                              ? current.approverId === currentUser?.id
+                              : current.policyStep?.approverRole
+                                ? currentUser?.role ===
+                                  current.policyStep.approverRole
+                                : ["PURCHASING", "EXECUTIVE", "PM", "PRODUCTION"].includes(
+                                    currentUser?.role || ""
+                                  ));
                           const isRequester =
                             !!currentUser?.id &&
                             currentUser.id === pr.requestedById;
                           const canApprove = roleOk && !isRequester;
-                          if (!current) return null;
                           return (
                             <div className="flex flex-col items-end gap-1">
                               <p className="max-w-[160px] text-right text-[10px] text-slate-500">
