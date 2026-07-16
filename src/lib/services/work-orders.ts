@@ -708,7 +708,33 @@ export async function signOffStep(params: {
   };
 }
 
-/** Park finished traveler at Receiving for FG putaway. */
+/** Resolve default Receiving station code (seed uses RCV-01). */
+export async function defaultReceivingWorkCenterCode(): Promise<string> {
+  const rec =
+    (await prisma.workCenter.findFirst({
+      where: { code: "RCV-01", isActive: true },
+    })) ||
+    (await prisma.workCenter.findFirst({
+      where: { area: "RECEIVING", isActive: true },
+      orderBy: [{ isDefault: "desc" }, { sortOrder: "asc" }],
+    })) ||
+    (await prisma.workCenter.findFirst({
+      where: {
+        isActive: true,
+        OR: [
+          { code: { startsWith: "RCV" } },
+          { code: { startsWith: "REC" } },
+          { name: { contains: "Receiv" } },
+        ],
+      },
+    }));
+  return rec?.code || "RCV-01";
+}
+
+/**
+ * Park finished traveler at Receiving (RCV-01) for FG putaway.
+ * Does NOT put away / complete stock — that only happens on the Receiving putaway queue.
+ */
 export async function sendWorkOrderToReceivingPutaway(params: {
   workOrderId: string;
   userId?: string;
@@ -722,24 +748,31 @@ export async function sendWorkOrderToReceivingPutaway(params: {
     throw new Error(`WO already ${wo.status}`);
   }
 
-  // Prefer a RECEIVING-area station
-  const rec =
-    (await prisma.workCenter.findFirst({
-      where: { area: "RECEIVING", isActive: true },
-      orderBy: [{ isDefault: "desc" }, { sortOrder: "asc" }],
-    })) ||
-    (await prisma.workCenter.findFirst({
-      where: {
-        isActive: true,
-        OR: [
-          { code: { startsWith: "REC" } },
-          { code: { startsWith: "RCV" } },
-          { name: { contains: "Receiv" } },
-        ],
-      },
-    }));
+  // Require traveler steps done first
+  const pending = await prisma.workOrderStepCompletion.count({
+    where: {
+      workOrderId: wo.id,
+      status: { in: ["PENDING", "IN_PROGRESS"] },
+    },
+  });
+  if (pending > 0 && wo.type !== "TASK_ONLY") {
+    throw new Error(
+      `${pending} traveler step(s) still open — finish sign-off before Sending to Receiving`
+    );
+  }
+  const failed = await prisma.workOrderStepCompletion.count({
+    where: { workOrderId: wo.id, status: "FAILED" },
+  });
+  if (failed > 0) {
+    throw new Error("Failed steps on traveler — resolve NCR before putaway");
+  }
 
-  const code = rec?.code || "REC-01";
+  const code = await defaultReceivingWorkCenterCode();
+
+  // Already parked at receiving putaway — idempotent
+  if (wo.status === "READY_FOR_PUTAWAY" && wo.workCenter === code) {
+    return { workCenter: code, alreadyThere: true as const };
+  }
 
   await prisma.workOrder.update({
     where: { id: wo.id },
@@ -754,7 +787,7 @@ export async function sendWorkOrderToReceivingPutaway(params: {
           userId: params.userId,
           notes:
             params.reason ||
-            `Take finished unit to Receiving (${code}) for putaway to stock`,
+            `Delivered to Receiving workcenter ${code} — awaiting putaway (not stocked yet)`,
         },
       },
     },
@@ -765,10 +798,10 @@ export async function sendWorkOrderToReceivingPutaway(params: {
     entityId: wo.id,
     action: "SENT_TO_RECEIVING_PUTAWAY",
     userId: params.userId,
-    metadata: { workCenter: code },
+    metadata: { workCenter: code, stocked: false },
   });
 
-  return { workCenter: code };
+  return { workCenter: code, alreadyThere: false as const };
 }
 
 export async function getFloorBoardData() {
@@ -783,6 +816,7 @@ export async function getFloorBoardData() {
           "KITTED",
           "RELEASED",
           "IN_PROGRESS",
+          "READY_FOR_PUTAWAY",
           "ON_HOLD",
         ],
       },

@@ -723,22 +723,31 @@ export async function actionSendWoToReceivingPutaway(
     const r = await sendWorkOrderToReceivingPutaway({
       workOrderId,
       userId: user?.id,
-      reason: "Material handler deliver to Receiving",
+      reason: "Material handler deliver to Receiving workcenter",
     });
     await flashToast(
-      `Take unit to Receiving (${r.workCenter}) for putaway — do not stock from the line`
+      r.alreadyThere
+        ? `Already at ${r.workCenter} — open Receiving → WO putaway to stock`
+        : `Parked at ${r.workCenter}. Not stocked yet — open Receiving → WO putaway queue to put away.`
     );
+    // Land MH on the receiving putaway board (does not stock)
+    revalidateFulfillmentPaths([
+      `/work-orders/${workOrderId}`,
+      "/receiving",
+      "/floor",
+    ]);
+    redirect(`/receiving?tab=putaway`);
   } catch (e) {
     await flashToast(
       e instanceof Error ? e.message : "Could not send to Receiving",
       "error"
     );
+    revalidateFulfillmentPaths([
+      `/work-orders/${workOrderId}`,
+      "/receiving",
+      "/floor",
+    ]);
   }
-  revalidateFulfillmentPaths([
-    `/work-orders/${workOrderId}`,
-    "/receiving",
-    "/floor",
-  ]);
 }
 
 export async function actionUpdateWoStatus(formData: FormData) {
@@ -3489,29 +3498,46 @@ export async function actionCompleteWoToStock(formData: FormData): Promise<void>
   const workOrderId = formData.get("workOrderId") as string;
   const user = await getCurrentUser();
   try {
+    // Must already be parked at Receiving (READY_FOR_PUTAWAY @ RCV-*)
+    const wo = await prisma.workOrder.findUnique({
+      where: { id: workOrderId },
+      select: { status: true, workCenter: true, number: true },
+    });
+    if (!wo) throw new Error("Work order not found");
+    if (wo.status !== "READY_FOR_PUTAWAY") {
+      throw new Error(
+        `${wo.number} is not at Receiving putaway yet. Deliver to RCV-01 first.`
+      );
+    }
+
     const result = await completeWorkOrderToStock({
       workOrderId,
       userId: user?.id,
     });
     await flashToast(
       result?.serialNumber
-        ? `WO complete → stock · S/N ${result.serialNumber}`
-        : "WO complete — finished goods in stock"
+        ? `Put away at Receiving complete · S/N ${result.serialNumber}`
+        : `Put away at Receiving complete — ${wo.number} in stock`
     );
     revalidateFulfillmentPaths([
       `/work-orders/${workOrderId}`,
       "/shipping",
       "/sales",
       "/inventory",
+      "/receiving",
+      "/floor",
     ]);
   } catch (e) {
     await flashToast(
       e instanceof Error
         ? e.message
-        : "Cannot complete to stock until traveler steps are signed off",
+        : "Put away only from Receiving after unit is at RCV-01",
       "error"
     );
-    revalidateFulfillmentPaths([`/work-orders/${workOrderId}`]);
+    revalidateFulfillmentPaths([
+      `/work-orders/${workOrderId}`,
+      "/receiving",
+    ]);
   }
 }
 

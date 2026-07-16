@@ -295,12 +295,11 @@ export default async function WorkOrderDetailPage({
               </>
             )}
             {canCompleteToStock && (
-              <form action={actionCompleteWoToStock}>
-                <input type="hidden" name="workOrderId" value={wo.id} />
-                <Button type="submit" size="sm">
-                  Put away → stock
+              <Link href="/receiving?tab=putaway">
+                <Button size="sm" variant="secondary">
+                  Open Receiving putaway
                 </Button>
-              </form>
+              </Link>
             )}
             {wo.status === "ON_HOLD" && (
               <form action={actionUpdateWoStatus}>
@@ -330,8 +329,14 @@ export default async function WorkOrderDetailPage({
           <StationNextGuideBanner
             guide={{
               kind: "TO_DOCK",
-              title: "Take finished unit to Receiving for putaway",
-              detail: `All traveler steps are signed. Walk ${wo.number} to the Receiving workcenter (${wo.workCenter || "REC-01"}). Put away to stock only at Receiving — not on the build line.`,
+              title:
+                wo.status === "READY_FOR_PUTAWAY"
+                  ? `At ${wo.workCenter || "RCV-01"} — put away from Receiving queue`
+                  : "Take finished unit to Receiving (RCV-01)",
+              detail:
+                wo.status === "READY_FOR_PUTAWAY"
+                  ? `${wo.number} is parked at the Receiving workcenter. Open the WO putaway queue and put away to stock there — not from the build line.`
+                  : `All traveler steps are signed. Deliver ${wo.number} to RCV-01. Stocking only happens on the Receiving putaway board after the unit is there.`,
               href: "/receiving?tab=putaway",
               label: "Receiving putaway queue",
               travelerNumber: wo.number,
@@ -339,22 +344,21 @@ export default async function WorkOrderDetailPage({
             }}
           />
           <div className="flex flex-wrap gap-2">
-            {wo.status !== "READY_FOR_PUTAWAY" && (
+            {wo.status !== "READY_FOR_PUTAWAY" ? (
               <form action={actionSendWoToReceivingPutaway}>
                 <input type="hidden" name="workOrderId" value={wo.id} />
                 <Button type="submit" size="sm">
                   <MapPin className="mr-1.5 h-3.5 w-3.5" />
-                  Deliver to Receiving
+                  Deliver to RCV-01
                 </Button>
               </form>
-            )}
-            {canCompleteToStock && (
-              <form action={actionCompleteWoToStock}>
-                <input type="hidden" name="workOrderId" value={wo.id} />
-                <Button type="submit" size="sm" variant="secondary">
-                  Put away → stock (at Receiving)
+            ) : (
+              <Link href="/receiving?tab=putaway">
+                <Button size="sm">
+                  <MapPin className="mr-1.5 h-3.5 w-3.5" />
+                  Open RCV-01 putaway queue
                 </Button>
-              </form>
+              </Link>
             )}
           </div>
         </div>

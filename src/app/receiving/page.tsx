@@ -333,7 +333,7 @@ export default async function ReceivingPage({
                   <form action={actionCompleteWoToStock}>
                     <input type="hidden" name="workOrderId" value={wo.id} />
                     <Button type="submit" size="sm">
-                      Put away → stock
+                      Put away @ {wo.workCenter || "RCV-01"} → stock
                     </Button>
                   </form>
                 </div>

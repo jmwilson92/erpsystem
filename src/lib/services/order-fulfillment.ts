@@ -1666,14 +1666,32 @@ export async function completeWorkOrderToStock(params: {
       "Failed test steps on traveler — resolve NCR / hold before putaway"
     );
   }
-  // Prefer putaway from Receiving after steps (READY_FOR_PUTAWAY)
+  // Putaway to stock only after unit is at Receiving putaway queue
+  if (wo.status !== "READY_FOR_PUTAWAY") {
+    throw new Error(
+      `WO must be at Receiving putaway first (status=${wo.status}). Send to Receiving (RCV-01), then put away there.`
+    );
+  }
+  const recCodes = await prisma.workCenter.findMany({
+    where: {
+      isActive: true,
+      OR: [
+        { area: "RECEIVING" },
+        { code: { startsWith: "RCV" } },
+        { code: { startsWith: "REC" } },
+      ],
+    },
+    select: { code: true },
+  });
+  const recSet = new Set(recCodes.map((c) => c.code.toUpperCase()));
+  recSet.add("RCV-01");
+  recSet.add("REC-01");
   if (
-    !["READY_FOR_PUTAWAY", "IN_PROGRESS", "KITTED", "RELEASED"].includes(
-      wo.status
-    )
+    !wo.workCenter ||
+    !recSet.has(wo.workCenter.toUpperCase())
   ) {
     throw new Error(
-      `WO must be ready for putaway at Receiving (status=${wo.status})`
+      `WO workcenter is ${wo.workCenter || "unset"} — deliver to RCV-01 Receiving before putaway`
     );
   }
 
