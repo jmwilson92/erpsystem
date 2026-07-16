@@ -722,7 +722,7 @@ export async function decidePrApproval(params: {
     );
   }
 
-  // Buyer must attach a package before releasing back to the owner
+  // Buyer package gate — use buyer workbench fields (not free-text notes alone)
   if (
     params.decision === "APPROVED" &&
     current.policyStep?.routingKey === "BUYER_PACKAGE"
@@ -733,15 +733,21 @@ export async function decidePrApproval(params: {
         buyerConfirmedPrices: true,
         quoteFileUrl: true,
         buyerNotes: true,
+        soleSource: true,
+        soleSourceJustification: true,
       },
     });
-    const hasPackage =
-      !!fresh?.buyerConfirmedPrices ||
-      !!fresh?.quoteFileUrl ||
-      !!(fresh?.buyerNotes && fresh.buyerNotes.trim().length > 8);
-    if (!hasPackage) {
+    const { isBuyerPackageComplete } = await import("@/lib/services/pr-buyer");
+    const gate = isBuyerPackageComplete({
+      buyerConfirmedPrices: !!fresh?.buyerConfirmedPrices,
+      quoteFileUrl: fresh?.quoteFileUrl || null,
+      buyerNotes: fresh?.buyerNotes || null,
+      soleSource: !!fresh?.soleSource,
+      soleSourceJustification: fresh?.soleSourceJustification || null,
+    });
+    if (!gate.ok) {
       throw new Error(
-        "Buyer package incomplete — confirm prices and/or attach a supplier quote (and notes) before sending back to the charge owner."
+        `Buyer package incomplete — ${gate.missing.join("; ")}. Use the Buyer workbench on this PR, then confirm package.`
       );
     }
   }
@@ -1037,7 +1043,7 @@ export function approvalActionLabel(routingKey?: string | null, stage?: string) 
     case "CHARGE_OWNER":
       return "Confirm demand — release to buyer";
     case "BUYER_PACKAGE":
-      return "Package complete — send to owner";
+      return "Confirm package — send to owner";
     case "PURCHASE_APPROVAL":
       return "Approve to purchase";
     case "CHARGE_ESCALATION":

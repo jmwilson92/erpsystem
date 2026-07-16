@@ -8,7 +8,7 @@ import fs from "fs";
 // test-drive sandbox copies re-materialize from the migrated master whenever
 // the schema changes — otherwise a sandbox created before a new column would
 // keep failing with "column does not exist" even after `prisma db push`.
-const PRISMA_CLIENT_EPOCH = "pr-pipeline-buyer-v25-schema-heal";
+const PRISMA_CLIENT_EPOCH = "pr-buyer-workbench-v26";
 
 /** Cookie that puts a request into a private test-drive sandbox. */
 export const SANDBOX_COOKIE = "forge-sandbox";
@@ -90,6 +90,21 @@ function ensureSqliteSchema(file: string) {
       const prNames = new Set(prCols.map((c) => c.name));
       if (prNames.size > 0 && !prNames.has("wbsElementId")) {
         db.exec("ALTER TABLE PurchaseRequest ADD COLUMN wbsElementId TEXT");
+      }
+      // Buyer workbench fields (idempotent ALTERs)
+      const prAdds: [string, string][] = [
+        ["soleSource", "INTEGER NOT NULL DEFAULT 0"],
+        ["soleSourceJustification", "TEXT"],
+        ["chargeType", "TEXT"],
+        ["glAccountId", "TEXT"],
+        ["assignedBuyerId", "TEXT"],
+        ["assignedById", "TEXT"],
+        ["assignedAt", "DATETIME"],
+      ];
+      for (const [col, def] of prAdds) {
+        if (prNames.size > 0 && !prNames.has(col)) {
+          db.exec(`ALTER TABLE PurchaseRequest ADD COLUMN ${col} ${def}`);
+        }
       }
     } finally {
       db.close();

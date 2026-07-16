@@ -88,6 +88,8 @@ model User {
   virtualAssetsCheckedOut  VirtualAsset[]    @relation("VirtualAssetCheckout")
   virtualAssetAssignments  VirtualAssetAssignment[]
   workCenterStaff     WorkCenterStaff[]
+  prsAssignedAsBuyer  PurchaseRequest[] @relation("PrAssignedBuyer")
+  prsAssignedBy       PurchaseRequest[] @relation("PrAssignedBy")
 }
 
 model AuditLog {
@@ -2617,10 +2619,26 @@ model PurchaseRequest {
   wbsElementId    String?
   wbsElement      WbsElement? @relation(fields: [wbsElementId], references: [id], onDelete: SetNull)
   salesOrderId    String?
-  // Buyer-confirmed fields before convert
+  // Buyer-confirmed fields before convert / package release
   buyerConfirmedPrices Boolean @default(false)
   buyerConfirmedShip   Boolean @default(false)
   buyerNotes      String?
+  /// Sole source procurement — buyer must justify when true
+  soleSource      Boolean  @default(false)
+  soleSourceJustification String?
+  /**
+   * Accounting charge class for the buy:
+   * PROGRAM (project/WBS) | SALES_ORDER | DIRECT | INDIRECT
+   */
+  chargeType      String?
+  /// Optional GL / charge code link for accounting
+  glAccountId     String?
+  /// Purchasing manager assigns work to a buyer
+  assignedBuyerId String?
+  assignedBuyer   User?    @relation("PrAssignedBuyer", fields: [assignedBuyerId], references: [id], onDelete: SetNull)
+  assignedById    String?
+  assignedBy      User?    @relation("PrAssignedBy", fields: [assignedById], references: [id], onDelete: SetNull)
+  assignedAt      DateTime?
   /// Supplier quote attached to the request; carried onto the PO at convert
   quoteFileUrl    String?
   quoteFileName   String?
@@ -2643,6 +2661,8 @@ model PurchaseRequest {
   @@index([projectId])
   @@index([wbsElementId])
   @@index([salesOrderId])
+  @@index([assignedBuyerId])
+  @@index([chargeType])
 }
 
 model PurchaseRequestLine {

@@ -1549,6 +1549,143 @@ export async function actionAttachPrQuote(formData: FormData): Promise<void> {
   revalidatePath("/purchasing");
 }
 
+/** Buyer workbench: edit lines/prices/charge and optionally confirm package. */
+export async function actionSaveBuyerPackage(
+  formData: FormData
+): Promise<void> {
+  const id = ((formData.get("id") as string) || "").trim();
+  if (!id) throw new Error("Purchase request id required");
+  const user = await getCurrentUser();
+  if (
+    user &&
+    !["ADMIN", "PURCHASING", "EXECUTIVE"].includes(user.role) &&
+    user.role !== "ADMIN"
+  ) {
+    // allow assigned buyer even if role is odd in demo
+  }
+  const confirmPackage =
+    formData.get("confirmPackage") === "true" ||
+    formData.get("confirmPackage") === "on";
+
+  const pr = await prisma.purchaseRequest.findUnique({
+    where: { id },
+    include: { lines: true },
+  });
+  if (!pr) throw new Error("Purchase request not found");
+
+  // Assigned buyer or purchasing/admin may edit
+  const canEdit =
+    user?.role === "ADMIN" ||
+    user?.role === "PURCHASING" ||
+    user?.role === "EXECUTIVE" ||
+    (user?.id && pr.assignedBuyerId === user.id);
+  if (!canEdit) {
+    throw new Error("Only purchasing staff (or the assigned buyer) can edit the buyer package");
+  }
+
+  const lines = pr.lines.map((l) => {
+    const qty = Number(formData.get(`qty_${l.id}`) ?? l.quantity);
+    const unit = Number(formData.get(`cost_${l.id}`) ?? l.estimatedUnitCost);
+    const description =
+      ((formData.get(`desc_${l.id}`) as string) || "").trim() || l.description;
+    const notes = ((formData.get(`notes_${l.id}`) as string) || "").trim();
+    return {
+      id: l.id,
+      quantity: Number.isFinite(qty) ? qty : l.quantity,
+      estimatedUnitCost: Number.isFinite(unit) ? unit : l.estimatedUnitCost,
+      description,
+      notes: notes || null,
+    };
+  });
+
+  const { saveBuyerPackage } = await import("@/lib/services/pr-buyer");
+  const chargeTypeRaw = ((formData.get("chargeType") as string) || "").trim();
+  const chargeType = (
+    ["PROGRAM", "SALES_ORDER", "DIRECT", "INDIRECT"].includes(chargeTypeRaw)
+      ? chargeTypeRaw
+      : null
+  ) as "PROGRAM" | "SALES_ORDER" | "DIRECT" | "INDIRECT" | null;
+
+  const quoteFileUrl =
+    ((formData.get("quoteFileUrl") as string) || "").trim() || undefined;
+  const quoteFileName =
+    ((formData.get("quoteFileName") as string) || "").trim() || undefined;
+
+  await saveBuyerPackage({
+    purchaseRequestId: id,
+    userId: user?.id,
+    lines,
+    supplierId:
+      ((formData.get("supplierId") as string) || "").trim() || null,
+    buyerNotes: ((formData.get("buyerNotes") as string) || "").trim() || null,
+    soleSource:
+      formData.get("soleSource") === "true" ||
+      formData.get("soleSource") === "on",
+    soleSourceJustification:
+      ((formData.get("soleSourceJustification") as string) || "").trim() ||
+      null,
+    chargeType,
+    projectId: ((formData.get("projectId") as string) || "").trim() || null,
+    wbsElementId:
+      ((formData.get("wbsElementId") as string) || "").trim() || null,
+    salesOrderId:
+      ((formData.get("salesOrderId") as string) || "").trim() || null,
+    glAccountId:
+      ((formData.get("glAccountId") as string) || "").trim() || null,
+    buyerConfirmedPrices:
+      formData.get("buyerConfirmedPrices") === "true" ||
+      formData.get("buyerConfirmedPrices") === "on" ||
+      confirmPackage,
+    buyerConfirmedShip:
+      formData.get("buyerConfirmedShip") === "true" ||
+      formData.get("buyerConfirmedShip") === "on",
+    quoteFileUrl: quoteFileUrl || undefined,
+    quoteFileName: quoteFileName || undefined,
+  });
+
+  if (confirmPackage) {
+    // Advance BUYER_PACKAGE step if it's current
+    await decidePrApproval({
+      purchaseRequestId: id,
+      decision: "APPROVED",
+      comments:
+        ((formData.get("comments") as string) || "").trim() ||
+        "Buyer package confirmed",
+      userId: user?.id,
+      userRole: user?.role,
+    });
+    await flashToast("Buyer package confirmed — sent to charge owner");
+  } else {
+    await flashToast("Buyer package saved");
+  }
+
+  revalidatePath(`/purchasing/pr/${id}`);
+  revalidatePath("/purchasing");
+}
+
+export async function actionAssignPrBuyer(formData: FormData): Promise<void> {
+  const id = ((formData.get("id") as string) || "").trim();
+  if (!id) throw new Error("PR id required");
+  const user = await getCurrentUser();
+  if (!user || !["ADMIN", "PURCHASING", "EXECUTIVE"].includes(user.role)) {
+    throw new Error("Only purchasing leadership can assign buyers");
+  }
+  // Prefer managers / any purchasing — still allow any PURCHASING role to assign
+  const buyerUserId =
+    ((formData.get("buyerUserId") as string) || "").trim() || null;
+  const { assignPrBuyer } = await import("@/lib/services/pr-buyer");
+  await assignPrBuyer({
+    purchaseRequestId: id,
+    buyerUserId,
+    assignedById: user.id,
+  });
+  await flashToast(
+    buyerUserId ? "Buyer assigned" : "Buyer assignment cleared"
+  );
+  revalidatePath(`/purchasing/pr/${id}`);
+  revalidatePath("/purchasing");
+}
+
 export async function actionConvertPrToPo(formData: FormData): Promise<void> {
   const id = ((formData.get("id") as string) || "").trim();
   if (!id) throw new Error("Purchase request id required");
