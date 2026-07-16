@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { CompleteInspectionForm } from "@/components/quality/complete-inspection-form";
 import { WorkcenterPanel } from "@/components/workcenters/workcenter-panel";
+import { StationNextGuideBanner } from "@/components/receiving/station-next-guide";
 import { getTestCenterQueue } from "@/lib/services/test-center";
 import { formatDate, cn } from "@/lib/utils";
 import Link from "next/link";
@@ -273,6 +274,12 @@ export default async function TestCenterPage({
                       <p className="mt-1 text-[10px] text-slate-600">
                         Opened {formatDate(insp.createdAt)}
                       </p>
+                      {data.nextGuideByInspId?.[insp.id] && (
+                        <StationNextGuideBanner
+                          className="mt-3"
+                          guide={data.nextGuideByInspId[insp.id]}
+                        />
+                      )}
                     </div>
                     <CompleteInspectionForm
                       inspectionId={insp.id}

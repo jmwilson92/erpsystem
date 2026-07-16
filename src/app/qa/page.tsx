@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { CompleteInspectionForm } from "@/components/quality/complete-inspection-form";
 import { WorkcenterPanel } from "@/components/workcenters/workcenter-panel";
+import { StationNextGuideBanner } from "@/components/receiving/station-next-guide";
 import { getQaInspectionQueue } from "@/lib/services/test-center";
 import { formatDate, cn } from "@/lib/utils";
 import Link from "next/link";
@@ -231,6 +232,12 @@ export default async function QaModulePage({
                         ? " · scan into traveler to charge time"
                         : ""}
                     </p>
+                    {qaQueue.nextGuideByInspId?.[insp.id] && (
+                      <StationNextGuideBanner
+                        className="mt-3"
+                        guide={qaQueue.nextGuideByInspId[insp.id]}
+                      />
+                    )}
                   </div>
                   <CompleteInspectionForm
                     inspectionId={insp.id}

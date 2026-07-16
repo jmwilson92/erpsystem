@@ -408,6 +408,20 @@ export async function getTestCenterQueue() {
     }
   }
 
+  const { batchStationNextGuides } = await import(
+    "@/lib/services/receiving-station-guide"
+  );
+  const nextGuideByInspId = await batchStationNextGuides(
+    receivingInspections.map((i) => ({
+      id: i.id,
+      type: i.type,
+      status: i.status,
+      inventoryItemId: i.inventoryItemId,
+      partId: i.partId,
+    })),
+    travelerByInspId
+  );
+
   return {
     receivingInspections,
     receivingByWo: Array.from(receivingByWo.values()),
@@ -418,6 +432,7 @@ export async function getTestCenterQueue() {
     partMap,
     receiptMap,
     travelerByInspId,
+    nextGuideByInspId,
     stats: {
       openReceiving: receivingInspections.length,
       openInspectionWos: testCenterWos.filter((w) => w.type === "INSPECTION")
@@ -625,6 +640,20 @@ export async function getQaInspectionQueue() {
     travelerByInspId[insp.id] = t;
   }
 
+  const { batchStationNextGuides } = await import(
+    "@/lib/services/receiving-station-guide"
+  );
+  const nextGuideByInspId = await batchStationNextGuides(
+    allQaInspections.map((i) => ({
+      id: i.id,
+      type: i.type,
+      status: i.status,
+      inventoryItemId: i.inventoryItemId,
+      partId: i.partId,
+    })),
+    travelerByInspId
+  );
+
   return {
     qaInspections: allQaInspections,
     qaWos,
@@ -633,6 +662,7 @@ export async function getQaInspectionQueue() {
     partMap,
     receiptMap,
     travelerByInspId,
+    nextGuideByInspId,
     stats: {
       openInspections: allQaInspections.length,
       openWos: qaWos.length,
