@@ -1,5 +1,4 @@
-"use server";
-
+// Server-side service (not a "use server" actions module — may export sync helpers).
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 
