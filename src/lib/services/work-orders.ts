@@ -609,12 +609,49 @@ export async function signOffStep(params: {
     }
   }
 
-  // Station context for client (scroll top only when next open step changes WC)
-  const signedStation =
-    completion.assignedWorkCenter ||
-    step.workCenter ||
-    step.requiredArea ||
-    null;
+  // Resolve stations by code + area (BUILD vs QA vs TEST) — not string equality alone
+  const { resolveStepStation } = await import("@/lib/services/workcenters");
+  const { isWorkArea, WORK_AREA_MOVE_LABELS } = await import("@/lib/work-areas");
+
+  async function stationOf(sc: {
+    assignedWorkCenter: string | null;
+    step: {
+      workCenter: string | null;
+      requiredArea: string | null;
+      isTestStep: boolean;
+      stepType?: string | null;
+    };
+  }) {
+    if (sc.assignedWorkCenter) {
+      const wc = await prisma.workCenter.findFirst({
+        where: { code: sc.assignedWorkCenter },
+      });
+      return {
+        code: sc.assignedWorkCenter,
+        area:
+          (wc && isWorkArea(wc.area) ? wc.area : null) ||
+          (isWorkArea(sc.step.requiredArea) ? sc.step.requiredArea : null),
+      };
+    }
+    // stepType QA/TEST when WI didn't set requiredArea
+    let requiredArea = sc.step.requiredArea;
+    if (!requiredArea) {
+      if (sc.step.isTestStep || sc.step.stepType === "TEST") requiredArea = "TEST";
+      else if (sc.step.stepType === "QA") requiredArea = "QA";
+      else if (sc.step.stepType === "BUILD") requiredArea = "MANUFACTURING";
+    }
+    const resolved = await resolveStepStation({
+      stepWorkCenter: sc.step.workCenter,
+      requiredArea,
+      isTestStep: sc.step.isTestStep,
+    });
+    return { code: resolved.code, area: resolved.area };
+  }
+
+  const signedLoc = await stationOf({
+    assignedWorkCenter: completion.assignedWorkCenter,
+    step,
+  });
 
   const nextOpen = await prisma.workOrderStepCompletion.findFirst({
     where: {
@@ -626,28 +663,74 @@ export async function signOffStep(params: {
         select: {
           id: true,
           stepNumber: true,
+          title: true,
           workCenter: true,
           requiredArea: true,
+          isTestStep: true,
+          stepType: true,
         },
       },
     },
     orderBy: { step: { stepNumber: "asc" } },
   });
 
-  const nextStation =
-    nextOpen?.assignedWorkCenter ||
-    nextOpen?.step.workCenter ||
-    nextOpen?.step.requiredArea ||
-    null;
+  let nextLoc: { code: string | null; area: string | null } = {
+    code: null,
+    area: null,
+  };
+  if (nextOpen) {
+    nextLoc = await stationOf(nextOpen);
+    // Ensure next step has an assigned station for queues/floor
+    if (!nextOpen.assignedWorkCenter && nextLoc.code) {
+      await prisma.workOrderStepCompletion.update({
+        where: { id: nextOpen.id },
+        data: { assignedWorkCenter: nextLoc.code },
+      });
+    }
+  }
 
+  // Area change (Mfg → QA) counts even when codes were empty before resolve
   const stationChanged = Boolean(
     nextOpen &&
-      signedStation &&
-      nextStation &&
-      signedStation.toUpperCase() !== nextStation.toUpperCase()
+      ((signedLoc.area &&
+        nextLoc.area &&
+        signedLoc.area !== nextLoc.area) ||
+        (signedLoc.code &&
+          nextLoc.code &&
+          signedLoc.code.toUpperCase() !== nextLoc.code.toUpperCase()))
   );
 
-  // When all steps signed (no fails) → Receiving putaway (not ship/MH)
+  // Move WO to next station + note for the handoff banner
+  let handoffLabel: string | null = null;
+  if (stationChanged && nextLoc.code && params.result !== "FAIL") {
+    const woNow = await prisma.workOrder.findUnique({
+      where: { id: params.workOrderId },
+      select: { status: true },
+    });
+    handoffLabel =
+      nextLoc.area && isWorkArea(nextLoc.area)
+        ? WORK_AREA_MOVE_LABELS[nextLoc.area]
+        : nextLoc.code;
+    await prisma.workOrder.update({
+      where: { id: params.workOrderId },
+      data: {
+        workCenter: nextLoc.code,
+        department: nextLoc.area || undefined,
+        statusHistory: {
+          create: {
+            fromStatus: woNow?.status || "IN_PROGRESS",
+            toStatus: woNow?.status || "IN_PROGRESS",
+            userId: params.userId,
+            notes: `Handoff: take traveler to ${handoffLabel} (${nextLoc.code}) for step ${
+              nextOpen?.step.stepNumber
+            } — ${nextOpen?.step.title || "next"}`,
+          },
+        },
+      },
+    });
+  }
+
+  // When all steps signed (no fails) → Receiving putaway
   const remaining = await prisma.workOrderStepCompletion.count({
     where: {
       workOrderId: params.workOrderId,
@@ -694,15 +777,23 @@ export async function signOffStep(params: {
       result: params.result,
       stationChanged,
       nextStepId: nextOpen?.stepId || null,
+      fromArea: signedLoc.area,
+      toArea: nextLoc.area,
+      toCode: nextLoc.code,
     },
   });
 
+  // Plain JSON only — Prisma models break client serialization
   return {
-    completion: updated,
     stationChanged: readyForPutaway ? true : stationChanged,
     nextStepId: nextOpen?.stepId || null,
-    nextWorkCenter: nextStation,
-    signedWorkCenter: signedStation,
+    nextWorkCenter: nextLoc.code,
+    nextArea: nextLoc.area,
+    nextAreaLabel: handoffLabel,
+    nextStepTitle: nextOpen?.step.title || null,
+    nextStepNumber: nextOpen?.step.stepNumber ?? null,
+    signedWorkCenter: signedLoc.code,
+    signedArea: signedLoc.area,
     allStepsComplete,
     readyForPutaway,
   };

@@ -701,11 +701,15 @@ export async function actionSignOffStep(formData: FormData) {
   revalidatePath("/inventory");
   revalidatePath("/receiving");
 
-  // Client uses this to decide scroll-to-top vs stay in place
+  // Client uses this to decide scroll-to-top vs stay in place + handoff banner
   return {
     stationChanged: outcome.stationChanged,
     nextStepId: outcome.nextStepId,
     nextWorkCenter: outcome.nextWorkCenter,
+    nextArea: outcome.nextArea,
+    nextAreaLabel: outcome.nextAreaLabel,
+    nextStepTitle: outcome.nextStepTitle,
+    nextStepNumber: outcome.nextStepNumber,
     allStepsComplete: outcome.allStepsComplete,
     readyForPutaway: outcome.readyForPutaway,
   };

@@ -44,6 +44,8 @@ export async function resolveStepStation(params: {
   stepWorkCenter?: string | null;
   requiredArea?: string | null;
   isTestStep?: boolean;
+  /** BUILD | QA | TEST when requiredArea not set */
+  stepType?: string | null;
   preferredWorkCenter?: string | null; // coordinator / WO
 }): Promise<{ code: string | null; area: WorkArea | null; locked: boolean }> {
   if (params.stepWorkCenter) {
@@ -54,20 +56,19 @@ export async function resolveStepStation(params: {
       locked: true, // specific code from WI
     };
   }
-  if (isWorkArea(params.requiredArea)) {
-    const def = await getDefaultWorkCenter(params.requiredArea);
+  let area: WorkArea | null = isWorkArea(params.requiredArea)
+    ? params.requiredArea
+    : null;
+  if (!area) {
+    if (params.isTestStep || params.stepType === "TEST") area = "TEST";
+    else if (params.stepType === "QA") area = "QA";
+    else if (params.stepType === "BUILD") area = "MANUFACTURING";
+  }
+  if (area) {
+    const def = await getDefaultWorkCenter(area);
     return {
       code: def?.code || null,
-      area: params.requiredArea,
-      locked: false,
-    };
-  }
-  // Test steps without routing still belong in Test — not the build station
-  if (params.isTestStep) {
-    const def = await getDefaultWorkCenter("TEST");
-    return {
-      code: def?.code || "TEST-01",
-      area: "TEST",
+      area,
       locked: false,
     };
   }
@@ -299,6 +300,7 @@ export async function seedStepAssignments(workOrderId: string, preferredWorkCent
       stepWorkCenter: sc.step.workCenter,
       requiredArea: sc.step.requiredArea,
       isTestStep: sc.step.isTestStep,
+      stepType: sc.step.stepType,
       preferredWorkCenter,
     });
     if (resolved.code) {

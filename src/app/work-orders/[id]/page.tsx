@@ -22,8 +22,13 @@ import {
 } from "@/app/actions";
 import { checkBomMaterialAvailability } from "@/lib/services/order-fulfillment";
 import { ensureWorkOrderTravelerSteps } from "@/lib/services/work-orders";
-import { listWorkCenters } from "@/lib/services/workcenters";
+import {
+  listWorkCenters,
+  resolveStepStation,
+} from "@/lib/services/workcenters";
+import { isWorkArea, WORK_AREA_MOVE_LABELS } from "@/lib/work-areas";
 import { SignOffStepForm } from "@/components/work-orders/sign-off-form";
+import { StationHandoffBanner } from "@/components/work-orders/station-handoff-banner";
 import { WorkOrderQrLabel } from "@/components/work-orders/qr-label";
 import {
   StationReassignForm,
@@ -175,6 +180,94 @@ export default async function WorkOrderDetailPage({
   const canCompleteToStock = wo.status === "READY_FOR_PUTAWAY";
   const materialShorts = material.requirements.filter((r) => r.short > 0);
 
+  // Next open step → handoff guide when station/area differs from last signed
+  const allStepsFlat = wo.instructions.flatMap((link) =>
+    link.workInstruction.steps.map((step) => ({
+      step,
+      comp: completionMap[step.id],
+    }))
+  );
+  const openStepEntries = allStepsFlat
+    .filter(
+      ({ comp }) =>
+        !comp || ["PENDING", "IN_PROGRESS"].includes(comp.status)
+    )
+    .sort((a, b) => a.step.stepNumber - b.step.stepNumber);
+  const signedStepEntries = allStepsFlat
+    .filter(
+      ({ comp }) =>
+        comp && ["SIGNED", "PASSED", "SKIPPED"].includes(comp.status)
+    )
+    .sort((a, b) => b.step.stepNumber - a.step.stepNumber);
+
+  let serverHandoff: {
+    area: string | null;
+    areaLabel: string;
+    workCenter: string | null;
+    stepTitle: string | null;
+    stepNumber: number | null;
+    href?: string;
+  } | null = null;
+
+  if (
+    wo.status === "IN_PROGRESS" &&
+    openStepEntries.length > 0 &&
+    !readyForReceivingPutaway
+  ) {
+    const next = openStepEntries[0];
+    const prev = signedStepEntries[0];
+    const nextRes = await resolveStepStation({
+      stepWorkCenter: next.comp?.assignedWorkCenter || next.step.workCenter,
+      requiredArea: next.step.requiredArea,
+      isTestStep: next.step.isTestStep,
+      stepType: next.step.stepType,
+    });
+    let prevArea: string | null = null;
+    if (prev) {
+      const prevRes = await resolveStepStation({
+        stepWorkCenter: prev.comp?.assignedWorkCenter || prev.step.workCenter,
+        requiredArea: prev.step.requiredArea,
+        isTestStep: prev.step.isTestStep,
+        stepType: prev.step.stepType,
+      });
+      prevArea = prevRes.area;
+    } else if (wo.workCenter) {
+      const wc = workCenters.find((c) => c.code === wo.workCenter);
+      prevArea = wc?.area || null;
+    }
+    const nextArea = nextRes.area;
+    const areaChanged =
+      nextArea &&
+      prevArea &&
+      nextArea !== prevArea;
+    const codeChanged =
+      nextRes.code &&
+      wo.workCenter &&
+      nextRes.code.toUpperCase() !== wo.workCenter.toUpperCase() &&
+      nextArea &&
+      nextArea !== "MANUFACTURING";
+
+    if (areaChanged || codeChanged || (nextArea && nextArea !== "MANUFACTURING" && prevArea === "MANUFACTURING")) {
+      const areaLabel =
+        nextArea && isWorkArea(nextArea)
+          ? WORK_AREA_MOVE_LABELS[nextArea]
+          : nextRes.code || "next station";
+      serverHandoff = {
+        area: nextArea,
+        areaLabel,
+        workCenter: nextRes.code || next.comp?.assignedWorkCenter || null,
+        stepTitle: next.step.title,
+        stepNumber: next.step.stepNumber,
+        href:
+          nextArea === "QA"
+            ? "/qa"
+            : nextArea === "TEST"
+              ? "/test-center"
+              : undefined,
+      };
+    }
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -323,6 +416,15 @@ export default async function WorkOrderDetailPage({
           area: c.area,
         }))}
       />
+
+      {/* MH handoff when next step is a different station/area (e.g. Mfg → QA) */}
+      {(serverHandoff || wo.status === "IN_PROGRESS") && (
+        <StationHandoffBanner
+          workOrderId={wo.id}
+          workOrderNumber={wo.number}
+          serverHandoff={serverHandoff}
+        />
+      )}
 
       {readyForReceivingPutaway && (
         <div className="space-y-2">

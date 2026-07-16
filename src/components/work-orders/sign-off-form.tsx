@@ -52,23 +52,40 @@ export function SignOffStepForm({
     startTransition(async () => {
       try {
         const outcome = await actionSignOffStep(fd);
-        // Soft refresh — stay put unless next open step is a different station
-        // or traveler is ready for Receiving putaway (then jump to guide at top).
-        if (outcome?.readyForPutaway || outcome?.stationChanged) {
-          window.scrollTo({ top: 0, behavior: "smooth" });
+        const jumpTop = !!(
+          outcome &&
+          (outcome.readyForPutaway || outcome.stationChanged)
+        );
+        if (jumpTop) {
+          // Station handoff or ready for Receiving — show guide at top
+          sessionStorage.setItem(
+            `wo-handoff-${workOrderId}`,
+            JSON.stringify({
+              at: Date.now(),
+              area: outcome.nextArea,
+              areaLabel: outcome.nextAreaLabel,
+              workCenter: outcome.nextWorkCenter,
+              stepTitle: outcome.nextStepTitle,
+              stepNumber: outcome.nextStepNumber,
+              readyForPutaway: outcome.readyForPutaway,
+            })
+          );
           router.refresh();
+          // After paint, force top (refresh can fight rAF once)
+          setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 50);
+          setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 200);
           return;
         }
         router.refresh();
-        // Restore scroll after RSC refresh paints
-        requestAnimationFrame(() => {
+        // Same station — restore scroll after RSC refresh
+        setTimeout(() => {
           window.scrollTo(0, scrollY);
           if (stepAnchorId) {
             document
               .getElementById(stepAnchorId)
-              ?.scrollIntoView({ block: "nearest", behavior: "instant" as ScrollBehavior });
+              ?.scrollIntoView({ block: "nearest" });
           }
-        });
+        }, 80);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Sign-off failed");
       }
