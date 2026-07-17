@@ -195,13 +195,17 @@ export function RadiatorRotator({ slides }: { slides: RadiatorSlide[] }) {
         </div>
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {slide.metrics.map((m, i) => (
-            <div key={i} className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-              <p className="text-sm font-medium uppercase tracking-wider text-slate-500">
+            <div
+              key={i}
+              className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/40 p-4 sm:p-6"
+            >
+              <p className="text-xs font-medium uppercase tracking-wider text-slate-500 sm:text-sm">
                 {m.label}
               </p>
               <p
                 className={cn(
-                  "mt-2 text-5xl font-bold tabular-nums radiator-text md:text-6xl",
+                  // Keep long values (WIP $) inside the card on narrow screens
+                  "mt-2 break-all text-2xl font-bold tabular-nums leading-tight radiator-text sm:text-4xl md:text-5xl",
                   toneText[m.tone]
                 )}
               >

@@ -71,7 +71,13 @@ export default async function RadiatorsPage() {
             <p className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">
               {k.label}
             </p>
-            <p className={cn("mt-2 text-5xl font-bold tabular-nums radiator-text md:text-6xl", k.color.split(" ")[0])}>
+            <p
+              className={cn(
+                // Smaller on phones so long WIP currency stays inside the tile
+                "mt-2 break-all text-2xl font-bold tabular-nums leading-tight radiator-text sm:text-4xl md:text-5xl",
+                k.color.split(" ")[0]
+              )}
+            >
               {k.value}
             </p>
           </div>
