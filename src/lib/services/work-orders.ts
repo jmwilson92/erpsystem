@@ -799,6 +799,187 @@ export async function signOffStep(params: {
   };
 }
 
+/**
+ * Ensure a draft WI exists for a prototype WO (for building steps during build).
+ */
+export async function ensurePrototypeWorkInstruction(params: {
+  workOrderId: string;
+  userId?: string;
+}) {
+  const wo = await prisma.workOrder.findUnique({
+    where: { id: params.workOrderId },
+    include: {
+      part: true,
+      instructions: { include: { workInstruction: true } },
+    },
+  });
+  if (!wo) throw new Error("Work order not found");
+  if (wo.type !== "PROTOTYPE") {
+    throw new Error("Only prototype work orders can draft WIs during build");
+  }
+  if (!wo.partId || !wo.part) throw new Error("Prototype WO needs a part");
+
+  const existing = wo.instructions.find(
+    (i) =>
+      i.workInstruction &&
+      !["RELEASED", "OBSOLETE"].includes(i.workInstruction.status)
+  );
+  if (existing) {
+    return existing.workInstruction;
+  }
+
+  const draft = await prisma.workInstruction.findFirst({
+    where: {
+      partId: wo.partId,
+      status: { in: ["DRAFT", "ENGINEERING_REVIEW"] },
+    },
+    orderBy: { updatedAt: "desc" },
+  });
+  if (draft) {
+    await prisma.workOrderInstruction.create({
+      data: {
+        workOrderId: wo.id,
+        workInstructionId: draft.id,
+        sequence: wo.instructions.length + 1,
+      },
+    });
+    return draft;
+  }
+
+  const { createWorkInstruction } = await import(
+    "@/lib/services/work-instructions"
+  );
+  const count = await prisma.workInstruction.count();
+  const docNum = `WI-P-${String(count + 1).padStart(4, "0")}`;
+  const wi = await createWorkInstruction({
+    documentNumber: docNum,
+    title: `Prototype traveler WI — ${wo.part.partNumber}`,
+    partId: wo.partId,
+    bomHeaderId: wo.bomHeaderId || undefined,
+    revision: "A",
+    userId: params.userId,
+    steps: [],
+  });
+  await prisma.workOrderInstruction.create({
+    data: {
+      workOrderId: wo.id,
+      workInstructionId: wi.id,
+      sequence: 1,
+    },
+  });
+  return wi;
+}
+
+/**
+ * Finish prototype build: submit draft WI to CM submissions as ECR, then putaway.
+ */
+export async function finishPrototypeWorkOrder(params: {
+  workOrderId: string;
+  userId?: string;
+  notes?: string;
+}) {
+  const wo = await prisma.workOrder.findUnique({
+    where: { id: params.workOrderId },
+    include: {
+      instructions: { include: { workInstruction: { include: { steps: true } } } },
+      part: true,
+    },
+  });
+  if (!wo) throw new Error("Work order not found");
+  if (wo.type !== "PROTOTYPE") {
+    throw new Error("Finish prototype is only for PROTOTYPE work orders");
+  }
+
+  // Prefer linked draft WI with steps
+  let wi =
+    wo.instructions
+      .map((i) => i.workInstruction)
+      .find(
+        (w) =>
+          w &&
+          w.steps.length > 0 &&
+          !["RELEASED", "OBSOLETE"].includes(w.status)
+      ) || null;
+
+  if (!wi) {
+    // Fall back: any draft WI for part with steps
+    wi = await prisma.workInstruction.findFirst({
+      where: {
+        partId: wo.partId || undefined,
+        status: { in: ["DRAFT", "ENGINEERING_REVIEW"] },
+        steps: { some: {} },
+      },
+      include: { steps: true },
+    });
+  }
+
+  if (!wi || wi.steps.length === 0) {
+    throw new Error(
+      "Add at least one work instruction step on this prototype before finishing"
+    );
+  }
+
+  const { submitWiToCm } = await import("@/lib/services/work-instructions");
+  const submitted = await submitWiToCm({
+    workInstructionId: wi.id,
+    userId: params.userId,
+    notes:
+      params.notes ||
+      `Prototype ${wo.number} complete — submit ${wi.documentNumber} for CM release`,
+  });
+
+  // Complete traveler steps if any pending (prototype capture)
+  await prisma.workOrderStepCompletion.updateMany({
+    where: {
+      workOrderId: wo.id,
+      status: { in: ["PENDING", "IN_PROGRESS"] },
+    },
+    data: {
+      status: "SIGNED",
+      result: "PASS",
+      signedAt: new Date(),
+      signedById: params.userId || null,
+      notes: "Auto-signed on prototype finish",
+    },
+  });
+
+  // Send to receiving putaway (or complete if task-like)
+  try {
+    await sendWorkOrderToReceivingPutaway({
+      workOrderId: wo.id,
+      userId: params.userId,
+      reason: `Prototype finished — WI ${wi.documentNumber} submitted to CM`,
+    });
+  } catch {
+    await updateWorkOrderStatus({
+      workOrderId: wo.id,
+      toStatus: "READY_FOR_PUTAWAY",
+      userId: params.userId,
+      notes: "Prototype finished — awaiting putaway",
+    });
+  }
+
+  await logAudit({
+    entityType: "WorkOrder",
+    entityId: wo.id,
+    action: "PROTOTYPE_FINISHED",
+    userId: params.userId,
+    metadata: {
+      workInstructionId: wi.id,
+      changeRequestId: submitted.changeRequest.id,
+      ecr: submitted.changeRequest.number,
+    },
+  });
+
+  return {
+    workOrderId: wo.id,
+    workInstructionId: wi.id,
+    changeRequestId: submitted.changeRequest.id,
+    ecrNumber: submitted.changeRequest.number,
+    wiNumber: wi.documentNumber,
+  };
+}
+
 /** Resolve default Receiving station code (seed uses RCV-01). */
 export async function defaultReceivingWorkCenterCode(): Promise<string> {
   const rec =

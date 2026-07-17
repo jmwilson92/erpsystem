@@ -19,6 +19,8 @@ import {
   actionReassignStepStation,
   actionCreateProductionEngIssue,
   actionAlignBusinessPriority,
+  actionAddPrototypeWiStep,
+  actionFinishPrototypeWo,
 } from "@/app/actions";
 import { checkBomMaterialAvailability } from "@/lib/services/order-fulfillment";
 import { ensureWorkOrderTravelerSteps } from "@/lib/services/work-orders";
@@ -1000,7 +1002,93 @@ export default async function WorkOrderDetailPage({
         </Card>
       ))}
 
-      {wo.instructions.length === 0 && (
+      {wo.type === "PROTOTYPE" && (
+        <Card className="border-violet-900/40 bg-violet-500/5">
+          <CardHeader>
+            <CardTitle className="text-base text-violet-200">
+              Prototype — build work instructions as you build
+            </CardTitle>
+            <p className="text-xs text-slate-500">
+              Capture steps here during the prototype. When finished, the system
+              submits the WI to CM submissions as an ECR. After CM releases the
+              WI, you can certify the BOM for production.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <form
+              action={actionAddPrototypeWiStep}
+              className="grid gap-2 sm:grid-cols-2"
+            >
+              <input type="hidden" name="workOrderId" value={wo.id} />
+              <div className="sm:col-span-2">
+                <label className="text-[10px] uppercase text-slate-500">
+                  Step title *
+                </label>
+                <Input name="title" required className="mt-1" placeholder="e.g. Torque housing bolts" />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="text-[10px] uppercase text-slate-500">
+                  Instructions *
+                </label>
+                <Textarea
+                  name="instructions"
+                  required
+                  rows={2}
+                  className="mt-1"
+                  placeholder="What the operator does…"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] uppercase text-slate-500">
+                  Type
+                </label>
+                <select
+                  name="stepType"
+                  className="mt-1 flex h-9 w-full rounded-md border border-slate-700 bg-slate-950 px-2 text-sm"
+                  defaultValue="BUILD"
+                >
+                  <option value="BUILD">Build (manufacturing)</option>
+                  <option value="QA">QA</option>
+                  <option value="TEST">Test</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] uppercase text-slate-500">
+                  Est. minutes
+                </label>
+                <Input
+                  name="estimatedMinutes"
+                  type="number"
+                  defaultValue={15}
+                  className="mt-1"
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <Button type="submit" size="sm" variant="secondary">
+                  Add step to prototype WI
+                </Button>
+              </div>
+            </form>
+            <form
+              action={actionFinishPrototypeWo}
+              className="flex flex-wrap items-end gap-2 border-t border-violet-900/40 pt-3"
+            >
+              <input type="hidden" name="workOrderId" value={wo.id} />
+              <div className="min-w-[12rem] flex-1">
+                <label className="text-[10px] uppercase text-slate-500">
+                  Finish notes (optional)
+                </label>
+                <Input name="notes" className="mt-1" placeholder="Prototype complete…" />
+              </div>
+              <Button type="submit" size="sm">
+                Finish prototype → CM + Receiving
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      )}
+
+      {wo.instructions.length === 0 && wo.type !== "PROTOTYPE" && (
         <Card>
           <CardContent className="space-y-2 py-8 text-center text-slate-500">
             <p>No work instructions linked to this traveler yet.</p>

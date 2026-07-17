@@ -8,7 +8,7 @@ import fs from "fs";
 // test-drive sandbox copies re-materialize from the migrated master whenever
 // the schema changes — otherwise a sandbox created before a new column would
 // keep failing with "column does not exist" even after `prisma db push`.
-const PRISMA_CLIENT_EPOCH = "rcv-station-scan-v28";
+const PRISMA_CLIENT_EPOCH = "bom-uom-beta-v29";
 
 /** Cookie that puts a request into a private test-drive sandbox. */
 export const SANDBOX_COOKIE = "forge-sandbox";
@@ -137,6 +137,19 @@ function ensureSqliteSchema(file: string) {
           if (rtNames.size > 0 && !rtNames.has(col)) {
             db.exec(`ALTER TABLE ReceivingTraveler ADD COLUMN ${col} ${def}`);
           }
+        }
+      } catch {
+        /* ignore */
+      }
+      try {
+        const blCols = db
+          .prepare("PRAGMA table_info(BomLine)")
+          .all() as { name: string }[];
+        const blNames = new Set(blCols.map((c) => c.name));
+        if (blNames.size > 0 && !blNames.has("uom")) {
+          db.exec(
+            "ALTER TABLE BomLine ADD COLUMN uom TEXT NOT NULL DEFAULT 'EA'"
+          );
         }
       } catch {
         /* ignore */

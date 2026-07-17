@@ -359,6 +359,8 @@ model BomLine {
   componentPartId String
   componentPart   Part    @relation("ComponentPart", fields: [componentPartId], references: [id])
   quantity        Float
+  /// Display / issue UOM for this line (defaults from component part)
+  uom             String  @default("EA")
   findNumber      String?
   referenceDesignators String?
   notes           String?

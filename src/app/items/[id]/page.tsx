@@ -11,12 +11,12 @@ import {
   actionUpdateItem,
   actionUpsertPartVendor,
   actionUpdatePartInspectionFlags,
-  actionAddBomLine,
   actionRemoveBomLine,
 } from "@/app/actions";
 import Link from "next/link";
 import { listApprovedSuppliers } from "@/lib/services/items";
 import { ActivityTimeline } from "@/components/shared/activity-timeline";
+import { AddBomLineForm } from "@/components/bom/add-bom-line-form";
 
 export const dynamic = "force-dynamic";
 
@@ -73,7 +73,12 @@ export default async function ItemDetailPage({
       prisma.part.findMany({
         where: { isActive: true, id: { not: id } },
         orderBy: { partNumber: "asc" },
-        select: { id: true, partNumber: true, description: true },
+        select: {
+          id: true,
+          partNumber: true,
+          description: true,
+          uom: true,
+        },
       }),
     ]);
   if (!part) notFound();
@@ -709,6 +714,7 @@ export default async function ItemDetailPage({
                             <th className="py-1">Find</th>
                             <th className="py-1">Component</th>
                             <th className="py-1 text-right">Qty</th>
+                            <th className="py-1 text-right">UOM</th>
                             {editable && <th className="py-1" />}
                           </tr>
                         </thead>
@@ -734,6 +740,9 @@ export default async function ItemDetailPage({
                               </td>
                               <td className="py-1 text-right tabular-nums">
                                 {l.quantity}
+                              </td>
+                              <td className="py-1 text-right font-mono text-slate-500">
+                                {l.uom || l.componentPart.uom || "EA"}
                               </td>
                               {editable && (
                                 <td className="py-1 text-right">
@@ -787,58 +796,30 @@ export default async function ItemDetailPage({
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <form
-                  action={actionAddBomLine}
-                  className="grid gap-3 sm:grid-cols-2"
-                >
-                  <input type="hidden" name="partId" value={part.id} />
-                  <input
-                    type="hidden"
-                    name="bomHeaderId"
-                    value={editableBom.id}
-                  />
-                  <div className="sm:col-span-2">
-                    <label className="text-[10px] uppercase text-slate-500">
-                      Component item *
-                    </label>
-                    <select
-                      name="componentPartId"
-                      required
-                      className={`${selectClass} mt-1`}
-                    >
-                      <option value="">— Select part —</option>
-                      {componentParts.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.partNumber} — {c.description}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-[10px] uppercase text-slate-500">
-                      Quantity *
-                    </label>
-                    <Input
-                      name="quantity"
-                      type="number"
-                      step="any"
-                      defaultValue={1}
-                      required
-                      className="mt-1"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] uppercase text-slate-500">
-                      Find #
-                    </label>
-                    <Input name="findNumber" className="mt-1 font-mono" />
-                  </div>
-                  <div className="sm:col-span-2">
-                    <Button type="submit" size="sm">
-                      Add to BOM
-                    </Button>
-                  </div>
-                </form>
+                <AddBomLineForm
+                  partId={part.id}
+                  bomHeaderId={editableBom.id}
+                  componentParts={componentParts.map((c) => ({
+                    id: c.id,
+                    partNumber: c.partNumber,
+                    description: c.description,
+                    uom: c.uom,
+                  }))}
+                  uomCodes={[
+                    ...new Set([
+                      "EA",
+                      "LB",
+                      "FT",
+                      "IN",
+                      "GAL",
+                      "L",
+                      "KG",
+                      "M",
+                      "SET",
+                      ...uoms.map((u) => u.code),
+                    ]),
+                  ]}
+                />
               </CardContent>
             </Card>
           )}

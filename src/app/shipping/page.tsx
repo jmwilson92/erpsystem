@@ -3,32 +3,180 @@ import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { actionQueueShipment } from "@/app/actions";
+import {
+  actionQueueShipment,
+  actionCreateManualShipment,
+} from "@/app/actions";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
+const selectClass =
+  "flex h-9 w-full rounded-md border border-slate-700 bg-slate-950 px-2 text-sm text-slate-200";
+
 export default async function ShippingPage() {
-  const [shipments, readyOrders] = await Promise.all([
-    prisma.shipment.findMany({
-      orderBy: { createdAt: "desc" },
-      include: {
-        salesOrder: { include: { customer: true } },
-        mrbCase: { select: { number: true } },
-        lines: true,
-      },
-    }),
-    prisma.salesOrder.findMany({
-      where: { status: { in: ["READY_TO_SHIP", "IN_PRODUCTION"] } },
-      orderBy: { requiredDate: "asc" },
-      include: { customer: true, lines: true },
-    }),
-  ]);
+  const [shipments, readyOrders, customers, parts, openSalesOrders] =
+    await Promise.all([
+      prisma.shipment.findMany({
+        orderBy: { createdAt: "desc" },
+        include: {
+          salesOrder: { include: { customer: true } },
+          mrbCase: { select: { number: true } },
+          lines: true,
+        },
+      }),
+      prisma.salesOrder.findMany({
+        where: { status: { in: ["READY_TO_SHIP", "IN_PRODUCTION"] } },
+        orderBy: { requiredDate: "asc" },
+        include: { customer: true, lines: true },
+      }),
+      prisma.customer.findMany({
+        where: { isActive: true },
+        orderBy: { name: "asc" },
+        select: { id: true, name: true, code: true },
+      }),
+      prisma.part.findMany({
+        where: { isActive: true },
+        orderBy: { partNumber: "asc" },
+        take: 200,
+        select: { id: true, partNumber: true, description: true },
+      }),
+      prisma.salesOrder.findMany({
+        where: {
+          status: {
+            notIn: ["CANCELLED", "CLOSED", "SHIPPED"],
+          },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 80,
+        select: {
+          id: true,
+          number: true,
+          customer: { select: { name: true } },
+        },
+      }),
+    ]);
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Shipping" />
+      <PageHeader
+        title="Shipping"
+        description="SO packing queue plus manual shipments to a customer or ship-to address"
+      />
+
+      <Card className="border-sky-900/40">
+        <CardHeader>
+          <CardTitle className="text-base">Create shipping order</CardTitle>
+          <p className="text-xs text-slate-500">
+            Use when you need to ship inventory to a customer or place outside
+            the automatic ready-to-ship pull. Link a sales order when you have
+            one; otherwise enter ship-to and lines.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <form action={actionCreateManualShipment} className="space-y-3">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="text-[10px] uppercase text-slate-500">
+                  Sales order (optional)
+                </label>
+                <select name="salesOrderId" className={`${selectClass} mt-1`}>
+                  <option value="">— None / ad-hoc —</option>
+                  {openSalesOrders.map((so) => (
+                    <option key={so.id} value={so.id}>
+                      {so.number} · {so.customer.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] uppercase text-slate-500">
+                  Customer (optional)
+                </label>
+                <select name="customerId" className={`${selectClass} mt-1`}>
+                  <option value="">— Select —</option>
+                  {customers.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.code} · {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="sm:col-span-2">
+                <label className="text-[10px] uppercase text-slate-500">
+                  Ship to address *
+                </label>
+                <textarea
+                  name="shipToAddress"
+                  required
+                  rows={2}
+                  className="mt-1 w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 text-sm text-slate-200"
+                  placeholder="Name / street / city / state / zip"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] uppercase text-slate-500">
+                  Carrier
+                </label>
+                <Input name="carrier" className="mt-1" placeholder="UPS / FedEx / …" />
+              </div>
+              <div>
+                <label className="text-[10px] uppercase text-slate-500">
+                  Notes
+                </label>
+                <Input name="notes" className="mt-1" />
+              </div>
+            </div>
+            <div className="space-y-2 rounded border border-slate-800 p-3">
+              <p className="text-[10px] font-semibold uppercase text-slate-500">
+                Lines (up to 4)
+              </p>
+              {[0, 1, 2, 3].map((i) => (
+                <div
+                  key={i}
+                  className="grid gap-2 sm:grid-cols-[1fr_2fr_5rem_6rem]"
+                >
+                  <select
+                    name={`line_part_${i}`}
+                    className={selectClass}
+                    defaultValue=""
+                  >
+                    <option value="">Part (optional)</option>
+                    {parts.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.partNumber}
+                      </option>
+                    ))}
+                  </select>
+                  <Input
+                    name={`line_desc_${i}`}
+                    placeholder={i === 0 ? "Description *" : "Description"}
+                    className="text-sm"
+                  />
+                  <Input
+                    name={`line_qty_${i}`}
+                    type="number"
+                    step="any"
+                    placeholder="Qty"
+                    className="text-sm"
+                    defaultValue={i === 0 ? 1 : undefined}
+                  />
+                  <Input
+                    name={`line_lot_${i}`}
+                    placeholder="Lot"
+                    className="font-mono text-sm"
+                  />
+                </div>
+              ))}
+            </div>
+            <Button type="submit" size="sm">
+              Create shipping order
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
 
       {readyOrders.length > 0 && (
         <Card>

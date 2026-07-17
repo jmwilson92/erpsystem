@@ -1823,6 +1823,7 @@ export async function getValueStreamMetrics() {
     activeWos,
     openShipments,
     suppliers,
+    capacity,
   ] = await Promise.all([
     prisma.purchaseOrder.count({
       where: { status: { in: ["ISSUED", "ACKNOWLEDGED", "APPROVED"] } },
@@ -1842,7 +1843,7 @@ export async function getValueStreamMetrics() {
       },
     }),
     prisma.workOrder.count({
-      where: { status: { in: ["RELEASED", "IN_PROGRESS"] } },
+      where: { status: { in: ["RELEASED", "IN_PROGRESS", "READY_FOR_PUTAWAY"] } },
     }),
     prisma.shipment.count({
       where: { status: { in: ["DRAFT", "PICKING", "PACKED"] } },
@@ -1854,6 +1855,9 @@ export async function getValueStreamMetrics() {
         rating: true,
       },
     }),
+    import("@/lib/services/capacity")
+      .then((m) => m.getCapacityAndWorkload())
+      .catch(() => null),
   ]);
 
   const wipValue = await prisma.workOrder.aggregate({
@@ -1870,7 +1874,55 @@ export async function getValueStreamMetrics() {
       ? suppliers.reduce((s, x) => s + x.overallScore, 0) / suppliers.length
       : 0;
 
+  // High-capacity stations feed PRODUCTION / INSPECTION stage status + issue list
+  const overCenters =
+    capacity?.centers.filter((c) => c.alert === "OVER") || [];
+  const nearCenters =
+    capacity?.centers.filter((c) => c.alert === "NEAR") || [];
+  const prodCap = (capacity?.centers || []).filter((c) =>
+    ["MANUFACTURING", "TEST"].includes(c.area)
+  );
+  const qaCap = (capacity?.centers || []).filter((c) => c.area === "QA");
+  const rcvCap = (capacity?.centers || []).filter((c) => c.area === "RECEIVING");
+  const shipCap = (capacity?.centers || []).filter((c) => c.area === "SHIPPING");
+
+  function capStatus(
+    centers: { alert: string; utilizationPct: number }[],
+    fallback: string
+  ) {
+    if (centers.some((c) => c.alert === "OVER")) return "constraint";
+    if (centers.some((c) => c.alert === "NEAR")) return "watch";
+    return fallback;
+  }
+  function maxUtil(centers: { utilizationPct: number }[]) {
+    if (!centers.length) return 0;
+    return Math.round(Math.max(...centers.map((c) => c.utilizationPct)));
+  }
+
+  const capacityIssues = [
+    ...overCenters.map((c) => ({
+      level: "constraint" as const,
+      code: c.code,
+      area: c.area,
+      name: c.name,
+      utilizationPct: Math.round(c.utilizationPct),
+      message: `${c.code} over capacity (${Math.round(c.utilizationPct)}% this week)`,
+    })),
+    ...nearCenters.map((c) => ({
+      level: "watch" as const,
+      code: c.code,
+      area: c.area,
+      name: c.name,
+      utilizationPct: Math.round(c.utilizationPct),
+      message: `${c.code} near capacity (${Math.round(c.utilizationPct)}%)`,
+    })),
+  ];
+
+  const prodFallback = activeWos > 15 ? "watch" : "healthy";
+  const inspFallback = openInspections > 5 ? "watch" : "healthy";
+
   return {
+    capacityIssues,
     stages: [
       {
         key: "SUPPLIER",
@@ -1893,14 +1945,20 @@ export async function getValueStreamMetrics() {
       {
         key: "RECEIVING",
         label: "Receiving",
-        metrics: [{ label: "Pending", value: pendingReceipts, unit: "" }],
-        status: "healthy",
+        metrics: [
+          { label: "Pending", value: pendingReceipts, unit: "" },
+          { label: "Cap %", value: maxUtil(rcvCap), unit: "%" },
+        ],
+        status: capStatus(rcvCap, "healthy"),
       },
       {
         key: "INSPECTION",
         label: "Incoming Inspection",
-        metrics: [{ label: "Open", value: openInspections, unit: "" }],
-        status: openInspections > 5 ? "watch" : "healthy",
+        metrics: [
+          { label: "Open", value: openInspections, unit: "" },
+          { label: "QA cap %", value: maxUtil(qaCap), unit: "%" },
+        ],
+        status: capStatus(qaCap, inspFallback),
       },
       {
         key: "MRB",
@@ -1939,17 +1997,23 @@ export async function getValueStreamMetrics() {
           { label: "Active WOs", value: activeWos, unit: "" },
           {
             label: "WIP $",
-            value: Math.round(wipValue._sum.actualCost || wipValue._sum.standardCost || 0),
+            value: Math.round(
+              wipValue._sum.actualCost || wipValue._sum.standardCost || 0
+            ),
             unit: "$",
           },
+          { label: "Cap %", value: maxUtil(prodCap), unit: "%" },
         ],
-        status: activeWos > 15 ? "watch" : "healthy",
+        status: capStatus(prodCap, prodFallback),
       },
       {
         key: "SHIPPING",
         label: "Shipping",
-        metrics: [{ label: "In Queue", value: openShipments, unit: "" }],
-        status: "healthy",
+        metrics: [
+          { label: "In Queue", value: openShipments, unit: "" },
+          { label: "Cap %", value: maxUtil(shipCap), unit: "%" },
+        ],
+        status: capStatus(shipCap, "healthy"),
       },
     ],
   };

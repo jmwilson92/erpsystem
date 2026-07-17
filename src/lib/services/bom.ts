@@ -86,6 +86,20 @@ export async function certifyBom(params: {
     );
   }
 
+  // Released work instruction must be on file (CM released after prototype build)
+  const releasedWi = await prisma.workInstruction.findFirst({
+    where: {
+      partId: bom.partId,
+      status: "RELEASED",
+    },
+    select: { id: true, documentNumber: true, revision: true },
+  });
+  if (!releasedWi) {
+    throw new Error(
+      "Production certification needs a RELEASED work instruction for this part. Finish the prototype WO (submits WI to CM), then release the WI from CM submissions."
+    );
+  }
+
   // Obsolete previous certified revisions for same part
   await prisma.bomHeader.updateMany({
     where: {
@@ -274,6 +288,7 @@ export async function addBomLine(params: {
   bomHeaderId: string;
   componentPartId: string;
   quantity: number;
+  uom?: string;
   findNumber?: string;
   notes?: string;
   userId?: string;
@@ -291,12 +306,20 @@ export async function addBomLine(params: {
   }
   if (!(params.quantity > 0)) throw new Error("Quantity must be > 0");
 
+  const component = await prisma.part.findUnique({
+    where: { id: params.componentPartId },
+    select: { uom: true },
+  });
+  const uom =
+    (params.uom || component?.uom || "EA").trim().toUpperCase() || "EA";
+
   const maxSort = bom.lines.reduce((m, l) => Math.max(m, l.sortOrder), 0);
   const line = await prisma.bomLine.create({
     data: {
       bomHeaderId: params.bomHeaderId,
       componentPartId: params.componentPartId,
       quantity: params.quantity,
+      uom,
       findNumber: params.findNumber || null,
       notes: params.notes || null,
       sortOrder: maxSort + 1,
@@ -312,6 +335,7 @@ export async function addBomLine(params: {
     metadata: {
       componentPartId: params.componentPartId,
       quantity: params.quantity,
+      uom,
     },
   });
   return line;

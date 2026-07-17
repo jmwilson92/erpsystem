@@ -573,15 +573,43 @@ export async function actionAddBomLine(formData: FormData): Promise<void> {
     bomHeaderId,
     componentPartId: formStr(formData, "componentPartId"),
     quantity: formNum(formData, "quantity", 1),
+    uom: formStr(formData, "uom") || undefined,
     findNumber: formStr(formData, "findNumber") || undefined,
     notes: formStr(formData, "notes") || undefined,
     userId: user?.id,
   });
-  await flashToast("BOM line added");
+  // Soft revalidate only — no redirect (avoids full-page flash when adding lines)
   revalidatePath(`/items/${partId}`);
   revalidatePath(`/bom/${bomHeaderId}`);
   revalidatePath("/bom");
-  redirect(`/items/${partId}?tab=bom`);
+}
+
+/** Quick-create a part from BOM screen; returns id for select without leaving page. */
+export async function actionQuickCreatePart(formData: FormData): Promise<{
+  id: string;
+  partNumber: string;
+  description: string;
+  uom: string;
+}> {
+  const user = await getCurrentUser();
+  const part = await createPart({
+    partNumber: formStr(formData, "partNumber"),
+    description: formStr(formData, "description"),
+    uom: formStr(formData, "uom") || "EA",
+    sourcingMethod:
+      formStr(formData, "sourcingMethod") === "BUILD" ? "BUILD" : "PURCHASE",
+    itemStructure: formStr(formData, "itemStructure") || "N_A",
+    standardCost: formNum(formData, "standardCost"),
+    userId: user?.id,
+  });
+  revalidatePath("/items");
+  revalidatePath("/bom");
+  return {
+    id: part.id,
+    partNumber: part.partNumber,
+    description: part.description,
+    uom: part.uom,
+  };
 }
 
 export async function actionRemoveBomLine(formData: FormData): Promise<void> {
@@ -593,7 +621,7 @@ export async function actionRemoveBomLine(formData: FormData): Promise<void> {
   await removeBomLine({ bomLineId, userId: user?.id });
   revalidatePath(`/items/${partId}`);
   revalidatePath(`/bom/${bomHeaderId}`);
-  redirect(`/items/${partId}?tab=bom`);
+  // Soft revalidate — stay on BOM tab
 }
 
 export async function actionCloseMrbCase(formData: FormData): Promise<void> {
@@ -2244,8 +2272,19 @@ export async function actionVoteCm(formData: FormData) {
   if (vote === "REJECT" && !comments) {
     throw new Error("A rejection reason is required");
   }
-  // Approvers may vote; CM can also vote if on board. Same controls for every seat.
   const user = await getCurrentUser();
+  if (!user) throw new Error("Sign in required to vote");
+
+  // Only the assigned approver may cast their own seat's vote
+  const seat = await prisma.cmBoardMember.findUnique({
+    where: { id: memberId },
+  });
+  if (!seat) throw new Error("Approver seat not found");
+  if (seat.userId !== user.id) {
+    throw new Error(
+      "You can only approve or reject your own sign-off — not someone else's"
+    );
+  }
 
   await prisma.cmBoardMember.update({
     where: { id: memberId },
@@ -3481,6 +3520,85 @@ export async function actionCompleteKit(formData: FormData): Promise<void> {
   ]);
 }
 
+export async function actionAddPrototypeWiStep(
+  formData: FormData
+): Promise<void> {
+  const workOrderId = formData.get("workOrderId") as string;
+  const user = await getCurrentUser("ENGINEERING");
+  const {
+    ensurePrototypeWorkInstruction,
+    ensureWorkOrderTravelerSteps,
+  } = await import("@/lib/services/work-orders");
+  const { addWorkInstructionStep } = await import(
+    "@/lib/services/work-instructions"
+  );
+  try {
+    const wi = await ensurePrototypeWorkInstruction({
+      workOrderId,
+      userId: user?.id,
+    });
+    const stepType = ((formData.get("stepType") as string) || "BUILD").toUpperCase();
+    await addWorkInstructionStep(
+      wi.id,
+      {
+        title: ((formData.get("title") as string) || "").trim() || "Step",
+        instructions:
+          ((formData.get("instructions") as string) || "").trim() || "—",
+        stepType,
+        estimatedMinutes: formData.get("estimatedMinutes")
+          ? Number(formData.get("estimatedMinutes"))
+          : 15,
+      },
+      user?.id
+    );
+    await ensureWorkOrderTravelerSteps({ workOrderId, userId: user?.id });
+    await flashToast("Prototype WI step added to traveler");
+  } catch (e) {
+    await flashToast(
+      e instanceof Error ? e.message : "Could not add WI step",
+      "error"
+    );
+  }
+  revalidateFulfillmentPaths([
+    `/work-orders/${workOrderId}`,
+    "/work-instructions",
+  ]);
+}
+
+export async function actionFinishPrototypeWo(
+  formData: FormData
+): Promise<void> {
+  const workOrderId = formData.get("workOrderId") as string;
+  const notes = ((formData.get("notes") as string) || "").trim() || undefined;
+  const user = await getCurrentUser();
+  const { finishPrototypeWorkOrder } = await import(
+    "@/lib/services/work-orders"
+  );
+  try {
+    const result = await finishPrototypeWorkOrder({
+      workOrderId,
+      userId: user?.id,
+      notes,
+    });
+    await flashToast(
+      `Prototype finished · WI ${result.wiNumber} → CM as ${result.ecrNumber}. Put away at Receiving when ready.`
+    );
+    revalidateFulfillmentPaths([
+      `/work-orders/${workOrderId}`,
+      "/cm",
+      "/work-instructions",
+      "/receiving",
+      "/bom",
+    ]);
+  } catch (e) {
+    await flashToast(
+      e instanceof Error ? e.message : "Could not finish prototype",
+      "error"
+    );
+    revalidatePath(`/work-orders/${workOrderId}`);
+  }
+}
+
 export async function actionStartProduction(formData: FormData): Promise<void> {
   const workOrderId = formData.get("workOrderId") as string;
   const user = await getCurrentUser("PRODUCTION");
@@ -3607,6 +3725,60 @@ export async function actionQueueShipment(formData: FormData): Promise<void> {
     redirect(`/shipping/${result.shipment.id}`);
   }
   redirect(`/shipping?error=${encodeURIComponent(result.reason || "Could not queue shipment")}`);
+}
+
+/** Manual ad-hoc shipment (SO optional) — ship inventory to a customer / place. */
+export async function actionCreateManualShipment(
+  formData: FormData
+): Promise<void> {
+  const user = await getCurrentUser();
+  const { createManualShipment } = await import(
+    "@/lib/services/order-fulfillment"
+  );
+  const salesOrderId =
+    ((formData.get("salesOrderId") as string) || "").trim() || null;
+  const customerId =
+    ((formData.get("customerId") as string) || "").trim() || null;
+  const shipToAddress = ((formData.get("shipToAddress") as string) || "").trim();
+  const carrier = ((formData.get("carrier") as string) || "").trim() || undefined;
+  const notes = ((formData.get("notes") as string) || "").trim() || undefined;
+
+  const lines: {
+    partId?: string | null;
+    description: string;
+    quantity: number;
+    lotNumber?: string;
+  }[] = [];
+  for (let i = 0; i < 12; i++) {
+    const description = ((formData.get(`line_desc_${i}`) as string) || "").trim();
+    const qty = Number(formData.get(`line_qty_${i}`) || 0);
+    const partId = ((formData.get(`line_part_${i}`) as string) || "").trim() || null;
+    const lotNumber =
+      ((formData.get(`line_lot_${i}`) as string) || "").trim() || undefined;
+    if (!description && !qty) continue;
+    lines.push({ description: description || "Item", quantity: qty || 1, partId, lotNumber });
+  }
+
+  try {
+    const shipment = await createManualShipment({
+      salesOrderId,
+      customerId,
+      shipToAddress,
+      carrier,
+      notes,
+      lines,
+      userId: user?.id,
+    });
+    await flashToast(`Shipment ${shipment.number} created`);
+    revalidateFulfillmentPaths(["/shipping", "/sales", "/inventory"]);
+    redirect(`/shipping/${shipment.id}`);
+  } catch (e) {
+    await flashToast(
+      e instanceof Error ? e.message : "Could not create shipment",
+      "error"
+    );
+    revalidatePath("/shipping");
+  }
 }
 
 export async function actionVerifyPackingList(formData: FormData): Promise<void> {

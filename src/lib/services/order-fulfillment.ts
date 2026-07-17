@@ -1979,6 +1979,96 @@ export async function ensureShipmentForSalesOrder(params: {
   return { shipment, blocked: !shipCheck.ok, reason: shipCheck.reason };
 }
 
+/**
+ * Manually create a shipment (SO-linked or ad-hoc to an address / customer).
+ * Use when shipping inventory outside the normal SO ready queue.
+ */
+export async function createManualShipment(params: {
+  salesOrderId?: string | null;
+  customerId?: string | null;
+  shipToAddress: string;
+  carrier?: string;
+  notes?: string;
+  lines: {
+    partId?: string | null;
+    description: string;
+    quantity: number;
+    lotNumber?: string;
+  }[];
+  userId?: string;
+}) {
+  if (!params.shipToAddress?.trim()) {
+    throw new Error("Ship-to address is required");
+  }
+  const lines = params.lines.filter(
+    (l) => l.description?.trim() && l.quantity > 0
+  );
+  if (!lines.length) throw new Error("Add at least one line with qty");
+
+  let salesOrderId = params.salesOrderId || null;
+  let shipTo = params.shipToAddress.trim();
+  if (salesOrderId) {
+    const so = await prisma.salesOrder.findUnique({
+      where: { id: salesOrderId },
+      include: { customer: true },
+    });
+    if (!so) throw new Error("Sales order not found");
+    shipTo =
+      so.shipToAddress ||
+      params.shipToAddress.trim() ||
+      `${so.customer.name} (address TBD)`;
+  } else if (params.customerId) {
+    const cust = await prisma.customer.findUnique({
+      where: { id: params.customerId },
+    });
+    if (cust && !params.shipToAddress.includes(cust.name)) {
+      shipTo = `${params.shipToAddress.trim()}\nAttn: ${cust.name}`;
+    }
+  }
+
+  const count = await prisma.shipment.count();
+  const number = `SHP-${String(count + 1).padStart(5, "0")}`;
+  const shipment = await prisma.shipment.create({
+    data: {
+      number,
+      salesOrderId: salesOrderId || undefined,
+      status: "DRAFT",
+      shipToAddress: shipTo,
+      carrier: params.carrier?.trim() || "TBD",
+      notes:
+        params.notes?.trim() ||
+        "Manual shipment created from Shipping board",
+      lines: {
+        create: lines.map((l) => ({
+          partId: l.partId || undefined,
+          description: l.description.trim(),
+          quantity: l.quantity,
+          lotNumber: l.lotNumber || undefined,
+        })),
+      },
+    },
+    include: { lines: true },
+  });
+
+  await recordTrace({
+    eventType: "SHIPMENT_CREATED",
+    salesOrderId: salesOrderId || undefined,
+    shipmentId: shipment.id,
+    notes: `Manual shipment ${number}`,
+    userId: params.userId,
+  });
+
+  await logAudit({
+    entityType: "Shipment",
+    entityId: shipment.id,
+    action: "MANUAL_CREATE",
+    userId: params.userId,
+    metadata: { number, salesOrderId },
+  });
+
+  return shipment;
+}
+
 /** Verify packing list before pack/ship. */
 export async function verifyShipmentPackingList(params: {
   shipmentId: string;

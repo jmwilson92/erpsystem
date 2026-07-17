@@ -70,7 +70,7 @@ const statusStyles = {
 };
 
 export default async function ValueStreamPage() {
-  const { stages } = await getValueStreamMetrics();
+  const { stages, capacityIssues } = await getValueStreamMetrics();
 
   return (
     <div className="space-y-6">
@@ -79,6 +79,38 @@ export default async function ValueStreamPage() {
 
         actions={<FloorAutoRefresh intervalSec={45} />}
       />
+
+      {capacityIssues && capacityIssues.length > 0 && (
+        <Card className="border-amber-500/40 bg-amber-500/5">
+          <CardContent className="space-y-2 p-4">
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-amber-200">
+              <AlertTriangle className="h-4 w-4" />
+              Capacity issues ({capacityIssues.length})
+            </h3>
+            <ul className="space-y-1 text-sm">
+              {capacityIssues.map((issue) => (
+                <li
+                  key={issue.code}
+                  className={
+                    issue.level === "constraint"
+                      ? "text-red-300"
+                      : "text-amber-200/90"
+                  }
+                >
+                  <span className="font-mono font-semibold">{issue.code}</span>
+                  <span className="text-slate-500"> · {issue.area}</span>
+                  {" — "}
+                  {issue.message}
+                </li>
+              ))}
+            </ul>
+            <p className="text-[11px] text-slate-500">
+              Over capacity (&gt;100%) is a constraint; near capacity (≥85%) is
+              watch. Rebalance staffing, shift WO stations, or pull work later.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="flex flex-col gap-2 lg:flex-row lg:items-stretch lg:gap-2">
         {stages.map((stage, idx) => {
@@ -159,14 +191,16 @@ export default async function ValueStreamPage() {
               capacity or expedite
             </li>
             <li>
-              <span className="text-red-400">Constraint</span> — bottleneck (e.g. open MRB
-              holds) blocking flow; prioritize disposition
+              <span className="text-red-400">Constraint</span> — bottleneck (open MRB,
+              over-capacity stations, supplier OTD collapse); prioritize disposition
+              and rebalance load
             </li>
           </ul>
           <p className="mt-3 text-xs text-slate-500">
-            Metrics pull live from Purchase Orders, Inspections, MRB, Inventory aggregates,
-            Work Orders (WIP $), and Supplier OTD averages. Improving MRB cycle time and
-            supplier quality directly clears the red constraint and lifts scorecards.
+            Metrics pull live from POs, inspections, MRB, inventory, work orders (WIP $),
+            supplier OTD, and workcenter capacity (staff hours vs projected WO hours).
+            High-capacity areas surface as watch/constraint on the stage and in the
+            capacity issues list above.
           </p>
         </CardContent>
       </Card>

@@ -189,6 +189,7 @@ function CardBody({
   releaseFolders,
   adminRootId,
   columns,
+  currentUserId,
 }: {
   card: CmBoardCardData;
   colId: CmBoardColumn;
@@ -197,6 +198,7 @@ function CardBody({
   releaseFolders: ReleaseFolder[];
   adminRootId: string | null;
   columns: CmBoardColumnDef[];
+  currentUserId?: string | null;
 }) {
   const detailHref =
     card.kind === "CR" && card.changeRequestId
@@ -333,67 +335,90 @@ function CardBody({
           card.boardMembers &&
           card.boardMembers.length > 0 &&
           colId === "IN_REVIEW" && (
-            <div className="space-y-1 border-t border-slate-800 pt-2">
+            <div className="space-y-1.5 border-t border-slate-800 pt-2">
               <p className="text-[10px] uppercase text-slate-600">Approvers</p>
               {card.boardMembers
-                // Voting seats only — same Approve/Reject UI for every person
                 .filter((m) =>
                   card.isDocumentEcr
                     ? ["APPROVER", "ENGINEERING", "QUALITY"].includes(m.role)
                     : m.role !== "CHAIR"
                 )
-                .map((m) => (
-                  <div
-                    key={m.id}
-                    className="flex items-center justify-between gap-1 text-[11px]"
-                  >
-                    <span className="min-w-0 truncate text-slate-400">
-                      {userMap[m.userId]?.name || m.role}
-                      <span className="text-slate-600"> · {m.role}</span>
-                    </span>
-                    {/* Same Approve/Reject pair for every approver (re-vote allowed) */}
-                    <div className="flex shrink-0 gap-0.5">
-                      <form action={actionVoteCm}>
-                        <input type="hidden" name="memberId" value={m.id} />
-                        <input type="hidden" name="vote" value="APPROVE" />
-                        <input
-                          type="hidden"
-                          name="returnTo"
-                          value={`/cm/ecr/${card.changeRequestId}`}
-                        />
-                        <Button
-                          type="submit"
-                          size="sm"
-                          variant={
-                            m.vote === "APPROVE" ? "default" : "outline"
-                          }
-                          className="h-6 px-1.5 text-[10px]"
-                        >
-                          Approve
-                        </Button>
-                      </form>
-                      <form action={actionVoteCm}>
-                        <input type="hidden" name="memberId" value={m.id} />
-                        <input type="hidden" name="vote" value="REJECT" />
-                        <input
-                          type="hidden"
-                          name="returnTo"
-                          value={`/cm/ecr/${card.changeRequestId}`}
-                        />
-                        <Button
-                          type="submit"
-                          size="sm"
-                          variant={
-                            m.vote === "REJECT" ? "destructive" : "outline"
-                          }
-                          className="h-6 px-1.5 text-[10px]"
-                        >
-                          Reject
-                        </Button>
-                      </form>
+                .map((m) => {
+                  const isMine = currentUserId && m.userId === currentUserId;
+                  return (
+                    <div
+                      key={m.id}
+                      className="min-w-0 space-y-1 rounded border border-slate-800/80 bg-slate-900/40 p-1.5 text-[11px]"
+                    >
+                      <div className="flex min-w-0 items-center justify-between gap-1">
+                        <span className="min-w-0 truncate text-slate-400">
+                          {userMap[m.userId]?.name || m.role}
+                          <span className="text-slate-600"> · {m.role}</span>
+                        </span>
+                        {m.vote && (
+                          <StatusBadge
+                            status={m.vote}
+                            className="shrink-0 text-[9px]"
+                          />
+                        )}
+                      </div>
+                      {/* Only the assigned person can cast their own vote */}
+                      {isMine ? (
+                        <div className="flex w-full min-w-0 flex-wrap gap-1">
+                          <form action={actionVoteCm} className="min-w-0 flex-1">
+                            <input type="hidden" name="memberId" value={m.id} />
+                            <input type="hidden" name="vote" value="APPROVE" />
+                            <input
+                              type="hidden"
+                              name="returnTo"
+                              value={`/cm/ecr/${card.changeRequestId}`}
+                            />
+                            <Button
+                              type="submit"
+                              size="sm"
+                              variant={
+                                m.vote === "APPROVE" ? "default" : "outline"
+                              }
+                              className="h-7 w-full px-1.5 text-[10px]"
+                            >
+                              Approve
+                            </Button>
+                          </form>
+                          <form action={actionVoteCm} className="min-w-0 flex-1">
+                            <input type="hidden" name="memberId" value={m.id} />
+                            <input type="hidden" name="vote" value="REJECT" />
+                            <input
+                              type="hidden"
+                              name="comments"
+                              value="Rejected on CM board"
+                            />
+                            <input
+                              type="hidden"
+                              name="returnTo"
+                              value={`/cm/ecr/${card.changeRequestId}`}
+                            />
+                            <Button
+                              type="submit"
+                              size="sm"
+                              variant={
+                                m.vote === "REJECT" ? "destructive" : "outline"
+                              }
+                              className="h-7 w-full px-1.5 text-[10px]"
+                            >
+                              Reject
+                            </Button>
+                          </form>
+                        </div>
+                      ) : (
+                        <p className="text-[10px] text-slate-600">
+                          {m.vote
+                            ? "Voted"
+                            : "Waiting on this approver"}
+                        </p>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
             </div>
           )}
 
@@ -489,6 +514,7 @@ export function CmSubmissionsBoard({
   cmUsers,
   releaseFolders,
   adminRootId,
+  currentUserId,
 }: {
   columns: CmBoardColumnDef[];
   initialCards: CmBoardCardData[];
@@ -496,6 +522,7 @@ export function CmSubmissionsBoard({
   cmUsers: CmUser[];
   releaseFolders: ReleaseFolder[];
   adminRootId: string | null;
+  currentUserId?: string | null;
 }) {
   const router = useRouter();
   const [cards, setCards] = useState(initialCards);
@@ -678,6 +705,7 @@ export function CmSubmissionsBoard({
                     releaseFolders={releaseFolders}
                     adminRootId={adminRootId}
                     columns={columns}
+                    currentUserId={currentUserId}
                   />
                 </DraggableCardShell>
               ))}

@@ -31,6 +31,7 @@ import { DocumentEcrForm } from "@/components/cm/document-ecr-form";
 import { CmSubmissionsBoard } from "@/components/cm/cm-board";
 import { CmNumbersPanel } from "@/components/cm/cm-numbers-panel";
 import { parseEcrAttachments } from "@/lib/services/cm-library";
+import { getCurrentUser } from "@/lib/auth";
 import Link from "next/link";
 import {
   Folder,
@@ -147,6 +148,7 @@ export default async function CmPage({
 
   // Admin folder always available for both library + document ECR
   await ensureAdminFolder();
+  const currentUser = await getCurrentUser().catch(() => null);
   await ensureDefaultNumberSchemes();
 
   const [crs, wis, boms, folders, currentFolder, documents, cmUsers, libraryDocs, numberSchemes, numberRequests, numberRegistry, assignedNumbers, bomParts, ecrProjects] =
@@ -610,6 +612,7 @@ export default async function CmPage({
 
           <CmSubmissionsBoard
             columns={BOARD_COLUMNS}
+            currentUserId={currentUser?.id}
             initialCards={cards.map((c) => ({
               id: c.id,
               kind: c.kind,
