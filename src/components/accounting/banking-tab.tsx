@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { getCurrentUser, userHasPermission } from "@/lib/auth";
-import { getBankingOverview } from "@/lib/services/banking";
+import {
+  getBankingOverview,
+  suggestBankCategories,
+} from "@/lib/services/banking";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -47,14 +50,18 @@ export async function BankingTab({ selectedId }: { selectedId?: string }) {
   ]);
 
   const active = selectedId || overview[0]?.id || "";
-  const feed = active
-    ? await prisma.bankTransaction.findMany({
-        where: { bankAccountId: active },
-        orderBy: { date: "desc" },
-        include: { categoryAccount: { select: { code: true, name: true } } },
-        take: 100,
-      })
-    : [];
+  const [feed, suggestions] = active
+    ? await Promise.all([
+        prisma.bankTransaction.findMany({
+          where: { bankAccountId: active },
+          orderBy: { date: "desc" },
+          include: { categoryAccount: { select: { code: true, name: true } } },
+          take: 100,
+        }),
+        suggestBankCategories(active),
+      ])
+    : [[], []];
+  const suggestionByTxn = new Map(suggestions.map((s) => [s.transactionId, s]));
 
   return (
     <div className="space-y-4">
@@ -137,30 +144,51 @@ export async function BankingTab({ selectedId }: { selectedId?: string }) {
                         {formatCurrency(t.amount)}
                       </span>
                       {t.status === "UNMATCHED" && canPost ? (
-                        <form
-                          action={actionCategorizeBankTxn}
-                          className="flex items-center gap-1"
-                        >
-                          <input type="hidden" name="transactionId" value={t.id} />
-                          <select
-                            name="categoryAccountId"
-                            required
-                            className={selectClass}
-                            defaultValue=""
+                        <div className="flex items-center gap-1">
+                          {suggestionByTxn.has(t.id) && (
+                            <form action={actionCategorizeBankTxn}>
+                              <input type="hidden" name="transactionId" value={t.id} />
+                              <input
+                                type="hidden"
+                                name="categoryAccountId"
+                                value={suggestionByTxn.get(t.id)!.accountId}
+                              />
+                              <Button
+                                type="submit"
+                                size="sm"
+                                className="h-8 border border-teal-500/40 bg-teal-500/10 text-[11px] text-teal-300 hover:bg-teal-500/20"
+                                title={`Learned from "${suggestionByTxn.get(t.id)!.basedOn}"`}
+                              >
+                                ✓ {suggestionByTxn.get(t.id)!.accountCode}{" "}
+                                {suggestionByTxn.get(t.id)!.accountName}
+                              </Button>
+                            </form>
+                          )}
+                          <form
+                            action={actionCategorizeBankTxn}
+                            className="flex items-center gap-1"
                           >
-                            <option value="" disabled>
-                              Categorize…
-                            </option>
-                            {categoryAccounts.map((c) => (
-                              <option key={c.id} value={c.id}>
-                                {c.code} {c.name}
+                            <input type="hidden" name="transactionId" value={t.id} />
+                            <select
+                              name="categoryAccountId"
+                              required
+                              className={selectClass}
+                              defaultValue=""
+                            >
+                              <option value="" disabled>
+                                Categorize…
                               </option>
-                            ))}
-                          </select>
-                          <Button type="submit" size="sm" variant="outline" className="h-8">
-                            Post
-                          </Button>
-                        </form>
+                              {categoryAccounts.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  {c.code} {c.name}
+                                </option>
+                              ))}
+                            </select>
+                            <Button type="submit" size="sm" variant="outline" className="h-8">
+                              Post
+                            </Button>
+                          </form>
+                        </div>
                       ) : t.status === "MATCHED" && canPost ? (
                         <form action={actionReconcileBankTxn}>
                           <input type="hidden" name="transactionId" value={t.id} />

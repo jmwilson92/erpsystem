@@ -1,7 +1,16 @@
 import { prisma } from "@/lib/db";
 import { getCurrentUser, userHasPermission } from "@/lib/auth";
 import { InlineSetting } from "@/components/settings/inline-setting";
-import { getGaapReportPack, listJournalEntries } from "@/lib/services/gaap";
+import {
+  getGaapReportPack,
+  listJournalEntries,
+  getCashFlowStatement,
+  runDueAutoReversals,
+} from "@/lib/services/gaap";
+import {
+  listRecurringJournals,
+  runDueRecurringJournals,
+} from "@/lib/services/recurring-journals";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { StatCard } from "@/components/shared/stat-card";
@@ -27,6 +36,11 @@ import {
   actionVoidJournal,
   actionRecordArPayment,
   actionRecordApPayment,
+  actionReverseJournal,
+  actionCreateRecurringJournal,
+  actionToggleRecurringJournal,
+  actionDeleteRecurringJournal,
+  actionRunRecurringJournals,
   actionCreateVendorApInvoice,
   actionCreateExpenseEntry,
   actionReimburseExpense,
@@ -82,7 +96,20 @@ export default async function AccountingPage({
     fromDate && !Number.isNaN(fromDate.getTime()) ? fromDate : null;
   const validTo = toDate && !Number.isNaN(toDate.getTime()) ? toDate : null;
 
+  // Memorized transactions & accrual reversals materialize on page load —
+  // idempotent between due dates, same as QuickBooks' scheduled entries.
+  try {
+    await runDueRecurringJournals();
+    await runDueAutoReversals();
+  } catch {
+    /* never block the books on scheduler hiccups */
+  }
+
   const pack = await getGaapReportPack();
+  const [cashFlow, recurringTemplates] = await Promise.all([
+    getCashFlowStatement({ from: validFrom, to: validTo }),
+    listRecurringJournals(),
+  ]);
   const [
     accounts,
     journals,
@@ -560,6 +587,7 @@ export default async function AccountingPage({
         <TabsList className="flex h-auto flex-wrap">
           <TabsTrigger value="pl">Income Statement</TabsTrigger>
           <TabsTrigger value="bs">Balance Sheet</TabsTrigger>
+          <TabsTrigger value="cf">Cash Flow</TabsTrigger>
           <TabsTrigger value="tb">Trial Balance</TabsTrigger>
           <TabsTrigger value="ar">AR</TabsTrigger>
           <TabsTrigger value="ap">AP</TabsTrigger>
@@ -569,6 +597,9 @@ export default async function AccountingPage({
           </TabsTrigger>
           <TabsTrigger value="cost">Cost Integration</TabsTrigger>
           <TabsTrigger value="post">Post JE</TabsTrigger>
+          <TabsTrigger value="recurring">
+            Recurring{recurringTemplates.length ? ` (${recurringTemplates.length})` : ""}
+          </TabsTrigger>
           <TabsTrigger value="expense">Expenses</TabsTrigger>
           <TabsTrigger value="payroll">
             Payroll
@@ -639,6 +670,104 @@ export default async function AccountingPage({
                   {formatCurrency(bs.liabilitiesAndEquity)}
                 </p>
               </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="cf">
+          <Card>
+            <CardHeader>
+              <CardTitle>Statement of Cash Flows (indirect method)</CardTitle>
+              <p className="text-xs text-slate-500">
+                {formatDate(cashFlow.from)} → {formatDate(cashFlow.to)} · from
+                posted journal activity. Defaults to calendar year-to-date;
+                use the period filter above to change it.
+              </p>
+            </CardHeader>
+            <CardContent className="max-w-2xl space-y-4 text-sm">
+              <div>
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Operating activities
+                </p>
+                <CfRow label="Net income" value={cashFlow.netIncome} strong />
+                {cashFlow.depreciation > 0 && (
+                  <CfRow
+                    label="Add back: depreciation & amortization"
+                    value={cashFlow.depreciation}
+                  />
+                )}
+                {cashFlow.operating.map((r) => (
+                  <CfRow
+                    key={r.code}
+                    label={`${r.amount >= 0 ? "Decrease" : "Increase"} in ${r.account}`}
+                    code={r.code}
+                    value={r.amount}
+                  />
+                ))}
+                <CfTotal
+                  label="Net cash from operating activities"
+                  value={cashFlow.operatingTotal}
+                />
+              </div>
+              <div>
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Investing activities
+                </p>
+                {cashFlow.investing.length === 0 && (
+                  <p className="text-xs text-slate-600">No investing activity in period.</p>
+                )}
+                {cashFlow.investing.map((r) => (
+                  <CfRow
+                    key={r.code}
+                    label={`${r.amount < 0 ? "Purchases of" : "Proceeds from"} ${r.account}`}
+                    code={r.code}
+                    value={r.amount}
+                  />
+                ))}
+                <CfTotal
+                  label="Net cash from investing activities"
+                  value={cashFlow.investingTotal}
+                />
+              </div>
+              <div>
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Financing activities
+                </p>
+                {cashFlow.financing.length === 0 && (
+                  <p className="text-xs text-slate-600">No financing activity in period.</p>
+                )}
+                {cashFlow.financing.map((r) => (
+                  <CfRow key={r.code} label={r.account} code={r.code} value={r.amount} />
+                ))}
+                <CfTotal
+                  label="Net cash from financing activities"
+                  value={cashFlow.financingTotal}
+                />
+              </div>
+              <div className="flex justify-between border-t border-slate-700 pt-3 text-lg font-semibold">
+                <span>Net change in cash</span>
+                <span
+                  className={
+                    cashFlow.netChange >= 0 ? "text-emerald-400" : "text-red-400"
+                  }
+                >
+                  {formatCurrency(cashFlow.netChange)}
+                </span>
+              </div>
+              <p
+                className={`flex items-center gap-1.5 text-xs ${
+                  cashFlow.reconciled ? "text-emerald-500" : "text-amber-400"
+                }`}
+              >
+                {cashFlow.reconciled ? (
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                ) : (
+                  <XCircle className="h-3.5 w-3.5" />
+                )}
+                {cashFlow.reconciled
+                  ? "Ties to cash-account movement on the ledger."
+                  : `Ledger cash moved ${formatCurrency(cashFlow.cashMovement)} — difference usually means journals posted directly between non-cash accounts and cash outside the period, or unclassified accounts.`}
+              </p>
             </CardContent>
           </Card>
         </TabsContent>
@@ -1149,6 +1278,20 @@ export default async function AccountingPage({
                             </Button>
                           </form>
                         )}
+                        {je.status === "POSTED" && (
+                          <form action={actionReverseJournal}>
+                            <input type="hidden" name="id" value={je.id} />
+                            <Button
+                              type="submit"
+                              size="sm"
+                              variant="outline"
+                              className="h-6 px-1.5 text-[10px]"
+                              title="Post the mirror entry (debits ↔ credits)"
+                            >
+                              Reverse
+                            </Button>
+                          </form>
+                        )}
                         {je.status !== "VOID" && (
                           <form
                             action={actionVoidJournal}
@@ -1423,12 +1566,181 @@ export default async function AccountingPage({
                   <input type="checkbox" name="postNow" value="true" />
                   Post immediately (skip approval)
                 </label>
+                <label className="flex items-center gap-2 text-xs text-slate-400">
+                  <input type="checkbox" name="autoReverse" value="true" />
+                  Accrual — auto-reverse on the 1st of next month
+                </label>
                 <Button type="submit" size="sm">
                   Submit for approval
                 </Button>
               </form>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="recurring" className="space-y-4">
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">
+                  Memorize a recurring journal
+                </CardTitle>
+                <p className="text-xs text-slate-500">
+                  Rent, depreciation, standing accruals — posts itself on
+                  schedule. Mark it as an accrual to auto-reverse each entry on
+                  the 1st of the following month.
+                </p>
+              </CardHeader>
+              <CardContent>
+                <form
+                  action={actionCreateRecurringJournal}
+                  className="grid gap-2"
+                >
+                  <Input
+                    name="name"
+                    required
+                    placeholder="Name e.g. Monthly rent — Building A"
+                  />
+                  <select name="debitAccountId" required className={selectClass}>
+                    <option value="">Debit account…</option>
+                    {accounts.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.code} {a.name}
+                      </option>
+                    ))}
+                  </select>
+                  <select name="creditAccountId" required className={selectClass}>
+                    <option value="">Credit account…</option>
+                    {accounts.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.code} {a.name}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="grid grid-cols-3 gap-2">
+                    <Input
+                      name="amount"
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      required
+                      placeholder="Amount"
+                    />
+                    <select name="frequency" className={selectClass} defaultValue="MONTHLY">
+                      <option value="WEEKLY">Weekly</option>
+                      <option value="MONTHLY">Monthly</option>
+                      <option value="QUARTERLY">Quarterly</option>
+                      <option value="ANNUALLY">Annually</option>
+                    </select>
+                    <Input
+                      name="dayOfMonth"
+                      type="number"
+                      min="1"
+                      max="28"
+                      defaultValue="1"
+                      title="Day of month to post (1–28); for weekly, 1=Mon … 7=Sun"
+                    />
+                  </div>
+                  <Input name="memo" placeholder="Line memo (optional)" />
+                  <label className="flex items-center gap-2 text-xs text-slate-400">
+                    <input type="checkbox" name="autoReverse" value="true" />
+                    Accrual — each posting auto-reverses on the 1st of the next
+                    month
+                  </label>
+                  <Button type="submit" size="sm">
+                    Memorize journal
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
+                <div>
+                  <CardTitle className="text-base">
+                    Scheduled journals · {recurringTemplates.length}
+                  </CardTitle>
+                  <p className="text-xs text-slate-500">
+                    Due entries post automatically when Accounting loads, or run
+                    them now.
+                  </p>
+                </div>
+                <form action={actionRunRecurringJournals}>
+                  <Button type="submit" size="sm" variant="outline">
+                    Run due now
+                  </Button>
+                </form>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {recurringTemplates.length === 0 && (
+                  <p className="py-4 text-center text-sm text-slate-500">
+                    Nothing memorized yet.
+                  </p>
+                )}
+                {recurringTemplates.map((t) => (
+                  <div
+                    key={t.id}
+                    className="rounded-lg border border-slate-800 px-3 py-2"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <span className="text-sm font-medium text-slate-200">
+                          {t.name}
+                        </span>
+                        <span className="ml-2 text-xs text-slate-500">
+                          {t.frequency.toLowerCase()} · day {t.dayOfMonth} ·{" "}
+                          {formatCurrency(t.amount)}
+                          {t.autoReverse ? " · auto-reversing accrual" : ""}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <form action={actionToggleRecurringJournal}>
+                          <input type="hidden" name="id" value={t.id} />
+                          <input
+                            type="hidden"
+                            name="isActive"
+                            value={t.isActive ? "false" : "true"}
+                          />
+                          <Button
+                            type="submit"
+                            size="sm"
+                            variant="outline"
+                            className="h-6 px-2 text-[10px]"
+                          >
+                            {t.isActive ? "Pause" : "Resume"}
+                          </Button>
+                        </form>
+                        <form action={actionDeleteRecurringJournal}>
+                          <input type="hidden" name="id" value={t.id} />
+                          <Button
+                            type="submit"
+                            size="sm"
+                            variant="outline"
+                            className="h-6 px-2 text-[10px] text-rose-400"
+                          >
+                            Delete
+                          </Button>
+                        </form>
+                      </div>
+                    </div>
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      {t.lines
+                        .map(
+                          (l) =>
+                            `${l.debit ? "Dr" : "Cr"} ${l.accountCode || "?"} ${l.accountName || ""}`
+                        )
+                        .join(" / ")}
+                      {" · "}
+                      {t.isActive
+                        ? `next ${t.nextRunAt ? formatDate(t.nextRunAt) : "—"}`
+                        : "paused"}
+                      {t.lastRunAt ? ` · last ${formatDate(t.lastRunAt)}` : ""}
+                    </p>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
 
         <TabsContent value="expense">
@@ -1776,6 +2088,45 @@ function AgingSummary({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function CfRow({
+  label,
+  code,
+  value,
+  strong,
+}: {
+  label: string;
+  code?: string;
+  value: number;
+  strong?: boolean;
+}) {
+  return (
+    <div
+      className={`flex justify-between border-b border-slate-900/50 py-0.5 ${
+        strong ? "font-medium text-slate-200" : "text-slate-400"
+      }`}
+    >
+      <span>
+        {code && <span className="mr-1 font-mono text-teal-500/80">{code}</span>}
+        {label}
+      </span>
+      <span className="tabular-nums text-slate-300">{formatCurrency(value)}</span>
+    </div>
+  );
+}
+
+function CfTotal({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="mt-1 flex justify-between border-t border-slate-800 pt-1.5 font-semibold">
+      <span>{label}</span>
+      <span
+        className={`tabular-nums ${value >= 0 ? "text-emerald-400" : "text-red-400"}`}
+      >
+        {formatCurrency(value)}
+      </span>
+    </div>
   );
 }
 

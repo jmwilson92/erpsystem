@@ -37,6 +37,9 @@ model User {
   hourlyRate    Float    @default(0)
   /// Optional annual salary (display / conversion aid for HR — not payroll tax calc)
   annualSalary  Float?
+  /// Payroll withholding profile (simple percentages; FICA is fixed 7.65%)
+  fedWithholdingPct   Float @default(0.12)
+  stateWithholdingPct Float @default(0.04)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -3326,9 +3329,13 @@ model JournalEntry {
   status      String   @default("DRAFT") // DRAFT, PENDING_APPROVAL, POSTED, VOID
   /// Required when voiding a journal
   voidReason  String?
-  source      String?  // MANUAL, AP, AR, PAYROLL, INVENTORY, WO
+  source      String?  // MANUAL, AP, AR, PAYROLL, INVENTORY, WO, RECURRING, REVERSAL
   sourceId    String?
   postedAt    DateTime?
+  /// Accrual auto-reversal: the JE this one reverses (links the pair)
+  reversesJournalId String?
+  /// When set on a posted accrual, the reversing entry is dated here
+  autoReverseOn     DateTime?
   /// Project / charge reference for job cost tracking
   projectId   String?
   chargeCode  String?
@@ -3365,6 +3372,26 @@ model JournalAttachment {
   uploadedAt      DateTime @default(now())
 
   @@index([journalEntryId])
+}
+
+/// Memorized / recurring journal templates (rent, depreciation, accruals…)
+model RecurringJournal {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  /// WEEKLY | MONTHLY | QUARTERLY | ANNUALLY
+  frequency   String   @default("MONTHLY")
+  /// Day of month to post on (1-28); for WEEKLY, 1=Mon..7=Sun
+  dayOfMonth  Int      @default(1)
+  /// JSON array: [{ accountId, debit, credit, memo }]
+  linesJson   String
+  /// When true, each generated entry auto-reverses on the 1st of the next month
+  autoReverse Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  lastRunAt   DateTime?
+  nextRunAt   DateTime?
+  createdById String?
+  createdAt   DateTime @default(now())
 }
 
 model Customer {
@@ -4335,6 +4362,13 @@ model Timesheet {
   processedAt   DateTime?
   /// Payroll accrual journal entry posted by accounting on processing
   journalEntryId String?
+  /// Pay-stub breakdown captured at processing time (rates as of that run)
+  grossPay      Float?
+  fedWithheld   Float?
+  stateWithheld Float?
+  ficaEmployee  Float?
+  ficaEmployer  Float?
+  netPay        Float?
   notes         String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt

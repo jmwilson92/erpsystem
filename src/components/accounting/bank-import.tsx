@@ -31,14 +31,20 @@ export function BankImport({
           ))}
         </select>
         <p className="flex items-center text-[11px] text-slate-500">
-          Columns: date, description, amount (or debit/credit). Header row first.
+          Upload the file your bank exports (OFX / QFX / CSV) — or paste rows
+          below.
         </p>
       </div>
+      <input
+        type="file"
+        name="file"
+        accept=".ofx,.qfx,.csv,.tsv,.txt"
+        className="block w-full text-xs text-slate-400 file:mr-3 file:rounded-lg file:border file:border-slate-700 file:bg-slate-900 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-slate-200 hover:file:bg-slate-800"
+      />
       <textarea
         name="text"
         rows={6}
-        required
-        placeholder={"date\tdescription\tamount\n2026-07-10\tGRAINGER SUPPLY\t-284.50\n2026-07-11\tCUSTOMER DEPOSIT\t5000"}
+        placeholder={"Or paste rows — header first:\ndate\tdescription\tamount\n2026-07-10\tGRAINGER SUPPLY\t-284.50\n2026-07-11\tCUSTOMER DEPOSIT\t5000"}
         className="w-full rounded-lg border border-slate-700 bg-slate-950 p-3 font-mono text-xs text-slate-200 placeholder:text-slate-600"
       />
       <Button type="submit" size="sm" disabled={pending}>

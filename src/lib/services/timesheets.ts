@@ -1026,26 +1026,45 @@ export async function processTimesheet(params: {
       s + (e.costAmount || e.hours * (e.laborRate || DEFAULT_LABOR_RATE)),
     0
   );
+
+  // Withholding profile: per-employee percentages + statutory FICA
+  // (7.65% employee-withheld, matched 7.65% by the employer).
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const gross = r2(amount);
+  const fedWithheld = r2(gross * (sheet.user.fedWithholdingPct ?? 0.12));
+  const stateWithheld = r2(gross * (sheet.user.stateWithholdingPct ?? 0.04));
+  const ficaEmployee = r2(gross * FICA_RATE);
+  const ficaEmployer = r2(gross * FICA_RATE);
+  const netPay = r2(gross - fedWithheld - stateWithheld - ficaEmployee);
+
   let journalEntryId: string | null = null;
-  if (amount > 0) {
-    const [wages, accrued] = await Promise.all([
-      prisma.account.findFirst({ where: { code: "6000" } }),
-      prisma.account.findFirst({ where: { code: "2100" } }),
-    ]);
-    if (wages && accrued) {
-      const { postJournal } = await import("@/lib/services/gaap");
-      const je = await postJournal({
-        description: `Payroll accrual — ${sheet.user.name} ${sheet.periodStart.toISOString().slice(0, 10)} → ${sheet.periodEnd.toISOString().slice(0, 10)}`,
-        source: "PAYROLL",
-        sourceId: sheet.id,
-        createdById: params.processor.id,
-        lines: [
-          { accountId: wages.id, debit: amount, memo: "Gross labor" },
-          { accountId: accrued.id, credit: amount, memo: "Accrued payroll" },
-        ],
-      });
-      journalEntryId = je.id;
-    }
+  if (gross > 0) {
+    const { postJournal } = await import("@/lib/services/gaap");
+    const [wages, taxExpense, fedPayable, statePayable, ficaPayable, wagesPayable] =
+      await Promise.all([
+        ensurePayrollAccount("6000", "Salaries & Wages", "EXPENSE"),
+        ensurePayrollAccount("6010", "Payroll Tax Expense", "EXPENSE"),
+        ensurePayrollAccount("2200", "Federal Withholding Payable", "LIABILITY"),
+        ensurePayrollAccount("2210", "State Withholding Payable", "LIABILITY"),
+        ensurePayrollAccount("2220", "FICA Payable", "LIABILITY"),
+        ensurePayrollAccount("2110", "Wages Payable", "LIABILITY"),
+      ]);
+    const period = `${sheet.periodStart.toISOString().slice(0, 10)} → ${sheet.periodEnd.toISOString().slice(0, 10)}`;
+    const je = await postJournal({
+      description: `Payroll — ${sheet.user.name} ${period}`,
+      source: "PAYROLL",
+      sourceId: sheet.id,
+      createdById: params.processor.id,
+      lines: [
+        { accountId: wages.id, debit: gross, memo: "Gross wages" },
+        { accountId: taxExpense.id, debit: ficaEmployer, memo: "Employer FICA match" },
+        { accountId: fedPayable.id, credit: fedWithheld, memo: "Federal income tax withheld" },
+        { accountId: statePayable.id, credit: stateWithheld, memo: "State income tax withheld" },
+        { accountId: ficaPayable.id, credit: r2(ficaEmployee + ficaEmployer), memo: "FICA (employee + employer)" },
+        { accountId: wagesPayable.id, credit: netPay, memo: "Net pay due employee" },
+      ].filter((l) => (l.debit || 0) > 0 || (l.credit || 0) > 0),
+    });
+    journalEntryId = je.id;
   }
 
   const updated = await prisma.timesheet.update({
@@ -1055,6 +1074,12 @@ export async function processTimesheet(params: {
       processedById: params.processor.id,
       processedAt: new Date(),
       journalEntryId,
+      grossPay: gross,
+      fedWithheld,
+      stateWithheld,
+      ficaEmployee,
+      ficaEmployer,
+      netPay,
     },
   });
   await logAudit({
@@ -1062,9 +1087,76 @@ export async function processTimesheet(params: {
     entityId: sheet.id,
     action: "TIMESHEET_PROCESSED",
     userId: params.processor.id,
-    metadata: { amount, journalEntryId },
+    metadata: { gross, netPay, journalEntryId },
   });
   return updated;
+}
+
+/** Statutory FICA rate (Social Security + Medicare), each side. */
+export const FICA_RATE = 0.0765;
+
+/** Find a payroll GL account by code, creating it if the chart lacks it. */
+async function ensurePayrollAccount(code: string, name: string, type: string) {
+  const existing = await prisma.account.findFirst({ where: { code } });
+  if (existing) return existing;
+  return prisma.account.create({
+    data: { code, name, type, subtype: "PAYROLL" },
+  });
+}
+
+/**
+ * Printable pay-stub data for a processed timesheet: period breakdown as
+ * captured at processing time plus year-to-date totals across the
+ * employee's processed sheets.
+ */
+export async function getPayStub(timesheetId: string) {
+  const sheet = await prisma.timesheet.findUnique({
+    where: { id: timesheetId },
+    include: {
+      user: {
+        select: {
+          id: true, name: true, email: true, department: true, title: true,
+          fedWithholdingPct: true, stateWithholdingPct: true,
+        },
+      },
+      entries: { select: { hours: true, type: true } },
+    },
+  });
+  if (!sheet || sheet.status !== "PROCESSED") return null;
+
+  const yearStart = new Date(sheet.periodEnd.getFullYear(), 0, 1);
+  const ytdSheets = await prisma.timesheet.findMany({
+    where: {
+      userId: sheet.userId,
+      status: "PROCESSED",
+      periodEnd: { gte: yearStart, lte: sheet.periodEnd },
+    },
+    select: {
+      grossPay: true, fedWithheld: true, stateWithheld: true,
+      ficaEmployee: true, netPay: true,
+    },
+  });
+  const ytd = (k: "grossPay" | "fedWithheld" | "stateWithheld" | "ficaEmployee" | "netPay") =>
+    Math.round(ytdSheets.reduce((s, t) => s + (t[k] || 0), 0) * 100) / 100;
+
+  return {
+    sheet,
+    hours: sheet.entries.reduce((s, e) => s + e.hours, 0),
+    current: {
+      gross: sheet.grossPay || 0,
+      fed: sheet.fedWithheld || 0,
+      state: sheet.stateWithheld || 0,
+      fica: sheet.ficaEmployee || 0,
+      net: sheet.netPay || 0,
+    },
+    ytd: {
+      gross: ytd("grossPay"),
+      fed: ytd("fedWithheld"),
+      state: ytd("stateWithheld"),
+      fica: ytd("ficaEmployee"),
+      net: ytd("netPay"),
+    },
+  };
 }
 
 /**
@@ -1077,7 +1169,14 @@ export async function getPayrollRun() {
     prisma.timesheet.findMany({
       where: { status: "APPROVED" },
       include: {
-        user: { select: { name: true, department: true } },
+        user: {
+          select: {
+            name: true,
+            department: true,
+            fedWithholdingPct: true,
+            stateWithholdingPct: true,
+          },
+        },
         entries: { select: { hours: true, costAmount: true, laborRate: true, type: true } },
       },
       orderBy: { periodEnd: "asc" },
@@ -1098,15 +1197,28 @@ export async function getPayrollRun() {
       0
     );
 
-  const readyRows = ready.map((t) => ({
-    id: t.id,
-    employee: t.user.name,
-    department: t.user.department,
-    periodStart: t.periodStart,
-    periodEnd: t.periodEnd,
-    hours: t.entries.reduce((s, e) => s + e.hours, 0),
-    grossPay: Math.round(cost(t.entries) * 100) / 100,
-  }));
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const readyRows = ready.map((t) => {
+    const grossPay = r2(cost(t.entries));
+    // Preview of what processing will withhold, at today's rates
+    const netPay = r2(
+      grossPay *
+        (1 -
+          (t.user.fedWithholdingPct ?? 0.12) -
+          (t.user.stateWithholdingPct ?? 0.04) -
+          FICA_RATE)
+    );
+    return {
+      id: t.id,
+      employee: t.user.name,
+      department: t.user.department,
+      periodStart: t.periodStart,
+      periodEnd: t.periodEnd,
+      hours: t.entries.reduce((s, e) => s + e.hours, 0),
+      grossPay,
+      netPay,
+    };
+  });
 
   return {
     ready: readyRows,
@@ -1117,8 +1229,11 @@ export async function getPayrollRun() {
       periodEnd: t.periodEnd,
       processedAt: t.processedAt,
       journalEntryId: t.journalEntryId,
+      grossPay: t.grossPay,
+      netPay: t.netPay,
     })),
-    totalReadyGross: Math.round(readyRows.reduce((s, r) => s + r.grossPay, 0) * 100) / 100,
+    totalReadyGross: r2(readyRows.reduce((s, r) => s + r.grossPay, 0)),
+    totalReadyNet: r2(readyRows.reduce((s, r) => s + r.netPay, 0)),
   };
 }
 

@@ -242,6 +242,12 @@ export async function postJournal(params: {
   projectId?: string;
   chargeCode?: string;
   createdById?: string;
+  /** Entry date (defaults to now). Used by recurring/reversing entries. */
+  date?: Date;
+  /** Links a REVERSAL entry back to the journal it reverses. */
+  reversesJournalId?: string;
+  /** Dates the automatic reversing entry for a posted accrual. */
+  autoReverseOn?: Date;
   /** Force status. Default: MANUAL → PENDING_APPROVAL, else POSTED. */
   status?: "DRAFT" | "PENDING_APPROVAL" | "POSTED";
   attachments?: {
@@ -267,6 +273,9 @@ export async function postJournal(params: {
     (source === "MANUAL" ? "PENDING_APPROVAL" : "POSTED");
   const count = await prisma.journalEntry.count();
   const number = `JE-${String(count + 1).padStart(5, "0")}`;
+  if (status === "POSTED") {
+    await assertPeriodOpen(params.date || new Date(), "post");
+  }
   const je = await prisma.journalEntry.create({
     data: {
       number,
@@ -277,6 +286,9 @@ export async function postJournal(params: {
       projectId: params.projectId,
       chargeCode: params.chargeCode,
       createdById: params.createdById,
+      date: params.date || new Date(),
+      reversesJournalId: params.reversesJournalId || null,
+      autoReverseOn: params.autoReverseOn || null,
       postedAt: status === "POSTED" ? new Date() : null,
       lines: {
         create: params.lines.map((l) => ({
@@ -636,4 +648,217 @@ export async function createExpenseEntry(params: {
       },
     ],
   });
+}
+
+/**
+ * Post the mirror image of a POSTED journal (debits↔credits) and link the
+ * pair via reversesJournalId. Used for correcting entries and month-start
+ * accrual reversals. Refuses to reverse twice.
+ */
+export async function reverseJournalEntry(params: {
+  id: string;
+  date?: Date;
+  description?: string;
+  userId?: string | null;
+}) {
+  const je = await prisma.journalEntry.findUniqueOrThrow({
+    where: { id: params.id },
+    include: { lines: true },
+  });
+  if (je.status !== "POSTED") {
+    throw new Error(`Only POSTED journals can be reversed (this one is ${je.status})`);
+  }
+  const existing = await prisma.journalEntry.findFirst({
+    where: { reversesJournalId: je.id, status: { not: "VOID" } },
+  });
+  if (existing) {
+    throw new Error(`${je.number} was already reversed by ${existing.number}`);
+  }
+  return postJournal({
+    description: params.description || `Reversal of ${je.number}: ${je.description}`,
+    source: "REVERSAL",
+    sourceId: je.id,
+    reversesJournalId: je.id,
+    projectId: je.projectId || undefined,
+    chargeCode: je.chargeCode || undefined,
+    createdById: params.userId || undefined,
+    date: params.date || new Date(),
+    status: "POSTED",
+    lines: je.lines.map((l) => ({
+      accountId: l.accountId,
+      debit: l.credit || 0,
+      credit: l.debit || 0,
+      memo: l.memo || undefined,
+      chargeCode: l.chargeCode || undefined,
+    })),
+  });
+}
+
+/**
+ * Materialize due auto-reversals: any POSTED accrual whose autoReverseOn
+ * date has arrived and which has no reversal yet gets its mirror entry
+ * posted, dated on the scheduled day. Idempotent — safe to call on every
+ * accounting page load.
+ */
+export async function runDueAutoReversals() {
+  const due = await prisma.journalEntry.findMany({
+    where: { status: "POSTED", autoReverseOn: { lte: new Date() } },
+    select: { id: true, autoReverseOn: true },
+  });
+  const results: { id: string; number: string }[] = [];
+  for (const je of due) {
+    try {
+      const rev = await reverseJournalEntry({
+        id: je.id,
+        date: je.autoReverseOn || new Date(),
+        userId: null,
+      });
+      results.push({ id: rev.id, number: rev.number });
+    } catch {
+      // already reversed or period closed — skip quietly
+    }
+  }
+  return results;
+}
+
+/* ── Statement of Cash Flows (indirect method) ─────────────────── */
+
+function classifyLiability(a: { name: string; code: string }) {
+  return /loan|note payable|notes payable|debt|mortgage|bond|line of credit/i.test(
+    a.name
+  )
+    ? "FINANCING"
+    : "OPERATING";
+}
+
+function isFixedAsset(a: { name: string; code: string; subtype?: string | null }) {
+  if (a.subtype && /fixed|ppe|property/i.test(a.subtype)) return true;
+  if (/equipment|machinery|building|property|vehicle|leasehold|furniture|accumulated dep/i.test(a.name)) return true;
+  return a.code.startsWith("15") || a.code.startsWith("16") || a.code.startsWith("17");
+}
+
+/**
+ * GAAP Statement of Cash Flows, indirect method, computed from posted
+ * journal activity in the period. Reconciles net income to cash by adding
+ * back non-cash charges and working-capital swings, then shows investing
+ * (fixed assets) and financing (debt + equity) flows. The computed net
+ * change is cross-checked against actual movement on cash accounts.
+ */
+export async function getCashFlowStatement(opts?: {
+  from?: Date | null;
+  to?: Date | null;
+}) {
+  const now = new Date();
+  const from = opts?.from ?? new Date(now.getFullYear(), 0, 1);
+  const to = opts?.to ?? now;
+
+  const [accounts, bankAccounts, lines] = await Promise.all([
+    prisma.account.findMany(),
+    prisma.bankAccount.findMany({ select: { glAccountId: true, kind: true } }),
+    prisma.journalLine.findMany({
+      where: {
+        journalEntry: { status: "POSTED", date: { gte: from, lte: to } },
+      },
+      select: { accountId: true, debit: true, credit: true },
+    }),
+  ]);
+
+  // Cash = the 1000 account, CASH-subtype accounts, and GL accounts backing
+  // checking/savings bank accounts. Credit-card GL accounts are liabilities
+  // and stay in working capital.
+  const cashIds = new Set<string>();
+  for (const a of accounts) {
+    if (a.type !== "ASSET") continue;
+    if (a.code === "1000" || (a.subtype && /cash|bank/i.test(a.subtype))) {
+      cashIds.add(a.id);
+    }
+  }
+  for (const b of bankAccounts) {
+    if (b.glAccountId && b.kind !== "CREDIT_CARD") cashIds.add(b.glAccountId);
+  }
+
+  // Signed movement per account in the period (natural balance sign).
+  const acctById = new Map(accounts.map((a) => [a.id, a]));
+  const delta = new Map<string, number>();
+  for (const l of lines) {
+    const a = acctById.get(l.accountId);
+    if (!a) continue;
+    const debitNormal = ["ASSET", "EXPENSE", "COGS"].includes(a.type);
+    const move = debitNormal
+      ? (l.debit || 0) - (l.credit || 0)
+      : (l.credit || 0) - (l.debit || 0);
+    delta.set(l.accountId, (delta.get(l.accountId) || 0) + move);
+  }
+
+  type Row = { account: string; code: string; amount: number };
+  const operating: Row[] = [];
+  const investing: Row[] = [];
+  const financing: Row[] = [];
+
+  let netIncome = 0;
+  let depreciation = 0;
+  let cashMovement = 0;
+
+  for (const [id, d] of delta) {
+    const a = acctById.get(id)!;
+    if (Math.abs(d) < 0.005) continue;
+
+    if (cashIds.has(id)) {
+      cashMovement += d;
+      continue;
+    }
+
+    if (["REVENUE"].includes(a.type)) {
+      netIncome += d;
+      continue;
+    }
+    if (["EXPENSE", "COGS"].includes(a.type)) {
+      netIncome -= d;
+      // Depreciation/amortization is a non-cash charge — add back.
+      if (/depreciation|amortization/i.test(a.name)) depreciation += d;
+      continue;
+    }
+
+    const row = { account: a.name, code: a.code, amount: 0 };
+    if (a.type === "ASSET") {
+      if (isFixedAsset(a)) {
+        // Purchase of fixed assets = cash out
+        row.amount = -d;
+        investing.push(row);
+      } else {
+        // Increase in AR/inventory/prepaids consumes cash
+        row.amount = -d;
+        operating.push(row);
+      }
+    } else if (a.type === "LIABILITY") {
+      row.amount = d; // increase in payables frees cash / new debt raises cash
+      (classifyLiability(a) === "FINANCING" ? financing : operating).push(row);
+    } else if (a.type === "EQUITY") {
+      row.amount = d; // contributions in, distributions out
+      financing.push(row);
+    }
+  }
+
+  const sumRows = (rows: Row[]) => rows.reduce((s, r) => s + r.amount, 0);
+  const operatingTotal = netIncome + depreciation + sumRows(operating);
+  const investingTotal = sumRows(investing);
+  const financingTotal = sumRows(financing);
+  const netChange = operatingTotal + investingTotal + financingTotal;
+
+  return {
+    from,
+    to,
+    netIncome,
+    depreciation,
+    operating: operating.sort((a, b) => a.code.localeCompare(b.code)),
+    investing: investing.sort((a, b) => a.code.localeCompare(b.code)),
+    financing: financing.sort((a, b) => a.code.localeCompare(b.code)),
+    operatingTotal,
+    investingTotal,
+    financingTotal,
+    netChange,
+    cashMovement,
+    // Ledger cross-check: statement net change vs. actual cash-account movement
+    reconciled: Math.abs(netChange - cashMovement) < 0.01,
+  };
 }

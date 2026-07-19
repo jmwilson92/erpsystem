@@ -48,6 +48,120 @@ export type BankImportResult = {
   errors: { row: number; message: string }[];
 };
 
+/* ── OFX / QFX (bank download format) ──────────────────────────── */
+
+type OfxTxn = {
+  date: Date;
+  amount: number;
+  description: string;
+  fitId: string | null;
+};
+
+/**
+ * Parse OFX/QFX content (SGML 1.x or XML 2.x — banks export both) into
+ * transactions. Reads STMTTRN blocks: DTPOSTED, TRNAMT, NAME/MEMO/PAYEE,
+ * FITID (the bank's own unique id, used for exact dedupe).
+ */
+export function parseOfx(text: string): OfxTxn[] {
+  const txns: OfxTxn[] = [];
+  const blocks = text.split(/<STMTTRN>/i).slice(1);
+  for (const raw of blocks) {
+    const block = raw.split(/<\/STMTTRN>/i)[0];
+    // SGML OFX has no closing tags — value runs to next '<' or newline.
+    const tag = (name: string) => {
+      const m = block.match(new RegExp(`<${name}>([^<\\r\\n]*)`, "i"));
+      return m ? m[1].trim() : "";
+    };
+    const rawDate = tag("DTPOSTED");
+    const m = rawDate.match(/^(\d{4})(\d{2})(\d{2})/);
+    if (!m) continue;
+    const date = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    const amount = Number(tag("TRNAMT").replace(/[+$,\s]/g, ""));
+    if (Number.isNaN(amount)) continue;
+    const description =
+      tag("NAME") || tag("PAYEE") || tag("MEMO") || "(no description)";
+    const memo = tag("MEMO");
+    txns.push({
+      date,
+      amount,
+      description:
+        memo && memo !== description
+          ? `${description} — ${memo}`
+          : description,
+      fitId: tag("FITID") || null,
+    });
+  }
+  return txns;
+}
+
+export function looksLikeOfx(text: string) {
+  return /<OFX>|OFXHEADER|<STMTTRN>/i.test(text);
+}
+
+/**
+ * Import a bank download in whatever format the bank gave the user:
+ * OFX/QFX files route to the OFX parser, everything else through the
+ * CSV/TSV column matcher. One entry point for the upload + paste UI.
+ */
+export async function importBankData(params: {
+  bankAccountId: string;
+  text: string;
+  userId?: string | null;
+}): Promise<BankImportResult> {
+  if (!looksLikeOfx(params.text)) {
+    return importBankTransactions(params);
+  }
+  const result: BankImportResult = { imported: 0, duplicates: 0, errors: [] };
+  const txns = parseOfx(params.text);
+  if (txns.length === 0) {
+    result.errors.push({
+      row: 0,
+      message: "No transactions found in the OFX/QFX file.",
+    });
+    return result;
+  }
+  let balanceDelta = 0;
+  for (const t of txns) {
+    const externalId = t.fitId
+      ? `${params.bankAccountId}:fitid:${t.fitId}`
+      : `${params.bankAccountId}:${t.date.toISOString().slice(0, 10)}:${norm(t.description)}:${t.amount}`;
+    const dupe = await prisma.bankTransaction.findFirst({ where: { externalId } });
+    if (dupe) {
+      result.duplicates++;
+      continue;
+    }
+    await prisma.bankTransaction.create({
+      data: {
+        bankAccountId: params.bankAccountId,
+        date: t.date,
+        description: t.description,
+        amount: money(t.amount),
+        externalId,
+      },
+    });
+    balanceDelta += t.amount;
+    result.imported++;
+  }
+  if (balanceDelta !== 0) {
+    await prisma.bankAccount.update({
+      where: { id: params.bankAccountId },
+      data: { currentBalance: { increment: money(balanceDelta) } },
+    });
+  }
+  await logAudit({
+    entityType: "BankAccount",
+    entityId: params.bankAccountId,
+    action: "BANK_IMPORT",
+    userId: params.userId,
+    metadata: {
+      format: "OFX",
+      imported: result.imported,
+      duplicates: result.duplicates,
+    },
+  });
+  return result;
+}
+
 /**
  * Import transactions from pasted rows. Columns matched loosely:
  * date, description, amount (signed; or separate debit/credit).
@@ -224,4 +338,89 @@ export async function getBankingOverview() {
     unmatched: a.transactions.filter((t) => t.status === "UNMATCHED").length,
     total: a.transactions.length,
   }));
+}
+
+/* ── Auto-categorization suggestions ───────────────────────────── */
+
+/** Tokenize a bank description into meaningful words for matching. */
+function descTokens(s: string): string[] {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z\s]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length >= 3 && !["the", "and", "inc", "llc", "corp", "com", "pos", "ach", "card", "debit", "credit", "purchase", "payment"].includes(w));
+}
+
+export type CategorySuggestion = {
+  transactionId: string;
+  accountId: string;
+  accountCode: string;
+  accountName: string;
+  /** 0–1: fraction of the new description's tokens seen in prior categorizations */
+  confidence: number;
+  basedOn: string;
+};
+
+/**
+ * Suggest GL categories for unmatched transactions by learning from the
+ * user's history: every previously categorized transaction votes its
+ * category onto new descriptions that share tokens ("STAPLES #1071" learns
+ * from "STAPLES #0442 PORTLAND"). Amount sign must agree — money-out
+ * history never suggests categories for deposits.
+ */
+export async function suggestBankCategories(
+  bankAccountId?: string
+): Promise<CategorySuggestion[]> {
+  const [unmatched, history] = await Promise.all([
+    prisma.bankTransaction.findMany({
+      where: {
+        status: "UNMATCHED",
+        ...(bankAccountId ? { bankAccountId } : {}),
+      },
+      select: { id: true, description: true, amount: true },
+    }),
+    prisma.bankTransaction.findMany({
+      where: {
+        status: { in: ["MATCHED", "RECONCILED"] },
+        categoryAccountId: { not: null },
+      },
+      orderBy: { date: "desc" },
+      take: 500,
+      select: {
+        description: true,
+        amount: true,
+        categoryAccountId: true,
+        categoryAccount: { select: { id: true, code: true, name: true } },
+      },
+    }),
+  ]);
+  if (unmatched.length === 0 || history.length === 0) return [];
+
+  const suggestions: CategorySuggestion[] = [];
+  for (const txn of unmatched) {
+    const tokens = descTokens(txn.description);
+    if (tokens.length === 0) continue;
+    let best: CategorySuggestion | null = null;
+    for (const h of history) {
+      if (!h.categoryAccount) continue;
+      if (Math.sign(h.amount) !== Math.sign(txn.amount)) continue;
+      const hTokens = new Set(descTokens(h.description));
+      if (hTokens.size === 0) continue;
+      const hits = tokens.filter((t) => hTokens.has(t)).length;
+      const confidence = hits / tokens.length;
+      if (confidence >= 0.5 && (!best || confidence > best.confidence)) {
+        best = {
+          transactionId: txn.id,
+          accountId: h.categoryAccount.id,
+          accountCode: h.categoryAccount.code,
+          accountName: h.categoryAccount.name,
+          confidence,
+          basedOn: h.description,
+        };
+        if (confidence >= 0.999) break;
+      }
+    }
+    if (best) suggestions.push(best);
+  }
+  return suggestions;
 }

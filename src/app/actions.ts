@@ -5924,6 +5924,9 @@ export async function actionPostJournal(formData: FormData): Promise<void> {
     });
   }
   const postNow = (formData.get("postNow") as string) === "true";
+  // Accrual: auto-post the mirror entry on the 1st of next month.
+  const autoReverse = (formData.get("autoReverse") as string) === "true";
+  const now = new Date();
   // Optional: settle a specific AR invoice's subledger when this JE credits AR.
   const settleArInvoiceId =
     ((formData.get("settleArInvoiceId") as string) || "").trim() || undefined;
@@ -5932,6 +5935,9 @@ export async function actionPostJournal(formData: FormData): Promise<void> {
     source: settleArInvoiceId ? "AR_SETTLE" : "MANUAL",
     sourceId: settleArInvoiceId,
     status: postNow ? "POSTED" : "PENDING_APPROVAL",
+    autoReverseOn: autoReverse
+      ? new Date(now.getFullYear(), now.getMonth() + 1, 1, 9, 0, 0, 0)
+      : undefined,
     projectId: ((formData.get("projectId") as string) || "").trim() || undefined,
     chargeCode: ((formData.get("chargeCode") as string) || "").trim() || undefined,
     createdById: user?.id,
@@ -7483,17 +7489,23 @@ export async function actionImportBankTransactions(
   formData: FormData
 ): Promise<import("@/lib/services/banking").BankImportResult> {
   const { userHasPermission } = await import("@/lib/auth");
-  const { importBankTransactions } = await import("@/lib/services/banking");
+  const { importBankData } = await import("@/lib/services/banking");
   const user = await getCurrentUser();
   if (!user || !(await userHasPermission(user.id, "accounting.journal.post"))) {
     return { imported: 0, duplicates: 0, errors: [{ row: 0, message: "Not authorized." }] };
   }
   const bankAccountId = ((formData.get("bankAccountId") as string) || "").trim();
-  const text = ((formData.get("text") as string) || "").trim();
-  if (!bankAccountId || !text) {
-    return { imported: 0, duplicates: 0, errors: [{ row: 0, message: "Pick an account and paste rows." }] };
+  // Uploaded file (CSV / OFX / QFX) wins over pasted rows.
+  let text = "";
+  const file = formData.get("file");
+  if (file instanceof File && file.size > 0) {
+    text = await file.text();
   }
-  const res = await importBankTransactions({ bankAccountId, text, userId: user.id });
+  if (!text) text = ((formData.get("text") as string) || "").trim();
+  if (!bankAccountId || !text) {
+    return { imported: 0, duplicates: 0, errors: [{ row: 0, message: "Pick an account and upload a file or paste rows." }] };
+  }
+  const res = await importBankData({ bankAccountId, text, userId: user.id });
   revalidatePath("/accounting");
   return res;
 }
@@ -7515,6 +7527,146 @@ export async function actionReconcileBankTxn(formData: FormData): Promise<void> 
   const { reconcileBankTransaction } = await import("@/lib/services/banking");
   await reconcileBankTransaction(formData.get("transactionId") as string);
   revalidatePath("/accounting");
+}
+
+export async function actionReverseJournal(formData: FormData): Promise<void> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const { reverseJournalEntry } = await import("@/lib/services/gaap");
+  const user = await getCurrentUser();
+  if (!user || !(await userHasPermission(user.id, "accounting.journal.post"))) {
+    throw new Error("Reversing journals requires accounting authority");
+  }
+  try {
+    const rev = await reverseJournalEntry({
+      id: formData.get("id") as string,
+      userId: user.id,
+    });
+    await flashToast(`Reversing entry ${rev.number} posted`);
+  } catch (e) {
+    await flashToast(e instanceof Error ? e.message : "Reversal failed", "error");
+  }
+  revalidatePath("/accounting");
+  redirect("/accounting?tab=je");
+}
+
+export async function actionCreateRecurringJournal(
+  formData: FormData
+): Promise<void> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const { createRecurringJournal } = await import(
+    "@/lib/services/recurring-journals"
+  );
+  const user = await getCurrentUser();
+  if (!user || !(await userHasPermission(user.id, "accounting.journal.post"))) {
+    throw new Error("Recurring journals require accounting authority");
+  }
+  const name = ((formData.get("name") as string) || "").trim();
+  const debitAccountId = ((formData.get("debitAccountId") as string) || "").trim();
+  const creditAccountId = ((formData.get("creditAccountId") as string) || "").trim();
+  const amount = optNum(formData, "amount") || 0;
+  if (!name || !debitAccountId || !creditAccountId || amount <= 0) {
+    await flashToast("Name, both accounts, and a positive amount are required", "error");
+    redirect("/accounting?tab=recurring");
+  }
+  const memo = ((formData.get("memo") as string) || "").trim() || undefined;
+  try {
+    await createRecurringJournal({
+      name,
+      description: memo || null,
+      frequency: (formData.get("frequency") as string) || "MONTHLY",
+      dayOfMonth: optNum(formData, "dayOfMonth") || 1,
+      autoReverse: (formData.get("autoReverse") as string) === "true",
+      createdById: user.id,
+      lines: [
+        { accountId: debitAccountId, debit: amount, credit: 0, memo },
+        { accountId: creditAccountId, debit: 0, credit: amount, memo },
+      ],
+    });
+    await flashToast(`Recurring journal "${name}" scheduled`);
+  } catch (e) {
+    await flashToast(e instanceof Error ? e.message : "Could not create template", "error");
+  }
+  revalidatePath("/accounting");
+  redirect("/accounting?tab=recurring");
+}
+
+export async function actionToggleRecurringJournal(
+  formData: FormData
+): Promise<void> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const { setRecurringJournalActive } = await import(
+    "@/lib/services/recurring-journals"
+  );
+  const user = await getCurrentUser();
+  if (!user || !(await userHasPermission(user.id, "accounting.journal.post"))) {
+    throw new Error("Recurring journals require accounting authority");
+  }
+  await setRecurringJournalActive(
+    formData.get("id") as string,
+    (formData.get("isActive") as string) === "true"
+  );
+  revalidatePath("/accounting");
+  redirect("/accounting?tab=recurring");
+}
+
+export async function actionDeleteRecurringJournal(
+  formData: FormData
+): Promise<void> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const { deleteRecurringJournal } = await import(
+    "@/lib/services/recurring-journals"
+  );
+  const user = await getCurrentUser();
+  if (!user || !(await userHasPermission(user.id, "accounting.journal.post"))) {
+    throw new Error("Recurring journals require accounting authority");
+  }
+  await deleteRecurringJournal(formData.get("id") as string);
+  await flashToast("Recurring journal deleted");
+  revalidatePath("/accounting");
+  redirect("/accounting?tab=recurring");
+}
+
+export async function actionRunRecurringJournals(): Promise<void> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const { runDueRecurringJournals } = await import(
+    "@/lib/services/recurring-journals"
+  );
+  const { runDueAutoReversals } = await import("@/lib/services/gaap");
+  const user = await getCurrentUser();
+  if (!user || !(await userHasPermission(user.id, "accounting.journal.post"))) {
+    throw new Error("Recurring journals require accounting authority");
+  }
+  const posted = await runDueRecurringJournals(user.id);
+  const reversed = await runDueAutoReversals();
+  await flashToast(
+    `${posted.length} recurring entr${posted.length === 1 ? "y" : "ies"} posted · ${reversed.length} accrual reversal(s)`
+  );
+  revalidatePath("/accounting");
+  redirect("/accounting?tab=recurring");
+}
+
+export async function actionSaveWithholding(formData: FormData): Promise<void> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const user = await getCurrentUser();
+  const allowed =
+    (await userHasPermission(user?.id, "accounting.journal.post")) ||
+    (await userHasPermission(user?.id, "hr.admin"));
+  if (!allowed) throw new Error("Withholding profiles are owned by accounting / HR");
+  const userId = (formData.get("userId") as string) || "";
+  // Form fields are whole percentages (12 = 12%)
+  const fed = optNum(formData, "fedPct");
+  const state = optNum(formData, "statePct");
+  if (!userId) return;
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      ...(fed !== undefined ? { fedWithholdingPct: Math.min(Math.max(fed, 0), 60) / 100 } : {}),
+      ...(state !== undefined ? { stateWithholdingPct: Math.min(Math.max(state, 0), 30) / 100 } : {}),
+    },
+  });
+  await flashToast("Withholding profile saved");
+  revalidatePath("/accounting");
+  redirect("/accounting?tab=payroll");
 }
 
 export async function actionRunPayroll(): Promise<void> {
