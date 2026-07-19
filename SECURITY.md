@@ -9,45 +9,75 @@ Every response carries hardened headers (see `next.config.ts`):
 deployments. `X-Powered-By` is disabled. Terminate TLS at your platform
 or reverse proxy — the app assumes HTTPS in production.
 
-## Authentication — read this before production
+## Authentication
 
-ForgeRP currently ships with **demo authentication**: identity comes
-from an HttpOnly `forge-demo-user` cookie set by the in-app persona
-switcher. This is deliberate — it makes evaluation plug-and-play — but
-it is **not** production auth: anyone who can reach the app can switch
-personas.
+ForgeRP supports two identity modes:
 
-Before real use, put one of these in front of `getCurrentUser()`
-(`src/lib/auth.ts`), which is the single identity chokepoint:
+### Production (`DEMO_MODE=0`) — required for plant deploys
 
-1. **NextAuth / Auth.js** with your IdP (Entra ID, Okta, Google) — map
-   the session e-mail to the `User` row.
-2. **A reverse-proxy SSO** (Cloudflare Access, oauth2-proxy) — trust the
-   forwarded identity header, map to `User`.
+- Email + password (scrypt), HttpOnly `forge-session` cookie, 30-day sliding sessions.
+- First-boot **claim instance** when no passwords exist yet (`bootstrapFirstAdmin`).
+- Invites and password resets via token links (`/invite/[token]`).
+- Login rate limit: 10 failures / 15 minutes per e-mail (in-process).
+- Middleware redirects unauthenticated traffic to `/login`.
+- Persona switcher is **hidden and blocked**.
+- Server boot **exits** if `NODE_ENV=production` and `DEMO_MODE` is not `0`
+  (unless `ALLOW_DEMO_IN_PRODUCTION=1` for intentional public demo hosts).
 
-Everything downstream (permissions, approvals, audit) already keys off
-the resolved `User`, so swapping the identity source is contained.
+Identity chokepoint: `getCurrentUser()` in `src/lib/auth.ts` (session via
+`getSessionUser()` in `src/lib/auth-core.ts`).
+
+### Evaluation / test-drive (default when `DEMO_MODE` is unset)
+
+- Open app + sidebar **Demo Mode** persona switcher (`forge-demo-user` cookie).
+- Used for local demos and `/demo` sandboxes only.
+- **Never** leave this on for a customer plant with real data.
+
+### Optional future SSO
+
+Swap at `getCurrentUser()`:
+
+1. **NextAuth / Auth.js** with Entra ID, Okta, Google — map e-mail → `User`.
+2. **Reverse-proxy SSO** (Cloudflare Access, oauth2-proxy) — trust forwarded identity header.
 
 ## Authorization
 
 - Central permission catalog (`src/lib/auth.ts` → `PERMISSIONS`) with
   per-role defaults, permission groups, per-user grants, and explicit
   denies (deny > grant > group > role).
-- Every mutating server action re-checks permissions server-side; UI
-  hiding is a convenience, never the control.
-- Financial data is additionally gated (`userCanSeeFinancials`), and
-  role-scoped views hide analytics/creation from operator roles.
-- Rejections/voids require reasons and every sensitive mutation writes
-  an `AuditLog` row (who, what, when, before/after).
+- Mutating server actions should call `requirePermission(code)` (hard gate).
+  Critical paths already gated: BOM certify, CM vote, budgets, ship SO.
+- UI hiding is a convenience, never the only control.
+- Financial data is additionally gated (`userCanSeeFinancials`).
+- Sensitive mutations write an `AuditLog` row (who, what, when, metadata).
+
+## Modules as packaging
+
+`CompanySettings.disabledModules` turns licensed modules off; routes redirect
+to `/module-off`. This is the commercial SKU surface (“buy parts of the suite”),
+not multi-tenant isolation.
 
 ## Data
 
-- SQLite database file (or Postgres) — one file to encrypt at rest and
-  back up. Demo "test drive" sandboxes are per-visitor throwaway
-  databases isolated from the master file.
+- Default: SQLite database file (Docker volume `/data`). Optional Postgres
+  path is documented for higher concurrency.
+- Demo “test drive” sandboxes are per-visitor throwaway SQLite copies
+  isolated from the master file (`forge-sandbox` cookie).
 - CSV import/export endpoints are permission-gated per module.
 - The custom report builder only exposes whitelisted entities and
   columns — user input never reaches query construction.
+
+## Production checklist (short)
+
+- [ ] `DEMO_MODE=0`
+- [ ] `SEED_ON_FIRST_BOOT=0`
+- [ ] HTTPS reverse proxy
+- [ ] Database backups scheduled
+- [ ] Admin claimed via first-boot or invite
+- [ ] Role permissions reviewed under **Admin → Permissions**
+- [ ] `/api/health` monitored
+
+See `docs/DEPLOYMENT.md` and `.env.production.example`.
 
 ## Reporting a vulnerability
 

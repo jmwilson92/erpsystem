@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { FileText } from "lucide-react";
+import { useActionLoading } from "@/components/layout/action-loading";
 
 export function CompleteInspectionForm({
   inspectionId,
@@ -24,6 +25,7 @@ export function CompleteInspectionForm({
   >([]);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const { start: startLoading, stop: stopLoading } = useActionLoading();
 
   const canDecide = !requireDocs || docs.length > 0;
 
@@ -63,11 +65,13 @@ export function CompleteInspectionForm({
       fd.set(`doc_name_${i}`, d.fileName);
       if (d.caption) fd.set(`doc_caption_${i}`, d.caption);
     });
+    startLoading("quality");
     startTransition(async () => {
       try {
         await actionCompleteReceivingInspection(fd);
         window.location.reload();
       } catch (e) {
+        stopLoading();
         setError(e instanceof Error ? e.message : "Failed");
       }
     });

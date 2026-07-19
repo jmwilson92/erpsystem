@@ -143,7 +143,8 @@ export async function actionReceivePo(formData: FormData): Promise<void> {
   const receivingAck =
     formData.get("receivingAck") === "true" ||
     formData.get("receivingAck") === "on";
-  const user = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("receiving.receive");
 
   // Dock start → auto scan-in so labor charges to the PO
   if (travelerId && user?.id) {
@@ -538,7 +539,8 @@ export async function actionCloseGfpTraveler(formData: FormData): Promise<void> 
 /** Close PO from the purchasing PO module (not receiving dock). */
 export async function actionClosePurchaseOrder(formData: FormData): Promise<void> {
   const purchaseOrderId = formData.get("purchaseOrderId") as string;
-  const user = await getCurrentUser("PURCHASING");
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("purchasing.po.close");
   await closePurchaseOrderFromReceiving({
     purchaseOrderId,
     userId: user?.id,
@@ -568,7 +570,8 @@ export async function actionAddBomLine(formData: FormData): Promise<void> {
   const { addBomLine } = await import("@/lib/services/bom");
   const bomHeaderId = formStr(formData, "bomHeaderId");
   const partId = formStr(formData, "partId");
-  const user = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("bom.edit");
   await addBomLine({
     bomHeaderId,
     componentPartId: formStr(formData, "componentPartId"),
@@ -591,7 +594,8 @@ export async function actionQuickCreatePart(formData: FormData): Promise<{
   description: string;
   uom: string;
 }> {
-  const user = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("items.manage");
   const part = await createPart({
     partNumber: formStr(formData, "partNumber"),
     description: formStr(formData, "description"),
@@ -617,7 +621,8 @@ export async function actionRemoveBomLine(formData: FormData): Promise<void> {
   const bomLineId = formStr(formData, "bomLineId");
   const partId = formStr(formData, "partId");
   const bomHeaderId = formStr(formData, "bomHeaderId");
-  const user = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("bom.edit");
   await removeBomLine({ bomLineId, userId: user?.id });
   revalidatePath(`/items/${partId}`);
   revalidatePath(`/bom/${bomHeaderId}`);
@@ -626,7 +631,8 @@ export async function actionRemoveBomLine(formData: FormData): Promise<void> {
 
 export async function actionCloseMrbCase(formData: FormData): Promise<void> {
   const mrbCaseId = formData.get("mrbCaseId") as string;
-  const user = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("mrb.disposition");
   const { closeMrbCase } = await import("@/lib/services/supply-chain");
   await closeMrbCase({ mrbCaseId, closedById: user?.id });
   revalidatePath("/mrb");
@@ -643,7 +649,8 @@ export async function actionDispositionMrb(formData: FormData) {
   const justification = (formData.get("justification") as string) || "";
   const quantity = Number(formData.get("quantity") || 1);
   const createCar = formData.get("createCar") === "true";
-  const user = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("mrb.disposition");
 
   const result = await dispositionMrb({
     mrbCaseId,
@@ -669,7 +676,8 @@ export async function actionDispositionMrb(formData: FormData) {
 export async function actionUpdateCar(formData: FormData): Promise<void> {
   const { updateCar } = await import("@/lib/services/supply-chain");
   const dispositionId = formData.get("dispositionId") as string;
-  const user = await getCurrentUser("QUALITY");
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("mrb.car.manage");
   const attachments: { url: string; fileName?: string; caption?: string }[] = [];
   for (let i = 0; i < 12; i++) {
     const url = (formData.get(`car_doc_${i}`) as string) || "";
@@ -706,7 +714,8 @@ export async function actionSignOffStep(formData: FormData) {
   const measureUom = (formData.get("measureUom") as string) || undefined;
   const notes = (formData.get("notes") as string) || undefined;
   const pinCode = (formData.get("pinCode") as string) || undefined;
-  const user = await getCurrentUser("OPERATOR");
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("workorders.signoff");
 
   if (!user) throw new Error("No user");
 
@@ -869,7 +878,8 @@ export async function actionReorderWorkCenters(
 export async function actionScanWorkOrderToStation(
   formData: FormData
 ): Promise<void> {
-  const user = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("workorders.status.update");
   let workOrderId = ((formData.get("workOrderId") as string) || "").trim();
   const workOrderNumber = (
     (formData.get("workOrderNumber") as string) || ""
@@ -895,8 +905,14 @@ export async function actionScanWorkOrderToStation(
   await reassignWorkOrderStation({
     workOrderId,
     workCenterCode,
-    userId: user?.id,
-    force: true,
+    userId: user.id,
+    // force only for admins / workcenter managers
+    force:
+      user.role === "ADMIN" ||
+      (await (async () => {
+        const { userHasPermission } = await import("@/lib/auth");
+        return userHasPermission(user.id, "workcenters.manage");
+      })()),
   });
 
   // Scanning in starts work if still released/planned
@@ -1005,10 +1021,11 @@ export async function actionUpdateWiStepRouting(
 }
 
 export async function actionCertifyBomForPrototype(formData: FormData) {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("bom.certify");
   const bomHeaderId = formData.get("bomHeaderId") as string;
-  const user = await getCurrentUser("CM");
 
-  await certifyBomForPrototype({ bomHeaderId, userId: user?.id });
+  await certifyBomForPrototype({ bomHeaderId, userId: user.id });
 
   await flashToast("BOM certified for prototype — drawing can now be released");
   revalidatePath("/bom");
@@ -1016,10 +1033,11 @@ export async function actionCertifyBomForPrototype(formData: FormData) {
 }
 
 export async function actionCertifyBom(formData: FormData) {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("bom.certify");
   const bomHeaderId = formData.get("bomHeaderId") as string;
-  const user = await getCurrentUser("CM");
 
-  await certifyBom({ bomHeaderId, userId: user?.id });
+  await certifyBom({ bomHeaderId, userId: user.id });
 
   await flashToast("BOM certified for production");
   revalidatePath("/bom");
@@ -1090,8 +1108,54 @@ export async function actionCreateForecast(formData: FormData): Promise<void> {
     userId: user?.id,
   });
 
-  await flashToast("Forecast created");
+  // Optional linked DIRECT budget (draft — user edits then enacts)
+  const wantBudget =
+    formData.get("createBudget") === "on" ||
+    formData.get("createBudget") === "true";
+  if (wantBudget) {
+    try {
+      const { createBudget } = await import("@/lib/services/budgets");
+      const ownerId =
+        ((formData.get("budgetOwnerId") as string) || "").trim() ||
+        user?.id ||
+        null;
+      if (ownerId) {
+        // Charge code = budget name (user-facing). BDGT-##### is only the system id.
+        const budgetName =
+          ((formData.get("budgetName") as string) || "").trim() ||
+          ((formData.get("budgetChargeCode") as string) || "").trim() ||
+          forecast.name ||
+          forecast.number;
+        const chargeOverride = (
+          (formData.get("budgetChargeCode") as string) || ""
+        ).trim();
+        await createBudget({
+          name: budgetName,
+          sourceType: "FORECAST",
+          forecastIds: [forecast.id],
+          ownerId,
+          // Explicit charge code only if different; else createBudget uses name
+          chargeCode: chargeOverride || null,
+          totalAmount: Number(formData.get("budgetTotal") || 0),
+          laborBudget: Number(formData.get("budgetLabor") || 0),
+          materialBudget: Number(formData.get("budgetMaterial") || 0),
+          laborHoursBudget: Number(formData.get("budgetLaborHours") || 0),
+          userId: user?.id,
+          enact: false,
+        });
+      }
+    } catch (e) {
+      console.error("Forecast budget create failed", e);
+    }
+  }
+
+  await flashToast(
+    wantBudget
+      ? "Forecast created · budget draft ready to edit"
+      : "Forecast created"
+  );
   revalidatePath("/planning");
+  revalidatePath("/budgets");
   redirect(`/planning/forecasts/${forecast.id}`);
 }
 
@@ -1103,20 +1167,139 @@ export async function actionGenerateMrsFromForecast(
   const { generateMaterialRequisitionFromForecast } = await import(
     "@/lib/services/planning"
   );
-  const mrs = await generateMaterialRequisitionFromForecast({
-    forecastId,
-    userId: user?.id,
-  });
-  await flashToast("Material requisition generated");
+  try {
+    const mrs = await generateMaterialRequisitionFromForecast({
+      forecastId,
+      userId: user?.id,
+    });
+    await flashToast(
+      "Material requisition generated (supply-aware: stock + open WO + open PO)"
+    );
+    revalidatePath("/planning");
+    revalidatePath(`/planning/forecasts/${forecastId}`);
+    redirect(`/planning/mrs/${mrs.id}`);
+  } catch (e) {
+    await flashToast(
+      e instanceof Error ? e.message : "Could not generate MRS",
+      "error"
+    );
+    revalidatePath(`/planning/forecasts/${forecastId}`);
+  }
+}
+
+export async function actionUpdateForecast(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  const forecastId = formData.get("forecastId") as string;
+  const { updateForecast } = await import("@/lib/services/planning");
+  try {
+    await updateForecast({
+      forecastId,
+      name: ((formData.get("name") as string) || "").trim() || undefined,
+      notes: ((formData.get("notes") as string) || "").trim() || null,
+      periodStart: formData.get("periodStart")
+        ? new Date(formData.get("periodStart") as string)
+        : undefined,
+      periodEnd: formData.get("periodEnd")
+        ? new Date(formData.get("periodEnd") as string)
+        : undefined,
+      status: ((formData.get("status") as string) || "").trim() || undefined,
+      userId: user?.id,
+    });
+    await flashToast("Forecast updated");
+  } catch (e) {
+    await flashToast(
+      e instanceof Error ? e.message : "Update failed",
+      "error"
+    );
+  }
   revalidatePath("/planning");
   revalidatePath(`/planning/forecasts/${forecastId}`);
-  redirect(`/planning/mrs/${mrs.id}`);
+}
+
+export async function actionUpsertForecastLine(
+  formData: FormData
+): Promise<void> {
+  const user = await getCurrentUser();
+  const forecastId = formData.get("forecastId") as string;
+  const { upsertForecastLine } = await import("@/lib/services/planning");
+  const dueRaw = ((formData.get("dueDate") as string) || "").trim();
+  try {
+    await upsertForecastLine({
+      forecastId,
+      lineId: ((formData.get("lineId") as string) || "").trim() || undefined,
+      partId: formData.get("partId") as string,
+      quantity: Number(formData.get("quantity") || 0),
+      dueDate: dueRaw ? new Date(dueRaw) : null,
+      notes: ((formData.get("notes") as string) || "").trim() || null,
+      userId: user?.id,
+    });
+    await flashToast("Forecast line saved");
+  } catch (e) {
+    await flashToast(
+      e instanceof Error ? e.message : "Could not save line",
+      "error"
+    );
+  }
+  revalidatePath(`/planning/forecasts/${forecastId}`);
+  revalidatePath("/planning");
+}
+
+export async function actionRemoveForecastLine(
+  formData: FormData
+): Promise<void> {
+  const user = await getCurrentUser();
+  const forecastId = formData.get("forecastId") as string;
+  const { removeForecastLine } = await import("@/lib/services/planning");
+  try {
+    await removeForecastLine({
+      lineId: formData.get("lineId") as string,
+      userId: user?.id,
+    });
+    await flashToast("Line removed");
+  } catch (e) {
+    await flashToast(
+      e instanceof Error ? e.message : "Could not remove line",
+      "error"
+    );
+  }
+  revalidatePath(`/planning/forecasts/${forecastId}`);
+  revalidatePath("/planning");
+}
+
+export async function actionBulkRescheduleUnscheduled(
+  formData: FormData
+): Promise<void> {
+  const user = await getCurrentUser();
+  const { bulkRescheduleOpenWorkOrders } = await import(
+    "@/lib/services/schedule"
+  );
+  try {
+    const result = await bulkRescheduleOpenWorkOrders({
+      userId: user?.id,
+      onlyUnscheduled: true,
+    });
+    await flashToast(
+      result.count
+        ? `Rescheduled ${result.count} unscheduled WO(s)`
+        : "Nothing unscheduled to reschedule"
+    );
+  } catch (e) {
+    await flashToast(
+      e instanceof Error ? e.message : "Bulk reschedule failed",
+      "error"
+    );
+  }
+  revalidatePath("/planning");
+  revalidatePath("/work-orders");
+  revalidatePath("/floor");
+  revalidatePath("/kitting");
 }
 
 export async function actionReleaseMaterialRequisition(
   formData: FormData
 ): Promise<void> {
-  const user = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("planning.mrs.release");
   const materialRequisitionId = formData.get("materialRequisitionId") as string;
   const { releaseMaterialRequisition } = await import(
     "@/lib/services/planning"
@@ -1157,10 +1340,23 @@ export async function actionUpdateMrsLine(formData: FormData): Promise<void> {
   const user = await requireMrsEditor();
   const { updateMrsLine } = await import("@/lib/services/planning");
   const mrsId = (formData.get("materialRequisitionId") as string) || "";
+  const dueRaw = ((formData.get("dueDate") as string) || "").trim();
+  const offsetRaw = ((formData.get("scheduleOffsetMinutes") as string) || "").trim();
+  const qtyRaw = formData.get("requiredQty");
   await updateMrsLine({
     lineId: formData.get("lineId") as string,
-    requiredQty: Number(formData.get("requiredQty")),
+    requiredQty:
+      qtyRaw !== null && qtyRaw !== ""
+        ? Number(qtyRaw)
+        : undefined,
     action: ((formData.get("action") as string) || "").trim() || undefined,
+    dueDate: dueRaw ? new Date(dueRaw) : dueRaw === "" && formData.has("dueDate") ? null : undefined,
+    scheduleOffsetMinutes:
+      offsetRaw !== ""
+        ? Number(offsetRaw)
+        : formData.has("scheduleOffsetMinutes")
+          ? null
+          : undefined,
     userId: user.id,
   });
   await flashToast("MRS line updated");
@@ -1571,8 +1767,112 @@ export async function actionApprovePr(formData: FormData) {
   revalidatePath(`/purchasing/pr/${id}`);
 }
 
+/** Manual / standalone purchase request (not WO shortage / kanban / MRB). */
+export async function actionCreateStandalonePr(
+  formData: FormData
+): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("purchasing.pr.create");
+  const { createStandalonePurchaseRequest } = await import(
+    "@/lib/services/purchase-requests"
+  );
+
+  try {
+    const lineCount = Number(formData.get("lineCount") || 0);
+    const lines: {
+      partId?: string | null;
+      description: string;
+      quantity: number;
+      estimatedUnitCost?: number;
+      uom?: string;
+      notes?: string | null;
+    }[] = [];
+    for (let i = 0; i < lineCount; i++) {
+      const description = (
+        (formData.get(`description_${i}`) as string) || ""
+      ).trim();
+      const quantity = Number(formData.get(`quantity_${i}`) || 0);
+      if (!description || quantity <= 0) continue;
+      lines.push({
+        partId: ((formData.get(`partId_${i}`) as string) || "").trim() || null,
+        description,
+        quantity,
+        estimatedUnitCost: Number(formData.get(`cost_${i}`) || 0),
+        uom: ((formData.get(`uom_${i}`) as string) || "EA").trim() || "EA",
+        notes: ((formData.get(`notes_${i}`) as string) || "").trim() || null,
+      });
+    }
+
+    const neededRaw = ((formData.get("neededBy") as string) || "").trim();
+    const submitMode = ((formData.get("submitMode") as string) || "submit")
+      .trim()
+      .toLowerCase();
+    const purposeRaw = ((formData.get("purpose") as string) || "")
+      .trim()
+      .toUpperCase();
+    const purpose = (
+      ["MANUFACTURING", "PROJECT", "FACILITIES", "OTHER"].includes(purposeRaw)
+        ? purposeRaw
+        : null
+    ) as "MANUFACTURING" | "PROJECT" | "FACILITIES" | "OTHER" | null;
+    const chargeTypeRaw = (
+      (formData.get("chargeType") as string) || "INDIRECT"
+    )
+      .trim()
+      .toUpperCase();
+    const chargeType = (
+      ["PROGRAM", "SALES_ORDER", "DIRECT", "INDIRECT"].includes(chargeTypeRaw)
+        ? chargeTypeRaw
+        : "INDIRECT"
+    ) as "PROGRAM" | "SALES_ORDER" | "DIRECT" | "INDIRECT";
+
+    const pr = await createStandalonePurchaseRequest({
+      lines,
+      department: ((formData.get("department") as string) || "").trim() || null,
+      neededBy: neededRaw ? new Date(neededRaw) : null,
+      justification:
+        ((formData.get("justification") as string) || "").trim() || null,
+      supplierId:
+        ((formData.get("supplierId") as string) || "").trim() || null,
+      projectId: ((formData.get("projectId") as string) || "").trim() || null,
+      wbsElementId:
+        ((formData.get("wbsElementId") as string) || "").trim() || null,
+      budgetId: ((formData.get("budgetId") as string) || "").trim() || null,
+      chargeType,
+      purpose,
+      submit: submitMode !== "draft",
+      userId: user?.id,
+    });
+
+    await flashToast(
+      submitMode === "draft"
+        ? `PR ${pr.number} saved as draft`
+        : `PR ${pr.number} submitted for approval`
+    );
+    revalidatePath("/purchasing");
+    revalidatePath(`/purchasing/pr/${pr.id}`);
+    redirect(`/purchasing/pr/${pr.id}`);
+  } catch (e) {
+    // redirect() throws — rethrow so it is not toasted
+    if (
+      e &&
+      typeof e === "object" &&
+      "digest" in e &&
+      String((e as { digest?: string }).digest || "").startsWith("NEXT_REDIRECT")
+    ) {
+      throw e;
+    }
+    await flashToast(
+      e instanceof Error ? e.message : "Could not create PR",
+      "error"
+    );
+    revalidatePath("/purchasing/pr/new");
+  }
+}
+
 export async function actionSaveApprovalPolicy(formData: FormData): Promise<void> {
-  const user = await getCurrentUser("ADMIN");
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("purchasing.policy.manage");
   const id = ((formData.get("id") as string) || "").trim() || undefined;
   const name = ((formData.get("name") as string) || "").trim();
   if (!name) throw new Error("Policy name required");
@@ -1853,7 +2153,9 @@ export async function actionConvertPrToPo(formData: FormData): Promise<void> {
   const id = ((formData.get("id") as string) || "").trim();
   if (!id) throw new Error("Purchase request id required");
 
-  const user = await getCurrentUser("PURCHASING");
+  const { requirePermission } = await import("@/lib/auth");
+
+  const user = await requirePermission("purchasing.po.convert");
   const pr = await prisma.purchaseRequest.findUnique({
     where: { id },
     include: {
@@ -2046,7 +2348,8 @@ export async function actionAdvanceWiStatus(formData: FormData) {
 export async function actionSubmitWiToCm(formData: FormData): Promise<void> {
   const id = formData.get("id") as string;
   const notes = ((formData.get("notes") as string) || "").trim() || undefined;
-  const user = await getCurrentUser("ENGINEERING");
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("wi.release");
   const { submitWiToCm } = await import("@/lib/services/work-instructions");
   await submitWiToCm({
     workInstructionId: id,
@@ -2061,7 +2364,8 @@ export async function actionSubmitWiToCm(formData: FormData): Promise<void> {
 
 export async function actionCreateWiRevision(formData: FormData): Promise<void> {
   const id = formData.get("id") as string;
-  const user = await getCurrentUser("ENGINEERING");
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("wi.create");
   const { createWiRevisionFromReleased } = await import(
     "@/lib/services/work-instructions"
   );
@@ -2076,7 +2380,8 @@ export async function actionCreateWiRevision(formData: FormData): Promise<void> 
 export async function actionCreateWorkInstruction(
   formData: FormData
 ): Promise<void> {
-  const user = await getCurrentUser("ENGINEERING");
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("wi.create");
   const { createWorkInstruction } = await import(
     "@/lib/services/work-instructions"
   );
@@ -2185,7 +2490,8 @@ export async function actionCreateWorkInstruction(
 
 export async function actionAddWiStep(formData: FormData): Promise<void> {
   const wiId = formData.get("workInstructionId") as string;
-  const user = await getCurrentUser("ENGINEERING");
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("wi.edit");
   const { addWorkInstructionStep } = await import(
     "@/lib/services/work-instructions"
   );
@@ -2246,7 +2552,8 @@ export async function actionAddWiStep(formData: FormData): Promise<void> {
 export async function actionLinkWiToBom(formData: FormData): Promise<void> {
   const wiId = formData.get("workInstructionId") as string;
   const bomHeaderId = formData.get("bomHeaderId") as string;
-  const user = await getCurrentUser("CM");
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("cm.ecr.manage");
   const { linkWiToBom } = await import("@/lib/services/work-instructions");
   await linkWiToBom({
     workInstructionId: wiId,
@@ -2266,14 +2573,14 @@ function cmReturnTo(formData: FormData, fallback = "/cm?tab=submissions") {
 }
 
 export async function actionVoteCm(formData: FormData) {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("cm.vote");
   const memberId = formData.get("memberId") as string;
   const vote = formData.get("vote") as string;
   const comments = ((formData.get("comments") as string) || "").trim() || undefined;
   if (vote === "REJECT" && !comments) {
     throw new Error("A rejection reason is required");
   }
-  const user = await getCurrentUser();
-  if (!user) throw new Error("Sign in required to vote");
 
   // Only the assigned approver may cast their own seat's vote
   const seat = await prisma.cmBoardMember.findUnique({
@@ -2512,7 +2819,8 @@ export async function actionAddEcrComment(formData: FormData): Promise<void> {
 export async function actionAssignEcrApprovers(
   formData: FormData
 ): Promise<void> {
-  const user = await getCurrentUser("CM");
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("cm.ecr.manage");
   const { assignEcrApprovers } = await import("@/lib/services/cm-library");
   const changeRequestId = formData.get("changeRequestId") as string;
   await assignEcrApprovers({
@@ -2529,7 +2837,8 @@ export async function actionAssignEcrApprovers(
 export async function actionReleaseDocumentEcr(
   formData: FormData
 ): Promise<void> {
-  const user = await getCurrentUser("CM");
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("cm.ecr.manage");
   const { releaseDocumentEcr } = await import("@/lib/services/cm-library");
   const result = await releaseDocumentEcr({
     changeRequestId: formData.get("changeRequestId") as string,
@@ -2548,7 +2857,8 @@ export async function actionReleaseDocumentEcr(
 export async function actionMoveCmSubmission(formData: FormData): Promise<void> {
   const changeRequestId = formData.get("changeRequestId") as string;
   let column = ((formData.get("column") as string) || "SUBMITTED").toUpperCase();
-  const user = await getCurrentUser("CM");
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("cm.ecr.manage");
   const cr = await prisma.changeRequest.findUnique({
     where: { id: changeRequestId },
     select: { documentNumber: true },
@@ -2580,7 +2890,7 @@ export async function actionMoveCmBoardCard(params: {
   isDocumentEcr?: boolean;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    const user = await getCurrentUser("CM");
+    const user = await getCurrentUser();
     const column = params.column.toUpperCase() as
       | "IN_WORK"
       | "SUBMITTED"
@@ -2630,7 +2940,8 @@ export async function actionMoveCmBoardCard(params: {
 }
 
 export async function actionCreateCmFolder(formData: FormData): Promise<void> {
-  const user = await getCurrentUser("CM");
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("cm.ecr.manage");
   const { createCmFolder } = await import("@/lib/services/cm-library");
   const parentId =
     ((formData.get("parentId") as string) || "").trim() || null;
@@ -2648,7 +2959,8 @@ export async function actionCreateCmFolder(formData: FormData): Promise<void> {
 }
 
 export async function actionDeleteCmFolder(formData: FormData): Promise<void> {
-  const user = await getCurrentUser("CM");
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("cm.ecr.manage");
   const id = formData.get("id") as string;
   const { deleteCmFolder } = await import("@/lib/services/cm-library");
   const folder = await prisma.cmFolder.findUnique({ where: { id } });
@@ -2666,7 +2978,8 @@ export async function actionDeleteCmFolder(formData: FormData): Promise<void> {
 // There is no manual "add document" action for library folders.
 
 export async function actionMoveCmDocument(formData: FormData): Promise<void> {
-  const user = await getCurrentUser("CM");
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("cm.ecr.manage");
   const { moveCmDocument } = await import("@/lib/services/cm-library");
   const id = formData.get("id") as string;
   const folderId =
@@ -2679,7 +2992,8 @@ export async function actionMoveCmDocument(formData: FormData): Promise<void> {
 }
 
 export async function actionDeleteCmDocument(formData: FormData): Promise<void> {
-  const user = await getCurrentUser("CM");
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("cm.ecr.manage");
   const id = formData.get("id") as string;
   const folderId =
     ((formData.get("folderId") as string) || "").trim() || null;
@@ -2887,7 +3201,8 @@ export async function actionPlanSalesOrder(formData: FormData): Promise<void> {
   const bypassStockCheck =
     formData.get("bypassStockCheck") === "true" ||
     formData.get("bypassStockCheck") === "on";
-  const user = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("sales.order.plan");
   await planSalesOrderFulfillment({
     salesOrderId,
     userId: user?.id,
@@ -2895,6 +3210,35 @@ export async function actionPlanSalesOrder(formData: FormData): Promise<void> {
     bypassMaterialStockCheck: bypassStockCheck,
   });
   revalidateFulfillmentPaths([`/sales/${salesOrderId}`]);
+}
+
+/** CTP-lite result is shown via toast summary + revalidate (detail renders card). */
+export async function actionAssessCtp(formData: FormData): Promise<void> {
+  const salesOrderId = formData.get("salesOrderId") as string;
+  const { assessCapableToPromise } = await import("@/lib/services/planning");
+  try {
+    const ctp = await assessCapableToPromise(salesOrderId);
+    // Stash on a cookie-free path: write a tiny audit-friendly flash
+    const tight = ctp.lines.filter((l) => l.verdict === "TIGHT").length;
+    const miss = ctp.lines.filter((l) =>
+      ["MISS", "NO_BOM"].includes(l.verdict)
+    ).length;
+    await flashToast(
+      `CTP ${ctp.overall}${
+        ctp.suggestedShipDate ? ` · suggest ship ${ctp.suggestedShipDate}` : ""
+      }${miss ? ` · ${miss} miss` : ""}${tight ? ` · ${tight} tight` : ""}`,
+      ctp.overall === "MISS" || ctp.overall === "NO_BOM" ? "error" : "success"
+    );
+    // Persist last CTP on SO notes? No — use sessionStorage via query
+  } catch (e) {
+    await flashToast(
+      e instanceof Error ? e.message : "CTP failed",
+      "error"
+    );
+  }
+  revalidatePath(`/sales/${salesOrderId}`);
+  // Redirect with flag so page can recompute CTP for display
+  redirect(`/sales/${salesOrderId}?ctp=1`);
 }
 
 // ─── Customers ──────────────────────────────────────────────────
@@ -3228,14 +3572,15 @@ export async function actionToggleSupplierAsl(formData: FormData): Promise<void>
   const supplierId = formStr(formData, "supplierId");
   const approve = formBool(formData, "approve");
   const forceTrial = formBool(formData, "forceTrial");
-  const user = await getCurrentUser("PURCHASING");
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("suppliers.manage");
 
   const { setSupplierAsl } = await import("@/lib/services/asl");
   await setSupplierAsl({
     supplierId,
     approve,
     forceTrial,
-    userId: user?.id,
+    userId: user.id,
   });
 
   revalidatePath("/suppliers");
@@ -3245,7 +3590,8 @@ export async function actionToggleSupplierAsl(formData: FormData): Promise<void>
 }
 
 export async function actionUpdateAslPolicy(formData: FormData): Promise<void> {
-  const user = await getCurrentUser("PURCHASING");
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("suppliers.manage");
   const { updateAslPolicy } = await import("@/lib/services/asl");
   await updateAslPolicy({
     requireIso9001: formBool(formData, "requireIso9001"),
@@ -3260,7 +3606,8 @@ export async function actionUpdateAslPolicy(formData: FormData): Promise<void> {
 }
 
 export async function actionUpsertSupplierCert(formData: FormData): Promise<void> {
-  const user = await getCurrentUser("PURCHASING");
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("suppliers.manage");
   const supplierId = formStr(formData, "supplierId");
   const { upsertSupplierCertification } = await import("@/lib/services/asl");
 
@@ -3287,7 +3634,8 @@ export async function actionUpsertSupplierCert(formData: FormData): Promise<void
 }
 
 export async function actionDeleteSupplierCert(formData: FormData): Promise<void> {
-  const user = await getCurrentUser("PURCHASING");
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("suppliers.manage");
   const id = formStr(formData, "id");
   const supplierId = formStr(formData, "supplierId");
   const { deleteSupplierCertification } = await import("@/lib/services/asl");
@@ -3337,7 +3685,7 @@ export async function actionCompleteReceivingInspection(
   const notes = ((formData.get("notes") as string) || "").trim() || undefined;
   const measuredValue =
     ((formData.get("measuredValue") as string) || "").trim() || undefined;
-  const user = await getCurrentUser("QUALITY");
+  const user = await getCurrentUser();
 
   const documents: { url: string; fileName?: string; caption?: string }[] = [];
   for (let i = 0; i < 12; i++) {
@@ -3468,7 +3816,8 @@ export async function actionDeliverTravelerToStation(
 
 export async function actionCreateKit(formData: FormData): Promise<void> {
   const workOrderId = formData.get("workOrderId") as string;
-  const user = await getCurrentUser("PRODUCTION");
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("kitting.create");
   try {
     const kit = await createKitOrder({ workOrderId, userId: user?.id });
     await flashToast(`Kit order ${kit.number} opened — pick from locations`);
@@ -3500,7 +3849,8 @@ export async function actionCreateKit(formData: FormData): Promise<void> {
 
 export async function actionCompleteKit(formData: FormData): Promise<void> {
   const kitOrderId = formData.get("kitOrderId") as string;
-  const user = await getCurrentUser("PRODUCTION");
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("kitting.complete");
   const linePicks: Record<string, string> = {};
   for (const [key, value] of formData.entries()) {
     if (!key.startsWith("pick_")) continue;
@@ -3524,7 +3874,7 @@ export async function actionAddPrototypeWiStep(
   formData: FormData
 ): Promise<void> {
   const workOrderId = formData.get("workOrderId") as string;
-  const user = await getCurrentUser("ENGINEERING");
+  const user = await getCurrentUser();
   const {
     ensurePrototypeWorkInstruction,
     ensureWorkOrderTravelerSteps,
@@ -3537,7 +3887,24 @@ export async function actionAddPrototypeWiStep(
       workOrderId,
       userId: user?.id,
     });
-    const stepType = ((formData.get("stepType") as string) || "BUILD").toUpperCase();
+    const stepType = (
+      (formData.get("stepType") as string) || "BUILD"
+    )
+      .trim()
+      .toUpperCase();
+    const photos: string[] = [];
+    for (let i = 0; i < 8; i++) {
+      const u = ((formData.get(`photo_${i}`) as string) || "").trim();
+      if (u) photos.push(u);
+    }
+    const minRaw = ((formData.get("minValue") as string) || "").trim();
+    const maxRaw = ((formData.get("maxValue") as string) || "").trim();
+    const passFail =
+      formData.get("passFailRequired") === "on" ||
+      formData.get("passFailRequired") === "true" ||
+      stepType === "QA" ||
+      stepType === "TEST";
+
     await addWorkInstructionStep(
       wi.id,
       {
@@ -3545,14 +3912,42 @@ export async function actionAddPrototypeWiStep(
         instructions:
           ((formData.get("instructions") as string) || "").trim() || "—",
         stepType,
+        isTestStep: stepType === "TEST",
+        passFailRequired: passFail,
+        testCriteria:
+          ((formData.get("testCriteria") as string) || "").trim() || undefined,
+        expectedValue:
+          ((formData.get("expectedValue") as string) || "").trim() || undefined,
+        minValue: minRaw !== "" && Number.isFinite(Number(minRaw))
+          ? Number(minRaw)
+          : undefined,
+        maxValue: maxRaw !== "" && Number.isFinite(Number(maxRaw))
+          ? Number(maxRaw)
+          : undefined,
+        measureUom:
+          ((formData.get("measureUom") as string) || "").trim() || undefined,
+        requiredArea:
+          ((formData.get("requiredArea") as string) || "").trim() || undefined,
+        testProcedureId:
+          ((formData.get("testProcedureId") as string) || "").trim() ||
+          undefined,
         estimatedMinutes: formData.get("estimatedMinutes")
           ? Number(formData.get("estimatedMinutes"))
           : 15,
+        attachmentUrls: photos,
       },
       user?.id
     );
     await ensureWorkOrderTravelerSteps({ workOrderId, userId: user?.id });
-    await flashToast("Prototype WI step added to traveler");
+    const { refreshWorkOrderEstimate } = await import(
+      "@/lib/services/schedule"
+    );
+    await refreshWorkOrderEstimate(workOrderId, user?.id).catch(() => null);
+    await flashToast(
+      photos.length
+        ? `Prototype WI step added · ${photos.length} photo(s)`
+        : "Prototype WI step added to traveler"
+    );
   } catch (e) {
     await flashToast(
       e instanceof Error ? e.message : "Could not add WI step",
@@ -3563,6 +3958,335 @@ export async function actionAddPrototypeWiStep(
     `/work-orders/${workOrderId}`,
     "/work-instructions",
   ]);
+}
+
+export async function actionRefreshWoEstimate(
+  formData: FormData
+): Promise<void> {
+  const workOrderId = formData.get("workOrderId") as string;
+  const user = await getCurrentUser();
+  const { refreshWorkOrderEstimate } = await import(
+    "@/lib/services/schedule"
+  );
+  try {
+    const est = await refreshWorkOrderEstimate(workOrderId, user?.id);
+    await flashToast(`Estimate refreshed · ${est.estimatedMinutes} min`);
+  } catch (e) {
+    await flashToast(
+      e instanceof Error ? e.message : "Could not refresh estimate",
+      "error"
+    );
+  }
+  revalidatePath(`/work-orders/${workOrderId}`);
+  revalidatePath("/planning");
+  revalidatePath("/floor");
+}
+
+export async function actionRescheduleWorkOrder(
+  formData: FormData
+): Promise<void> {
+  const workOrderId = formData.get("workOrderId") as string;
+  const mode = ((formData.get("mode") as string) || "BACK").toUpperCase() as
+    | "BACK"
+    | "FORWARD"
+    | "MANUAL";
+  const dueRaw = ((formData.get("dueDate") as string) || "").trim();
+  const startRaw = ((formData.get("startDate") as string) || "").trim();
+  const user = await getCurrentUser();
+  const { rescheduleWorkOrder } = await import("@/lib/services/schedule");
+  try {
+    const result = await rescheduleWorkOrder({
+      workOrderId,
+      mode: mode === "FORWARD" || mode === "MANUAL" ? mode : "BACK",
+      dueDate: dueRaw ? new Date(dueRaw) : null,
+      startDate: startRaw ? new Date(startRaw) : null,
+      userId: user?.id,
+    });
+    await flashToast(
+      `Rescheduled (${result.scheduleMode}) · ${result.scheduleRisk}${
+        result.plannedStart
+          ? ` · ${result.plannedStart.toISOString().slice(0, 10)} → ${result.plannedEnd.toISOString().slice(0, 10)}`
+          : ""
+      }`
+    );
+  } catch (e) {
+    await flashToast(
+      e instanceof Error ? e.message : "Reschedule failed",
+      "error"
+    );
+  }
+  revalidatePath(`/work-orders/${workOrderId}`);
+  revalidatePath("/planning");
+  revalidatePath("/floor");
+  revalidatePath("/kitting");
+}
+
+export async function actionSavePlanningSettings(
+  formData: FormData
+): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("admin.users.manage");
+  const { savePlanningSettings } = await import("@/lib/services/schedule");
+  const calendarMode = ((formData.get("calendarMode") as string) ||
+    "FIXED_SHIFT") as
+    | "FIXED_SHIFT"
+    | "WORK_CENTER"
+    | "STAFFED"
+    | "CUSTOM_SHIFT";
+  const fixedShiftHours = Number(formData.get("fixedShiftHours") || 8);
+  const customShiftHours = Number(formData.get("customShiftHours") || 8);
+  await savePlanningSettings(
+    {
+      calendarMode,
+      fixedShiftHours: Number.isFinite(fixedShiftHours) ? fixedShiftHours : 8,
+      customShiftHours: Number.isFinite(customShiftHours)
+        ? customShiftHours
+        : 8,
+    },
+    user?.id
+  );
+  await flashToast("Planning calendar settings saved");
+  revalidatePath("/planning");
+  revalidatePath("/admin/settings");
+}
+
+// ── Budgets ───────────────────────────────────────────────────────────────
+
+export async function actionCreateBudget(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("budgets.manage");
+  const { createBudget } = await import("@/lib/services/budgets");
+  const sourceType = ((formData.get("sourceType") as string) ||
+    "STANDALONE") as "FORECAST" | "PROJECT" | "STANDALONE";
+  try {
+    const forecastIds = [
+      ...formData.getAll("forecastIds").map((v) => String(v).trim()),
+      ((formData.get("forecastId") as string) || "").trim(),
+    ].filter(Boolean);
+    const budget = await createBudget({
+      name: ((formData.get("name") as string) || "").trim(),
+      sourceType,
+      forecastIds,
+      projectId: ((formData.get("projectId") as string) || "").trim() || null,
+      wbsElementId: ((formData.get("wbsElementId") as string) || "").trim() || null,
+      productId: ((formData.get("productId") as string) || "").trim() || null,
+      ownerId: ((formData.get("ownerId") as string) || "").trim() || user.id || null,
+      chargeCode: ((formData.get("chargeCode") as string) || "").trim() || null,
+      totalAmount: Number(formData.get("totalAmount") || 0),
+      laborBudget: Number(formData.get("laborBudget") || 0),
+      materialBudget: Number(formData.get("materialBudget") || 0),
+      otherBudget: Number(formData.get("otherBudget") || 0),
+      laborHoursBudget: Number(formData.get("laborHoursBudget") || 0),
+      notes: ((formData.get("notes") as string) || "").trim() || null,
+      userId: user.id,
+      // Default: draft so numbers/code can be edited before enact
+      enact:
+        formData.get("enact") === "on" || formData.get("enact") === "true",
+    });
+    await flashToast(
+      budget.status === "ENACTED"
+        ? `Budget enacted · charge code ${budget.chargeCode}`
+        : `Budget draft “${budget.chargeCode || budget.name}” — edit then enact`
+    );
+    revalidatePath("/budgets");
+    revalidatePath("/planning");
+    revalidatePath("/hr/timesheet");
+    revalidatePath("/pmo");
+    const projectId = ((formData.get("projectId") as string) || "").trim();
+    if (projectId) {
+      revalidatePath(`/pmo/projects/${projectId}`);
+      redirect(`/pmo/projects/${projectId}?tab=budgets`);
+    }
+    redirect(`/budgets/${budget.id}`);
+  } catch (e) {
+    await flashToast(
+      e instanceof Error ? e.message : "Could not create budget",
+      "error"
+    );
+    revalidatePath("/budgets");
+  }
+}
+
+export async function actionEnsureProjectWbsChargeCodes(
+  formData: FormData
+): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("budgets.manage");
+  const projectId = formData.get("projectId") as string;
+  const { ensureProjectWbsChargeCodes } = await import(
+    "@/lib/services/budgets"
+  );
+  try {
+    const result = await ensureProjectWbsChargeCodes({
+      projectId,
+      userId: user.id,
+    });
+    await flashToast(
+      result.created
+        ? `Created ${result.created} WBS charge code(s)`
+        : "All WBS elements already have charge codes"
+    );
+  } catch (e) {
+    await flashToast(
+      e instanceof Error ? e.message : "Could not generate charge codes",
+      "error"
+    );
+  }
+  revalidatePath(`/pmo/projects/${projectId}`);
+  revalidatePath("/budgets");
+  revalidatePath("/hr/timesheet");
+  redirect(`/pmo/projects/${projectId}?tab=budgets`);
+}
+
+export async function actionUpdateBudget(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  const budgetId = formData.get("budgetId") as string;
+  const { updateBudget } = await import("@/lib/services/budgets");
+  const ownerRaw = ((formData.get("ownerId") as string) || "").trim();
+  const forecastIds = formData.has("forecastIds")
+    ? formData.getAll("forecastIds").map((v) => String(v).trim()).filter(Boolean)
+    : undefined;
+  try {
+    await updateBudget({
+      budgetId,
+      name: ((formData.get("name") as string) || "").trim() || undefined,
+      ownerId: ownerRaw || undefined,
+      chargeCode: ((formData.get("chargeCode") as string) || "").trim() || undefined,
+      totalAmount: formData.has("totalAmount")
+        ? Number(formData.get("totalAmount") || 0)
+        : undefined,
+      laborBudget: formData.has("laborBudget")
+        ? Number(formData.get("laborBudget") || 0)
+        : undefined,
+      materialBudget: formData.has("materialBudget")
+        ? Number(formData.get("materialBudget") || 0)
+        : undefined,
+      otherBudget: formData.has("otherBudget")
+        ? Number(formData.get("otherBudget") || 0)
+        : undefined,
+      laborHoursBudget: formData.has("laborHoursBudget")
+        ? Number(formData.get("laborHoursBudget") || 0)
+        : undefined,
+      notes: formData.has("notes")
+        ? ((formData.get("notes") as string) || "").trim() || null
+        : undefined,
+      productId: formData.has("productId")
+        ? ((formData.get("productId") as string) || "").trim() || null
+        : undefined,
+      forecastIds,
+      userId: user?.id,
+    });
+    await flashToast("Budget updated");
+  } catch (e) {
+    await flashToast(
+      e instanceof Error ? e.message : "Update failed",
+      "error"
+    );
+  }
+  revalidatePath(`/budgets/${budgetId}`);
+  revalidatePath("/budgets");
+  revalidatePath("/hr/timesheet");
+  revalidatePath("/pmo");
+}
+
+export async function actionEnactBudget(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("budgets.manage");
+  const budgetId = formData.get("budgetId") as string;
+  const { enactBudget } = await import("@/lib/services/budgets");
+  try {
+    const b = await enactBudget({
+      budgetId,
+      userId: user.id,
+      chargeCode: ((formData.get("chargeCode") as string) || "").trim() || null,
+    });
+    await flashToast(`Enacted · charge code ${b.chargeCode}`);
+  } catch (e) {
+    await flashToast(
+      e instanceof Error ? e.message : "Enact failed",
+      "error"
+    );
+  }
+  revalidatePath(`/budgets/${budgetId}`);
+  revalidatePath("/budgets");
+  revalidatePath("/hr/timesheet");
+  revalidatePath("/accounting");
+  revalidatePath("/pmo");
+}
+
+export async function actionCloseBudget(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("budgets.manage");
+  const budgetId = formData.get("budgetId") as string;
+  const { closeBudget } = await import("@/lib/services/budgets");
+  try {
+    await closeBudget({ budgetId, userId: user.id });
+    await flashToast("Budget closed");
+  } catch (e) {
+    await flashToast(
+      e instanceof Error ? e.message : "Close failed",
+      "error"
+    );
+  }
+  revalidatePath(`/budgets/${budgetId}`);
+  revalidatePath("/budgets");
+}
+
+export async function actionPostBudgetCharge(
+  formData: FormData
+): Promise<void> {
+  const user = await getCurrentUser();
+  const budgetId = formData.get("budgetId") as string;
+  const { postBudgetCharge } = await import("@/lib/services/budgets");
+  try {
+    await postBudgetCharge({
+      budgetId,
+      category: ((formData.get("category") as string) || "OTHER").toUpperCase() as
+        | "LABOR"
+        | "MATERIAL"
+        | "OTHER",
+      amount: Number(formData.get("amount") || 0),
+      description: ((formData.get("description") as string) || "").trim() || null,
+      source: "MANUAL",
+      userId: user?.id,
+      bookJournal: true,
+    });
+    await flashToast("Charge posted");
+  } catch (e) {
+    await flashToast(
+      e instanceof Error ? e.message : "Charge failed",
+      "error"
+    );
+  }
+  revalidatePath(`/budgets/${budgetId}`);
+  revalidatePath("/budgets");
+  revalidatePath("/accounting");
+}
+
+export async function actionSetUserCompensation(
+  formData: FormData
+): Promise<void> {
+  const actor = await getCurrentUser();
+  const userId = formData.get("userId") as string;
+  const { setUserCompensation } = await import("@/lib/services/budgets");
+  const hourlyRaw = ((formData.get("hourlyRate") as string) || "").trim();
+  const salaryRaw = ((formData.get("annualSalary") as string) || "").trim();
+  try {
+    await setUserCompensation({
+      userId,
+      hourlyRate: hourlyRaw !== "" ? Number(hourlyRaw) : undefined,
+      annualSalary: salaryRaw !== "" ? Number(salaryRaw) : undefined,
+      actorId: actor?.id,
+    });
+    await flashToast("Compensation saved");
+  } catch (e) {
+    await flashToast(
+      e instanceof Error ? e.message : "Could not save compensation",
+      "error"
+    );
+  }
+  revalidatePath(`/hr/person/${userId}`);
+  revalidatePath("/hr");
 }
 
 export async function actionFinishPrototypeWo(
@@ -3601,7 +4325,8 @@ export async function actionFinishPrototypeWo(
 
 export async function actionStartProduction(formData: FormData): Promise<void> {
   const workOrderId = formData.get("workOrderId") as string;
-  const user = await getCurrentUser("PRODUCTION");
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("workorders.status.update");
   try {
     await startProductionFromKit({ workOrderId, userId: user?.id });
     await flashToast(
@@ -3677,18 +4402,19 @@ export async function actionPutAwayAllReceiving(): Promise<void> {
 }
 
 export async function actionShipSalesOrder(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("sales.order.ship");
   const salesOrderId = formData.get("salesOrderId") as string;
   const shipmentId = ((formData.get("shipmentId") as string) || "").trim() || undefined;
   const force = formData.get("force") === "true";
   const carrier = (formData.get("carrier") as string) || undefined;
   const trackingNumber = (formData.get("trackingNumber") as string) || undefined;
-  const user = await getCurrentUser();
   await shipSalesOrder({
     salesOrderId,
     shipmentId,
     carrier,
     trackingNumber,
-    userId: user?.id,
+    userId: user.id,
     force,
   });
   revalidateFulfillmentPaths([
@@ -3731,7 +4457,8 @@ export async function actionQueueShipment(formData: FormData): Promise<void> {
 export async function actionCreateManualShipment(
   formData: FormData
 ): Promise<void> {
-  const user = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("sales.order.ship");
   const { createManualShipment } = await import(
     "@/lib/services/order-fulfillment"
   );
@@ -3786,7 +4513,8 @@ export async function actionVerifyPackingList(formData: FormData): Promise<void>
     "@/lib/services/order-fulfillment"
   );
   const shipmentId = formData.get("shipmentId") as string;
-  const user = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("sales.order.ship");
   await verifyShipmentPackingList({ shipmentId, userId: user?.id });
   revalidatePath("/shipping");
   revalidatePath("/sales");
@@ -3795,7 +4523,8 @@ export async function actionVerifyPackingList(formData: FormData): Promise<void>
 export async function actionPackShipment(formData: FormData): Promise<void> {
   const { packShipment } = await import("@/lib/services/order-fulfillment");
   const shipmentId = formData.get("shipmentId") as string;
-  const user = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("sales.order.ship");
   const packPhotos: { url: string; fileName?: string; caption?: string }[] = [];
   for (let i = 0; i < 12; i++) {
     const url = (formData.get(`pack_photo_${i}`) as string) || "";
@@ -3843,7 +4572,7 @@ export async function actionRequestCmNumber(formData: FormData): Promise<void> {
 }
 
 export async function actionAssignCmNumber(formData: FormData): Promise<void> {
-  const user = await getCurrentUser("CM");
+  const user = await getCurrentUser();
   const { assignNumberToRequest } = await import("@/lib/services/cm-numbers");
   await assignNumberToRequest({
     requestId: formData.get("requestId") as string,
@@ -3859,7 +4588,7 @@ export async function actionAssignCmNumber(formData: FormData): Promise<void> {
 export async function actionRejectCmNumberRequest(
   formData: FormData
 ): Promise<void> {
-  const user = await getCurrentUser("CM");
+  const user = await getCurrentUser();
   const { rejectNumberRequest } = await import("@/lib/services/cm-numbers");
   await rejectNumberRequest({
     requestId: formData.get("requestId") as string,
@@ -3884,7 +4613,7 @@ export async function actionCancelCmNumberRequest(
 }
 
 export async function actionRegisterCmNumber(formData: FormData): Promise<void> {
-  const user = await getCurrentUser("CM");
+  const user = await getCurrentUser();
   const { registerNumberManually } = await import("@/lib/services/cm-numbers");
   await registerNumberManually({
     number: ((formData.get("number") as string) || "").trim(),
@@ -3904,7 +4633,7 @@ export async function actionRegisterCmNumber(formData: FormData): Promise<void> 
 export async function actionUpdateCmNumberScheme(
   formData: FormData
 ): Promise<void> {
-  const user = await getCurrentUser("CM");
+  const user = await getCurrentUser();
   const { updateNumberScheme } = await import("@/lib/services/cm-numbers");
   const padRaw = ((formData.get("padLength") as string) || "").trim();
   const nextRaw = ((formData.get("nextSequence") as string) || "").trim();
@@ -3934,7 +4663,7 @@ export async function actionUpdateCmNumberScheme(
 export async function actionUpdateRegistryStatus(
   formData: FormData
 ): Promise<void> {
-  const user = await getCurrentUser("CM");
+  const user = await getCurrentUser();
   const { updateRegistryStatus } = await import("@/lib/services/cm-numbers");
   await updateRegistryStatus({
     id: formData.get("id") as string,
@@ -4616,6 +5345,7 @@ export async function actionLinkProductToProject(
 // ─── Engineering work: WBS, Campaigns, Sagas, Tasks, Scan ──────
 
 export async function actionCreateWbs(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
   const { createWbsElement } = await import("@/lib/services/engineering-work");
   const projectId = formData.get("projectId") as string;
   const parentId = ((formData.get("parentId") as string) || "").trim() || null;
@@ -4630,8 +5360,11 @@ export async function actionCreateWbs(formData: FormData): Promise<void> {
     budgetCost: optNum(formData, "budgetCost"),
     startDate: optDate(formData, "startDate"),
     endDate: optDate(formData, "endDate"),
+    ownerId: user?.id || null,
   });
   revalidatePath(`/pmo/projects/${projectId}`);
+  revalidatePath("/budgets");
+  revalidatePath("/hr/timesheet");
   const returnTo = ((formData.get("returnTo") as string) || "").trim();
   redirect(returnTo || `/pmo/projects/${projectId}?tab=wbs`);
 }
@@ -5087,7 +5820,7 @@ export async function actionGrantUserPermission(
 }
 
 export async function actionPostJournal(formData: FormData): Promise<void> {
-  const user = await getCurrentUser("ACCOUNTING");
+  const user = await getCurrentUser();
   const { postJournal } = await import("@/lib/services/gaap");
   const description = ((formData.get("description") as string) || "").trim();
   const debitAccountId = ((formData.get("debitAccountId") as string) || "").trim();
@@ -5427,7 +6160,7 @@ export async function actionRequestGfpConsumption(
 export async function actionDecideGfpConsumption(
   formData: FormData
 ): Promise<void> {
-  const user = await getCurrentUser("PM");
+  const user = await getCurrentUser();
   if (!user) throw new Error("No user");
   const { decideGfpConsumption } = await import("@/lib/services/gfp");
   const approve = formData.get("approve") === "true";
@@ -5627,7 +6360,7 @@ export async function actionRemoveWorkCenterStaff(
 }
 
 export async function actionCreateAccount(formData: FormData): Promise<void> {
-  const user = await getCurrentUser("ACCOUNTING");
+  const user = await getCurrentUser();
   const code = ((formData.get("code") as string) || "").trim();
   const name = ((formData.get("name") as string) || "").trim();
   if (!code || !name) throw new Error("Account code and name required");
@@ -5806,6 +6539,10 @@ export async function actionUpdateGoalProgress(
 }
 
 export async function actionSwitchDemoUser(formData: FormData): Promise<void> {
+  const { demoModeEnabled } = await import("@/lib/auth-core");
+  if (!demoModeEnabled()) {
+    throw new Error("Demo persona switcher is disabled (DEMO_MODE=0)");
+  }
   const { cookies } = await import("next/headers");
   const { DEMO_USER_COOKIE } = await import("@/lib/auth");
   const userId = ((formData.get("userId") as string) || "").trim();
@@ -6301,12 +7038,19 @@ export async function actionToggleGroupPermission(
 export async function actionShipReturnShipment(
   formData: FormData
 ): Promise<void> {
-  const user = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("sales.order.ship");
   const id = formData.get("shipmentId") as string;
   const shipment = await prisma.shipment.findUniqueOrThrow({ where: { id } });
   if (shipment.salesOrderId) {
     throw new Error("Customer shipments ship through the pack & ship flow");
   }
+  if (shipment.status !== "PACKED") {
+    throw new Error(
+      "Pack the return shipment (verify list + photos) before shipping"
+    );
+  }
+  // Inventory for manual/return lines is issued at pack time
   await prisma.shipment.update({
     where: { id },
     data: {
@@ -6321,14 +7065,14 @@ export async function actionShipReturnShipment(
     data: {
       shipmentId: id,
       eventType: "SHIPPED",
-      notes: `Return shipment dispatched${user ? ` by ${user.name}` : ""}`,
+      notes: `Return shipment dispatched by ${user.name}`,
     },
   });
   await logAudit({
     entityType: "Shipment",
     entityId: id,
     action: "RETURN_SHIPPED",
-    userId: user?.id,
+    userId: user.id,
   });
   revalidatePath("/shipping");
   revalidatePath(`/shipping/${id}`);
@@ -6444,8 +7188,8 @@ export async function actionSaveTimecardGrid(
   formData: FormData
 ): Promise<void> {
   const { saveTimecardGrid } = await import("@/lib/services/timesheets");
-  const user = await getCurrentUser();
-  if (!user) return;
+  const { requireUser } = await import("@/lib/auth");
+  const user = await requireUser();
   const sheetId = formData.get("sheetId") as string;
   const rowsRaw = (formData.get("rows") as string) || "[]";
   let rows;
@@ -6462,8 +7206,8 @@ export async function actionProcessTimesheet(
   formData: FormData
 ): Promise<void> {
   const { processTimesheet } = await import("@/lib/services/timesheets");
-  const user = await getCurrentUser();
-  if (!user) return;
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("hr.time.decide");
   await processTimesheet({
     id: formData.get("id") as string,
     processor: { id: user.id, role: user.role },
@@ -6969,15 +7713,63 @@ export async function actionRecordApPayment(
   if (!(await userHasPermission(user?.id, "accounting.journal.post"))) {
     throw new Error("Not authorized to record AP payments");
   }
+  const invoiceId = formData.get("invoiceId") as string;
   await recordApPayment({
-    invoiceId: formData.get("invoiceId") as string,
+    invoiceId,
     amount: Number(formData.get("amount") || 0),
     method: ((formData.get("method") as string) || "ACH").trim(),
     reference: ((formData.get("reference") as string) || "").trim() || null,
     userId: user?.id,
   });
-  await flashToast("Payment recorded");
+  await flashToast("Vendor payment recorded");
   revalidatePath("/accounting");
+  revalidatePath("/suppliers");
+  const inv = await prisma.apInvoice.findUnique({
+    where: { id: invoiceId },
+    select: { supplierId: true },
+  });
+  if (inv?.supplierId) revalidatePath(`/suppliers/${inv.supplierId}`);
+}
+
+/** Enter a vendor invoice (outside services / non-ERS) then pay from AP. */
+export async function actionCreateVendorApInvoice(
+  formData: FormData
+): Promise<void> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const { createVendorApInvoice } = await import("@/lib/services/billing");
+  const user = await getCurrentUser();
+  if (!(await userHasPermission(user?.id, "accounting.journal.post"))) {
+    throw new Error("Not authorized to enter vendor invoices");
+  }
+  try {
+    const dueRaw = ((formData.get("dueDate") as string) || "").trim();
+    const invDateRaw = ((formData.get("invoiceDate") as string) || "").trim();
+    const inv = await createVendorApInvoice({
+      supplierId: formData.get("supplierId") as string,
+      amount: Number(formData.get("amount") || 0),
+      tax: Number(formData.get("tax") || 0),
+      vendorInvoiceNumber:
+        ((formData.get("vendorInvoiceNumber") as string) || "").trim() || null,
+      description:
+        ((formData.get("description") as string) || "").trim() || null,
+      purchaseOrderId:
+        ((formData.get("purchaseOrderId") as string) || "").trim() || null,
+      expenseAccountId:
+        ((formData.get("expenseAccountId") as string) || "").trim() || null,
+      invoiceDate: invDateRaw ? new Date(invDateRaw) : undefined,
+      dueDate: dueRaw ? new Date(dueRaw) : null,
+      userId: user?.id,
+    });
+    await flashToast(`Vendor invoice ${inv.number} entered — pay from AP when ready`);
+    revalidatePath("/accounting");
+    revalidatePath("/suppliers");
+    revalidatePath(`/suppliers/${inv.supplierId}`);
+  } catch (e) {
+    await flashToast(
+      e instanceof Error ? e.message : "Could not create vendor invoice",
+      "error"
+    );
+  }
 }
 
 export async function actionCreateExpenseEntry(
@@ -7143,4 +7935,335 @@ export async function actionCompleteSetup(): Promise<void> {
   });
   revalidatePath("/", "layout");
   redirect("/");
+}
+
+// ── Serial as-built + RMA ───────────────────────────────────────────────
+
+function rethrowIfRedirect(e: unknown): void {
+  // next/navigation redirect() throws; must not be shown as a toast ("NEXT_REDIRECT")
+  if (
+    e &&
+    typeof e === "object" &&
+    "digest" in e &&
+    typeof (e as { digest?: string }).digest === "string" &&
+    String((e as { digest: string }).digest).startsWith("NEXT_REDIRECT")
+  ) {
+    throw e;
+  }
+  const msg = e instanceof Error ? e.message : "";
+  if (/NEXT_REDIRECT|NEXT_HTTP_ERROR_FALLBACK/i.test(msg)) throw e;
+}
+
+export async function actionCreateRmaRequest(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("rma.create");
+  const { createRmaRequest } = await import("@/lib/services/rma");
+  try {
+    const partId = ((formData.get("partId") as string) || "").trim() || null;
+    const partNumber =
+      ((formData.get("partNumber") as string) || "").trim() || null;
+    const { rma, warning, serialFound } = await createRmaRequest({
+      customerId: formData.get("customerId") as string,
+      serial: (formData.get("serial") as string) || "",
+      partNumber,
+      partId,
+      symptom: ((formData.get("symptom") as string) || "").trim() || null,
+      notes: ((formData.get("notes") as string) || "").trim() || null,
+      userId: user?.id,
+    });
+    const bits = [
+      `RMA ${rma.number} created`,
+      warning || null,
+      serialFound ? null : "packing list still available for customer return",
+      "review warranty & issue",
+    ].filter(Boolean);
+    await flashToast(bits.join(" · "));
+    revalidatePath("/rma");
+    redirect(`/rma/${rma.id}`);
+  } catch (e) {
+    rethrowIfRedirect(e);
+    await flashToast(
+      e instanceof Error ? e.message : "Could not create RMA",
+      "error"
+    );
+    revalidatePath("/rma");
+  }
+}
+
+export async function actionIssueRma(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("rma.issue");
+  const rmaId = formData.get("rmaId") as string;
+  const coverage = ((formData.get("coverage") as string) ||
+    "CHARGEABLE") as "WARRANTY" | "CHARGEABLE" | "GOODWILL" | "MIXED";
+  const { issueRma } = await import("@/lib/services/rma");
+  try {
+    const result = await issueRma({
+      rmaId,
+      coverage,
+      notes: ((formData.get("notes") as string) || "").trim() || null,
+      userId: user?.id,
+    });
+    if (result.workOrder) {
+      await flashToast(
+        `RMA issued (${coverage}) · repair WO ${result.workOrder.number}`
+      );
+    } else if (result.quote) {
+      await flashToast(
+        `RMA issued chargeable · quote ${result.quote.number} — edit lines then accept`
+      );
+    } else {
+      await flashToast("RMA issued");
+    }
+    revalidatePath(`/rma/${rmaId}`);
+    revalidatePath("/rma");
+    revalidatePath("/work-orders");
+    revalidatePath("/sales/quotes");
+    redirect(`/rma/${rmaId}`);
+  } catch (e) {
+    rethrowIfRedirect(e);
+    await flashToast(
+      e instanceof Error ? e.message : "Issue failed",
+      "error"
+    );
+    revalidatePath(`/rma/${rmaId}`);
+  }
+}
+
+export async function actionCreateRepairQuoteForRma(
+  formData: FormData
+): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("rma.issue");
+  const rmaId = formData.get("rmaId") as string;
+  const { createRepairQuoteForRma } = await import("@/lib/services/rma");
+  try {
+    const q = await createRepairQuoteForRma({ rmaId, userId: user?.id });
+    await flashToast(`Repair quote ${q.number} created`);
+  } catch (e) {
+    await flashToast(
+      e instanceof Error ? e.message : "Quote failed",
+      "error"
+    );
+  }
+  revalidatePath(`/rma/${rmaId}`);
+  revalidatePath("/sales/quotes");
+}
+
+export async function actionAcceptRepairQuote(
+  formData: FormData
+): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("rma.issue");
+  const quoteId = formData.get("quoteId") as string;
+  const { acceptRepairQuote } = await import("@/lib/services/rma");
+  try {
+    const { workOrder, quote } = await acceptRepairQuote({
+      quoteId,
+      userId: user?.id,
+    });
+    await flashToast(
+      `Quote accepted · repair WO ${workOrder.number} (no sales order)`
+    );
+    revalidatePath("/work-orders");
+    revalidatePath("/rma");
+    revalidatePath("/sales/quotes");
+    // FK is Rma.quoteId → reverse relation on Quote
+    const linkedRmaId = (quote as { rma?: { id: string } | null }).rma?.id;
+    if (linkedRmaId) redirect(`/rma/${linkedRmaId}`);
+    if (workOrder.rmaId) redirect(`/rma/${workOrder.rmaId}`);
+  } catch (e) {
+    rethrowIfRedirect(e);
+    await flashToast(
+      e instanceof Error ? e.message : "Accept failed",
+      "error"
+    );
+    revalidatePath("/sales/quotes");
+  }
+}
+
+export async function actionUpdateRepairQuote(
+  formData: FormData
+): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("rma.issue");
+  const rmaId = formData.get("rmaId") as string;
+  const { updateRepairQuote } = await import("@/lib/services/rma");
+  try {
+    const lineCount = Number(formData.get("lineCount") || 0);
+    const lines: {
+      description: string;
+      quantity: number;
+      unitPrice: number;
+    }[] = [];
+    for (let i = 0; i < lineCount; i++) {
+      const description = ((formData.get(`desc_${i}`) as string) || "").trim();
+      const quantity = Number(formData.get(`qty_${i}`) || 0);
+      const unitPrice = Number(formData.get(`price_${i}`) || 0);
+      if (!description && quantity === 0 && unitPrice === 0) continue;
+      lines.push({ description, quantity, unitPrice });
+    }
+    // Optional new line from "add line" fields
+    const addDesc = ((formData.get("add_desc") as string) || "").trim();
+    if (addDesc) {
+      lines.push({
+        description: addDesc,
+        quantity: Number(formData.get("add_qty") || 1),
+        unitPrice: Number(formData.get("add_price") || 0),
+      });
+    }
+    await updateRepairQuote({
+      rmaId,
+      lines,
+      notes: ((formData.get("quoteNotes") as string) || "").trim() || null,
+      userId: user?.id,
+    });
+    await flashToast("Repair quote updated");
+  } catch (e) {
+    await flashToast(
+      e instanceof Error ? e.message : "Quote update failed",
+      "error"
+    );
+  }
+  revalidatePath(`/rma/${rmaId}`);
+  revalidatePath("/sales/quotes");
+}
+
+export async function actionAdjustRmaQuotePrice(
+  formData: FormData
+): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("rma.adjust_price");
+  const rmaId = formData.get("rmaId") as string;
+  const { adjustRmaQuotePrice } = await import("@/lib/services/rma");
+  try {
+    await adjustRmaQuotePrice({
+      rmaId,
+      newTotal: Number(formData.get("newTotal") || 0),
+      reason: ((formData.get("reason") as string) || "").trim(),
+      userId: user?.id,
+    });
+    await flashToast("Quote price adjusted");
+  } catch (e) {
+    await flashToast(
+      e instanceof Error ? e.message : "Adjust failed",
+      "error"
+    );
+  }
+  revalidatePath(`/rma/${rmaId}`);
+  revalidatePath("/sales/quotes");
+}
+
+export async function actionAssignKitSerialToUnit(
+  formData: FormData
+): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("serials.manage");
+  const workOrderId = formData.get("workOrderId") as string;
+  const { assignKitSerialToUnit } = await import("@/lib/services/serials");
+  try {
+    await assignKitSerialToUnit({
+      workOrderId,
+      unitIndex: Number(formData.get("unitIndex") || 1),
+      serial: (formData.get("serial") as string) || "",
+      partId: ((formData.get("partId") as string) || "").trim() || undefined,
+      kitOrderId: ((formData.get("kitOrderId") as string) || "").trim() || null,
+      userId: user?.id,
+    });
+    await flashToast("Serial assigned to unit for kit plan");
+  } catch (e) {
+    await flashToast(
+      e instanceof Error ? e.message : "Assign failed",
+      "error"
+    );
+  }
+  revalidatePath(`/work-orders/${workOrderId}`);
+}
+
+export async function actionInstallSerialOnWo(
+  formData: FormData
+): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("serials.manage");
+  const workOrderId = formData.get("workOrderId") as string;
+  const {
+    installSerial,
+    findSerial,
+    assignUnitSerial,
+  } = await import("@/lib/services/serials");
+  try {
+    const parentSerialStr = ((formData.get("parentSerial") as string) || "").trim();
+    const childSerialStr = ((formData.get("childSerial") as string) || "").trim();
+    const unitIndex = Number(formData.get("unitIndex") || 1);
+    let parent = parentSerialStr
+      ? await findSerial(parentSerialStr)
+      : null;
+    if (!parent && parentSerialStr) {
+      await assignUnitSerial({
+        workOrderId,
+        unitIndex,
+        serial: parentSerialStr,
+        userId: user?.id,
+      });
+      parent = await findSerial(parentSerialStr);
+    }
+    if (!parent) throw new Error("Parent (top) serial required");
+    const child = childSerialStr ? await findSerial(childSerialStr) : null;
+    if (childSerialStr && !child) throw new Error("Child serial not found");
+    const childPartId =
+      ((formData.get("childPartId") as string) || "").trim() ||
+      child?.partId;
+    if (!childPartId) throw new Error("Child part required");
+    await installSerial({
+      parentSerialId: parent.id,
+      childSerialId: child?.id || null,
+      childPartId,
+      childLotNumber: ((formData.get("childLot") as string) || "").trim() || null,
+      quantity: Number(formData.get("quantity") || 1),
+      workOrderId,
+      workOrderUnitIndex: unitIndex,
+      rmaId: ((formData.get("rmaId") as string) || "").trim() || null,
+      notes: ((formData.get("notes") as string) || "").trim() || null,
+      userId: user?.id,
+    });
+    await flashToast("Component installed on as-built tree");
+  } catch (e) {
+    await flashToast(
+      e instanceof Error ? e.message : "Install failed",
+      "error"
+    );
+  }
+  revalidatePath(`/work-orders/${workOrderId}`);
+}
+
+export async function actionRemoveSerialInstall(
+  formData: FormData
+): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("serials.manage");
+  const workOrderId = formData.get("workOrderId") as string;
+  const { removeSerialInstall } = await import("@/lib/services/serials");
+  try {
+    const result = await removeSerialInstall({
+      installId: formData.get("installId") as string,
+      rmaId: ((formData.get("rmaId") as string) || "").trim() || null,
+      quarantine: formData.get("quarantine") === "on" || formData.get("quarantine") === "true",
+      notes: ((formData.get("notes") as string) || "").trim() || null,
+      userId: user?.id,
+    });
+    await flashToast(
+      result.mrbCase
+        ? `Torn down → quarantine · opened ${result.mrbCase.number} for disposition`
+        : "Component removed from as-built (tear-down)"
+    );
+  } catch (e) {
+    await flashToast(
+      e instanceof Error ? e.message : "Remove failed",
+      "error"
+    );
+  }
+  revalidatePath(`/work-orders/${workOrderId}`);
+  revalidatePath("/trace/serials");
+  revalidatePath("/mrb");
+  revalidatePath("/rma");
 }

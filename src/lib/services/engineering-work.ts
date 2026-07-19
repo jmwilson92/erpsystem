@@ -1600,7 +1600,7 @@ export async function createWbsElement(params: {
     },
   });
 
-  return prisma.wbsElement.create({
+  const created = await prisma.wbsElement.create({
     data: {
       projectId: params.projectId,
       parentId: params.parentId || null,
@@ -1621,6 +1621,25 @@ export async function createWbsElement(params: {
       sortOrder: params.sortOrder ?? siblings,
     },
   });
+
+  // Auto charge code for new WBS (incl. sub-levels): ProjectName-1.0-1.1-…
+  try {
+    const { ensureProjectWbsChargeCodes } = await import(
+      "@/lib/services/budgets"
+    );
+    const project = await prisma.project.findUnique({
+      where: { id: params.projectId },
+      select: { projectManagerId: true },
+    });
+    await ensureProjectWbsChargeCodes({
+      projectId: params.projectId,
+      ownerId: params.ownerId || project?.projectManagerId || null,
+    });
+  } catch (e) {
+    console.error("Auto charge code for new WBS failed", e);
+  }
+
+  return created;
 }
 
 export async function updateWbsElement(params: {

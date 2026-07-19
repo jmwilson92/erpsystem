@@ -1,7 +1,6 @@
 import {
   listPermissionGroups,
   ensureDefaultPermissionGroups,
-  ensurePermissionCatalog,
 } from "@/lib/services/permissions";
 import { prisma } from "@/lib/db";
 import { PERMISSIONS, ROLES } from "@/lib/auth";
@@ -35,16 +34,19 @@ const selectClass =
   "flex h-9 w-full rounded-md border border-slate-700 bg-slate-950 px-2 text-sm text-slate-200";
 
 export default async function PermissionsAdminPage() {
-  await ensureDefaultPermissionGroups();
-  await ensurePermissionCatalog();
+  // Single ensure path — soft-fail so a SQLite busy lock doesn't 500 the whole page
+  try {
+    await ensureDefaultPermissionGroups();
+  } catch (e) {
+    console.error("ensureDefaultPermissionGroups", e);
+  }
 
-  const pendingInvites = await prisma.userInvite.findMany({
-    where: { acceptedAt: null, expiresAt: { gt: new Date() } },
-    orderBy: { createdAt: "desc" },
-    take: 20,
-  });
-
-  const [groups, users, directGrants] = await Promise.all([
+  const [pendingInvites, groups, users, directGrants] = await Promise.all([
+    prisma.userInvite.findMany({
+      where: { acceptedAt: null, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+    }),
     listPermissionGroups(),
     prisma.user.findMany({
       where: { isActive: true },

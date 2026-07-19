@@ -19,11 +19,20 @@ import {
   actionReassignStepStation,
   actionCreateProductionEngIssue,
   actionAlignBusinessPriority,
-  actionAddPrototypeWiStep,
   actionFinishPrototypeWo,
+  actionRefreshWoEstimate,
+  actionRescheduleWorkOrder,
+  actionAssignKitSerialToUnit,
+  actionInstallSerialOnWo,
+  actionRemoveSerialInstall,
 } from "@/app/actions";
 import { checkBomMaterialAvailability } from "@/lib/services/order-fulfillment";
 import { ensureWorkOrderTravelerSteps } from "@/lib/services/work-orders";
+import {
+  ensureWorkOrderUnits,
+  listKitSerialPlan,
+  getSerialTree,
+} from "@/lib/services/serials";
 import {
   listWorkCenters,
   resolveStepStation,
@@ -38,6 +47,7 @@ import {
 } from "@/components/work-orders/station-reassign-form";
 import { generateQrDataUrl, workOrderQrPayload } from "@/lib/qr";
 import { CheckCircle2, Circle, FlaskConical, FileDown, MapPin } from "lucide-react";
+import { ActionLoadingForm } from "@/components/layout/action-loading";
 import Link from "next/link";
 import { Textarea } from "@/components/ui/textarea";
 import { ActivityTimeline } from "@/components/shared/activity-timeline";
@@ -50,8 +60,21 @@ import {
   getWoMaterialGenealogy,
   getTraceChain,
 } from "@/lib/services/traceability";
+import { PrototypeWiStepForm } from "@/components/work-orders/prototype-wi-step-form";
 
 export const dynamic = "force-dynamic";
+
+function parseStepPhotos(attachmentUrls: string | null | undefined): string[] {
+  if (!attachmentUrls) return [];
+  try {
+    const parsed = JSON.parse(attachmentUrls);
+    return Array.isArray(parsed)
+      ? parsed.filter((u): u is string => typeof u === "string" && !!u)
+      : [];
+  } catch {
+    return [];
+  }
+}
 
 const stepInclude = {
   workInstruction: {
@@ -84,45 +107,75 @@ export default async function WorkOrderDetailPage({
   // Seed WI traveler steps before load if missing
   await ensureWorkOrderTravelerSteps({ workOrderId: id }).catch(() => null);
 
-  const [wo, workCenters, priorities] = await Promise.all([
-    prisma.workOrder.findUnique({
-      where: { id },
-      include: {
-        part: true,
-        bomHeader: { include: { lines: { include: { componentPart: true } } } },
-        assignee: true,
-        createdBy: true,
-        project: true,
-        salesOrder: true,
-        materialRequisition: true,
-        businessPriority: true,
-        instructions: {
-          include: stepInclude,
-          orderBy: { sequence: "asc" },
+  const [wo, workCenters, priorities, measureUoms, testProcedures] =
+    await Promise.all([
+      prisma.workOrder.findUnique({
+        where: { id },
+        include: {
+          part: true,
+          bomHeader: {
+            include: { lines: { include: { componentPart: true } } },
+          },
+          assignee: true,
+          createdBy: true,
+          project: true,
+          salesOrder: true,
+          materialRequisition: true,
+          businessPriority: true,
+          instructions: {
+            include: stepInclude,
+            orderBy: { sequence: "asc" },
+          },
+          stepCompletions: true,
+          statusHistory: { orderBy: { createdAt: "asc" } },
+          mrbCase: { select: { id: true, number: true } },
+          rma: {
+            select: { id: true, number: true, coverage: true, status: true },
+          },
+          ncrs: true,
+          kitOrders: {
+            include: { lines: { include: { part: true } } },
+            orderBy: { createdAt: "desc" },
+          },
+          purchaseRequests: {
+            include: { lines: true },
+            orderBy: { createdAt: "desc" },
+          },
+          materialIssues: { orderBy: { createdAt: "desc" }, take: 30 },
+          traceEvents: { orderBy: { createdAt: "desc" }, take: 40 },
         },
-        stepCompletions: true,
-        statusHistory: { orderBy: { createdAt: "asc" } },
-        mrbCase: { select: { id: true, number: true } },
-        ncrs: true,
-        kitOrders: {
-          include: { lines: { include: { part: true } } },
-          orderBy: { createdAt: "desc" },
+      }),
+      listWorkCenters({ activeOnly: true }),
+      prisma.businessPriority.findMany({
+        where: { status: "PUBLISHED" },
+        orderBy: { priority: "asc" },
+      }),
+      prisma.uomUnit.findMany({
+        where: { isActive: true },
+        orderBy: { code: "asc" },
+        take: 100,
+      }),
+      prisma.testProcedure.findMany({
+        where: {
+          status: { in: ["DRAFT", "CM_REVIEW", "RELEASED"] },
         },
-        purchaseRequests: {
-          include: { lines: true },
-          orderBy: { createdAt: "desc" },
+        orderBy: [{ number: "asc" }, { revision: "desc" }],
+        take: 80,
+        select: {
+          id: true,
+          number: true,
+          revision: true,
+          title: true,
+          status: true,
+          partId: true,
         },
-        materialIssues: { orderBy: { createdAt: "desc" }, take: 30 },
-        traceEvents: { orderBy: { createdAt: "desc" }, take: 40 },
-      },
-    }),
-    listWorkCenters({ activeOnly: true }),
-    prisma.businessPriority.findMany({
-      where: { status: "PUBLISHED" },
-      orderBy: { priority: "asc" },
-    }),
-  ]);
+      }),
+    ]);
   if (!wo) notFound();
+
+  const testProcsForForm = testProcedures.filter(
+    (tp) => !wo.partId || !tp.partId || tp.partId === wo.partId
+  );
 
   const qrPayload = workOrderQrPayload(wo.id, wo.number);
   const qrDataUrl = await generateQrDataUrl(qrPayload);
@@ -136,6 +189,18 @@ export default async function WorkOrderDetailPage({
       ),
     ],
   });
+
+  const units = await ensureWorkOrderUnits({ workOrderId: wo.id });
+  const kitSerialPlan = await listKitSerialPlan(wo.id);
+  const unitTrees = await Promise.all(
+    units
+      .filter((u) => u.serialId)
+      .map(async (u) => ({
+        unitIndex: u.unitIndex,
+        serial: u.serial!.serial,
+        tree: await getSerialTree(u.serialId!, { includeRemoved: true }),
+      }))
+  );
 
   const selectClass =
     "flex h-8 w-full min-w-0 max-w-full rounded-md border border-slate-700 bg-slate-950 px-2 text-xs text-slate-200";
@@ -298,12 +363,12 @@ export default async function WorkOrderDetailPage({
             </Link>
             {wo.bomHeader && (
               <>
-                <form action={actionCheckWoMaterials}>
+                <ActionLoadingForm theme="planning" action={actionCheckWoMaterials}>
                   <input type="hidden" name="workOrderId" value={wo.id} />
                   <Button type="submit" size="sm" variant="outline">
                     Check material
                   </Button>
-                </form>
+                </ActionLoadingForm>
                 {materialShorts.length > 0 && (
                   <Link href={`/print/material-shortage/${wo.id}`}>
                     <Button size="sm" variant="outline">
@@ -316,46 +381,46 @@ export default async function WorkOrderDetailPage({
             )}
             {(wo.status === "READY_TO_KIT" || wo.kitStatus === "READY_TO_KIT") &&
               !openKit && (
-                <form action={actionCreateKit}>
+                <ActionLoadingForm theme="kitting" action={actionCreateKit}>
                   <input type="hidden" name="workOrderId" value={wo.id} />
                   <Button type="submit" size="sm">
                     Create kit
                   </Button>
-                </form>
+                </ActionLoadingForm>
               )}
             {openKit && (
-              <form action={actionCompleteKit}>
+              <ActionLoadingForm theme="kitting" action={actionCompleteKit}>
                 <input type="hidden" name="kitOrderId" value={openKit.id} />
                 <Button type="submit" size="sm">
                   Complete kit pick
                 </Button>
-              </form>
+              </ActionLoadingForm>
             )}
             {canStartProduction && (
-              <form action={actionStartProduction}>
+              <ActionLoadingForm theme="manufacturing" action={actionStartProduction}>
                 <input type="hidden" name="workOrderId" value={wo.id} />
                 <Button type="submit" size="sm">
                   Start production
                 </Button>
-              </form>
+              </ActionLoadingForm>
             )}
             {wo.status === "BACKLOG" && (
-              <form action={actionUpdateWoStatus}>
+              <ActionLoadingForm theme="planning" action={actionUpdateWoStatus}>
                 <input type="hidden" name="workOrderId" value={wo.id} />
                 <input type="hidden" name="toStatus" value="PLANNED" />
                 <Button type="submit" size="sm" variant="outline">
                   Move to Planned
                 </Button>
-              </form>
+              </ActionLoadingForm>
             )}
             {(wo.status === "PLANNED" || wo.status === "BACKLOG") && (
-              <form action={actionUpdateWoStatus}>
+              <ActionLoadingForm theme="planning" action={actionUpdateWoStatus}>
                 <input type="hidden" name="workOrderId" value={wo.id} />
                 <input type="hidden" name="toStatus" value="RELEASED" />
                 <Button type="submit" size="sm" variant="secondary">
                   Release
                 </Button>
-              </form>
+              </ActionLoadingForm>
             )}
             {wo.status === "IN_PROGRESS" && (
               <>
@@ -367,12 +432,15 @@ export default async function WorkOrderDetailPage({
                   </Button>
                 </form>
                 {allStepsComplete && failedStepCount === 0 ? (
-                  <form action={actionSendWoToReceivingPutaway}>
+                  <ActionLoadingForm
+                    theme="receiving"
+                    action={actionSendWoToReceivingPutaway}
+                  >
                     <input type="hidden" name="workOrderId" value={wo.id} />
                     <Button type="submit" size="sm">
                       Send to Receiving
                     </Button>
-                  </form>
+                  </ActionLoadingForm>
                 ) : (
                   <span
                     className="inline-flex items-center rounded-md border border-slate-700 px-2.5 py-1.5 text-xs text-slate-500"
@@ -449,13 +517,16 @@ export default async function WorkOrderDetailPage({
           />
           <div className="flex flex-wrap gap-2">
             {wo.status !== "READY_FOR_PUTAWAY" ? (
-              <form action={actionSendWoToReceivingPutaway}>
+              <ActionLoadingForm
+                theme="receiving"
+                action={actionSendWoToReceivingPutaway}
+              >
                 <input type="hidden" name="workOrderId" value={wo.id} />
                 <Button type="submit" size="sm">
                   <MapPin className="mr-1.5 h-3.5 w-3.5" />
                   Deliver to RCV-01
                 </Button>
-              </form>
+              </ActionLoadingForm>
             ) : (
               <Link href="/receiving?tab=putaway">
                 <Button size="sm">
@@ -644,13 +715,51 @@ export default async function WorkOrderDetailPage({
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-4">
+          <CardContent className="space-y-2 p-4">
             <p className="text-xs text-slate-500">Due / schedule</p>
             <p className="font-medium text-slate-200">{formatDate(wo.dueDate)}</p>
             <p className="text-xs text-slate-500">
               Plan {formatDate(wo.plannedStart)} → {formatDate(wo.plannedEnd)}
-              {wo.estimatedMinutes ? ` · ${wo.estimatedMinutes} min est` : ""}
+              {wo.estimatedMinutes != null
+                ? ` · ${wo.estimatedMinutes} min est`
+                : ""}
+              {wo.scheduleMode ? ` · ${wo.scheduleMode}` : ""}
             </p>
+            {wo.scheduleRisk && wo.scheduleRisk !== "OK" && (
+              <p className="text-xs font-medium text-amber-400">
+                Risk: {wo.scheduleRisk}
+              </p>
+            )}
+            {wo.parentWorkOrderId && (
+              <p className="text-[11px] text-violet-400">
+                Pegged to parent WO
+                {wo.scheduleOffsetMinutes != null
+                  ? ` · finish ${wo.scheduleOffsetMinutes} min before parent`
+                  : ""}
+              </p>
+            )}
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              <ActionLoadingForm theme="planning" action={actionRefreshWoEstimate}>
+                <input type="hidden" name="workOrderId" value={wo.id} />
+                <Button type="submit" size="sm" variant="outline">
+                  Recalc estimate
+                </Button>
+              </ActionLoadingForm>
+              <ActionLoadingForm theme="planning" action={actionRescheduleWorkOrder}>
+                <input type="hidden" name="workOrderId" value={wo.id} />
+                <input type="hidden" name="mode" value="BACK" />
+                <Button type="submit" size="sm" variant="secondary">
+                  Back from due
+                </Button>
+              </ActionLoadingForm>
+              <ActionLoadingForm theme="planning" action={actionRescheduleWorkOrder}>
+                <input type="hidden" name="workOrderId" value={wo.id} />
+                <input type="hidden" name="mode" value="FORWARD" />
+                <Button type="submit" size="sm" variant="outline">
+                  Forward from today
+                </Button>
+              </ActionLoadingForm>
+            </div>
           </CardContent>
         </Card>
         <Card>
@@ -904,14 +1013,47 @@ export default async function WorkOrderDetailPage({
                         {comp && <StatusBadge status={comp.status} />}
                       </div>
                       <p className="mt-1 text-sm text-slate-400">{step.instructions}</p>
-                      {step.isTestStep && (
+                      {(step.isTestStep ||
+                        step.passFailRequired ||
+                        step.testCriteria ||
+                        step.expectedValue) && (
                         <p className="mt-1 text-xs text-amber-400/80">
-                          Criteria: {step.testCriteria}
+                          {step.testCriteria
+                            ? `Criteria: ${step.testCriteria}`
+                            : "Test / QA step"}
                           {step.expectedValue
                             ? ` · Expected: ${step.expectedValue}`
                             : ""}
+                          {step.minValue != null || step.maxValue != null
+                            ? ` · Range: ${step.minValue ?? "—"}…${step.maxValue ?? "—"}`
+                            : ""}
+                          {step.measureUom ? ` ${step.measureUom}` : ""}
                         </p>
                       )}
+                      {(() => {
+                        const photos = parseStepPhotos(step.attachmentUrls);
+                        if (!photos.length) return null;
+                        return (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {photos.map((url, i) => (
+                              <a
+                                key={i}
+                                href={url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="block overflow-hidden rounded border border-slate-700"
+                              >
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={url}
+                                  alt={`Step ${step.stepNumber} photo ${i + 1}`}
+                                  className="h-16 w-16 object-cover"
+                                />
+                              </a>
+                            ))}
+                          </div>
+                        );
+                      })()}
                       {step.testProcedure && (
                         <div className="mt-2 rounded border border-violet-500/30 bg-violet-500/5 px-2.5 py-2 text-xs">
                           <p className="text-[10px] font-semibold uppercase tracking-wide text-violet-400">
@@ -1009,67 +1151,20 @@ export default async function WorkOrderDetailPage({
               Prototype — build work instructions as you build
             </CardTitle>
             <p className="text-xs text-slate-500">
-              Capture steps here during the prototype. When finished, the system
-              submits the WI to CM submissions as an ECR. After CM releases the
-              WI, you can certify the BOM for production.
+              Capture build, QA, and test steps with photos during the
+              prototype. Test steps can include pass/fail criteria, limits, and
+              an optional link to a test procedure. When finished, the system
+              submits the WI to CM as an ECR. After CM releases the WI, you can
+              certify the BOM for production.
             </p>
           </CardHeader>
           <CardContent className="space-y-4">
-            <form
-              action={actionAddPrototypeWiStep}
-              className="grid gap-2 sm:grid-cols-2"
-            >
-              <input type="hidden" name="workOrderId" value={wo.id} />
-              <div className="sm:col-span-2">
-                <label className="text-[10px] uppercase text-slate-500">
-                  Step title *
-                </label>
-                <Input name="title" required className="mt-1" placeholder="e.g. Torque housing bolts" />
-              </div>
-              <div className="sm:col-span-2">
-                <label className="text-[10px] uppercase text-slate-500">
-                  Instructions *
-                </label>
-                <Textarea
-                  name="instructions"
-                  required
-                  rows={2}
-                  className="mt-1"
-                  placeholder="What the operator does…"
-                />
-              </div>
-              <div>
-                <label className="text-[10px] uppercase text-slate-500">
-                  Type
-                </label>
-                <select
-                  name="stepType"
-                  className="mt-1 flex h-9 w-full rounded-md border border-slate-700 bg-slate-950 px-2 text-sm"
-                  defaultValue="BUILD"
-                >
-                  <option value="BUILD">Build (manufacturing)</option>
-                  <option value="QA">QA</option>
-                  <option value="TEST">Test</option>
-                </select>
-              </div>
-              <div>
-                <label className="text-[10px] uppercase text-slate-500">
-                  Est. minutes
-                </label>
-                <Input
-                  name="estimatedMinutes"
-                  type="number"
-                  defaultValue={15}
-                  className="mt-1"
-                />
-              </div>
-              <div className="sm:col-span-2">
-                <Button type="submit" size="sm" variant="secondary">
-                  Add step to prototype WI
-                </Button>
-              </div>
-            </form>
-            <form
+            <PrototypeWiStepForm
+              workOrderId={wo.id}
+              testProcedures={testProcsForForm}
+              measureUoms={measureUoms}
+            />
+            <ActionLoadingForm
               action={actionFinishPrototypeWo}
               className="flex flex-wrap items-end gap-2 border-t border-violet-900/40 pt-3"
             >
@@ -1078,12 +1173,16 @@ export default async function WorkOrderDetailPage({
                 <label className="text-[10px] uppercase text-slate-500">
                   Finish notes (optional)
                 </label>
-                <Input name="notes" className="mt-1" placeholder="Prototype complete…" />
+                <Input
+                  name="notes"
+                  className="mt-1"
+                  placeholder="Prototype complete…"
+                />
               </div>
               <Button type="submit" size="sm">
                 Finish prototype → CM + Receiving
               </Button>
-            </form>
+            </ActionLoadingForm>
           </CardContent>
         </Card>
       )}
@@ -1122,12 +1221,12 @@ export default async function WorkOrderDetailPage({
                   to unlock sign-off on the floor.
                 </p>
               </div>
-              <form action={actionStartProduction}>
+              <ActionLoadingForm theme="manufacturing" action={actionStartProduction}>
                 <input type="hidden" name="workOrderId" value={wo.id} />
                 <Button type="submit" size="sm">
                   Start production
                 </Button>
-              </form>
+              </ActionLoadingForm>
             </CardContent>
           </Card>
         )}
@@ -1285,6 +1384,167 @@ export default async function WorkOrderDetailPage({
           </CardContent>
         </Card>
       </div>
+
+      {/* As-built / kit serial plan — multi-qty unit map for assembler + QA */}
+      <Card className="border-teal-900/40">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base text-teal-200">
+            As-built &amp; kit serial plan
+          </CardTitle>
+          <p className="text-xs text-slate-500">
+            WO quantity {wo.quantity}: each unit has its own serial tree. When
+            kit is issued, assign serials to units so assemblers know what to
+            install and QA knows what to verify.
+            {wo.rma && (
+              <span className="ml-1 text-amber-400">
+                RMA {wo.rma.number} ({wo.rma.coverage}) — tear-down removes SN
+                to MRB; reinstall updates the same top serial.
+              </span>
+            )}
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {units.map((u) => (
+              <div
+                key={u.id}
+                className="rounded border border-slate-800 bg-slate-950/40 p-2 text-xs"
+              >
+                <p className="font-semibold text-slate-200">
+                  Unit {u.unitIndex}{" "}
+                  <StatusBadge status={u.status} />
+                </p>
+                <p className="mt-1 font-mono text-teal-400">
+                  {u.serial?.serial || "— no top SN —"}
+                </p>
+                <ul className="mt-2 space-y-0.5 text-slate-400">
+                  {kitSerialPlan
+                    .filter((a) => a.unitIndex === u.unitIndex)
+                    .map((a) => (
+                      <li key={a.id}>
+                        <span className="font-mono text-amber-300">
+                          {a.serial.serial}
+                        </span>{" "}
+                        → {a.serial.part.partNumber}{" "}
+                        <StatusBadge status={a.status} />
+                      </li>
+                    ))}
+                  {!kitSerialPlan.some((a) => a.unitIndex === u.unitIndex) && (
+                    <li className="text-slate-600">No kit SNs assigned yet</li>
+                  )}
+                </ul>
+              </div>
+            ))}
+          </div>
+
+          <div className="grid gap-3 lg:grid-cols-2">
+            <ActionLoadingForm
+              action={actionAssignKitSerialToUnit}
+              className="grid gap-2 rounded border border-slate-800 p-3"
+            >
+              <p className="text-[10px] font-semibold uppercase text-slate-500">
+                Kit issue: assign serial → unit
+              </p>
+              <input type="hidden" name="workOrderId" value={wo.id} />
+              {openKit && (
+                <input type="hidden" name="kitOrderId" value={openKit.id} />
+              )}
+              <select
+                name="unitIndex"
+                className="flex h-9 rounded-md border border-slate-700 bg-slate-950 px-2 text-sm"
+                defaultValue="1"
+              >
+                {units.map((u) => (
+                  <option key={u.id} value={u.unitIndex}>
+                    Unit {u.unitIndex}
+                  </option>
+                ))}
+              </select>
+              <Input name="serial" required placeholder="Component SN" className="font-mono" />
+              <Button type="submit" size="sm" variant="secondary">
+                Assign to unit
+              </Button>
+            </ActionLoadingForm>
+
+            <ActionLoadingForm
+              action={actionInstallSerialOnWo}
+              className="grid gap-2 rounded border border-slate-800 p-3"
+            >
+              <p className="text-[10px] font-semibold uppercase text-slate-500">
+                Install on as-built tree
+              </p>
+              <input type="hidden" name="workOrderId" value={wo.id} />
+              {wo.rmaId && (
+                <input type="hidden" name="rmaId" value={wo.rmaId} />
+              )}
+              <select
+                name="unitIndex"
+                className="flex h-9 rounded-md border border-slate-700 bg-slate-950 px-2 text-sm"
+                defaultValue="1"
+              >
+                {units.map((u) => (
+                  <option key={u.id} value={u.unitIndex}>
+                    Unit {u.unitIndex}
+                  </option>
+                ))}
+              </select>
+              <Input
+                name="parentSerial"
+                required
+                placeholder="Top / parent SN"
+                className="font-mono"
+                defaultValue={units[0]?.serial?.serial || ""}
+              />
+              <Input
+                name="childSerial"
+                required
+                placeholder="Component SN to install"
+                className="font-mono"
+              />
+              <Button type="submit" size="sm">
+                Record install
+              </Button>
+            </ActionLoadingForm>
+          </div>
+
+          {unitTrees.map((ut) => (
+            <div key={ut.unitIndex} className="text-xs">
+              <p className="mb-1 font-medium text-slate-300">
+                Unit {ut.unitIndex} tree · {ut.serial}
+              </p>
+              {ut.tree?.children.map((c) => (
+                <div
+                  key={c.installId}
+                  className="ml-2 flex flex-wrap items-center gap-2 border-l border-slate-800 py-0.5 pl-2"
+                >
+                  <StatusBadge status={c.status} />
+                  <span className="font-mono text-teal-400">{c.serial}</span>
+                  <span className="text-slate-500">{c.partNumber}</span>
+                  {c.installId && c.status === "INSTALLED" && (
+                    <ActionLoadingForm
+                      action={actionRemoveSerialInstall}
+                      className="inline"
+                    >
+                      <input type="hidden" name="workOrderId" value={wo.id} />
+                      <input type="hidden" name="installId" value={c.installId} />
+                      {wo.rmaId && (
+                        <input type="hidden" name="rmaId" value={wo.rmaId} />
+                      )}
+                      <input type="hidden" name="quarantine" value="true" />
+                      <Button type="submit" size="sm" variant="ghost" className="h-6 text-[10px] text-rose-400">
+                        Remove → quarantine
+                      </Button>
+                    </ActionLoadingForm>
+                  )}
+                </div>
+              ))}
+              {ut.tree && !ut.tree.children.length && (
+                <p className="ml-2 text-slate-600">No installs yet</p>
+              )}
+            </div>
+          ))}
+        </CardContent>
+      </Card>
 
       <MaterialGenealogyCard rows={genealogy} />
 

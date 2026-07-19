@@ -227,6 +227,41 @@ export async function createProject(params: {
     },
   });
 
+  // Default control-account WBS so charge codes can be minted immediately
+  const defaultWbs = [
+    { code: "1.0", name: "Program Management", sortOrder: 1 },
+    { code: "2.0", name: "Engineering Design", sortOrder: 2 },
+    { code: "3.0", name: "Procurement", sortOrder: 3 },
+    { code: "4.0", name: "Production", sortOrder: 4 },
+    { code: "5.0", name: "Test & Qualification", sortOrder: 5 },
+  ];
+  await prisma.wbsElement.createMany({
+    data: defaultWbs.map((w) => ({
+      projectId: project.id,
+      code: w.code,
+      name: w.name,
+      kind: "CONTROL_ACCOUNT",
+      level: 0,
+      sortOrder: w.sortOrder,
+      budgetCost: 0,
+      status: "NOT_STARTED",
+    })),
+  });
+
+  // Auto charge codes: ProjectName-1.0, ProjectName-2.0, …
+  try {
+    const { ensureProjectWbsChargeCodes } = await import(
+      "@/lib/services/budgets"
+    );
+    await ensureProjectWbsChargeCodes({
+      projectId: project.id,
+      userId: params.userId || undefined,
+      ownerId: params.projectManagerId || params.userId || null,
+    });
+  } catch (e) {
+    console.error("Auto WBS charge codes failed", e);
+  }
+
   await logAudit({
     entityType: "Project",
     entityId: project.id,

@@ -11,6 +11,7 @@ import { getCustomerCreditSnapshot } from "@/lib/services/credit";
 import { getCompanyDepartments } from "@/lib/services/company";
 import Link from "next/link";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { ActionLoadingForm } from "@/components/layout/action-loading";
 
 export const dynamic = "force-dynamic";
 
@@ -118,7 +119,12 @@ export default async function NewSalesOrderPage({
         <CardContent className="space-y-6 p-6 md:p-8">
           <CompanyLetterhead docTitle="Sales Order" docNumber="NEW" docDate={today} />
 
-          <form action={actionCreateSalesOrder} className="space-y-6">
+          <ActionLoadingForm
+            theme="creating"
+            title="Creating sales order"
+            action={actionCreateSalesOrder}
+            className="space-y-6"
+          >
             {/* Meta row */}
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <div>
@@ -383,7 +389,7 @@ export default async function NewSalesOrderPage({
                 <Button type="submit">Create sales order</Button>
               </div>
             </div>
-          </form>
+          </ActionLoadingForm>
         </CardContent>
       </Card>
     </div>

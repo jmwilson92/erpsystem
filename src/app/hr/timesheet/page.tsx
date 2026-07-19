@@ -70,17 +70,34 @@ export default async function MyTimesheetPage() {
         orderBy: { number: "asc" },
         take: 100,
       }),
-      // Named overhead / indirect charge codes from the chart of accounts
+      // Named charge codes from GL (indirect + direct)
       prisma.account.findMany({
-        where: { isActive: true, chargeCodeType: "INDIRECT", chargeCode: { not: null } },
-        select: { chargeCode: true, name: true },
+        where: {
+          isActive: true,
+          chargeCode: { not: null },
+          chargeCodeType: { in: ["INDIRECT", "DIRECT"] },
+        },
+        select: { chargeCode: true, name: true, chargeCodeType: true },
         orderBy: { chargeCode: "asc" },
       }),
     ]);
 
-  const chargeCodes = chargeCodeAccounts
-    .filter((a): a is { chargeCode: string; name: string } => !!a.chargeCode)
-    .map((a) => ({ code: a.chargeCode, name: a.name }));
+  const { getEnactedChargeCodes } = await import("@/lib/services/budgets");
+  const budgetCodes = await getEnactedChargeCodes();
+  const fromAccounts = chargeCodeAccounts
+    .filter((a): a is { chargeCode: string; name: string; chargeCodeType: string | null } => !!a.chargeCode)
+    .map((a) => ({
+      code: a.chargeCode,
+      name: a.name + (a.chargeCodeType ? ` [${a.chargeCodeType}]` : ""),
+    }));
+  // Prefer budget codes; merge unique
+  const seen = new Set<string>();
+  const chargeCodes: { code: string; name: string }[] = [];
+  for (const c of [...budgetCodes.map((b) => ({ code: b.code, name: b.name })), ...fromAccounts]) {
+    if (seen.has(c.code)) continue;
+    seen.add(c.code);
+    chargeCodes.push(c);
+  }
 
   const editable = ["OPEN", "REJECTED"].includes(sheet.status);
   const days = periodDays(sheet.periodStart, sheet.periodEnd).map((d) =>

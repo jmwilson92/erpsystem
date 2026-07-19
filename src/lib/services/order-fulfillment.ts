@@ -806,6 +806,19 @@ export async function planWorkOrderMaterials(params: {
   let pr: { id: string; number: string } | null = null;
 
   if (shortages.length > 0) {
+    // Reuse open PR for this WO instead of spamming duplicates
+    const existingPr = await prisma.purchaseRequest.findFirst({
+      where: {
+        workOrderId: wo.id,
+        status: {
+          in: ["DRAFT", "SUBMITTED", "APPROVED"],
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    if (existingPr) {
+      pr = { id: existingPr.id, number: existingPr.number };
+    } else {
     // Prefer supplier from first BUY part with open history, else first active supplier
     let supplierId = params.supplierId;
     if (!supplierId) {
@@ -867,6 +880,7 @@ export async function planWorkOrderMaterials(params: {
         params.bypassStockCheck ? " (stock bypass)" : ""
       }`,
       metadata: {
+        reused: false,
         shortages: shortages.map((s) => ({ part: s.partNumber, short: s.short })),
         bypassStockCheck: !!params.bypassStockCheck,
       },
@@ -884,6 +898,7 @@ export async function planWorkOrderMaterials(params: {
         bypassStockCheck: !!params.bypassStockCheck,
       },
     });
+    } // end create-new-PR else
   }
 
   const kitStatus = allAvailable ? "READY_TO_KIT" : "WAITING_MATERIAL";
@@ -2005,7 +2020,7 @@ export async function createManualShipment(params: {
   );
   if (!lines.length) throw new Error("Add at least one line with qty");
 
-  let salesOrderId = params.salesOrderId || null;
+  const salesOrderId = params.salesOrderId || null;
   let shipTo = params.shipToAddress.trim();
   if (salesOrderId) {
     const so = await prisma.salesOrder.findUnique({
@@ -2100,7 +2115,10 @@ export async function packShipment(params: {
   userId?: string;
   notes?: string;
 }) {
-  const s = await prisma.shipment.findUnique({ where: { id: params.shipmentId } });
+  const s = await prisma.shipment.findUnique({
+    where: { id: params.shipmentId },
+    include: { lines: true },
+  });
   if (!s) throw new Error("Shipment not found");
   if (!s.packingListVerified) {
     throw new Error("Verify packing list before packing");
@@ -2108,6 +2126,15 @@ export async function packShipment(params: {
   if (!params.packPhotos?.length) {
     throw new Error("Attach pack photos before marking packed");
   }
+
+  // Ad-hoc / manual shipments (no SO) issue inventory at pack
+  if (!s.salesOrderId) {
+    await issueManualShipmentInventory({
+      shipmentId: s.id,
+      userId: params.userId,
+    });
+  }
+
   return prisma.shipment.update({
     where: { id: s.id },
     data: {
@@ -2118,6 +2145,107 @@ export async function packShipment(params: {
       notes: params.notes || s.notes,
     },
   });
+}
+
+/**
+ * Deduct on-hand stock for manual shipment lines with partId.
+ * Fail closed if any line is short.
+ */
+export async function issueManualShipmentInventory(params: {
+  shipmentId: string;
+  userId?: string;
+}) {
+  const s = await prisma.shipment.findUnique({
+    where: { id: params.shipmentId },
+    include: { lines: true },
+  });
+  if (!s) throw new Error("Shipment not found");
+
+  const shortages: string[] = [];
+  type BinPick = {
+    id: string;
+    take: number;
+    onHand: number;
+    available: number;
+    committed: number;
+    locationCode: string;
+  };
+  type Pick = {
+    partId: string;
+    qty: number;
+    bins: BinPick[];
+  };
+  const plan: Pick[] = [];
+
+  for (const line of s.lines) {
+    if (!line.partId) continue;
+    const need = line.quantity;
+    const bins = await prisma.inventoryItem.findMany({
+      where: { partId: line.partId, quantityOnHand: { gt: 0 } },
+      include: { location: true },
+      orderBy: { updatedAt: "asc" },
+    });
+    let rem = need;
+    const picks: BinPick[] = [];
+    for (const b of bins) {
+      if (rem <= 0) break;
+      const pool = Math.max(
+        0,
+        Math.min(b.quantityOnHand, b.quantityAvailable + b.quantityCommitted)
+      );
+      if (pool <= 0) continue;
+      const take = Math.min(pool, rem);
+      picks.push({
+        id: b.id,
+        take,
+        onHand: b.quantityOnHand,
+        available: b.quantityAvailable,
+        committed: b.quantityCommitted,
+        locationCode: b.location.code,
+      });
+      rem -= take;
+    }
+    if (rem > 0) {
+      shortages.push(
+        `${line.description}: need ${need}, available ${need - rem}`
+      );
+    } else {
+      plan.push({ partId: line.partId, qty: need, bins: picks });
+    }
+  }
+
+  if (shortages.length) {
+    throw new Error(
+      `Cannot pack/ship — insufficient stock: ${shortages.join("; ")}`
+    );
+  }
+
+  for (const p of plan) {
+    for (const b of p.bins) {
+      const fromAvail = Math.min(b.available, b.take);
+      const fromCommit = b.take - fromAvail;
+      await prisma.inventoryItem.update({
+        where: { id: b.id },
+        data: {
+          quantityOnHand: Math.max(0, b.onHand - b.take),
+          quantityAvailable: Math.max(0, b.available - fromAvail),
+          quantityCommitted: Math.max(0, b.committed - fromCommit),
+        },
+      });
+      await prisma.materialTransaction.create({
+        data: {
+          type: "SHIP",
+          partId: p.partId,
+          inventoryItemId: b.id,
+          quantity: b.take,
+          fromLocation: b.locationCode,
+          reference: s.number,
+          notes: `Manual shipment ${s.number}`,
+          userId: params.userId,
+        },
+      });
+    }
+  }
 }
 
 export async function shipSalesOrder(params: {
@@ -2146,40 +2274,54 @@ export async function shipSalesOrder(params: {
     }
   }
 
-  let shipment = params.shipmentId
+  // Prefer explicit shipment, else an already-PACKED open shipment.
+  // force only bypasses the *date* gate above — never packing or stock.
+  const shipment = params.shipmentId
     ? so.shipments.find((s) => s.id === params.shipmentId)
-    : so.shipments.find((s) =>
+    : so.shipments.find((s) => s.status === "PACKED") ||
+      so.shipments.find((s) =>
         ["DRAFT", "PICKING", "VERIFIED", "PACKED"].includes(s.status)
       );
 
-  if (shipment && shipment.status !== "PACKED" && !params.force) {
+  if (!shipment) {
+    throw new Error(
+      "Create and pack a shipment (verify packing list + pack photos) before shipping"
+    );
+  }
+
+  if (shipment.status !== "PACKED") {
     throw new Error(
       "Pack the shipment (verify packing list + attach pack photos) before shipping"
     );
   }
 
-  if (!shipment) {
-    const created = await ensureShipmentForSalesOrder({
-      salesOrderId: so.id,
-      userId: params.userId,
-    });
-    if (!created.shipment) throw new Error("No shipment available");
-    const loaded = await prisma.shipment.findUnique({
-      where: { id: created.shipment.id },
-      include: { lines: true },
-    });
-    if (!loaded) throw new Error("Shipment not found after create");
-    shipment = loaded;
-  }
+  // Preflight stock so we never partially deduct then fail
+  type ShipAlloc = {
+    lineId: string;
+    partId: string;
+    need: number;
+    picks: {
+      itemId: string;
+      take: number;
+      fromCommit: number;
+      fromAvail: number;
+      onHand: number;
+      committed: number;
+      available: number;
+      locationCode: string;
+      lotNumber: string | null;
+      serialNumber: string | null;
+    }[];
+  };
+  const allocations: ShipAlloc[] = [];
+  const shortages: string[] = [];
 
-  // Relieve committed / available FG inventory
   for (const line of so.lines) {
     if (!line.partId) continue;
-    let toShip = line.quantity - line.quantityShipped;
-    if (toShip <= 0) continue;
+    const need = line.quantity - line.quantityShipped;
+    if (need <= 0) continue;
 
-    // Prefer committed stock
-    const committed = await prisma.inventoryItem.findMany({
+    const bins = await prisma.inventoryItem.findMany({
       where: {
         partId: line.partId,
         OR: [{ quantityCommitted: { gt: 0 } }, { quantityAvailable: { gt: 0 } }],
@@ -2188,32 +2330,72 @@ export async function shipSalesOrder(params: {
       orderBy: { updatedAt: "asc" },
     });
 
-    for (const item of committed) {
-      if (toShip <= 0) break;
-      const pool = item.quantityCommitted + item.quantityAvailable;
-      const take = Math.min(pool, toShip);
+    let remaining = need;
+    const picks: ShipAlloc["picks"] = [];
+    for (const item of bins) {
+      if (remaining <= 0) break;
+      const pool = Math.max(
+        0,
+        Math.min(
+          item.quantityOnHand,
+          item.quantityCommitted + item.quantityAvailable
+        )
+      );
+      if (pool <= 0) continue;
+      const take = Math.min(pool, remaining);
       const fromCommit = Math.min(item.quantityCommitted, take);
-      const fromAvail = take - fromCommit;
+      picks.push({
+        itemId: item.id,
+        take,
+        fromCommit,
+        fromAvail: take - fromCommit,
+        onHand: item.quantityOnHand,
+        committed: item.quantityCommitted,
+        available: item.quantityAvailable,
+        locationCode: item.location.code,
+        lotNumber: item.lotNumber,
+        serialNumber: item.serialNumber,
+      });
+      remaining -= take;
+    }
 
+    if (remaining > 0) {
+      shortages.push(
+        `Line ${line.description?.slice(0, 40) || line.id}: need ${need}, available ${need - remaining}`
+      );
+    } else {
+      allocations.push({ lineId: line.id, partId: line.partId, need, picks });
+    }
+  }
+
+  if (shortages.length) {
+    throw new Error(
+      `Insufficient inventory to ship — no partial ship/AR. ${shortages.join("; ")}`
+    );
+  }
+
+  // Apply allocations
+  for (const alloc of allocations) {
+    for (const p of alloc.picks) {
       await prisma.inventoryItem.update({
-        where: { id: item.id },
+        where: { id: p.itemId },
         data: {
-          quantityOnHand: item.quantityOnHand - take,
-          quantityCommitted: item.quantityCommitted - fromCommit,
-          quantityAvailable: item.quantityAvailable - fromAvail,
+          quantityOnHand: Math.max(0, p.onHand - p.take),
+          quantityCommitted: Math.max(0, p.committed - p.fromCommit),
+          quantityAvailable: Math.max(0, p.available - p.fromAvail),
         },
       });
 
       await prisma.materialTransaction.create({
         data: {
           type: "SHIP",
-          partId: line.partId,
-          inventoryItemId: item.id,
+          partId: alloc.partId,
+          inventoryItemId: p.itemId,
           salesOrderId: so.id,
-          quantity: take,
-          fromLocation: item.location.code,
-          lotNumber: item.lotNumber,
-          serialNumber: item.serialNumber,
+          quantity: p.take,
+          fromLocation: p.locationCode,
+          lotNumber: p.lotNumber,
+          serialNumber: p.serialNumber,
           reference: shipment!.number,
           notes: `Shipped on ${so.number}`,
           userId: params.userId,
@@ -2222,24 +2404,53 @@ export async function shipSalesOrder(params: {
 
       await recordTrace({
         eventType: "SHIP",
-        partId: line.partId,
-        lotNumber: item.lotNumber,
-        serialNumber: item.serialNumber,
-        quantity: take,
-        fromLocation: item.location.code,
+        partId: alloc.partId,
+        lotNumber: p.lotNumber,
+        serialNumber: p.serialNumber,
+        quantity: p.take,
+        fromLocation: p.locationCode,
         salesOrderId: so.id,
         shipmentId: shipment!.id,
         notes: `Shipped to customer`,
         userId: params.userId,
       });
 
-      toShip -= take;
+      // Warranty clock starts at ship for serialized product
+      if (p.serialNumber) {
+        try {
+          const { startWarranty } = await import("@/lib/services/serials");
+          const sn = await prisma.serialNumber.findUnique({
+            where: { serial: p.serialNumber.trim().toUpperCase() },
+          });
+          if (sn && !sn.warrantyStart) {
+            await startWarranty({
+              serialId: sn.id,
+              customerId: so.customerId,
+              salesOrderId: so.id,
+              shipmentId: shipment!.id,
+            });
+          } else if (sn) {
+            await prisma.serialNumber.update({
+              where: { id: sn.id },
+              data: {
+                status: "SHIPPED",
+                customerId: so.customerId,
+                salesOrderId: so.id,
+                shipmentId: shipment!.id,
+              },
+            });
+          }
+        } catch {
+          // Non-fatal: ship still succeeds if serial registry is incomplete
+        }
+      }
     }
 
+    const line = so.lines.find((l) => l.id === alloc.lineId)!;
     await prisma.salesOrderLine.update({
-      where: { id: line.id },
+      where: { id: alloc.lineId },
       data: {
-        quantityShipped: line.quantity,
+        quantityShipped: line.quantityShipped + alloc.need,
         fulfillmentStatus: "SHIPPED",
       },
     });
@@ -2258,14 +2469,20 @@ export async function shipSalesOrder(params: {
     },
   });
 
+  // Only mark SO fully shipped when every line is complete
+  const refreshed = await prisma.salesOrderLine.findMany({
+    where: { salesOrderId: so.id },
+  });
+  const allShipped = refreshed.every(
+    (l) => !l.partId || l.quantityShipped >= l.quantity
+  );
   await prisma.salesOrder.update({
     where: { id: so.id },
-    data: { status: "SHIPPED" },
+    data: { status: allShipped ? "SHIPPED" : so.status },
   });
 
-  // Shipping closes the revenue loop: raise the AR invoice and post
-  // revenue / COGS journals automatically.
-  {
+  // Shipping closes the revenue loop: raise AR only when the full order shipped
+  if (allShipped) {
     const { raiseArInvoiceForShipment } = await import(
       "@/lib/services/billing"
     );

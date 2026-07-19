@@ -11,20 +11,27 @@ import {
   actionShipSalesOrder,
   actionQueueShipment,
   actionUpdateDepositStatus,
+  actionAssessCtp,
 } from "@/app/actions";
 import Link from "next/link";
 import { ActivityTimeline } from "@/components/shared/activity-timeline";
 import { TraceChainCard } from "@/components/shared/trace-chain";
 import { getTraceChain } from "@/lib/services/traceability";
+import { ActionLoadingForm } from "@/components/layout/action-loading";
+import { assessCapableToPromise } from "@/lib/services/planning";
 
 export const dynamic = "force-dynamic";
 
 export default async function SalesOrderDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { id } = await params;
+  const sp = searchParams ? await searchParams : {};
+  const showCtp = (Array.isArray(sp.ctp) ? sp.ctp[0] : sp.ctp) === "1";
   const so = await prisma.salesOrder.findUnique({
     where: { id },
     include: {
@@ -53,6 +60,11 @@ export default async function SalesOrderDetailPage({
   const dateShipBlock = !so.allowEarlyShip && !!gate && now < gate;
   const shipBlocked = depositShipBlock || dateShipBlock;
 
+  const ctp =
+    showCtp && !["SHIPPED", "CLOSED", "CANCELLED"].includes(so.status)
+      ? await assessCapableToPromise(so.id).catch(() => null)
+      : null;
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -66,24 +78,36 @@ export default async function SalesOrderDetailPage({
               </Button>
             </Link>
             {!["SHIPPED", "CLOSED", "CANCELLED"].includes(so.status) && (
-              <form action={actionPlanSalesOrder} className="flex flex-wrap items-center gap-2">
-                <input type="hidden" name="salesOrderId" value={so.id} />
-                <label className="flex items-center gap-1.5 rounded border border-slate-700 bg-slate-900/80 px-2 py-1 text-[11px] text-slate-400">
-                  <input
-                    type="checkbox"
-                    name="bypassStockCheck"
-                    className="rounded border-slate-600"
-                  />
-                  Bypass stock — order full BOM / demand
-                </label>
-                <Button type="submit" size="sm" variant="secondary">
-                  Plan fulfillment
-                </Button>
-              </form>
+              <>
+                <ActionLoadingForm theme="planning" action={actionAssessCtp}>
+                  <input type="hidden" name="salesOrderId" value={so.id} />
+                  <Button type="submit" size="sm" variant="outline">
+                    CTP check
+                  </Button>
+                </ActionLoadingForm>
+                <ActionLoadingForm
+                  theme="planning"
+                  action={actionPlanSalesOrder}
+                  className="flex flex-wrap items-center gap-2"
+                >
+                  <input type="hidden" name="salesOrderId" value={so.id} />
+                  <label className="flex items-center gap-1.5 rounded border border-slate-700 bg-slate-900/80 px-2 py-1 text-[11px] text-slate-400">
+                    <input
+                      type="checkbox"
+                      name="bypassStockCheck"
+                      className="rounded border-slate-600"
+                    />
+                    Bypass stock — order full BOM / demand
+                  </label>
+                  <Button type="submit" size="sm" variant="secondary">
+                    Plan fulfillment
+                  </Button>
+                </ActionLoadingForm>
+              </>
             )}
             {so.status === "READY_TO_SHIP" && (
               <>
-                <form action={actionQueueShipment}>
+                <ActionLoadingForm theme="shipping" action={actionQueueShipment}>
                   <input type="hidden" name="salesOrderId" value={so.id} />
                   <Button
                     type="submit"
@@ -93,28 +117,82 @@ export default async function SalesOrderDetailPage({
                   >
                     Queue shipment
                   </Button>
-                </form>
-                <form action={actionShipSalesOrder}>
+                </ActionLoadingForm>
+                <ActionLoadingForm theme="shipping" action={actionShipSalesOrder}>
                   <input type="hidden" name="salesOrderId" value={so.id} />
                   <Button type="submit" size="sm" disabled={!!shipBlocked}>
                     Ship now
                   </Button>
-                </form>
+                </ActionLoadingForm>
                 {/* Force only bypasses date gate — never deposit */}
                 {dateShipBlock && !depositShipBlock && (
-                  <form action={actionShipSalesOrder}>
+                  <ActionLoadingForm theme="shipping" action={actionShipSalesOrder}>
                     <input type="hidden" name="salesOrderId" value={so.id} />
                     <input type="hidden" name="force" value="true" />
                     <Button type="submit" size="sm" variant="amber">
                       Force ship (early)
                     </Button>
-                  </form>
+                  </ActionLoadingForm>
                 )}
               </>
             )}
           </div>
         }
       />
+
+      {ctp && (
+        <Card
+          className={
+            ctp.overall === "MISS" || ctp.overall === "NO_BOM"
+              ? "border-rose-500/40 bg-rose-500/5"
+              : ctp.overall === "TIGHT"
+                ? "border-amber-500/40 bg-amber-500/5"
+                : "border-teal-500/30 bg-teal-500/5"
+          }
+        >
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">
+              Capable to promise (rough-cut) ·{" "}
+              <span
+                className={
+                  ctp.overall === "MISS" || ctp.overall === "NO_BOM"
+                    ? "text-rose-400"
+                    : ctp.overall === "TIGHT"
+                      ? "text-amber-400"
+                      : "text-teal-400"
+                }
+              >
+                {ctp.overall}
+              </span>
+            </CardTitle>
+            <p className="text-xs text-slate-500">
+              {ctp.notes}
+              {ctp.suggestedShipDate
+                ? ` · Suggested finish ${ctp.suggestedShipDate}`
+                : ""}
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {ctp.lines.map((l) => (
+              <div
+                key={l.lineId}
+                className="flex flex-wrap items-start justify-between gap-2 rounded border border-slate-800/80 px-3 py-2 text-sm"
+              >
+                <div>
+                  <span className="font-mono text-teal-400">
+                    {l.partNumber || "—"}
+                  </span>
+                  <span className="ml-2 text-xs text-slate-500">
+                    make {l.makeQty} · {l.loadHoursNeeded}h
+                  </span>
+                  <p className="text-xs text-slate-400">{l.message}</p>
+                </div>
+                <StatusBadge status={l.verdict} />
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       <div className="flex flex-wrap gap-2">
         <StatusBadge status={so.status} />

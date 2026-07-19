@@ -10,6 +10,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Camera } from "lucide-react";
+import {
+  useActionLoading,
+  type ActionTheme,
+} from "@/components/layout/action-loading";
 
 export function PackShipPanel({
   shipmentId,
@@ -38,6 +42,7 @@ export function PackShipPanel({
   const [tracking, setTracking] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const { start: startLoading, stop: stopLoading } = useActionLoading();
   const packed = status === "PACKED" || status === "SHIPPED";
   const shipped = status === "SHIPPED" || status === "DELIVERED";
 
@@ -60,13 +65,16 @@ export function PackShipPanel({
     setPhotos((p) => [...p, ...next].slice(0, 12));
   }
 
-  function run(fn: () => Promise<void>) {
+  function run(theme: ActionTheme, fn: () => Promise<void>) {
     setError(null);
+    // Paint overlay before startTransition (transition setState is deferred).
+    startLoading(theme);
     startTransition(async () => {
       try {
         await fn();
         window.location.reload();
       } catch (e) {
+        stopLoading();
         if (isRedirectError(e)) throw e;
         setError(e instanceof Error ? e.message : "Failed");
       }
@@ -95,7 +103,7 @@ export function PackShipPanel({
           size="sm"
           disabled={pending}
           onClick={() =>
-            run(async () => {
+            run("packing", async () => {
               const fd = new FormData();
               fd.set("shipmentId", shipmentId);
               await actionVerifyPackingList(fd);
@@ -131,7 +139,7 @@ export function PackShipPanel({
             size="sm"
             disabled={pending || photos.length === 0}
             onClick={() =>
-              run(async () => {
+              run("packing", async () => {
                 const fd = new FormData();
                 fd.set("shipmentId", shipmentId);
                 photos.forEach((p, i) => {
@@ -184,7 +192,7 @@ export function PackShipPanel({
               size="sm"
               disabled={pending || !!depositBlocked}
               onClick={() =>
-                run(async () => {
+                run("shipping", async () => {
                   const fd = new FormData();
                   fd.set("salesOrderId", salesOrderId);
                   fd.set("shipmentId", shipmentId);

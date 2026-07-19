@@ -30,6 +30,49 @@ export function demoModeEnabled() {
   return process.env.DEMO_MODE !== "0";
 }
 
+// ─── Login rate limit (in-process; good enough for single-instance beta) ──
+
+const loginAttempts = new Map<string, { count: number; resetAt: number }>();
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_MAX_ATTEMPTS = 10;
+
+function loginKey(email: string) {
+  return email.trim().toLowerCase();
+}
+
+/** Throws if this e-mail is temporarily locked out after failed logins. */
+export function assertLoginNotRateLimited(email: string) {
+  const key = loginKey(email);
+  const now = Date.now();
+  const row = loginAttempts.get(key);
+  if (!row) return;
+  if (now > row.resetAt) {
+    loginAttempts.delete(key);
+    return;
+  }
+  if (row.count >= LOGIN_MAX_ATTEMPTS) {
+    const mins = Math.ceil((row.resetAt - now) / 60_000);
+    throw new Error(
+      `Too many failed sign-in attempts. Try again in ${mins} minute(s).`
+    );
+  }
+}
+
+export function recordLoginFailure(email: string) {
+  const key = loginKey(email);
+  const now = Date.now();
+  const row = loginAttempts.get(key);
+  if (!row || now > row.resetAt) {
+    loginAttempts.set(key, { count: 1, resetAt: now + LOGIN_WINDOW_MS });
+    return;
+  }
+  row.count += 1;
+}
+
+export function clearLoginFailures(email: string) {
+  loginAttempts.delete(loginKey(email));
+}
+
 // ─── Passwords (scrypt) ─────────────────────────────────────────
 
 export function hashPassword(password: string): string {
@@ -129,16 +172,20 @@ export async function loginWithPassword(params: {
   userAgent?: string;
 }) {
   const email = params.email.trim().toLowerCase();
+  assertLoginNotRateLimited(email);
+
   const user = await prisma.user.findFirst({
     where: { email: { equals: email } },
   });
   // Uniform error — never reveal which part was wrong
   const fail = () => {
+    recordLoginFailure(email);
     throw new Error("Invalid e-mail or password");
   };
   if (!user || !user.isActive || !user.passwordHash) fail();
   if (!verifyPassword(params.password, user!.passwordHash!)) fail();
 
+  clearLoginFailures(email);
   await createSession(user!.id, params.userAgent);
   await logAudit({
     entityType: "User",
@@ -293,6 +340,8 @@ export async function acceptInvite(params: {
         data: {
           passwordHash: hashPassword(params.password),
           isActive: true,
+          // Apply invite role so re-invites / role changes take effect
+          role: invite.role || existing.role,
           ...(params.name?.trim() ? { name: params.name.trim() } : {}),
         },
       })

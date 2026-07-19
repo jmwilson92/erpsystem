@@ -13,6 +13,7 @@ import {
   FlaskConical,
   Ruler,
 } from "lucide-react";
+import { useActionLoading } from "@/components/layout/action-loading";
 
 type Line = {
   id: string;
@@ -108,6 +109,7 @@ export function ReceiveForm({
   );
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const { start: startLoading, stop: stopLoading } = useActionLoading();
 
   const partialPreview = openLines.some((l) => {
     const q = Number(qtys[l.id] || 0);
@@ -221,11 +223,13 @@ export function ReceiveForm({
     pushDocs(fd, "cert_doc", certDocs);
     pushDocs(fd, "dd1149_doc", dd1149Docs);
 
+    startLoading("receiving");
     startTransition(async () => {
       try {
         await actionReceivePo(fd);
         window.location.reload();
       } catch (err) {
+        stopLoading();
         setError(err instanceof Error ? err.message : "Receive failed");
       }
     });

@@ -77,6 +77,16 @@ async function resolveChargeContext(
   const pr = await prisma.purchaseRequest.findUnique({
     where: { id: purchaseRequestId },
     include: {
+      budget: {
+        select: {
+          id: true,
+          number: true,
+          name: true,
+          chargeCode: true,
+          ownerId: true,
+          costClass: true,
+        },
+      },
       project: {
         select: {
           id: true,
@@ -129,6 +139,30 @@ async function resolveChargeContext(
       kind: "GENERAL",
       ownerLabel: "Buyer / purchasing",
       escalationLabel: "Operations admin",
+    };
+  }
+
+  // Enacted budget charge → budget owner confirms demand + purchase
+  let budget = pr.budget;
+  if (!budget && pr.chargeCode) {
+    budget = await prisma.budget.findFirst({
+      where: { chargeCode: pr.chargeCode, status: "ENACTED" },
+      select: {
+        id: true,
+        number: true,
+        name: true,
+        chargeCode: true,
+        ownerId: true,
+        costClass: true,
+      },
+    });
+  }
+  if (budget?.ownerId) {
+    return {
+      kind: "GENERAL",
+      ownerUserId: budget.ownerId,
+      ownerLabel: `Budget ${budget.number}${budget.chargeCode ? ` (${budget.chargeCode})` : ""} owner`,
+      escalationLabel: "Finance / ops admin",
     };
   }
 

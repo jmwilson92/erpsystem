@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runCustomReport } from "@/lib/services/report-builder";
 import { toCsv } from "@/lib/services/reports";
+import { requireApiPermission } from "@/lib/api-auth";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
+  const { error } = await requireApiPermission("accounting.reports.read");
+  if (error) return error;
+
   const sp = req.nextUrl.searchParams;
   try {
     const table = await runCustomReport({

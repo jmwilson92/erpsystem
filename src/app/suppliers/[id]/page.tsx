@@ -12,6 +12,8 @@ import {
   actionToggleSupplierAsl,
   actionUpsertSupplierCert,
   actionDeleteSupplierCert,
+  actionRecordApPayment,
+  actionCreateVendorApInvoice,
 } from "@/app/actions";
 import {
   getAslPolicy,
@@ -339,62 +341,199 @@ export default async function SupplierDetailPage({
       )}
 
       {tab === "invoices" && (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle>Unpaid / open AP</CardTitle>
+        <div className="space-y-4">
+          <Card className="border-teal-900/40">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">
+                Enter vendor invoice
+              </CardTitle>
+              <p className="text-xs text-slate-500">
+                Outside vendors / services / non-receipt bills. After entry, pay
+                below or from Accounting → AP. PO receipts also auto-create AP
+                vouchers (3-way match).
+              </p>
             </CardHeader>
-            <CardContent className="space-y-2">
-              {unpaidInvoices.length === 0 && (
-                <p className="text-sm text-slate-500">No open AP invoices.</p>
-              )}
-              {unpaidInvoices.map((inv) => (
-                <div
-                  key={inv.id}
-                  className="flex items-center justify-between rounded border border-slate-800 px-3 py-2 text-sm"
-                >
-                  <div>
-                    <span className="font-mono text-amber-400">{inv.number}</span>
-                    <StatusBadge status={inv.status} className="ml-2" />
-                    <p className="text-[11px] text-slate-500">
-                      {formatDate(inv.invoiceDate)}
-                      {inv.dueDate ? ` · Due ${formatDate(inv.dueDate)}` : ""}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="tabular-nums">{formatCurrency(inv.total)}</p>
-                    <p className="text-[10px] text-slate-500">
-                      Paid {formatCurrency(inv.amountPaid)}
-                    </p>
-                  </div>
+            <CardContent>
+              <form
+                action={actionCreateVendorApInvoice}
+                className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4"
+              >
+                <input type="hidden" name="supplierId" value={supplier.id} />
+                <div>
+                  <label className="text-[10px] uppercase text-slate-500">
+                    Amount *
+                  </label>
+                  <Input
+                    name="amount"
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    required
+                    className="mt-1"
+                  />
                 </div>
-              ))}
+                <div>
+                  <label className="text-[10px] uppercase text-slate-500">
+                    Vendor invoice #
+                  </label>
+                  <Input name="vendorInvoiceNumber" className="mt-1" />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase text-slate-500">
+                    Invoice date
+                  </label>
+                  <Input name="invoiceDate" type="date" className="mt-1" />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase text-slate-500">
+                    Due date
+                  </label>
+                  <Input name="dueDate" type="date" className="mt-1" />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="text-[10px] uppercase text-slate-500">
+                    Description
+                  </label>
+                  <Input
+                    name="description"
+                    className="mt-1"
+                    placeholder="e.g. Machine calibration service"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="text-[10px] uppercase text-slate-500">
+                    Link PO (optional)
+                  </label>
+                  <select name="purchaseOrderId" className={`${selectClass} mt-1`}>
+                    <option value="">— none —</option>
+                    {supplier.purchaseOrders.map((po) => (
+                      <option key={po.id} value={po.id}>
+                        {po.number} · {formatCurrency(po.totalAmount)} ·{" "}
+                        {po.status}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="sm:col-span-2 lg:col-span-4">
+                  <Button type="submit" size="sm">
+                    Create AP invoice
+                  </Button>
+                </div>
+              </form>
             </CardContent>
           </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle>Paid invoices</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {paidInvoices.length === 0 && (
-                <p className="text-sm text-slate-500">No paid invoices on file.</p>
-              )}
-              {paidInvoices.map((inv) => (
-                <div
-                  key={inv.id}
-                  className="flex items-center justify-between rounded border border-slate-800 px-3 py-2 text-sm"
-                >
-                  <div>
-                    <span className="font-mono text-slate-400">{inv.number}</span>
-                    <StatusBadge status={inv.status} className="ml-2" />
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle>Unpaid / open AP</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {unpaidInvoices.length === 0 && (
+                  <p className="text-sm text-slate-500">No open AP invoices.</p>
+                )}
+                {unpaidInvoices.map((inv) => {
+                  const open = inv.total - inv.amountPaid;
+                  return (
+                    <div
+                      key={inv.id}
+                      className="space-y-2 rounded border border-slate-800 px-3 py-2 text-sm"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <span className="font-mono text-amber-400">
+                            {inv.number}
+                          </span>
+                          <StatusBadge status={inv.status} className="ml-2" />
+                          <p className="text-[11px] text-slate-500">
+                            {formatDate(inv.invoiceDate)}
+                            {inv.dueDate
+                              ? ` · Due ${formatDate(inv.dueDate)}`
+                              : ""}
+                          </p>
+                          {inv.notes && (
+                            <p className="text-[11px] text-slate-500">
+                              {inv.notes}
+                            </p>
+                          )}
+                        </div>
+                        <div className="text-right">
+                          <p className="tabular-nums">
+                            {formatCurrency(inv.total)}
+                          </p>
+                          <p className="text-[10px] text-slate-500">
+                            Paid {formatCurrency(inv.amountPaid)}
+                          </p>
+                        </div>
+                      </div>
+                      {open > 0.01 && (
+                        <form
+                          action={actionRecordApPayment}
+                          className="flex flex-wrap items-center gap-1 border-t border-slate-900 pt-2"
+                        >
+                          <input type="hidden" name="invoiceId" value={inv.id} />
+                          <Input
+                            name="amount"
+                            type="number"
+                            step="0.01"
+                            min="0.01"
+                            defaultValue={open.toFixed(2)}
+                            className="h-8 w-24 text-xs"
+                          />
+                          <select
+                            name="method"
+                            className="h-8 rounded border border-slate-700 bg-slate-950 px-1 text-[10px]"
+                            defaultValue="ACH"
+                          >
+                            <option value="ACH">ACH</option>
+                            <option value="CHECK">Check</option>
+                            <option value="WIRE">Wire</option>
+                            <option value="CARD">Card</option>
+                          </select>
+                          <Input
+                            name="reference"
+                            placeholder="Check / ref #"
+                            className="h-8 w-28 text-xs"
+                          />
+                          <Button type="submit" size="sm" className="h-8 text-xs">
+                            Pay vendor
+                          </Button>
+                        </form>
+                      )}
+                    </div>
+                  );
+                })}
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>Paid invoices</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {paidInvoices.length === 0 && (
+                  <p className="text-sm text-slate-500">
+                    No paid invoices on file.
+                  </p>
+                )}
+                {paidInvoices.map((inv) => (
+                  <div
+                    key={inv.id}
+                    className="flex items-center justify-between rounded border border-slate-800 px-3 py-2 text-sm"
+                  >
+                    <div>
+                      <span className="font-mono text-slate-400">
+                        {inv.number}
+                      </span>
+                      <StatusBadge status={inv.status} className="ml-2" />
+                    </div>
+                    <span className="tabular-nums text-emerald-400">
+                      {formatCurrency(inv.total)}
+                    </span>
                   </div>
-                  <span className="tabular-nums text-emerald-400">
-                    {formatCurrency(inv.total)}
-                  </span>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
+                ))}
+              </CardContent>
+            </Card>
+          </div>
         </div>
       )}
 

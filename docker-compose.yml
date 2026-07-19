@@ -1,13 +1,14 @@
 # ForgeRP self-host stack.
 #
-#   docker compose up -d --build     → app on http://localhost:3000
+# Evaluation (demo data + persona switcher):
+#   docker compose up -d --build
+#   → http://localhost:3000
 #
-# The default profile runs the app on zero-config SQLite (books live on
-# the forgerp-data volume). The optional `postgres` profile keeps the
-# production-like Postgres database for teams that want it:
+# Production / plant pilot (login required, empty books):
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 #
+# Optional Postgres service (app still needs provider/adapter switch):
 #   docker compose --profile postgres up -d
-#   (then point DATABASE_URL at postgres and switch the Prisma provider)
 
 services:
   forgerp:
@@ -16,13 +17,28 @@ services:
     ports:
       - "3000:3000"
     environment:
-      # Books + sandboxes live on the volume below
       DATABASE_URL: "file:/data/forgerp.db"
-      # Set to "0" to start with an empty database instead of demo data
-      SEED_ON_FIRST_BOOT: "1"
+      # Evaluation defaults — docker-compose.prod.yml turns these off
+      SEED_ON_FIRST_BOOT: ${SEED_ON_FIRST_BOOT:-1}
+      # next start always sets NODE_ENV=production; allow open demo on this stack
+      ALLOW_DEMO_IN_PRODUCTION: ${ALLOW_DEMO_IN_PRODUCTION:-1}
+      DEMO_MODE: ${DEMO_MODE:-}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
     volumes:
       - forgerp-data:/data
     restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
 
   postgres:
     profiles: ["postgres"]

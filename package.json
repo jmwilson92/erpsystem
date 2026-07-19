@@ -17,7 +17,19 @@
     "db:reset": "prisma db push --force-reset && tsx prisma/seed.ts",
     "db:studio": "prisma studio",
     "setup": "prisma generate && prisma db push && tsx prisma/seed.ts",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "typecheck": "tsc --noEmit",
+    "smoke": "tsx scripts/smoke-unit.ts",
+    "assert:prod-env": "node scripts/assert-production-env.mjs",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:report": "playwright show-report",
+    "verify": "tsx scripts/verify/run-all.ts",
+    "verify:svc": "tsx scripts/verify/run-all.ts --skip-http",
+    "verify:http": "tsx scripts/verify/chunk-j-http.ts",
+    "verify:money": "tsx scripts/verify/chunk-c2-money-path.ts",
+    "verify:serials": "tsx scripts/verify/chunk-serials-rma.ts",
+    "verify:chunk": "tsx scripts/verify/run-all.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -74,6 +86,7 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
+    "@playwright/test": "^1.61.1",
     "@tailwindcss/postcss": "^4",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20",

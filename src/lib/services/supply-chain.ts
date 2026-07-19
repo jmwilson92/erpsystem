@@ -1279,6 +1279,8 @@ export async function dispositionMrb(params: {
     : null;
 
   // REWORK / REPAIR each spawn a typed work order tied to the MRB case.
+  // When linked to an RMA, the component repair WO is also tagged so it
+  // returns into the same customer-return job when complete.
   let reworkWorkOrderId: string | null = null;
   let repairWorkOrderId: string | null = null;
   if (
@@ -1296,16 +1298,58 @@ export async function dispositionMrb(params: {
       workCenter: station?.code || "ASM-01",
       department: "MANUFACTURING",
       description: `MRB ${label} — ${mrb.number} / ${mrb.ncr.number}`,
-      travelerNotes: params.justification,
+      travelerNotes: [
+        params.justification,
+        mrb.rmaId
+          ? "RMA component repair — return SN to parent RMA work order when complete and reinstall on as-built tree."
+          : null,
+      ]
+        .filter(Boolean)
+        .join("\n"),
       createdById: params.decidedById,
       priority: "HIGH",
+      rmaId: mrb.rmaId || undefined,
     });
     await prisma.workOrder.update({
       where: { id: wo.id },
       data: { mrbCaseId: mrb.id },
     });
+    if (mrb.serialId) {
+      await prisma.serialNumber.update({
+        where: { id: mrb.serialId },
+        data: {
+          status: params.disposition === "REWORK" ? "REWORK" : "REPAIR",
+          workOrderId: wo.id,
+        },
+      });
+    }
     if (params.disposition === "REWORK") reworkWorkOrderId = wo.id;
     else repairWorkOrderId = wo.id;
+  }
+
+  // SCRAP: mark serial dead so replacements are issued on the RMA WO
+  if (params.disposition === "SCRAP" && mrb.serialId) {
+    await prisma.serialNumber.update({
+      where: { id: mrb.serialId },
+      data: { status: "SCRAPPED", parentSerialId: null },
+    });
+  }
+
+  // Resume RMA repair when MRB is resolved (unless still holding other opens)
+  if (mrb.rmaId) {
+    const openSiblings = await prisma.mrbCase.count({
+      where: {
+        rmaId: mrb.rmaId,
+        id: { not: mrb.id },
+        status: { in: ["OPEN", "IN_REVIEW"] },
+      },
+    });
+    if (openSiblings === 0) {
+      await prisma.rma.update({
+        where: { id: mrb.rmaId },
+        data: { status: "IN_WORK" },
+      });
+    }
   }
 
   // RETURN_TO_SUPPLIER opens a return shipment with a packing list so the

@@ -7,6 +7,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { SandboxBanner } from "@/components/layout/sandbox-banner";
 import { FlashToast } from "@/components/layout/flash-toast";
 import { getCurrentUser, listUsers } from "@/lib/auth";
+import { demoModeEnabled } from "@/lib/auth-core";
 import { prisma, SANDBOX_COOKIE } from "@/lib/db";
 import { getNotificationSummary } from "@/lib/services/notifications";
 import { readFlashToast } from "@/lib/flash";
@@ -33,9 +34,10 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  // Demo-mode identity switcher data (replace with real auth in prod)
+  // Persona switcher only when DEMO_MODE is on (evaluation / test-drive)
+  const showDemoSwitcher = demoModeEnabled();
   const [demoUsers, currentUser, company] = await Promise.all([
-    listUsers(),
+    showDemoSwitcher ? listUsers() : Promise.resolve([]),
     getCurrentUser(),
     prisma.companySettings.upsert({
       where: { id: "default" },
@@ -68,12 +70,14 @@ export default async function RootLayout({
     // module reaches the client (not even the RSC payload).
     redirect(`/module-off?m=${blockedKey}`);
   }
-  const shellUsers = demoUsers.map((u) => ({
-    id: u.id,
-    name: u.name,
-    role: u.role,
-    title: u.title,
-  }));
+  const shellUsers = showDemoSwitcher
+    ? demoUsers.map((u) => ({
+        id: u.id,
+        name: u.name,
+        role: u.role,
+        title: u.title,
+      }))
+    : [];
   return (
     // suppressHydrationWarning: browser extensions (e.g. Scribe) often inject
     // class/data attrs on <html>/<body> before React hydrates.

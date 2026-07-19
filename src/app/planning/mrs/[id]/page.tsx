@@ -202,6 +202,7 @@ export default async function MrsDetailPage({
                   <th className="pb-2 text-right">On hand</th>
                   <th className="pb-2 text-right">Short</th>
                   <th className="pb-2 pl-5">Fulfillment</th>
+                  <th className="pb-2">Need by / offset</th>
                   {canEdit && <th className="pb-2">Adjust</th>}
                 </tr>
               </thead>
@@ -317,17 +318,32 @@ export default async function MrsDetailPage({
                           "—"
                         )}
                       </td>
+                      <td className="py-2 text-[11px] text-slate-400">
+                        {l.dueDate ? (
+                          <span>Need {formatDate(l.dueDate)}</span>
+                        ) : (
+                          <span className="text-slate-600">—</span>
+                        )}
+                        {l.action === "BUILD" && l.level > 0 && (
+                          <p className="text-[10px] text-violet-400/90">
+                            Offset{" "}
+                            {l.scheduleOffsetMinutes != null
+                              ? `${l.scheduleOffsetMinutes} min before parent`
+                              : "default (est + staging)"}
+                          </p>
+                        )}
+                      </td>
                       {canEdit && (
                         <td className="py-2">
-                          {locked ? (
+                          {locked && l.action !== "BUILD" ? (
                             <span className="text-[10px] text-slate-600">
                               Released
                             </span>
                           ) : (
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex flex-col gap-1.5">
                               <form
                                 action={actionUpdateMrsLine}
-                                className="flex items-center gap-1.5"
+                                className="flex flex-wrap items-center gap-1.5"
                               >
                                 <input
                                   type="hidden"
@@ -339,23 +355,53 @@ export default async function MrsDetailPage({
                                   name="materialRequisitionId"
                                   value={mrs.id}
                                 />
+                                {!locked && (
+                                  <>
+                                    <Input
+                                      name="requiredQty"
+                                      type="number"
+                                      min={0}
+                                      step="any"
+                                      defaultValue={l.requiredQty}
+                                      className="h-8 w-20 text-xs"
+                                    />
+                                    <select
+                                      name="action"
+                                      className={selectClass}
+                                      defaultValue={l.action}
+                                    >
+                                      <option value="BUILD">BUILD</option>
+                                      <option value="BUY">BUY</option>
+                                      <option value="STOCK">STOCK</option>
+                                    </select>
+                                  </>
+                                )}
                                 <Input
-                                  name="requiredQty"
-                                  type="number"
-                                  min={0}
-                                  step="any"
-                                  defaultValue={l.requiredQty}
-                                  className="h-8 w-20 text-xs"
+                                  name="dueDate"
+                                  type="date"
+                                  defaultValue={
+                                    l.dueDate
+                                      ? new Date(l.dueDate)
+                                          .toISOString()
+                                          .slice(0, 10)
+                                      : ""
+                                  }
+                                  className="h-8 w-32 text-xs"
+                                  title="Need-by date"
                                 />
-                                <select
-                                  name="action"
-                                  className={selectClass}
-                                  defaultValue={l.action}
-                                >
-                                  <option value="BUILD">BUILD</option>
-                                  <option value="BUY">BUY</option>
-                                  <option value="STOCK">STOCK</option>
-                                </select>
+                                {l.action === "BUILD" && l.level > 0 && (
+                                  <Input
+                                    name="scheduleOffsetMinutes"
+                                    type="number"
+                                    min={0}
+                                    placeholder="Offset min"
+                                    defaultValue={
+                                      l.scheduleOffsetMinutes ?? ""
+                                    }
+                                    className="h-8 w-24 text-xs"
+                                    title="Working minutes before parent start"
+                                  />
+                                )}
                                 <Button
                                   type="submit"
                                   size="sm"
@@ -365,25 +411,27 @@ export default async function MrsDetailPage({
                                   Save
                                 </Button>
                               </form>
-                              <form action={actionRemoveMrsLine}>
-                                <input
-                                  type="hidden"
-                                  name="lineId"
-                                  value={l.id}
-                                />
-                                <input
-                                  type="hidden"
-                                  name="materialRequisitionId"
-                                  value={mrs.id}
-                                />
-                                <button
-                                  type="submit"
-                                  className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-800 text-slate-500 hover:border-rose-500/40 hover:text-rose-400"
-                                  aria-label="Remove line"
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </button>
-                              </form>
+                              {!locked && (
+                                <form action={actionRemoveMrsLine}>
+                                  <input
+                                    type="hidden"
+                                    name="lineId"
+                                    value={l.id}
+                                  />
+                                  <input
+                                    type="hidden"
+                                    name="materialRequisitionId"
+                                    value={mrs.id}
+                                  />
+                                  <button
+                                    type="submit"
+                                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-800 text-slate-500 hover:border-rose-500/40 hover:text-rose-400"
+                                    aria-label="Remove line"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                </form>
+                              )}
                             </div>
                           )}
                         </td>

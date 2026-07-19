@@ -42,7 +42,11 @@ import {
   actionUpdateCampaign,
   actionCreateEngTask,
   actionAlignBusinessPriority,
+  actionCreateBudget,
+  actionEnsureProjectWbsChargeCodes,
 } from "@/app/actions";
+import { ActionLoadingForm } from "@/components/layout/action-loading";
+import { listBudgets } from "@/lib/services/budgets";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +57,7 @@ const TABS = [
   { id: "overview", label: "Overview" },
   { id: "charter", label: "Charter" },
   { id: "wbs", label: "WBS" },
+  { id: "budgets", label: "Budgets" },
   { id: "campaigns", label: "Campaigns" },
   { id: "schedule", label: "Gates" },
   { id: "pi", label: "PI planning" },
@@ -72,6 +77,38 @@ function dateInput(d: Date | null | undefined) {
   return new Date(d).toISOString().slice(0, 10);
 }
 
+/** Depth-first WBS list (all levels) with indent + root→leaf code path. */
+function flattenWbsHierarchy<
+  T extends { id: string; code: string; parentId: string | null },
+>(nodes: T[]): (T & { depth: number; codePath: string[] })[] {
+  const byParent = new Map<string | null, T[]>();
+  for (const n of nodes) {
+    const key = n.parentId ?? null;
+    const list = byParent.get(key) || [];
+    list.push(n);
+    byParent.set(key, list);
+  }
+  const out: (T & { depth: number; codePath: string[] })[] = [];
+  const walk = (parentId: string | null, depth: number, path: string[]) => {
+    const kids = (byParent.get(parentId) || []).slice().sort((a, b) =>
+      a.code.localeCompare(b.code, undefined, { numeric: true })
+    );
+    for (const k of kids) {
+      const codePath = [...path, k.code];
+      out.push({ ...k, depth, codePath });
+      walk(k.id, depth + 1, codePath);
+    }
+  };
+  walk(null, 0, []);
+  // Orphans (broken parent pointer) — still selectable
+  for (const n of nodes) {
+    if (!out.find((x) => x.id === n.id)) {
+      out.push({ ...n, depth: 0, codePath: [n.code] });
+    }
+  }
+  return out;
+}
+
 export default async function PmoProjectDetailPage({
   params,
   searchParams,
@@ -85,26 +122,35 @@ export default async function PmoProjectDetailPage({
   const pageSlug =
     (Array.isArray(sp.page) ? sp.page[0] : sp.page) || "home";
 
-  const [project, users, products, programs, wbsNodes, campaigns, businessPriorities] =
-    await Promise.all([
-      getProjectDetail(id),
-      prisma.user.findMany({
-        where: { isActive: true },
-        orderBy: { name: "asc" },
-        select: { id: true, name: true },
-      }),
-      prisma.product.findMany({
-        orderBy: { code: "asc" },
-        select: { id: true, code: true, name: true },
-      }),
-      prisma.program.findMany({ orderBy: { name: "asc" } }),
-      getWbsTree(id),
-      listCampaignsForProject(id),
-      prisma.businessPriority.findMany({
-        where: { status: "PUBLISHED" },
-        orderBy: { priority: "asc" },
-      }),
-    ]);
+  const [
+    project,
+    users,
+    products,
+    programs,
+    wbsNodes,
+    campaigns,
+    businessPriorities,
+    projectBudgets,
+  ] = await Promise.all([
+    getProjectDetail(id),
+    prisma.user.findMany({
+      where: { isActive: true },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, title: true },
+    }),
+    prisma.product.findMany({
+      orderBy: { code: "asc" },
+      select: { id: true, code: true, name: true },
+    }),
+    prisma.program.findMany({ orderBy: { name: "asc" } }),
+    getWbsTree(id),
+    listCampaignsForProject(id),
+    prisma.businessPriority.findMany({
+      where: { status: "PUBLISHED" },
+      orderBy: { priority: "asc" },
+    }),
+    listBudgets({ projectId: id }),
+  ]);
   if (!project) notFound();
 
   const { spi, cpi, cv, sv } = computeEvm(
@@ -168,6 +214,9 @@ export default async function PmoProjectDetailPage({
           <Link
             key={t.id}
             href={`/pmo/projects/${project.id}?tab=${t.id}`}
+            scroll={false}
+            data-no-loading="true"
+            prefetch={true}
             className={cn(
               "rounded-md px-2.5 py-1 text-xs sm:text-sm",
               tab === t.id
@@ -181,6 +230,9 @@ export default async function PmoProjectDetailPage({
             )}
             {t.id === "issues" && openIssues > 0 && (
               <span className="ml-1 text-rose-400">{openIssues}</span>
+            )}
+            {t.id === "budgets" && projectBudgets.length > 0 && (
+              <span className="ml-1 text-teal-400">{projectBudgets.length}</span>
             )}
           </Link>
         ))}
@@ -525,12 +577,19 @@ export default async function PmoProjectDetailPage({
       )}
 
       {/* ── WBS ── */}
-      {tab === "wbs" && (
+      {tab === "wbs" && (() => {
+        const flatWbs = flattenWbsHierarchy(wbsNodes);
+        return (
         <div className="space-y-4">
           <p className="text-xs text-slate-500">
             Deliverable-oriented work breakdown (PMBOK). Expand line items;
             open an element for the full WBS dictionary (scope, acceptance,
-            resources). Campaigns hang off work packages.
+            resources). Campaigns hang off work packages. Adding a child under
+            a parent auto-creates its charge code (
+            <span className="font-mono text-teal-400">
+              Project-1.0-1.1
+            </span>
+            ).
           </p>
           <WbsTree
             nodes={wbsNodes.map((n) => ({
@@ -559,22 +618,23 @@ export default async function PmoProjectDetailPage({
                 className="grid gap-2 sm:grid-cols-3"
               >
                 <input type="hidden" name="projectId" value={project.id} />
-                <div>
+                <div className="sm:col-span-3">
                   <label className="text-[10px] uppercase text-slate-500">
-                    Parent (optional)
+                    Parent (pick a level to nest under — all levels listed)
                   </label>
-                  <select name="parentId" className={`${selectClass} mt-1`}>
-                    <option value="">— Root —</option>
-                    {wbsNodes.map((n) => (
+                  <select name="parentId" className={`${selectClass} mt-1 font-mono text-xs`}>
+                    <option value="">— Root (top level, e.g. 1.0) —</option>
+                    {flatWbs.map((n) => (
                       <option key={n.id} value={n.id}>
-                        {n.code} {n.name}
+                        {"\u00A0".repeat(n.depth * 2)}
+                        {n.codePath.join(" › ")} · {n.name}
                       </option>
                     ))}
                   </select>
                 </div>
-                <Input name="code" required placeholder="Code e.g. 2.0" className="font-mono self-end" />
+                <Input name="code" required placeholder="Code e.g. 1.1 or 2.3.1" className="font-mono self-end" />
                 <Input name="name" required placeholder="Name" className="self-end" />
-                <select name="kind" className={selectClass} defaultValue="CONTROL_ACCOUNT">
+                <select name="kind" className={selectClass} defaultValue="WORK_PACKAGE">
                   <option value="SUMMARY">Summary</option>
                   <option value="CONTROL_ACCOUNT">Control account</option>
                   <option value="WORK_PACKAGE">Work package</option>
@@ -588,7 +648,381 @@ export default async function PmoProjectDetailPage({
             </CardContent>
           </Card>
         </div>
-      )}
+        );
+      })()}
+
+      {/* ── BUDGETS / CHARGE CODES (per WBS + contract/production) ── */}
+      {tab === "budgets" && (() => {
+        const flatWbs = flattenWbsHierarchy(wbsNodes);
+        const projSlug = (project.name || project.number)
+          .trim()
+          .replace(/\s+/g, "-")
+          .replace(/[^A-Za-z0-9._-]/g, "")
+          .slice(0, 32);
+
+        const wbsBudgets = projectBudgets
+          .filter((b) => b.wbsElementId)
+          .slice()
+          .sort((a, b) =>
+            (a.wbsElement?.code || "").localeCompare(
+              b.wbsElement?.code || "",
+              undefined,
+              { numeric: true }
+            )
+          );
+        const contractBudgets = projectBudgets.filter((b) => !b.wbsElementId);
+
+        return (
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <p className="max-w-3xl text-xs text-slate-500">
+                <strong className="text-slate-400">DIRECT</strong> project
+                charge codes. WBS scheme:{" "}
+                <span className="font-mono text-teal-400">
+                  ProjectName-1.0-1.1
+                </span>
+                . Contract / production codes cover work sold on the contract
+                but run by production (no WBS). Owner approves time + material
+                PRs. Separate from Dev cost (NRE).
+              </p>
+              <ActionLoadingForm
+                theme="planning"
+                action={actionEnsureProjectWbsChargeCodes}
+              >
+                <input type="hidden" name="projectId" value={project.id} />
+                <Button type="submit" size="sm" variant="secondary">
+                  Generate missing WBS codes
+                </Button>
+              </ActionLoadingForm>
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Card className="border-teal-900/40">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">
+                    WBS charge code
+                  </CardTitle>
+                  <p className="text-[11px] text-slate-500">
+                    All WBS levels listed (indented). Code defaults to
+                    ProjectName-parent-child.
+                  </p>
+                </CardHeader>
+                <CardContent>
+                  <ActionLoadingForm
+                    theme="creating"
+                    action={actionCreateBudget}
+                    className="grid gap-2 sm:grid-cols-2"
+                  >
+                    <input type="hidden" name="sourceType" value="PROJECT" />
+                    <input type="hidden" name="projectId" value={project.id} />
+                    <div className="sm:col-span-2">
+                      <label className="text-[10px] uppercase text-slate-500">
+                        WBS * (all levels)
+                      </label>
+                      <select
+                        name="wbsElementId"
+                        required
+                        className={`${selectClass} mt-1 font-mono text-xs`}
+                        size={Math.min(12, Math.max(6, flatWbs.length + 1))}
+                      >
+                        <option value="">— Select WBS (all levels) —</option>
+                        {flatWbs.map((n) => {
+                          const preview = projSlug
+                            ? `${projSlug}-${n.codePath.join("-")}`
+                            : n.codePath.join("-");
+                          return (
+                            <option key={n.id} value={n.id}>
+                              {"\u00A0".repeat(n.depth * 2)}
+                              {n.codePath.join(" › ")} · {n.name}
+                              {"  →  "}
+                              {preview}
+                            </option>
+                          );
+                        })}
+                      </select>
+                      {!flatWbs.length && (
+                        <p className="mt-1 text-[11px] text-amber-400">
+                          No WBS yet — add elements on the WBS tab first
+                          (choose a parent to nest sub-levels).
+                        </p>
+                      )}
+                      {flatWbs.length > 0 &&
+                        !flatWbs.some((n) => n.depth > 0) && (
+                          <p className="mt-1 text-[11px] text-slate-500">
+                            Only top-level WBS so far. On the WBS tab, set
+                            Parent to nest 1.1 under 1.0, etc. — then codes
+                            appear here as Project-1.0-1.1.
+                          </p>
+                        )}
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="text-[10px] uppercase text-slate-500">
+                        Display name
+                      </label>
+                      <Input
+                        name="name"
+                        required
+                        className="mt-1"
+                        placeholder={`${project.name} · WBS labor`}
+                        defaultValue={`${project.name} WBS budget`}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase text-slate-500">
+                        Owner *
+                      </label>
+                      <select
+                        name="ownerId"
+                        required
+                        className={`${selectClass} mt-1`}
+                        defaultValue={project.projectManagerId || ""}
+                      >
+                        <option value="">— Select —</option>
+                        {users.map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.name}
+                            {u.title ? ` · ${u.title}` : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase text-slate-500">
+                        Charge code override
+                      </label>
+                      <Input
+                        name="chargeCode"
+                        className="mt-1 font-mono text-xs"
+                        placeholder="Auto: Project-1.0-1.1"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase text-slate-500">
+                        Labor hours
+                      </label>
+                      <Input
+                        name="laborHoursBudget"
+                        type="number"
+                        step="0.5"
+                        min={0}
+                        className="mt-1"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase text-slate-500">
+                        Material $
+                      </label>
+                      <Input
+                        name="materialBudget"
+                        type="number"
+                        step="0.01"
+                        min={0}
+                        className="mt-1"
+                      />
+                    </div>
+                    <div className="sm:col-span-2 flex flex-wrap items-center gap-3">
+                      <label className="flex items-center gap-2 text-xs text-slate-400">
+                        <input
+                          type="checkbox"
+                          name="enact"
+                          defaultChecked
+                          className="rounded border-slate-600"
+                        />
+                        Enact now
+                      </label>
+                      <Button type="submit" size="sm">
+                        Create WBS code
+                      </Button>
+                    </div>
+                  </ActionLoadingForm>
+                </CardContent>
+              </Card>
+
+              <Card className="border-amber-900/40">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">
+                    Contract / production charge code
+                  </CardTitle>
+                  <p className="text-[11px] text-slate-500">
+                    Work sold on this contract but run by production (or other
+                    non-WBS scope). No WBS required — charge code defaults to
+                    ProjectName-YourName.
+                  </p>
+                </CardHeader>
+                <CardContent>
+                  <ActionLoadingForm
+                    theme="creating"
+                    action={actionCreateBudget}
+                    className="grid gap-2 sm:grid-cols-2"
+                  >
+                    <input type="hidden" name="sourceType" value="PROJECT" />
+                    <input type="hidden" name="projectId" value={project.id} />
+                    {/* no wbsElementId = contract/production channel */}
+                    <div className="sm:col-span-2">
+                      <label className="text-[10px] uppercase text-slate-500">
+                        Name / charge code base *
+                      </label>
+                      <Input
+                        name="name"
+                        required
+                        className="mt-1"
+                        placeholder="Production-LRIP or Contract-Build"
+                        defaultValue="Production"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase text-slate-500">
+                        Owner *
+                      </label>
+                      <select
+                        name="ownerId"
+                        required
+                        className={`${selectClass} mt-1`}
+                        defaultValue={project.projectManagerId || ""}
+                      >
+                        <option value="">— Select —</option>
+                        {users.map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.name}
+                            {u.title ? ` · ${u.title}` : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase text-slate-500">
+                        Charge code override
+                      </label>
+                      <Input
+                        name="chargeCode"
+                        className="mt-1 font-mono text-xs"
+                        placeholder={`${project.name.replace(/\s+/g, "-")}-Production`}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase text-slate-500">
+                        Labor hours
+                      </label>
+                      <Input
+                        name="laborHoursBudget"
+                        type="number"
+                        step="0.5"
+                        min={0}
+                        className="mt-1"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase text-slate-500">
+                        Material $
+                      </label>
+                      <Input
+                        name="materialBudget"
+                        type="number"
+                        step="0.01"
+                        min={0}
+                        className="mt-1"
+                      />
+                    </div>
+                    <div className="sm:col-span-2 flex flex-wrap items-center gap-3">
+                      <label className="flex items-center gap-2 text-xs text-slate-400">
+                        <input
+                          type="checkbox"
+                          name="enact"
+                          defaultChecked
+                          className="rounded border-slate-600"
+                        />
+                        Enact now
+                      </label>
+                      <Button type="submit" size="sm" variant="secondary">
+                        Create contract / production code
+                      </Button>
+                    </div>
+                  </ActionLoadingForm>
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="space-y-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                WBS charge codes ({wbsBudgets.length})
+              </h3>
+              {wbsBudgets.map((b) => {
+                const pct =
+                  b.totalAmount > 0
+                    ? Math.round((b.actualTotal / b.totalAmount) * 1000) / 10
+                    : 0;
+                return (
+                  <Link key={b.id} href={`/budgets/${b.id}`}>
+                    <Card className="mb-2 transition-colors hover:border-teal-500/30">
+                      <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+                        <div>
+                          <p className="font-mono text-teal-400">
+                            {b.chargeCode || b.name}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            {b.wbsElement
+                              ? `WBS ${b.wbsElement.code} · ${b.wbsElement.name}`
+                              : "WBS"}
+                            {b.owner ? ` · ${b.owner.name}` : ""}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <StatusBadge status={b.status} />
+                          <p className="mt-1 text-xs tabular-nums text-slate-400">
+                            {b.actualLaborHours}h ·{" "}
+                            {formatCurrency(b.actualTotal)} /{" "}
+                            {formatCurrency(b.totalAmount)} ({pct}%)
+                          </p>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </Link>
+                );
+              })}
+              {!wbsBudgets.length && (
+                <p className="text-sm text-slate-500">
+                  No WBS codes yet — use Generate missing WBS codes or create
+                  above.
+                </p>
+              )}
+
+              <h3 className="pt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Contract / production codes ({contractBudgets.length})
+              </h3>
+              {contractBudgets.map((b) => (
+                <Link key={b.id} href={`/budgets/${b.id}`}>
+                  <Card className="mb-2 border-amber-900/30 transition-colors hover:border-amber-500/30">
+                    <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+                      <div>
+                        <p className="font-mono text-amber-300">
+                          {b.chargeCode || b.name}
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          Contract / production
+                          {b.owner ? ` · ${b.owner.name}` : ""}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <StatusBadge status={b.status} />
+                        <p className="mt-1 text-xs tabular-nums text-slate-400">
+                          {b.actualLaborHours}h ·{" "}
+                          {formatCurrency(b.actualTotal)}
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </Link>
+              ))}
+              {!contractBudgets.length && (
+                <p className="text-sm text-slate-500">
+                  No contract/production codes — create one for production work
+                  sold on this contract.
+                </p>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── CAMPAIGNS ── */}
       {tab === "campaigns" && (

@@ -33,11 +33,18 @@ model User {
   /// scrypt hash (salt:hash hex) — null until the account is activated
   passwordHash  String?
   isActive      Boolean  @default(true)
+  /// Fully burdened shop / office labor rate ($/hr) used when charging budgets
+  hourlyRate    Float    @default(0)
+  /// Optional annual salary (display / conversion aid for HR — not payroll tax calc)
+  annualSalary  Float?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   auditLogs           AuditLog[]
   timeEntries         TimeEntry[]
+  budgetsCreated      Budget[]              @relation("BudgetCreator")
+  budgetsOwned        Budget[]              @relation("BudgetOwner")
+  budgetCharges       BudgetCharge[]        @relation("BudgetChargeUser")
   ptoRequests         PtoRequest[]
   expenseReports      ExpenseReport[]
   performanceReviews  PerformanceReview[]      @relation("ReviewSubject")
@@ -229,6 +236,8 @@ model Part {
   leadTimeDays    Int      @default(0)
   isSerialized    Boolean  @default(false)
   isLotControlled Boolean  @default(false)
+  /// Default warranty months from ship/complete (RMA eligibility)
+  warrantyMonths  Int      @default(12)
   isActive        Boolean  @default(true)
   drawingNumber   String?
   /// First/primary product photo (auto-filled from first dock receive photo when empty)
@@ -268,10 +277,12 @@ model Part {
   testProcedures  TestProcedure[]   @relation("TestProcPart")
   ncrs            NonConformance[]
   serials         SerialNumber[]
+  serialInstalls  SerialInstall[]  @relation("InstallChildPart")
   lots            Lot[]
   salesOrderLines SalesOrderLine[]
   quoteLines      QuoteLine[]
   kitOrderLines   KitOrderLine[]
+  rmasAsTopPart   Rma[]            @relation("RmaTopPart")
   receivingPhotos ReceivingPhoto[]
   receivingDocuments ReceivingDocument[]
   travelerLines   ReceivingTravelerLine[]
@@ -577,6 +588,12 @@ model WorkOrder {
   /// Set when this WO was spawned by an MRB disposition (rework / repair)
   mrbCaseId       String?
   mrbCase         MrbCase? @relation(fields: [mrbCaseId], references: [id], onDelete: SetNull)
+  /// Customer return repair WO (skips sales order)
+  rmaId           String?
+  rma             Rma?     @relation(fields: [rmaId], references: [id], onDelete: SetNull)
+  /// Repair quote that authorized chargeable RMA work
+  quoteId         String?
+  quote           Quote?   @relation(fields: [quoteId], references: [id], onDelete: SetNull)
   partId          String?
   part            Part?    @relation(fields: [partId], references: [id])
   bomHeaderId     String?
@@ -611,6 +628,19 @@ model WorkOrder {
   actualStart     DateTime?
   actualEnd       DateTime?
   estimatedMinutes Int?
+  /// BACK | FORWARD | MANUAL — how plannedStart/End were last computed
+  scheduleMode    String?
+  /// OK | LATE_RISK | MATERIAL_BLOCKED | NO_ESTIMATE | NO_DATES
+  scheduleRisk    String?
+  /// WI | TRAVELER | DEFAULT | MANUAL
+  estimateSource  String?
+  estimateUpdatedAt DateTime?
+  /// Peg child subassembly WO → parent assembly WO
+  parentWorkOrderId String?
+  parentWorkOrder   WorkOrder?  @relation("WoPegTree", fields: [parentWorkOrderId], references: [id], onDelete: SetNull)
+  childWorkOrders   WorkOrder[] @relation("WoPegTree")
+  /// Working minutes this WO must finish before parent.plannedStart (planner override)
+  scheduleOffsetMinutes Int?
   kitStatus       String   @default("NOT_STARTED") // NOT_STARTED, WAITING_MATERIAL, READY_TO_KIT, KITTING, KITTED
   standardCost    Float    @default(0)
   actualCost      Float    @default(0)
@@ -637,6 +667,9 @@ model WorkOrder {
   productionEngIssues ProductionEngIssue[]
   gfpConsumptions GfpConsumption[]
   assets          Asset[]
+  units           WorkOrderUnit[]
+  serialInstalls  SerialInstall[]
+  kitSerialAssignments KitSerialAssignment[]
 
   @@index([status])
   @@index([workCenter])
@@ -646,6 +679,11 @@ model WorkOrder {
   @@index([sourceType])
   @@index([dueDate])
   @@index([businessPriorityId])
+  @@index([parentWorkOrderId])
+  @@index([plannedStart])
+  @@index([scheduleRisk])
+  @@index([rmaId])
+  @@index([quoteId])
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -667,6 +705,8 @@ model Forecast {
 
   lines                 ForecastLine[]
   materialRequisitions  MaterialRequisition[]
+  /// Budgets that fund this forecast (many-to-many — one budget can span many FCs)
+  budgetLinks           BudgetForecast[]
 
   @@index([status])
 }
@@ -683,6 +723,118 @@ model ForecastLine {
 
   @@index([forecastId])
   @@index([partId])
+}
+
+// ═══════════════════════════════════════════════════════════════
+// BUDGETS — forecast / project / standalone with scan charge codes
+// DIRECT = forecast or project (job cost). INDIRECT = company pocketbook.
+// ═══════════════════════════════════════════════════════════════
+
+model Budget {
+  id              String   @id @default(cuid())
+  number          String   @unique // BDGT-00001
+  name            String
+  /// FORECAST | PROJECT | STANDALONE
+  sourceType      String   @default("STANDALONE")
+  /// DIRECT (forecast/project job cost) | INDIRECT (standalone / company)
+  costClass       String   @default("INDIRECT")
+  /// DRAFT | ENACTED | CLOSED | CANCELLED
+  status          String   @default("DRAFT")
+  /// Scan / timesheet / PR charge code — user-chosen; unique when set
+  chargeCode      String?  @unique
+
+  projectId       String?
+  project         Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  /// Project WBS this budget funds (project budgets only)
+  wbsElementId    String?
+  wbsElement      WbsElement? @relation(fields: [wbsElementId], references: [id], onDelete: SetNull)
+  /// Optional product link for forecast budgets (tracking only — not development NRE)
+  productId       String?
+  product         Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  /// Responsible owner — approves timecards charged here and PRs buying against it
+  ownerId         String?
+  owner           User?    @relation("BudgetOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+
+  totalAmount     Float    @default(0)
+  laborBudget     Float    @default(0)
+  materialBudget  Float    @default(0)
+  otherBudget     Float    @default(0)
+  /// Planned labor hours (optional; money still tracked separately)
+  laborHoursBudget Float   @default(0)
+
+  actualLabor     Float    @default(0)
+  actualMaterial  Float    @default(0)
+  actualOther     Float    @default(0)
+  actualTotal     Float    @default(0)
+  actualLaborHours Float   @default(0)
+
+  startDate       DateTime?
+  endDate         DateTime?
+  notes           String?
+  createdById     String?
+  createdBy       User?    @relation("BudgetCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  enactedAt       DateTime?
+  closedAt        DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  /// One budget may span many forecasts (and one forecast may share budgets)
+  forecastLinks     BudgetForecast[]
+  charges           BudgetCharge[]
+  timeEntries       TimeEntry[]
+  purchaseRequests  PurchaseRequest[]
+
+  @@index([status])
+  @@index([costClass])
+  @@index([sourceType])
+  @@index([projectId])
+  @@index([wbsElementId])
+  @@index([productId])
+  @@index([ownerId])
+  @@index([chargeCode])
+}
+
+/// Join: budget ↔ forecasts (many-to-many)
+model BudgetForecast {
+  id         String   @id @default(cuid())
+  budgetId   String
+  budget     Budget   @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  forecastId String
+  forecast   Forecast @relation(fields: [forecastId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([budgetId, forecastId])
+  @@index([forecastId])
+  @@index([budgetId])
+}
+
+model BudgetCharge {
+  id                String   @id @default(cuid())
+  budgetId          String
+  budget            Budget   @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  /// LABOR | MATERIAL | OTHER
+  category          String   @default("LABOR")
+  amount            Float    @default(0)
+  hours             Float?
+  description       String?
+  /// TIME_ENTRY | PO | PR | MANUAL | PAYROLL
+  source            String   @default("MANUAL")
+  sourceId          String?
+  timeEntryId       String?
+  purchaseOrderId   String?
+  purchaseRequestId String?
+  userId            String?
+  user              User?    @relation("BudgetChargeUser", fields: [userId], references: [id], onDelete: SetNull)
+  chargeDate        DateTime @default(now())
+  journalEntryId    String?
+  createdAt         DateTime @default(now())
+
+  @@index([budgetId])
+  @@index([category])
+  @@index([source])
+  @@index([chargeDate])
+  @@index([timeEntryId])
 }
 
 // Generated from forecast + stock netting; drives BUILD (MWO) and BUY suggestions
@@ -731,6 +883,10 @@ model MaterialRequisitionLine {
   purchaseRequestId       String?
   purchaseRequest         PurchaseRequest? @relation(fields: [purchaseRequestId], references: [id])
   notes                   String?
+  /// Planner need-by for this line (defaults from forecast line / period)
+  dueDate                 DateTime?
+  /// Working minutes this BUILD must finish before parent plannedStart (null = default estimate+staging)
+  scheduleOffsetMinutes   Int?
 
   @@index([materialRequisitionId])
   @@index([partId])
@@ -1179,6 +1335,8 @@ model Product {
   /// Rolled-up NRE / development cost captured from linked projects
   developmentBudget Float @default(0)
   developmentActual Float @default(0)
+  /// Forecast-linked production budgets (direct cost tracking — NOT development NRE)
+  budgets         Budget[]
   /// Sustainment / product-linked eng tasks (outside or inside projects)
   engTasks        EngTask[]
   productionIssues ProductionEngIssue[]
@@ -1427,6 +1585,7 @@ model Project {
   wikiPages       ProjectWikiPage[]
   piIncrements    PiIncrement[]
   costEntries     ProjectCostEntry[]
+  budgets         Budget[]
   campaigns       Campaign[]
   sagas           Saga[]
   virtualAssets   VirtualAsset[]
@@ -1523,6 +1682,7 @@ model WbsElement {
   purchaseRequests PurchaseRequest[]
   tasks           ProjectTask[]
   campaigns       Campaign[]
+  budgets         Budget[]
 
   @@index([projectId])
   @@index([parentId])
@@ -2337,6 +2497,13 @@ model MrbCase {
   workOrders      WorkOrder[]
   returnShipments Shipment[]
   replacementPrs  PurchaseRequest[]
+  rmaId           String?
+  rma             Rma?     @relation(fields: [rmaId], references: [id], onDelete: SetNull)
+  serialId        String?
+  serial          SerialNumber? @relation(fields: [serialId], references: [id], onDelete: SetNull)
+
+  @@index([rmaId])
+  @@index([serialId])
 }
 
 model MrbDisposition {
@@ -2487,11 +2654,178 @@ model SerialNumber {
   serial      String  @unique
   partId      String
   part        Part    @relation(fields: [partId], references: [id])
-  status      String  @default("IN_STOCK") // IN_STOCK, ISSUED, INSTALLED, SHIPPED, QUARANTINE, SCRAPPED
+  status      String  @default("IN_STOCK") // IN_STOCK, ISSUED, INSTALLED, SHIPPED, QUARANTINE, SCRAPPED, RMA
   workOrderId String?
   lotNumber   String?
   uid         String? // DoD Unique Item Identifier
   ownership   String  @default("COMPANY")
+  /// Current assembly parent (if installed)
+  parentSerialId String?
+  parentSerial   SerialNumber?  @relation("SerialParentChild", fields: [parentSerialId], references: [id], onDelete: SetNull)
+  childSerials   SerialNumber[] @relation("SerialParentChild")
+  customerId  String?
+  customer    Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  salesOrderId String?
+  shipmentId  String?
+  warrantyStart DateTime?
+  warrantyEnd   DateTime?
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  installsAsParent SerialInstall[] @relation("InstallParent")
+  installsAsChild  SerialInstall[] @relation("InstallChild")
+  workOrderUnits   WorkOrderUnit[]
+  kitAssignments   KitSerialAssignment[]
+  rmasAsTop        Rma[] @relation("RmaTopSerial")
+  mrbCases         MrbCase[]
+
+  @@index([partId])
+  @@index([status])
+  @@index([parentSerialId])
+  @@index([workOrderId])
+  @@index([customerId])
+}
+
+/// As-built install edge: child serial (or lot qty) installed in parent serial
+model SerialInstall {
+  id                 String   @id @default(cuid())
+  parentSerialId     String
+  parentSerial       SerialNumber @relation("InstallParent", fields: [parentSerialId], references: [id], onDelete: Cascade)
+  childSerialId      String?
+  childSerial        SerialNumber? @relation("InstallChild", fields: [childSerialId], references: [id], onDelete: SetNull)
+  childPartId        String
+  childPart          Part     @relation("InstallChildPart", fields: [childPartId], references: [id])
+  childLotNumber     String?
+  quantity           Float    @default(1)
+  workOrderId        String?
+  workOrder          WorkOrder? @relation(fields: [workOrderId], references: [id], onDelete: SetNull)
+  workOrderUnitIndex Int?
+  /// INSTALLED | REMOVED
+  status             String   @default("INSTALLED")
+  installedAt        DateTime @default(now())
+  removedAt          DateTime?
+  installedById      String?
+  removedById        String?
+  rmaId              String?
+  rma                Rma?     @relation(fields: [rmaId], references: [id], onDelete: SetNull)
+  notes              String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([parentSerialId, status])
+  @@index([childSerialId])
+  @@index([workOrderId, workOrderUnitIndex])
+  @@index([rmaId])
+}
+
+/// One physical unit slot on a multi-qty work order (qty 5 → unitIndex 1..5)
+model WorkOrderUnit {
+  id          String  @id @default(cuid())
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  unitIndex   Int
+  serialId    String?
+  serial      SerialNumber? @relation(fields: [serialId], references: [id], onDelete: SetNull)
+  /// OPEN | IN_BUILD | COMPLETE | SHIPPED | RMA
+  status      String  @default("OPEN")
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  kitAssignments KitSerialAssignment[]
+
+  @@unique([workOrderId, unitIndex])
+  @@index([serialId])
+}
+
+/// Kit issue plan: which serial goes to which WO unit (assembler + QA checklist)
+model KitSerialAssignment {
+  id              String   @id @default(cuid())
+  workOrderId     String
+  workOrder       WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  workOrderUnitId String?
+  workOrderUnit   WorkOrderUnit? @relation(fields: [workOrderUnitId], references: [id], onDelete: SetNull)
+  unitIndex       Int
+  partId          String
+  serialId        String
+  serial          SerialNumber @relation(fields: [serialId], references: [id], onDelete: Cascade)
+  kitOrderId      String?
+  /// PLANNED | ISSUED | INSTALLED | CANCELLED
+  status          String   @default("PLANNED")
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([workOrderId, unitIndex])
+  @@index([serialId])
+  @@index([kitOrderId])
+}
+
+// ═══════════════════════════════════════════════════════════════
+// RMA — customer returns (warranty or chargeable repair quote → WO)
+// ═══════════════════════════════════════════════════════════════
+
+model Rma {
+  id                   String   @id @default(cuid())
+  number               String   @unique
+  customerId           String
+  customer             Customer @relation(fields: [customerId], references: [id])
+  /// REQUESTED | EVALUATING | WARRANTY_APPROVED | QUOTE_PENDING | QUOTE_SENT
+  /// | QUOTE_ACCEPTED | IN_WORK | MRB_HOLD | COMPLETE | SHIPPED | CANCELLED
+  status               String   @default("REQUESTED")
+  /// WARRANTY | CHARGEABLE | MIXED | GOODWILL
+  coverage             String   @default("CHARGEABLE")
+  topSerialId          String?
+  topSerial            SerialNumber? @relation("RmaTopSerial", fields: [topSerialId], references: [id], onDelete: SetNull)
+  topPartId            String
+  topPart              Part     @relation("RmaTopPart", fields: [topPartId], references: [id])
+  customerSn           String
+  customerPartNumber   String?
+  symptom              String?
+  notes                String?
+  warrantyEligible     Boolean  @default(false)
+  warrantyReason       String?
+  quoteId              String?  @unique
+  quote                Quote?   @relation(fields: [quoteId], references: [id], onDelete: SetNull)
+  estimatedCost        Float    @default(0)
+  actualCost           Float    @default(0)
+  quotedPrice          Float    @default(0)
+  finalPrice           Float    @default(0)
+  priceAdjustmentNotes String?
+  requestedAt          DateTime @default(now())
+  approvedAt           DateTime?
+  completedAt          DateTime?
+  shippedAt            DateTime?
+  createdById          String?
+  assignedToId         String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  lines            RmaLine[]
+  workOrders       WorkOrder[]
+  mrbCases         MrbCase[]
+  serialInstalls   SerialInstall[]
+
+  @@index([status])
+  @@index([customerId])
+  @@index([topSerialId])
+  @@index([topPartId])
+  @@index([customerSn])
+}
+
+model RmaLine {
+  id          String  @id @default(cuid())
+  rmaId       String
+  rma         Rma     @relation(fields: [rmaId], references: [id], onDelete: Cascade)
+  partId      String?
+  serialId    String?
+  quantity    Float   @default(1)
+  description String?
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  @@index([rmaId])
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -2635,6 +2969,11 @@ model PurchaseRequest {
   chargeType      String?
   /// Optional GL / charge code link for accounting
   glAccountId     String?
+  /// Enacted budget to charge materials against
+  budgetId        String?
+  budget          Budget?  @relation(fields: [budgetId], references: [id], onDelete: SetNull)
+  /// Charge code (mirrors budget.chargeCode when budget-linked)
+  chargeCode      String?
   /// Purchasing manager assigns work to a buyer
   assignedBuyerId String?
   assignedBuyer   User?    @relation("PrAssignedBuyer", fields: [assignedBuyerId], references: [id], onDelete: SetNull)
@@ -3046,6 +3385,8 @@ model Customer {
   quotes        Quote[]
   receivingTravelers ReceivingTraveler[]
   products      Product[]
+  serialNumbers SerialNumber[]
+  rmas          Rma[]
 }
 
 model ArInvoice {
@@ -3119,16 +3460,7 @@ model ApPayment {
   reference   String?
 }
 
-model Budget {
-  id          String @id @default(cuid())
-  name        String
-  fiscalYear  Int
-  department  String?
-  accountCode String?
-  amount      Float
-  actual      Float  @default(0)
-  period      String? // Q1, Q2, etc or MONTH
-}
+// (Operational Budget model lives near Forecast — BDGT-##### + charge codes)
 
 // ═══════════════════════════════════════════════════════════════
 // SALES / SHIPPING
@@ -3189,6 +3521,10 @@ model Quote {
   customer      Customer @relation(fields: [customerId], references: [id])
   // DRAFT → SENT → ACCEPTED | REJECTED | EXPIRED | CONVERTED
   status        String   @default("DRAFT")
+  /// STANDARD | REPAIR (RMA repair quote → WO, no sales order)
+  quoteType     String   @default("STANDARD")
+  /// Reverse of Rma.quoteId (FK lives on Rma)
+  rma           Rma?
   quoteDate     DateTime @default(now())
   validUntil    DateTime?
   requiredDate  DateTime?
@@ -3210,6 +3546,9 @@ model Quote {
 
   lines         QuoteLine[]
   salesOrder    SalesOrder?
+  repairWorkOrders WorkOrder[]
+
+  @@index([quoteType])
 }
 
 model QuoteLine {
@@ -3664,9 +4003,12 @@ model TimeEntry {
   wbsElementId String?
   wbsElement   WbsElement? @relation(fields: [wbsElementId], references: [id], onDelete: SetNull)
   description String?
-  /// Named overhead / indirect charge code (e.g. OH, IND-G&A) when there is
+  /// Named overhead / indirect / budget charge code when there is
   /// no work order, project, or engineering task to charge against
   chargeCode  String?
+  /// Enacted budget this labor is charging (set from chargeCode when present)
+  budgetId    String?
+  budget      Budget?  @relation(fields: [budgetId], references: [id], onDelete: SetNull)
   status      String   @default("SUBMITTED") // DRAFT, SUBMITTED, APPROVED, REJECTED
   /// Approver's note — required when rejecting
   decisionNotes String?
@@ -3679,6 +4021,8 @@ model TimeEntry {
   @@index([campaignId])
   @@index([purchaseRequestId])
   @@index([receivingTravelerId])
+  @@index([budgetId])
+  @@index([chargeCode])
   @@index([date])
 }
 
@@ -3951,6 +4295,9 @@ model CompanySettings {
   /// the whole suite). Disabled modules vanish from nav and their routes are
   /// blocked until re-enabled. See src/lib/modules.ts for the catalog.
   disabledModules String?
+  /// JSON planning prefs: calendarMode, fixedShiftHours, customShiftHours, …
+  /// See PlanningSettings in src/lib/services/schedule.ts
+  planningSettings String?
   setupCompleted Boolean  @default(false)
   updatedById    String?
   updatedAt      DateTime @updatedAt

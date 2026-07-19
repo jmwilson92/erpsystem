@@ -27,6 +27,7 @@ import {
   actionVoidJournal,
   actionRecordArPayment,
   actionRecordApPayment,
+  actionCreateVendorApInvoice,
   actionCreateExpenseEntry,
   actionReimburseExpense,
   actionSetAccountingCloseDate,
@@ -92,6 +93,7 @@ export default async function AccountingPage({
     arList,
     apList,
     reimbursements,
+    apSuppliers,
   ] = await Promise.all([
     prisma.account.findMany({ orderBy: { code: "asc" } }),
     listJournalEntries({
@@ -128,6 +130,12 @@ export default async function AccountingPage({
       take: 80,
     }),
     getExpenseReimbursements(),
+    prisma.supplier.findMany({
+      where: { status: { in: ["APPROVED", "CONDITIONAL"] } },
+      orderBy: { name: "asc" },
+      select: { id: true, code: true, name: true },
+      take: 300,
+    }),
   ]);
 
   const inPeriod = (d: Date | null | undefined) => {
@@ -769,12 +777,106 @@ export default async function AccountingPage({
             </Card>
           )}
           <AgingSummary title="AP aging" buckets={apAging} tone="ap" />
+
+          <Card className="border-teal-900/40">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">
+                Enter outside vendor invoice
+              </CardTitle>
+              <p className="text-xs text-slate-500">
+                Track bills from outside vendors (services, non-inventory). PO
+                receipts still auto-create AP. Pay open balances in the grid
+                below.
+              </p>
+            </CardHeader>
+            <CardContent>
+              <form
+                action={actionCreateVendorApInvoice}
+                className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3"
+              >
+                <div>
+                  <label className="text-[10px] uppercase text-slate-500">
+                    Vendor *
+                  </label>
+                  <select
+                    name="supplierId"
+                    required
+                    className={`${selectClass} mt-1`}
+                  >
+                    <option value="">— Select —</option>
+                    {apSuppliers.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.code} · {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase text-slate-500">
+                    Amount *
+                  </label>
+                  <Input
+                    name="amount"
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    required
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase text-slate-500">
+                    Vendor invoice #
+                  </label>
+                  <Input name="vendorInvoiceNumber" className="mt-1" />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase text-slate-500">
+                    Due date
+                  </label>
+                  <Input name="dueDate" type="date" className="mt-1" />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase text-slate-500">
+                    Expense account
+                  </label>
+                  <select
+                    name="expenseAccountId"
+                    className={`${selectClass} mt-1`}
+                  >
+                    <option value="">— default OpEx —</option>
+                    {expenseAccounts.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.code} · {a.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase text-slate-500">
+                    Description
+                  </label>
+                  <Input
+                    name="description"
+                    className="mt-1"
+                    placeholder="What was purchased / service"
+                  />
+                </div>
+                <div className="sm:col-span-2 lg:col-span-3">
+                  <Button type="submit" size="sm">
+                    Create vendor AP invoice
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-base">
                 Accounts payable
                 <span className="ml-2 text-xs font-normal text-slate-500">
-                  {apFiltered.length} invoices
+                  {apFiltered.length} invoices · pay open balances here
                 </span>
               </CardTitle>
             </CardHeader>

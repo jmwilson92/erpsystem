@@ -4,11 +4,22 @@ import { NextRequest, NextResponse } from "next/server";
  * Route guard for production (DEMO_MODE=0): anything but the auth
  * screens requires a session cookie. Cookie *presence* is checked here
  * (edge runtime — no DB); the session itself is validated server-side
- * in getCurrentUser on every request.
+ * in getCurrentUser / getSessionUser on every request.
  *
- * With DEMO_MODE on (default / evaluation), everything stays open.
+ * With DEMO_MODE on (default / evaluation), everything stays open so
+ * prospects can use the persona switcher and /demo test-drive.
+ *
+ * Production hosts must set DEMO_MODE=0 (enforced at boot by
+ * src/instrumentation.ts unless ALLOW_DEMO_IN_PRODUCTION=1).
  */
-const PUBLIC_PREFIXES = ["/login", "/invite", "/_next", "/favicon", "/api/health"];
+const PUBLIC_PREFIXES = [
+  "/login",
+  "/invite",
+  "/demo",
+  "/_next",
+  "/favicon",
+  "/api/health",
+];
 
 /** Pass the current path to server components (root layout) via a header so
  *  the module guard can block disabled-module routes before they render. */
@@ -23,14 +34,14 @@ export function middleware(req: NextRequest) {
 
   const { pathname } = req.nextUrl;
   if (PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))) {
-    return NextResponse.next();
+    return withPathname(req);
   }
   if (req.cookies.get("forge-session")?.value) {
     return withPathname(req);
   }
   const url = req.nextUrl.clone();
   url.pathname = "/login";
-  url.search = "";
+  url.search = `?next=${encodeURIComponent(pathname)}`;
   return NextResponse.redirect(url);
 }
 
