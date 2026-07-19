@@ -253,37 +253,46 @@ export async function assignPrBuyer(params: {
   }
 
   const now = new Date();
+  // Assignment hands the PR over — it does NOT start the new buyer's
+  // clock. They scan in when they actually open/work the PR. If the
+  // assigner was on the clock (e.g. did the legwork before delegating),
+  // the clockOutBuyerWork above already closed their time.
+  const selfAssign = params.buyerUserId === params.assignedById;
   const updated = await prisma.purchaseRequest.update({
     where: { id: pr.id },
     data: {
       assignedBuyerId: params.buyerUserId,
       assignedById: params.buyerUserId ? params.assignedById || null : null,
       assignedAt: params.buyerUserId ? now : null,
-      // Scan-in on assign
-      buyerWorkStartedAt: params.buyerUserId ? now : null,
-      buyerWorkStartedById: params.buyerUserId || null,
+      // Only assigning YOURSELF starts a clock immediately
+      buyerWorkStartedAt: selfAssign && params.buyerUserId ? now : null,
+      buyerWorkStartedById: selfAssign ? params.buyerUserId || null : null,
     },
   });
 
   await logAudit({
     entityType: "PurchaseRequest",
     entityId: pr.id,
-    action: params.buyerUserId ? "BUYER_SCAN_IN" : "BUYER_UNASSIGNED",
+    action: params.buyerUserId ? "BUYER_ASSIGNED" : "BUYER_UNASSIGNED",
     userId: params.assignedById,
     metadata: {
       assignedBuyerId: params.buyerUserId,
       previousBuyerId: pr.assignedBuyerId,
-      startedAt: params.buyerUserId ? now.toISOString() : null,
+      startedAt: selfAssign && params.buyerUserId ? now.toISOString() : null,
     },
   });
 
   return updated;
 }
 
-/** Scan-in if this buyer is working the PR and not already clocked. */
+/** Scan-in if this buyer is working the PR and not already clocked.
+ *  `claim` (default true — explicit work like saving the package) lets an
+ *  unassigned worker become the buyer; page views pass claim:false so
+ *  merely LOOKING at a PR never puts a bystander on the clock. */
 export async function ensureBuyerScanIn(params: {
   purchaseRequestId: string;
   userId: string;
+  claim?: boolean;
 }) {
   const pr = await prisma.purchaseRequest.findUnique({
     where: { id: params.purchaseRequestId },
@@ -294,6 +303,11 @@ export async function ensureBuyerScanIn(params: {
   }
   // If someone else is on it, don't steal
   if (pr.buyerWorkStartedAt && pr.buyerWorkStartedById !== params.userId) {
+    return pr;
+  }
+  const claim = params.claim !== false;
+  // Without claim rights, only the ASSIGNED buyer auto-starts a clock
+  if (!claim && pr.assignedBuyerId !== params.userId) {
     return pr;
   }
   const now = new Date();

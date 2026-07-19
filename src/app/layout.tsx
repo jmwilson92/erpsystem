@@ -72,7 +72,7 @@ export default async function RootLayout({
     process.env.DEMO_MODE === "0" &&
     !currentUser &&
     pathname &&
-    !["/login", "/invite", "/module-off", "/demo"].some((p) =>
+    !["/login", "/invite", "/module-off", "/demo", "/legal"].some((p) =>
       pathname.startsWith(p)
     )
   ) {

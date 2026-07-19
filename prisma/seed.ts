@@ -239,41 +239,30 @@ async function main() {
   });
   console.log("  ✓ permissions, groups, leadership priorities");
 
-  // ── PR approval policy (threshold multi-step) ──────────────
+  // ── PR approval policy — the routed pipeline, seeded directly so a PR
+  //    created before anyone visits /purchasing still routes correctly:
+  //    charge/budget owner confirms → purchasing packages → same owner
+  //    approves to purchase → $ thresholds.
   await prisma.approvalPolicy.create({
     data: {
-      name: "Standard PR approval",
+      name: "Demand → buyer package → purchase",
       entityType: "PurchaseRequest",
       description:
-        "Project/Program owner steps are injected per PR. Buyer reviews; CFO above $5k; ops admin above $25k.",
+        "1) Charge owner confirms demand. 2) Buyer verifies prices, sole-source, quotes, docs and packages the PR. 3) Same charge owner approves to purchase. 4+) Company $ thresholds (program/product escalation, finance).",
       isActive: true,
       isDefault: true,
       steps: {
         create: [
-          {
-            stepOrder: 1,
-            name: "Buyer review",
-            minAmount: 0,
-            approverRole: "PURCHASING",
-          },
-          {
-            stepOrder: 2,
-            name: "CFO / Accounting",
-            minAmount: 5000,
-            approverRole: "ACCOUNTING",
-            approverUserId: cfo.id,
-          },
-          {
-            stepOrder: 3,
-            name: "Operations admin",
-            minAmount: 25000,
-            approverRole: "ADMIN",
-          },
+          { stepOrder: 1, name: "Confirm demand", minAmount: 0, routingKey: "REQUEST_CONFIRM", approverRole: "PURCHASING" },
+          { stepOrder: 2, name: "Buyer package", minAmount: 0, routingKey: "BUYER_PACKAGE", approverRole: "PURCHASING" },
+          { stepOrder: 3, name: "Approve to purchase", minAmount: 0, routingKey: "PURCHASE_APPROVAL", approverRole: "PURCHASING" },
+          { stepOrder: 4, name: "Threshold escalation", minAmount: 10000, routingKey: "CHARGE_ESCALATION", approverRole: "EXECUTIVE" },
+          { stepOrder: 5, name: "Finance / controller", minAmount: 25000, routingKey: "ROLE", approverRole: "ACCOUNTING", approverUserId: cfo.id },
         ],
       },
     },
   });
-  console.log("  ✓ PR approval policy (owner + buyer + CFO + admin)");
+  console.log("  ✓ PR approval policy (owner → buyer package → owner → thresholds)");
 
   // ── Work Centers ───────────────────────────────────────────
   const workCenters = await Promise.all(

@@ -36,6 +36,14 @@ export default async function LoginPage() {
           {bootstrap ? <BootstrapForm /> : <LoginForm />}
         </div>
 
+        <p className="text-center text-[11px] text-slate-600">
+          By signing in you accept the{" "}
+          <Link href="/legal" className="text-teal-600 hover:underline">
+            beta terms &amp; privacy note
+          </Link>
+          .
+        </p>
+
         {demoModeEnabled() && (
           <p className="text-center text-xs text-slate-600">
             Demo mode is on — you can also{" "}

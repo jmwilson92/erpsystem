@@ -383,6 +383,9 @@ export async function startPrApprovalWorkflow(params: {
   });
   if (!pr) throw new Error("Purchase request not found");
 
+  // Self-heal: a legacy policy without the routed pipeline gets upgraded
+  // no matter which page created the PR (not just after /purchasing loads).
+  if (!params.policyId) await ensureDefaultPrApprovalPolicy();
   const policy = params.policyId
     ? await prisma.approvalPolicy.findUnique({
         where: { id: params.policyId },

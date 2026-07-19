@@ -228,7 +228,7 @@ export default async function PoDetailPage({
                 <th className="pb-2">#</th>
                 <th className="pb-2">Part / description</th>
                 <th className="pb-2 text-right">Qty</th>
-                <th className="pb-2">UOM</th>
+                <th className="pb-2 pl-4">UOM</th>
                 <th className="pb-2 text-right">Unit</th>
                 <th className="pb-2 text-right">Ext</th>
               </tr>
@@ -244,7 +244,7 @@ export default async function PoDetailPage({
                     <span className="ml-2 text-slate-400">{l.description}</span>
                   </td>
                   <td className="py-2.5 text-right tabular-nums">{l.quantity}</td>
-                  <td className="py-2.5 text-slate-500">{l.uom}</td>
+                  <td className="py-2.5 pl-4 text-slate-500">{l.uom}</td>
                   <td className="py-2.5 text-right tabular-nums">
                     {formatCurrency(l.unitCost)}
                   </td>

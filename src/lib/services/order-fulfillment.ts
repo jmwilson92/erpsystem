@@ -239,6 +239,7 @@ export async function createQuote(params: SalesDocumentInput & { validUntil?: Da
       status: "DRAFT",
       requiredDate: params.requiredDate,
       shipDate: params.shipDate,
+      allowEarlyShip: params.allowEarlyShip ?? false,
       validUntil: params.validUntil,
       customerPo: params.customerPo,
       paymentTerms: params.paymentTerms || customer.paymentTerms || "NET30",
@@ -306,6 +307,9 @@ export async function convertQuoteToSalesOrder(params: {
     customerId: quote.customerId,
     requiredDate: due,
     shipDate: quote.shipDate || undefined,
+    allowEarlyShip: quote.allowEarlyShip,
+    shipNotBefore:
+      quote.shipDate && !quote.allowEarlyShip ? quote.shipDate : undefined,
     customerPo: quote.customerPo || undefined,
     paymentTerms: quote.paymentTerms,
     isFob: quote.isFob,

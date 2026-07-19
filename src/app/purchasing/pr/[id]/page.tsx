@@ -88,6 +88,24 @@ export default async function PrDetailPage({
   ]);
   if (!pr) notFound();
 
+  // The assigned buyer opening their PR IS starting work — scan them in.
+  // claim:false so anyone else just viewing never lands on the clock.
+  if (
+    currentUser?.id &&
+    pr.status === "SUBMITTED" &&
+    pr.assignedBuyerId === currentUser.id &&
+    !pr.buyerWorkStartedAt
+  ) {
+    const { ensureBuyerScanIn } = await import("@/lib/services/pr-buyer");
+    await ensureBuyerScanIn({
+      purchaseRequestId: pr.id,
+      userId: currentUser.id,
+      claim: false,
+    });
+    pr.buyerWorkStartedAt = new Date();
+    pr.buyerWorkStartedById = currentUser.id;
+  }
+
   const [
     approvals,
     requester,
@@ -609,7 +627,13 @@ export default async function PrDetailPage({
                     </Button>
                     {pr.buyerWorkStartedAt && (
                       <span className="text-[11px] text-emerald-400/90">
-                        On the clock since{" "}
+                        {pr.buyerWorkStartedById === currentUser?.id
+                          ? "You're on the clock since"
+                          : `${
+                              buyers.find(
+                                (b) => b.id === pr.buyerWorkStartedById
+                              )?.name || "Buyer"
+                            } on the clock since`}{" "}
                         {formatDate(pr.buyerWorkStartedAt, "MMM d, HH:mm")}
                       </span>
                     )}

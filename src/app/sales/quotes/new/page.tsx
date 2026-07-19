@@ -132,6 +132,14 @@ export default async function NewQuotePage({
                     Ship date
                   </label>
                   <Input name="shipDate" type="date" defaultValue={shipStr} className="mt-1 h-9" />
+                  <label className="mt-2 flex items-center gap-2 text-xs text-slate-400">
+                    <input
+                      type="checkbox"
+                      name="allowEarlyShip"
+                      className="rounded border-slate-600"
+                    />
+                    Customer accepts early shipment
+                  </label>
                 </div>
               </div>
             </div>

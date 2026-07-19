@@ -3529,6 +3529,8 @@ model Quote {
   validUntil    DateTime?
   requiredDate  DateTime?
   shipDate      DateTime?
+  /// Customer allows delivery before the requested ship date
+  allowEarlyShip Boolean @default(false)
   customerPo    String?
   paymentTerms  String   @default("NET30")
   isFob         Boolean  @default(false)

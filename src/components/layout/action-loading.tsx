@@ -458,6 +458,42 @@ export function ActionLoadingProvider({ children }: { children: ReactNode }) {
     };
   }, [start, stop, stopAll]);
 
+  // Server actions that only revalidatePath never navigate, so the submit
+  // overlay used to sit at 92% until the 45s failsafe. Track the action's
+  // own fetch (Next sends a "next-action" header) and clear on response.
+  useEffect(() => {
+    const orig = window.fetch;
+    let inFlight = 0;
+    const patched: typeof window.fetch = async (input, init) => {
+      let isAction = false;
+      try {
+        const h = new Headers(
+          init?.headers ||
+            (input instanceof Request ? input.headers : undefined)
+        );
+        isAction = h.has("next-action");
+      } catch {
+        /* ignore header parse issues */
+      }
+      if (isAction) inFlight += 1;
+      try {
+        return await orig(input as RequestInfo | URL, init);
+      } finally {
+        if (isAction) {
+          inFlight = Math.max(0, inFlight - 1);
+          if (inFlight === 0) {
+            // Give the RSC refresh a beat to paint, then clear overlays
+            window.setTimeout(() => stopAll(), 350);
+          }
+        }
+      }
+    };
+    window.fetch = patched;
+    return () => {
+      window.fetch = orig;
+    };
+  }, [stopAll]);
+
   // Route changed → clear navigation overlay
   useEffect(() => {
     if (navStartedRef.current || active) {
