@@ -54,3 +54,7 @@ prisma/sandboxes/
 # test artifacts
 playwright-report/
 test-results/
+prisma/dev.db-wal
+prisma/dev.db-shm
+prisma/sandboxes/
+backups/
