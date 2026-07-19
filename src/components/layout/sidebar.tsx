@@ -162,11 +162,15 @@ export function Sidebar({
         })}
       </nav>
 
+      {/* Persona switcher is a demo-only affordance; with real auth
+          (DEMO_MODE=0) the layout passes no demoUsers and we show only
+          the signed-in identity. */}
       {!collapsed && (
         <div className="border-t border-slate-800/80 p-3">
           <div className="rounded-lg bg-slate-900/80 p-2.5">
             <p className="text-xs font-medium text-slate-300">
-              Demo Mode {switching && "· switching…"}
+              {demoUsers.length > 0 ? "Demo Mode" : "Signed in"}
+              {switching && " · switching…"}
             </p>
             {demoUsers.length > 0 ? (
               <select

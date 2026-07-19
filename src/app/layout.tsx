@@ -50,6 +50,21 @@ export default async function RootLayout({
   const inSandbox = Boolean(jar.get(SANDBOX_COOKIE)?.value);
   const flash = await readFlashToast();
 
+  // Production auth: middleware only checks that a session cookie EXISTS
+  // (edge runtime, no DB). A forged/expired cookie passes it, so enforce
+  // the resolved identity here before any page content renders.
+  const requestPath = (await headers()).get("x-pathname") || "";
+  if (
+    process.env.DEMO_MODE === "0" &&
+    !currentUser &&
+    requestPath &&
+    !["/login", "/invite", "/module-off"].some((p) =>
+      requestPath.startsWith(p)
+    )
+  ) {
+    redirect("/login");
+  }
+
   // Per-module enable/disable: block a disabled module's routes server-side
   // (before the page renders) so nothing from that module reaches the client.
   const disabledModules: string[] = company.disabledModules
@@ -61,19 +76,24 @@ export default async function RootLayout({
         }
       })()
     : [];
-  const pathname = (await headers()).get("x-pathname") || "";
+  const pathname = requestPath;
   const blockedKey = pathname ? moduleKeyForPath(pathname) : null;
   if (blockedKey && disabledModules.includes(blockedKey)) {
     // Redirect before the disabled module's page renders — nothing from that
     // module reaches the client (not even the RSC payload).
     redirect(`/module-off?m=${blockedKey}`);
   }
-  const shellUsers = demoUsers.map((u) => ({
-    id: u.id,
-    name: u.name,
-    role: u.role,
-    title: u.title,
-  }));
+  // The persona switcher only exists in demo mode — with real auth the
+  // user list must not ship to the client at all.
+  const shellUsers =
+    process.env.DEMO_MODE === "0"
+      ? []
+      : demoUsers.map((u) => ({
+          id: u.id,
+          name: u.name,
+          role: u.role,
+          title: u.title,
+        }));
   return (
     // suppressHydrationWarning: browser extensions (e.g. Scribe) often inject
     // class/data attrs on <html>/<body> before React hydrates.

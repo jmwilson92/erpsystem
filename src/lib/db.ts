@@ -182,10 +182,11 @@ function getMasterClient() {
   const master = masterDbPath();
   ensureSqliteSchema(master);
   const client = createClientForFile(master);
-  if (process.env.NODE_ENV !== "production") {
-    globalForPrisma.prisma = client;
-    globalForPrisma.prismaEpoch = PRISMA_CLIENT_EPOCH;
-  }
+  // Cache in every environment. Without this, production builds a new
+  // client (and SQLite connection) per query — connections accumulate
+  // and writes start timing out (P1008) under the file lock.
+  globalForPrisma.prisma = client;
+  globalForPrisma.prismaEpoch = PRISMA_CLIENT_EPOCH;
   return client;
 }
 
