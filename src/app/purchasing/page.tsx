@@ -5,8 +5,6 @@ import { StatCard } from "@/components/shared/stat-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatCurrency, formatDate, cn } from "@/lib/utils";
-import { actionApprovePr } from "@/app/actions";
-import { ConvertPrToPoButton } from "@/components/purchasing/convert-pr-button";
 import { ensureDefaultPrApprovalPolicy } from "@/lib/services/pr-approval";
 import { getCurrentUser } from "@/lib/auth";
 import Link from "next/link";
@@ -18,6 +16,7 @@ export const dynamic = "force-dynamic";
 const PO_STATUSES = [
   "DRAFT",
   "APPROVED",
+  "PENDING_REAPPROVAL",
   "ISSUED",
   "ACKNOWLEDGED",
   "PARTIAL_RECEIPT",
@@ -792,18 +791,11 @@ export default async function PurchasingPage({
                                 Step: {current.stage}
                               </p>
                               <div className="flex gap-1">
-                                {canApprove && (
-                                  <form action={actionApprovePr}>
-                                    <input type="hidden" name="id" value={pr.id} />
-                                    <input type="hidden" name="decision" value="APPROVED" />
-                                    <Button type="submit" size="sm">
-                                      Approve step
-                                    </Button>
-                                  </form>
-                                )}
+                                {/* Decisions happen INSIDE the PR — the
+                                    queue only routes you there. */}
                                 <Link href={`/purchasing/pr/${pr.id}`}>
                                   <Button size="sm" variant="outline">
-                                    {canApprove ? "Review / reject" : "View"}
+                                    {canApprove ? "Review & decide" : "View"}
                                   </Button>
                                 </Link>
                               </div>
@@ -811,23 +803,13 @@ export default async function PurchasingPage({
                           );
                         })()}
                         {pr.status === "APPROVED" &&
-                          pr.supplierId &&
-                          pr.supplier &&
-                          canConvertToPo &&
-                          (() => {
-                            const aslOk =
-                              pr.supplier.isApprovedVendor &&
-                              (pr.supplier.status === "APPROVED" ||
-                                pr.supplier.status === "CONDITIONAL");
-                            if (!aslOk) {
-                              return (
-                                <p className="text-[11px] text-amber-400">
-                                  Vendor not on ASL — cannot convert to PO
-                                </p>
-                              );
-                            }
-                            return <ConvertPrToPoButton prId={pr.id} />;
-                          })()}
+                          canConvertToPo && (
+                            <Link href={`/purchasing/pr/${pr.id}`}>
+                              <Button size="sm" variant="outline">
+                                Open to convert →
+                              </Button>
+                            </Link>
+                          )}
                       </div>
                     </td>
                   </tr>

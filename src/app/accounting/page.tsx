@@ -251,6 +251,47 @@ export default async function AccountingPage({
     (p) => (p.from || "") === (periodFrom || "") && (p.to || "") === (periodTo || "")
   )?.label;
 
+
+  // Spend per sales order: POs cut from SO-charged PRs (directly or via the
+  // WO the PR supplied) rolled up against the order value, so accounting
+  // can watch profit / loss per SO. Charge-code (budget) buys live in
+  // Budgets; this is the sales-order side.
+  const soSpendPos = await prisma.purchaseOrder.findMany({
+    where: {
+      status: { notIn: ["CANCELLED"] },
+      purchaseRequest: {
+        OR: [
+          { chargeType: "SALES_ORDER" },
+          { workOrder: { salesOrderId: { not: null } } },
+        ],
+      },
+    },
+    select: {
+      totalAmount: true,
+      purchaseRequest: {
+        select: {
+          salesOrderId: true,
+          workOrder: { select: { salesOrderId: true } },
+        },
+      },
+    },
+  });
+  const spendBySo = new Map<string, number>();
+  for (const po of soSpendPos) {
+    const soId =
+      po.purchaseRequest?.salesOrderId ||
+      po.purchaseRequest?.workOrder?.salesOrderId;
+    if (!soId) continue;
+    spendBySo.set(soId, (spendBySo.get(soId) || 0) + po.totalAmount);
+  }
+  const soSpendOrders = spendBySo.size
+    ? await prisma.salesOrder.findMany({
+        where: { id: { in: [...spendBySo.keys()] } },
+        select: { id: true, number: true, status: true, totalAmount: true },
+        orderBy: { number: "asc" },
+      })
+    : [];
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -1186,6 +1227,69 @@ export default async function AccountingPage({
         </TabsContent>
 
         <TabsContent value="cost">
+          <Card className="mb-4">
+            <CardHeader>
+              <CardTitle>Spend by sales order</CardTitle>
+              <p className="text-xs text-slate-500">
+                Purchase spend traced to each sales order (SO-charged PRs and
+                the buys feeding their work orders) against the order value —
+                the live profit / loss watch per order.
+              </p>
+            </CardHeader>
+            <CardContent>
+              {soSpendOrders.length === 0 ? (
+                <p className="text-sm text-slate-500">
+                  No sales-order-charged purchases yet.
+                </p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-[10px] uppercase text-slate-500">
+                      <th className="pb-2">Sales order</th>
+                      <th className="pb-2">Status</th>
+                      <th className="pb-2 text-right">Order value</th>
+                      <th className="pb-2 text-right">PO spend</th>
+                      <th className="pb-2 text-right">Margin so far</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {soSpendOrders.map((so) => {
+                      const spend = spendBySo.get(so.id) || 0;
+                      const margin = so.totalAmount - spend;
+                      return (
+                        <tr key={so.id} className="border-t border-slate-800/60">
+                          <td className="py-2">
+                            <Link
+                              href={`/sales/${so.id}`}
+                              className="font-mono text-xs text-sky-400 hover:underline"
+                            >
+                              {so.number}
+                            </Link>
+                          </td>
+                          <td className="py-2 text-xs text-slate-400">
+                            {so.status}
+                          </td>
+                          <td className="py-2 text-right tabular-nums">
+                            {formatCurrency(so.totalAmount)}
+                          </td>
+                          <td className="py-2 text-right tabular-nums">
+                            {formatCurrency(spend)}
+                          </td>
+                          <td
+                            className={`py-2 text-right tabular-nums ${
+                              margin < 0 ? "text-red-400" : "text-emerald-400"
+                            }`}
+                          >
+                            {formatCurrency(margin)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </CardContent>
+          </Card>
           <div className="grid gap-4 lg:grid-cols-2">
             <Card>
               <CardHeader>

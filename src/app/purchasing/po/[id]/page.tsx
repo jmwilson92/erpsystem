@@ -2,12 +2,19 @@ import { prisma } from "@/lib/db";
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { CompanyLetterhead } from "@/components/sales/document-header";
 import { PoPdfActions } from "@/components/purchasing/po-pdf-button";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { actionClosePurchaseOrder } from "@/app/actions";
+import {
+  actionClosePurchaseOrder,
+  actionAmendPo,
+  actionDecidePoAmendment,
+} from "@/app/actions";
+import { getCurrentUser } from "@/lib/auth";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import Link from "next/link";
 import type { PurchaseOrderPdfData } from "@/lib/pdf";
 import { ActivityTimeline } from "@/components/shared/activity-timeline";
@@ -37,6 +44,31 @@ export default async function PoDetailPage({
   if (!po) notFound();
 
   const emailDraft = await composePoEmail(po.id);
+  const currentUser = await getCurrentUser();
+  const canAmend =
+    !!currentUser &&
+    ["ADMIN", "PURCHASING"].includes(currentUser.role) &&
+    !["CLOSED", "CANCELLED"].includes(po.status);
+  const amendApprovals =
+    po.status === "PENDING_REAPPROVAL"
+      ? await prisma.approval.findMany({
+          where: { entityType: "PurchaseOrder", entityId: po.id },
+          include: { approver: { select: { id: true, name: true } } },
+          orderBy: { stepOrder: "asc" },
+        })
+      : [];
+  const currentAmendStep = amendApprovals.find((a) => a.status === "PENDING");
+  const amendRejected =
+    po.status === "PENDING_REAPPROVAL" &&
+    !currentAmendStep &&
+    amendApprovals.some((a) => a.status === "REJECTED");
+  const canDecideAmend =
+    !!currentUser &&
+    !!currentAmendStep &&
+    (currentAmendStep.approverId === currentUser.id ||
+      currentUser.role === "ADMIN" ||
+      (!currentAmendStep.approverId &&
+        ["EXECUTIVE", "ACCOUNTING"].includes(currentUser.role)));
   const buyer = po.buyerId
     ? await prisma.user.findUnique({ where: { id: po.buyerId } })
     : null;
@@ -142,6 +174,169 @@ export default async function PoDetailPage({
           <span className="text-xs text-slate-500">from {po.purchaseRequest.number}</span>
         )}
       </div>
+
+      {po.status === "PENDING_REAPPROVAL" && (
+        <Card className="border-amber-900/50 bg-amber-950/20">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base text-amber-200">
+              {amendRejected
+                ? "Amendment rejected — revise and resubmit"
+                : "Amended — awaiting re-approval"}
+            </CardTitle>
+            <p className="text-xs text-amber-200/70">
+              Receiving is blocked until every approver signs off on the
+              amended PO.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="space-y-1 text-xs">
+              {amendApprovals.map((a) => (
+                <p key={a.id} className="flex items-center gap-2">
+                  <span
+                    className={
+                      a.status === "APPROVED"
+                        ? "text-emerald-400"
+                        : a.status === "REJECTED"
+                          ? "text-rose-400"
+                          : "text-slate-400"
+                    }
+                  >
+                    {a.status === "APPROVED"
+                      ? "✓"
+                      : a.status === "REJECTED"
+                        ? "✕"
+                        : "○"}
+                  </span>
+                  <span className="text-slate-300">{a.stage}</span>
+                  {a.approver && (
+                    <span className="text-slate-500">· {a.approver.name}</span>
+                  )}
+                  {a.comments && (
+                    <span className="text-rose-300/90">— {a.comments}</span>
+                  )}
+                </p>
+              ))}
+            </div>
+            {canDecideAmend && (
+              <div className="grid gap-2 sm:grid-cols-2">
+                <form action={actionDecidePoAmendment}>
+                  <input type="hidden" name="poId" value={po.id} />
+                  <input type="hidden" name="decision" value="APPROVED" />
+                  <Button type="submit" size="sm" className="w-full">
+                    Approve amendment
+                  </Button>
+                </form>
+                <form action={actionDecidePoAmendment} className="space-y-2">
+                  <input type="hidden" name="poId" value={po.id} />
+                  <input type="hidden" name="decision" value="REJECTED" />
+                  <Textarea
+                    name="comments"
+                    rows={1}
+                    required
+                    placeholder="Rejection reason (required)"
+                  />
+                  <Button
+                    type="submit"
+                    size="sm"
+                    variant="outline"
+                    className="w-full border-rose-900/50 text-rose-300"
+                  >
+                    Reject
+                  </Button>
+                </form>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {canAmend && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Amend PO</CardTitle>
+            <p className="text-xs text-slate-500">
+              Purchasing edits only. Saving an amendment holds the PO from
+              receiving and sends it back through the same round of approvers.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <form action={actionAmendPo} className="space-y-3">
+              <input type="hidden" name="poId" value={po.id} />
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-[10px] uppercase text-slate-500">
+                      <th className="pb-1">Line</th>
+                      <th className="pb-1 text-right">Qty</th>
+                      <th className="pb-1 pl-4 text-right">Unit cost</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {po.lines.map((l) => (
+                      <tr key={l.id} className="border-t border-slate-800/60">
+                        <td className="py-1.5 pr-3 text-xs">
+                          <span className="font-mono text-teal-400">
+                            {l.part?.partNumber || "—"}
+                          </span>
+                          <span className="ml-2 text-slate-500">
+                            {l.description}
+                          </span>
+                        </td>
+                        <td className="py-1.5 text-right">
+                          <Input
+                            name={`qty_${l.id}`}
+                            type="number"
+                            min="0.01"
+                            step="any"
+                            defaultValue={l.quantity}
+                            className="ml-auto h-8 w-24 text-right"
+                          />
+                        </td>
+                        <td className="py-1.5 pl-4 text-right">
+                          <Input
+                            name={`cost_${l.id}`}
+                            type="number"
+                            min="0"
+                            step="any"
+                            defaultValue={l.unitCost}
+                            className="ml-auto h-8 w-28 text-right"
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="text-xs text-slate-400">
+                  Promised date (EDD)
+                  <Input
+                    name="promisedDate"
+                    type="date"
+                    defaultValue={
+                      po.promisedDate
+                        ? po.promisedDate.toISOString().slice(0, 10)
+                        : ""
+                    }
+                    className="mt-1 h-9"
+                  />
+                </label>
+                <label className="text-xs text-slate-400">
+                  Notes
+                  <Input
+                    name="notes"
+                    defaultValue={po.notes || ""}
+                    className="mt-1 h-9"
+                  />
+                </label>
+              </div>
+              <Button type="submit" size="sm" variant="secondary">
+                Save amendment → re-approval
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Printable document body */}
       <Card className="border-slate-700 bg-slate-950/80 print:border-0 print:bg-white print:shadow-none">

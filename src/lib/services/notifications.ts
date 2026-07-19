@@ -84,6 +84,34 @@ export async function getNotificationSummary(user: {
     }
   }
 
+  // Purchase-request work waiting on this specific user
+  let prApprovals = 0;
+  let buyerAssigned = 0;
+  try {
+    const { countPrApprovalsForUser } = await import(
+      "@/lib/services/pr-approval"
+    );
+    prApprovals = await countPrApprovalsForUser({
+      userId: user.id,
+      userRole: user.role,
+    });
+    const { listPoAmendmentsForUser } = await import(
+      "@/lib/services/po-amend"
+    );
+    prApprovals += (
+      await listPoAmendmentsForUser({ userId: user.id, userRole: user.role })
+    ).length;
+    buyerAssigned = await prisma.purchaseRequest.count({
+      where: {
+        status: "SUBMITTED",
+        assignedBuyerId: user.id,
+        buyerConfirmedPrices: false,
+      },
+    });
+  } catch {
+    // advisory — never break the shell
+  }
+
   const approvals = pto + time + expenses;
   const items: NotificationItem[] = [];
   if (approvals > 0) {
@@ -91,6 +119,20 @@ export async function getNotificationSummary(user: {
       label: "Approvals waiting on you",
       count: approvals,
       href: "/approvals",
+    });
+  }
+  if (prApprovals > 0) {
+    items.push({
+      label: "Purchasing approvals waiting on your decision",
+      count: prApprovals,
+      href: "/approvals",
+    });
+  }
+  if (buyerAssigned > 0) {
+    items.push({
+      label: "PRs assigned to you to package",
+      count: buyerAssigned,
+      href: "/purchasing?tab=prs",
     });
   }
   if (canPmo && pmAlerts > 0) {

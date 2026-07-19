@@ -69,6 +69,11 @@ export async function receivePurchaseOrder(params: {
     },
   });
   if (!po) throw new Error("Purchase order not found");
+  if (po.status === "PENDING_REAPPROVAL") {
+    throw new Error(
+      `${po.number} was amended and is awaiting re-approval — receiving is blocked until the approver chain signs off`
+    );
+  }
 
   // Validate quantities — allow partials, never exceed open qty
   const receiveLines = params.lines.filter((l) => l.quantityReceived > 0);

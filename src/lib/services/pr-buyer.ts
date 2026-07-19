@@ -117,6 +117,8 @@ export async function saveBuyerPackage(params: {
   wbsElementId?: string | null;
   salesOrderId?: string | null;
   glAccountId?: string | null;
+  /** Enacted budget to charge (non-project buys); mirrors its chargeCode */
+  budgetId?: string | null;
   buyerConfirmedPrices?: boolean;
   buyerConfirmedShip?: boolean;
   quoteFileUrl?: string | null;
@@ -186,6 +188,19 @@ export async function saveBuyerPackage(params: {
         params.glAccountId === undefined
           ? undefined
           : params.glAccountId || null,
+      ...(params.budgetId !== undefined
+        ? {
+            budgetId: params.budgetId || null,
+            chargeCode: params.budgetId
+              ? (
+                  await prisma.budget.findUnique({
+                    where: { id: params.budgetId },
+                    select: { chargeCode: true },
+                  })
+                )?.chargeCode || null
+              : null,
+          }
+        : {}),
       buyerConfirmedPrices: params.buyerConfirmedPrices ?? undefined,
       buyerConfirmedShip: params.buyerConfirmedShip ?? undefined,
       quoteFileUrl:

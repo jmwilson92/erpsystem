@@ -2064,6 +2064,7 @@ export async function actionSaveBuyerPackage(
       ((formData.get("salesOrderId") as string) || "").trim() || null,
     glAccountId:
       ((formData.get("glAccountId") as string) || "").trim() || null,
+    budgetId: ((formData.get("budgetId") as string) || "").trim() || null,
     buyerConfirmedPrices:
       formData.get("buyerConfirmedPrices") === "true" ||
       formData.get("buyerConfirmedPrices") === "on" ||
@@ -8339,4 +8340,85 @@ export async function actionRemoveSerialInstall(
   revalidatePath("/trace/serials");
   revalidatePath("/mrb");
   revalidatePath("/rma");
+}
+
+// ─── PO amendments (edit → re-approval) ─────────────────────────
+
+export async function actionAmendPo(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user || !["ADMIN", "PURCHASING"].includes(user.role)) {
+    await flashToast("Only the purchasing team can amend a PO", "error");
+    return;
+  }
+  const poId = (formData.get("poId") as string) || "";
+  const lines: { lineId: string; quantity: number; unitCost: number }[] = [];
+  for (const [key, value] of formData.entries()) {
+    const m = key.match(/^qty_(.+)$/);
+    if (!m) continue;
+    const lineId = m[1];
+    lines.push({
+      lineId,
+      quantity: Number(value || 0),
+      unitCost: Number(formData.get(`cost_${lineId}`) || 0),
+    });
+  }
+  const promisedDateStr = ((formData.get("promisedDate") as string) || "").trim();
+  const { amendPurchaseOrder } = await import("@/lib/services/po-amend");
+  try {
+    await amendPurchaseOrder({
+      poId,
+      userId: user.id,
+      promisedDate: promisedDateStr ? new Date(promisedDateStr) : undefined,
+      notes: ((formData.get("notes") as string) || "").trim() || undefined,
+      lines,
+    });
+    await flashToast(
+      "PO amended — held from receiving until the approver chain signs off"
+    );
+  } catch (e) {
+    await flashToast(
+      e instanceof Error ? e.message : "Amendment failed",
+      "error"
+    );
+  }
+  revalidatePath(`/purchasing/po/${poId}`);
+  revalidatePath("/purchasing");
+  revalidatePath("/approvals");
+}
+
+export async function actionDecidePoAmendment(
+  formData: FormData
+): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user) return;
+  const poId = (formData.get("poId") as string) || "";
+  const decision =
+    (formData.get("decision") as string) === "REJECTED"
+      ? ("REJECTED" as const)
+      : ("APPROVED" as const);
+  const { decidePoAmendment } = await import("@/lib/services/po-amend");
+  try {
+    const r = await decidePoAmendment({
+      poId,
+      decision,
+      comments: ((formData.get("comments") as string) || "").trim() || null,
+      userId: user.id,
+      userRole: user.role,
+    });
+    await flashToast(
+      decision === "REJECTED"
+        ? "Amendment rejected — purchasing will revise"
+        : r.status === "ISSUED"
+          ? "Amendment approved — PO re-issued"
+          : "Approved — waiting on the next approver"
+    );
+  } catch (e) {
+    await flashToast(
+      e instanceof Error ? e.message : "Decision failed",
+      "error"
+    );
+  }
+  revalidatePath(`/purchasing/po/${poId}`);
+  revalidatePath("/purchasing");
+  revalidatePath("/approvals");
 }

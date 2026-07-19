@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { notFound } from "next/navigation";
+import { ConvertPrToPoButton } from "@/components/purchasing/convert-pr-button";
 import { getCurrentUser } from "@/lib/auth";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
@@ -25,6 +26,7 @@ import {
   isBuyerPackageComplete,
 } from "@/lib/services/pr-buyer";
 import { QuoteFileField } from "@/components/purchasing/quote-file-field";
+import { ChargeCodingFields } from "@/components/purchasing/charge-coding-fields";
 import { ActivityTimeline } from "@/components/shared/activity-timeline";
 import Link from "next/link";
 import {
@@ -115,7 +117,7 @@ export default async function PrDetailPage({
     projects,
     wbsElements,
     buyers,
-    glAccounts,
+    budgets,
   ] = await Promise.all([
     getPrApprovals(pr.id),
     pr.requestedById
@@ -144,10 +146,9 @@ export default async function PrDetailPage({
       take: 100,
     }),
     prisma.wbsElement.findMany({
-      where: pr.projectId ? { projectId: pr.projectId } : undefined,
       orderBy: { code: "asc" },
       select: { id: true, code: true, name: true, projectId: true },
-      take: 200,
+      take: 400,
     }),
     prisma.user.findMany({
       where: {
@@ -157,15 +158,14 @@ export default async function PrDetailPage({
       orderBy: { name: "asc" },
       select: { id: true, name: true, role: true, title: true },
     }),
-    prisma.account.findMany({
-      where: { isActive: true },
-      orderBy: { code: "asc" },
-      select: { id: true, code: true, name: true, chargeCodeType: true },
-      take: 100,
+    prisma.budget.findMany({
+      where: { status: "ENACTED" },
+      orderBy: { number: "asc" },
+      select: { id: true, number: true, name: true, chargeCode: true },
+      take: 200,
     }),
   ]);
 
-  const glList = glAccounts;
 
   const partMap = new Map(lineParts.map((p) => [p.id, p.partNumber]));
 
@@ -185,11 +185,14 @@ export default async function PrDetailPage({
   const canDecide =
     pr.status === "SUBMITTED" && !!currentStep && roleOk && !isRequester;
 
+  // Purchasing owns the package. Threshold/escalation approvers (execs)
+  // deliberately CANNOT edit — they approve or reject with a reason, and
+  // the purchasing team makes any changes.
   const canBuyerEdit =
     pr.status === "SUBMITTED" &&
     !["CONVERTED", "CANCELLED", "REJECTED"].includes(pr.status) &&
     (!!currentUser &&
-      (["ADMIN", "PURCHASING", "EXECUTIVE"].includes(currentUser.role) ||
+      (["ADMIN", "PURCHASING"].includes(currentUser.role) ||
         pr.assignedBuyerId === currentUser.id));
 
   const canAssign =
@@ -233,11 +236,18 @@ export default async function PrDetailPage({
                 All PRs
               </Button>
             </Link>
-            {pr.status === "APPROVED" && (
-              <Link href="/purchasing?tab=prs">
-                <Button size="sm">Convert on buyer workbench →</Button>
-              </Link>
-            )}
+            {pr.status === "APPROVED" &&
+              currentUser &&
+              ["ADMIN", "PURCHASING"].includes(currentUser.role) &&
+              (pr.supplier &&
+              pr.supplier.isApprovedVendor &&
+              ["APPROVED", "CONDITIONAL"].includes(pr.supplier.status) ? (
+                <ConvertPrToPoButton prId={pr.id} />
+              ) : (
+                <span className="self-center text-[11px] text-amber-400">
+                  Vendor not on ASL — cannot convert to PO
+                </span>
+              ))}
           </div>
         }
       />
@@ -485,77 +495,18 @@ export default async function PrDetailPage({
                         ))}
                       </select>
                     </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                        Charge type
-                      </label>
-                      <select
-                        name="chargeType"
-                        className={selectClass}
-                        defaultValue={
-                          pr.chargeType || charge?.chargeType || "DIRECT"
-                        }
-                      >
-                        <option value="PROGRAM">PROGRAM (project / WBS)</option>
-                        <option value="SALES_ORDER">SALES_ORDER</option>
-                        <option value="DIRECT">DIRECT</option>
-                        <option value="INDIRECT">INDIRECT</option>
-                      </select>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                        Project
-                      </label>
-                      <select
-                        name="projectId"
-                        className={selectClass}
-                        defaultValue={pr.projectId || ""}
-                      >
-                        <option value="">— None —</option>
-                        {projects.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.number} — {p.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                        WBS
-                      </label>
-                      <select
-                        name="wbsElementId"
-                        className={selectClass}
-                        defaultValue={pr.wbsElementId || ""}
-                      >
-                        <option value="">— None —</option>
-                        {wbsElements.map((w) => (
-                          <option key={w.id} value={w.id}>
-                            {w.code} — {w.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    {glList.length > 0 && (
-                      <div className="space-y-1 sm:col-span-2">
-                        <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                          GL / charge account
-                        </label>
-                        <select
-                          name="glAccountId"
-                          className={selectClass}
-                          defaultValue={pr.glAccountId || ""}
-                        >
-                          <option value="">— None —</option>
-                          {glList.map((g) => (
-                            <option key={g.id} value={g.id}>
-                              {g.code} — {g.name}
-                              {g.chargeCodeType ? ` (${g.chargeCodeType})` : ""}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
+                    <ChargeCodingFields
+                      defaults={{
+                        chargeType:
+                          pr.chargeType || charge?.chargeType || "DIRECT",
+                        projectId: pr.projectId || "",
+                        wbsElementId: pr.wbsElementId || "",
+                        budgetId: pr.budgetId || "",
+                      }}
+                      projects={projects}
+                      wbsElements={wbsElements}
+                      budgets={budgets}
+                    />
                   </div>
 
                   <div className="space-y-2 rounded-lg border border-slate-800 p-3">

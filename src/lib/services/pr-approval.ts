@@ -893,16 +893,43 @@ export async function getPrApprovals(purchaseRequestId: string) {
   });
 }
 
-export async function countPrApprovalsForUser(params: {
+/** PRs whose CURRENT step this user can decide — for the approvals queue.
+ *  Listing only; the decision itself always happens inside the PR. */
+export async function listPrApprovalsForUser(params: {
   userId?: string;
   userRole?: string;
-}): Promise<number> {
-  if (!params.userId) return 0;
+}): Promise<
+  {
+    id: string;
+    number: string;
+    justification: string | null;
+    totalEstimate: number;
+    stage: string;
+    supplier: string | null;
+  }[]
+> {
+  if (!params.userId) return [];
   const prs = await prisma.purchaseRequest.findMany({
     where: { status: "SUBMITTED" },
-    select: { id: true, currentStepOrder: true, requestedById: true },
+    select: {
+      id: true,
+      number: true,
+      justification: true,
+      totalEstimate: true,
+      currentStepOrder: true,
+      requestedById: true,
+      supplier: { select: { name: true } },
+    },
+    orderBy: { createdAt: "asc" },
   });
-  let count = 0;
+  const out: {
+    id: string;
+    number: string;
+    justification: string | null;
+    totalEstimate: number;
+    stage: string;
+    supplier: string | null;
+  }[] = [];
   for (const pr of prs) {
     if (pr.requestedById && pr.requestedById === params.userId) continue;
     const current = await prisma.approval.findFirst({
@@ -922,9 +949,24 @@ export async function countPrApprovalsForUser(params: {
       userRole: params.userRole,
       approvalId: current.id,
     });
-    if (ok) count++;
+    if (ok)
+      out.push({
+        id: pr.id,
+        number: pr.number,
+        justification: pr.justification,
+        totalEstimate: pr.totalEstimate,
+        stage: current.stage || "Approval",
+        supplier: pr.supplier?.name || null,
+      });
   }
-  return count;
+  return out;
+}
+
+export async function countPrApprovalsForUser(params: {
+  userId?: string;
+  userRole?: string;
+}): Promise<number> {
+  return (await listPrApprovalsForUser(params)).length;
 }
 
 export async function saveApprovalPolicy(params: {
