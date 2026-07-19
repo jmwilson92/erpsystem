@@ -315,7 +315,7 @@ export async function ensureWorkOrderTravelerSteps(params: {
   });
   if (!wo) throw new Error("Work order not found");
 
-  let wiIds = wo.instructions.map((i) => i.workInstructionId);
+  const wiIds = wo.instructions.map((i) => i.workInstructionId);
 
   // Attach released WI for the part if none linked
   if (wiIds.length === 0 && wo.partId) {

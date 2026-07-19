@@ -2005,7 +2005,7 @@ export async function createManualShipment(params: {
   );
   if (!lines.length) throw new Error("Add at least one line with qty");
 
-  let salesOrderId = params.salesOrderId || null;
+  const salesOrderId = params.salesOrderId || null;
   let shipTo = params.shipToAddress.trim();
   if (salesOrderId) {
     const so = await prisma.salesOrder.findUnique({
