@@ -1037,7 +1037,8 @@ async function main() {
   const pr2 = await prisma.purchaseRequest.create({
     data: {
       number: "PR-00002",
-      status: "APPROVED",
+      // PO-00003 below is cut from this PR, so it seeds as CONVERTED
+      status: "CONVERTED",
       requestedById: engLead.id,
       department: "Engineering",
       neededBy: daysFromNow(30),

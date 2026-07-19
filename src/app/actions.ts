@@ -708,18 +708,27 @@ export async function actionSignOffStep(formData: FormData) {
   const pinCode = (formData.get("pinCode") as string) || undefined;
   const user = await getCurrentUser("OPERATOR");
 
-  if (!user) throw new Error("No user");
+  if (!user) return { error: "No user" };
 
-  const outcome = await signOffStep({
-    workOrderId,
-    stepId,
-    userId: user.id,
-    result,
-    measuredValue,
-    measureUom,
-    notes,
-    pinCode,
-  });
+  let outcome;
+  try {
+    outcome = await signOffStep({
+      workOrderId,
+      stepId,
+      userId: user.id,
+      result,
+      measuredValue,
+      measureUom,
+      notes,
+      pinCode,
+    });
+  } catch (err) {
+    // Returned, not thrown — production masks thrown action errors, and
+    // the operator needs to see "Invalid PIN" at the step they signed.
+    return {
+      error: err instanceof Error ? err.message : "Sign-off failed",
+    };
+  }
 
   revalidatePath(`/work-orders/${workOrderId}`);
   revalidatePath("/floor");
@@ -1883,6 +1892,20 @@ export async function actionConvertPrToPo(formData: FormData): Promise<void> {
   if (pr.status !== "APPROVED") {
     throw new Error(`PR must be approved (current status: ${pr.status})`);
   }
+  // A PO may exist even when status isn't CONVERTED (bad import, crash
+  // between create and status update) — never issue a duplicate.
+  const existingPo = await prisma.purchaseOrder.findFirst({
+    where: { purchaseRequestId: pr.id },
+    orderBy: { createdAt: "desc" },
+  });
+  if (existingPo) {
+    await prisma.purchaseRequest.update({
+      where: { id: pr.id },
+      data: { status: "CONVERTED" },
+    });
+    revalidatePath("/purchasing");
+    redirect(`/purchasing/po/${existingPo.id}`);
+  }
   if (!pr.supplierId || !pr.supplier) throw new Error("PR needs a supplier");
   if (!isSupplierApprovedForPo(pr.supplier)) {
     throw new Error(
@@ -2762,16 +2785,27 @@ function parseSalesDocumentForm(formData: FormData) {
 
 export async function actionCreateSalesOrder(formData: FormData): Promise<void> {
   const user = await getCurrentUser();
-  const parsed = parseSalesDocumentForm(formData);
   const autoPlan =
     formData.get("autoPlan") === "true" || formData.get("autoPlan") === "on";
 
-  const so = await createSalesOrder({
-    ...parsed,
-    department:
-      ((formData.get("department") as string) || "").trim() || undefined,
-    createdById: user?.id,
-  });
+  let so;
+  try {
+    const parsed = parseSalesDocumentForm(formData);
+    so = await createSalesOrder({
+      ...parsed,
+      department:
+        ((formData.get("department") as string) || "").trim() || undefined,
+      createdById: user?.id,
+    });
+  } catch (err) {
+    // Validation problems (no lines, bad customer) come back as a visible
+    // toast — a thrown error is masked in production builds.
+    await flashToast(
+      err instanceof Error ? err.message : "Could not create sales order",
+      "error"
+    );
+    redirect("/sales/new");
+  }
 
   const bypassStockCheck =
     formData.get("bypassStockCheck") === "true" ||
@@ -2811,14 +2845,23 @@ export async function actionCreateSalesOrder(formData: FormData): Promise<void> 
 
 export async function actionCreateQuote(formData: FormData): Promise<void> {
   const user = await getCurrentUser();
-  const parsed = parseSalesDocumentForm(formData);
   const sendNow =
     formData.get("sendNow") === "true" || formData.get("sendNow") === "on";
 
-  const quote = await createQuote({
-    ...parsed,
-    createdById: user?.id,
-  });
+  let quote;
+  try {
+    const parsed = parseSalesDocumentForm(formData);
+    quote = await createQuote({
+      ...parsed,
+      createdById: user?.id,
+    });
+  } catch (err) {
+    await flashToast(
+      err instanceof Error ? err.message : "Could not create quote",
+      "error"
+    );
+    redirect("/sales/quotes/new");
+  }
 
   if (sendNow) {
     await prisma.quote.update({
@@ -2888,12 +2931,31 @@ export async function actionPlanSalesOrder(formData: FormData): Promise<void> {
     formData.get("bypassStockCheck") === "true" ||
     formData.get("bypassStockCheck") === "on";
   const user = await getCurrentUser();
-  await planSalesOrderFulfillment({
-    salesOrderId,
-    userId: user?.id,
-    bypassStockCheck,
-    bypassMaterialStockCheck: bypassStockCheck,
-  });
+  try {
+    const { results } = await planSalesOrderFulfillment({
+      salesOrderId,
+      userId: user?.id,
+      bypassStockCheck,
+      bypassMaterialStockCheck: bypassStockCheck,
+    });
+    const planned = results as { workOrderId?: string; prNumber?: string }[];
+    const wos = new Set(planned.map((r) => r.workOrderId).filter(Boolean)).size;
+    const prs = new Set(planned.map((r) => r.prNumber).filter(Boolean)).size;
+    const parts = [
+      wos ? `${wos} work order${wos === 1 ? "" : "s"}` : null,
+      prs ? `${prs} purchase request${prs === 1 ? "" : "s"}` : null,
+    ].filter(Boolean);
+    await flashToast(
+      parts.length
+        ? `Fulfillment planned — ${parts.join(", ")}`
+        : "Fulfillment planned — covered from stock"
+    );
+  } catch (err) {
+    await flashToast(
+      err instanceof Error ? err.message : "Planning failed",
+      "error"
+    );
+  }
   revalidateFulfillmentPaths([`/sales/${salesOrderId}`]);
 }
 
@@ -3508,11 +3570,22 @@ export async function actionCompleteKit(formData: FormData): Promise<void> {
     const invId = String(value || "").trim();
     if (lineId && invId) linePicks[lineId] = invId;
   }
-  const kit = await completeKitOrder({
-    kitOrderId,
-    userId: user?.id,
-    linePicks: Object.keys(linePicks).length ? linePicks : undefined,
-  });
+  let kit;
+  try {
+    kit = await completeKitOrder({
+      kitOrderId,
+      userId: user?.id,
+      linePicks: Object.keys(linePicks).length ? linePicks : undefined,
+    });
+  } catch (e) {
+    // Soft-fail like kit creation: shortage → visible toast, not a crash
+    await flashToast(
+      e instanceof Error ? e.message : "Could not complete kit",
+      "error"
+    );
+    revalidateFulfillmentPaths([`/kitting/${kitOrderId}`, "/kitting"]);
+    return;
+  }
   revalidateFulfillmentPaths([
     `/work-orders/${kit?.workOrderId}`,
     `/kitting/${kitOrderId}`,

@@ -172,6 +172,8 @@ function DraggableCardShell({
           aria-label="Drag card"
           {...listeners}
           {...attributes}
+          // dnd-kit sets aria-describedby only on the client
+          suppressHydrationWarning
         >
           <GripVertical className="h-4 w-4" />
         </button>

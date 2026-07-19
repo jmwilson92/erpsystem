@@ -123,22 +123,51 @@ export async function destroySession() {
 
 // ─── Login / bootstrap ──────────────────────────────────────────
 
+// Failed-attempt throttle, per e-mail. In-memory is deliberate: single
+// instance beta; resets on deploy, which is acceptable for a lockout.
+const LOGIN_MAX_FAILURES = 5;
+const LOGIN_LOCKOUT_MS = 15 * 60_000;
+const loginFailures = new Map<string, { count: number; lockedUntil: number }>();
+
+function checkLoginThrottle(email: string) {
+  const entry = loginFailures.get(email);
+  if (entry && entry.lockedUntil > Date.now()) {
+    const mins = Math.ceil((entry.lockedUntil - Date.now()) / 60_000);
+    throw new Error(
+      `Too many failed attempts — try again in ${mins} minute${mins === 1 ? "" : "s"}`
+    );
+  }
+}
+
+function recordLoginFailure(email: string) {
+  const entry = loginFailures.get(email) ?? { count: 0, lockedUntil: 0 };
+  entry.count += 1;
+  if (entry.count >= LOGIN_MAX_FAILURES) {
+    entry.lockedUntil = Date.now() + LOGIN_LOCKOUT_MS;
+    entry.count = 0;
+  }
+  loginFailures.set(email, entry);
+}
+
 export async function loginWithPassword(params: {
   email: string;
   password: string;
   userAgent?: string;
 }) {
   const email = params.email.trim().toLowerCase();
+  checkLoginThrottle(email);
   const user = await prisma.user.findFirst({
     where: { email: { equals: email } },
   });
   // Uniform error — never reveal which part was wrong
   const fail = () => {
+    recordLoginFailure(email);
     throw new Error("Invalid e-mail or password");
   };
   if (!user || !user.isActive || !user.passwordHash) fail();
   if (!verifyPassword(params.password, user!.passwordHash!)) fail();
 
+  loginFailures.delete(email);
   await createSession(user!.id, params.userAgent);
   await logAudit({
     entityType: "User",

@@ -22,19 +22,20 @@ export async function getCurrentUser(roleHint?: string) {
   // 2. Demo fallback (evaluation / test-drive) — off when DEMO_MODE=0
   if (process.env.DEMO_MODE === "0") return null;
 
-  if (!roleHint) {
-    try {
-      const jar = await cookies();
-      const demoId = jar.get(DEMO_USER_COOKIE)?.value;
-      if (demoId) {
-        const byCookie = await prisma.user.findUnique({
-          where: { id: demoId },
-        });
-        if (byCookie?.isActive) return byCookie;
-      }
-    } catch {
-      // outside a request scope (scripts) — fall through to role lookup
+  // The active persona always wins — roleHint is only a fallback for
+  // when no persona has been chosen, never an override of it. (Otherwise
+  // e.g. sign-offs get attributed to the first user of the hinted role.)
+  try {
+    const jar = await cookies();
+    const demoId = jar.get(DEMO_USER_COOKIE)?.value;
+    if (demoId) {
+      const byCookie = await prisma.user.findUnique({
+        where: { id: demoId },
+      });
+      if (byCookie?.isActive) return byCookie;
     }
+  } catch {
+    // outside a request scope (scripts) — fall through to role lookup
   }
   const role = roleHint || process.env.DEMO_USER_ROLE || "ADMIN";
   const user = await prisma.user.findFirst({

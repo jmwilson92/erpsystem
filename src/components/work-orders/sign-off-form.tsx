@@ -52,6 +52,10 @@ export function SignOffStepForm({
     startTransition(async () => {
       try {
         const outcome = await actionSignOffStep(fd);
+        if (outcome && "error" in outcome) {
+          setError(outcome.error ?? "Sign-off failed");
+          return;
+        }
         const jumpTop = !!(
           outcome &&
           (outcome.readyForPutaway || outcome.stationChanged)

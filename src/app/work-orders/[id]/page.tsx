@@ -739,7 +739,13 @@ export default async function WorkOrderDetailPage({
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
               <span>Material for kitting</span>
-              {material.allAvailable ? (
+              {/* Once the kit pulled stock, live-stock-vs-BOM reads short —
+                  that's the kit, not a shortage. */}
+              {["KITTED", "IN_PROGRESS", "COMPLETED", "CLOSED"].includes(
+                wo.status
+              ) ? (
+                <StatusBadge status="KITTED" />
+              ) : material.allAvailable ? (
                 <StatusBadge status="READY_TO_KIT" />
               ) : (
                 <StatusBadge status="WAITING_MATERIAL" />
