@@ -17,6 +17,10 @@ const PER_TYPE = 5;
  * case-insensitive for ASCII, so `contains` matches naturally.
  */
 export async function GET(req: NextRequest) {
+  const { requireApiUser, unauthorized } = await import("@/lib/api-auth");
+  const user = await requireApiUser();
+  if (!user) return unauthorized();
+
   const q = (req.nextUrl.searchParams.get("q") || "").trim();
   if (q.length < 2) return NextResponse.json({ hits: [] });
 
@@ -34,6 +38,8 @@ export async function GET(req: NextRequest) {
     travelers,
     boms,
     wis,
+    serials,
+    rmas,
   ] = await Promise.all([
     prisma.workOrder.findMany({
       where: {
@@ -106,6 +112,26 @@ export async function GET(req: NextRequest) {
       },
       take: PER_TYPE,
     }),
+    prisma.serialNumber.findMany({
+      where: {
+        OR: [
+          { serial: { contains: q.toUpperCase() } },
+          { lotNumber: { contains: q } },
+        ],
+      },
+      include: { part: { select: { partNumber: true } } },
+      take: PER_TYPE,
+    }),
+    prisma.rma.findMany({
+      where: {
+        OR: [
+          { number: { contains: q } },
+          { customerSn: { contains: q.toUpperCase() } },
+        ],
+      },
+      include: { customer: { select: { name: true } } },
+      take: PER_TYPE,
+    }),
   ]);
 
   const hits: SearchHit[] = [
@@ -114,6 +140,18 @@ export async function GET(req: NextRequest) {
       label: w.number,
       sublabel: `${w.part?.partNumber || w.type} · ${w.status.replace(/_/g, " ")}`,
       href: `/work-orders/${w.id}`,
+    })),
+    ...serials.map((s) => ({
+      type: "Serial",
+      label: s.serial,
+      sublabel: `${s.part.partNumber} · ${s.status}`,
+      href: `/trace/serials/${encodeURIComponent(s.serial)}`,
+    })),
+    ...rmas.map((r) => ({
+      type: "RMA",
+      label: r.number,
+      sublabel: `${r.customer.name} · ${r.customerSn} · ${r.status}`,
+      href: `/rma/${r.id}`,
     })),
     ...sos.map((s) => ({
       type: "Sales order",

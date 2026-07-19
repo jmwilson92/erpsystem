@@ -1,84 +1,104 @@
 # Deploying ForgeRP
 
-ForgeRP runs anywhere Node 20+ runs. Two supported paths: **cloud**
-(Vercel or any Node host) and **self-host** (Docker). Both are
-plug-and-play — the schema is created and demo data seeded on first
-boot, so you land in a working system.
+ForgeRP runs anywhere Node 20+ runs. Two supported paths: **self-host
+(Docker)** and **cloud Node**. Schema is created on first boot; demo
+seed is optional.
 
 ---
 
-## Option 1 — Self-host with Docker (recommended for on-prem)
+## Option 1 — Self-host with Docker
+
+### Evaluation (demo data)
 
 ```bash
 git clone <your-repo> forgerp && cd forgerp
 docker compose up -d --build
-# → http://localhost:3000
+# → http://localhost:3000  (DEMO data, persona switcher)
 ```
 
+### Production / plant pilot
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+
+# Or set env explicitly:
+# DEMO_MODE=0 SEED_ON_FIRST_BOOT=0 docker compose up -d --build
+```
+
+| Variable | Evaluation | Production |
+| --- | --- | --- |
+| `DEMO_MODE` | unset (open) | **`0`** (required) |
+| `SEED_ON_FIRST_BOOT` | `1` | **`0`** |
+| `DATABASE_URL` | `file:/data/forgerp.db` | same or Postgres URL |
+| `NEXT_PUBLIC_APP_URL` | optional | public HTTPS URL |
+
 What happens on first boot:
-1. The image builds (Node 22, native SQLite driver compiled in).
+1. Image builds (Node 22, native SQLite driver).
 2. `prisma db push` creates the schema on the `/data` volume.
-3. The demo dataset seeds once (`SEED_ON_FIRST_BOOT=1`). Set it to `0`
-   in `docker-compose.yml` to start empty, then use **Setup Wizard** and
-   **Data Import** in-app to onboard your real data.
+3. If `SEED_ON_FIRST_BOOT=1` and no `.seeded` marker → demo dataset.
+4. Production: empty books → use **Setup Wizard** (`/setup`) and **Data Import**.
+5. Health: `GET /api/health` (also Docker healthcheck).
 
-Your books live on the `forgerp-data` volume — rebuilding or upgrading
-the image never touches them.
+Books live on the `forgerp-data` volume — image rebuilds do not wipe them.
 
-**Backups:** the whole database is one file.
+**Backups:**
 
 ```bash
 docker compose exec forgerp sh -c 'cp /data/forgerp.db /data/backup-$(date +%F).db'
 docker cp forgerp:/data/backup-$(date +%F).db ./
 ```
 
-**HTTPS:** put any reverse proxy (Caddy, nginx, Traefik) in front of
-port 3000. HSTS headers are already emitted by the app.
+Schedule nightly copies of `/data/forgerp.db` (or Postgres dumps). Test restore once before go-live.
 
-**Postgres (optional):** a production-like Postgres service ships in the
-compose file behind the `postgres` profile:
+**HTTPS:** put Caddy, nginx, or Traefik in front of port 3000. HSTS is already set by the app.
+
+**Postgres (optional):**
 
 ```bash
 docker compose --profile postgres up -d
 ```
 
-Switch `prisma/schema.prisma`'s provider to `postgresql`, point
-`DATABASE_URL` at the service, and re-run `prisma db push`.
+Then switch `prisma/schema.prisma` provider to `postgresql`, point
+`DATABASE_URL` at the service, use `@prisma/adapter-pg` in `src/lib/db.ts`,
+and re-run `prisma db push`.
 
 ---
 
 ## Option 2 — Cloud (Vercel or any Node host)
 
-**Vercel:** import the repo, set `DATABASE_URL` (use a hosted database —
-Turso/libSQL for the SQLite flavor, or Postgres with the provider
-switch), and deploy. Build command and output are auto-detected.
-
-**Any Node host (Render, Railway, Fly.io, a VM):**
-
 ```bash
 npm ci
-npm run setup     # prisma generate + db push + seed
+# set env from .env.production.example
+npm run setup     # or db push only if not seeding
 npm run build
-npm start         # serves on PORT (default 3000)
+npm start
 ```
 
-Environment variables:
-
-| Variable | Purpose | Default |
+| Variable | Purpose | Production value |
 | --- | --- | --- |
-| `DATABASE_URL` | `file:` path or Postgres URL | `file:./prisma/dev.db` |
-| `DEMO_MODE` | `0` = require real login (production); unset = demo personas | unset |
-| `SEED_ON_FIRST_BOOT` | Docker only — demo data on first boot | `1` |
-| `RESEND_API_KEY` | Optional — deliver invites / PO / quote e-mail via Resend | unset |
-| `EMAIL_FROM` | From address for outbound e-mail (a domain verified in Resend) | `<company>@erp.local` |
-| `XAI_API_KEY` | Optional — upgrades the AI Assistant | unset |
+| `DATABASE_URL` | `file:` or Postgres URL | required |
+| `DEMO_MODE` | Login required when `0` | **`0`** |
+| `SEED_ON_FIRST_BOOT` | Docker seed | **`0`** |
+| `ALLOW_DEMO_IN_PRODUCTION` | Escape hatch for public demos | unset |
+| `NEXT_PUBLIC_APP_URL` | Invite / QR absolute URLs | HTTPS origin |
+| `RESEND_API_KEY` | Real mail (invites / PO / quotes) via Resend | optional |
+| `EMAIL_FROM` | Outbound from-address (Resend-verified domain) | optional |
+| `XAI_API_KEY` | AI assistant | optional |
+
+Boot guard: if `NODE_ENV=production` and `DEMO_MODE` is not `0`, the
+process **exits** unless `ALLOW_DEMO_IN_PRODUCTION=1`.
+
+Validate env before start:
+
+```bash
+NODE_ENV=production DEMO_MODE=0 node scripts/assert-production-env.mjs
+```
 
 ---
 
-## Go live on a VM with HTTPS (recommended beta path)
+## One-command HTTPS deploy (VM + Caddy)
 
-One small VM (Hetzner / DigitalOcean / Lightsail), Docker installed
-(Compose v2.24+), and a domain pointed at it:
+With a domain pointed at the VM and Docker Compose v2.24+:
 
 ```bash
 git clone <your-repo> forgerp && cd forgerp
@@ -89,44 +109,39 @@ echo "DOMAIN=erp.example.com" > .env
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 ```
 
-That's the whole deploy: Caddy terminates HTTPS (certificates are
-fetched and renewed automatically), the app runs with `DEMO_MODE=0`
-(real login), and the first visit shows **"claim this instance"** where
-you create the admin account. Invite everyone else from
-**Admin → Roles & Permissions** — invite links are e-mailed when Resend
-is configured, and always visible in the Email Center either way.
+Caddy terminates HTTPS (automatic certificates), the app runs with
+`DEMO_MODE=0`, and the first visit shows **"claim this instance"**.
 
-**Backups:** schedule the bundled script on the host —
+**Backups:** `scripts/backup-db.sh` takes a consistent nightly copy with
+30-day retention — `crontab -e` → `15 2 * * * /path/to/forgerp/scripts/backup-db.sh`.
+Copy `./backups/` off-box for real safety.
 
-```bash
-crontab -e
-# 15 2 * * * /path/to/forgerp/scripts/backup-db.sh
-```
-
-It takes a consistent online copy nightly into `./backups/` and keeps
-30 days. Copy that directory off-box (rsync/rclone) for real safety.
-
-**Monitoring:** point a free uptime checker (UptimeRobot etc.) at
-`https://erp.example.com/api/health`.
-
----
+**Monitoring:** point an uptime checker at `https://your-domain/api/health`.
 
 ## Upgrades
 
 ```bash
 git pull
-docker compose up -d --build        # self-host
+# backup DB first
+docker compose up -d --build
 # or: npm ci && npm run db:push && npm run build && restart
 ```
 
-`prisma db push` is additive-safe for the shipped schema; back up the
-database file first as a habit.
+`prisma db push` is additive-safe for the shipped schema; back up first.
+
+---
 
 ## Going to production — checklist
 
-- [ ] `DEMO_MODE=0` (built-in e-mail + password auth; the prod compose overlay sets it)
-- [ ] Front with HTTPS (the `docker-compose.prod.yml` + Caddy path does this automatically)
-- [ ] Decide `SEED_ON_FIRST_BOOT` — demo data for beta testers, or `0` + Setup Wizard
-- [ ] Schedule `scripts/backup-db.sh` in cron
-- [ ] Optional: `RESEND_API_KEY` + `EMAIL_FROM` for real invite delivery
-- [ ] Review role permissions under **Admin → Roles & Permissions**
+- [ ] `DEMO_MODE=0` (and boot does not exit)
+- [ ] Persona switcher hidden
+- [ ] `SEED_ON_FIRST_BOOT=0` / empty plant path
+- [ ] HTTPS reverse proxy
+- [ ] Database backups + one restore drill
+- [ ] Admin claimed (first-boot password or invite)
+- [ ] Role permissions under **Admin → Permissions**
+- [ ] `/api/health` returns `{ ok: true }`
+- [ ] Modules disabled for unpurchased SKUs
+- [ ] Support channel agreed with customer
+
+See also `SECURITY.md`, `docs/BETA_FINISH_LINE.md`, `.env.production.example`.

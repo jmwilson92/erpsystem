@@ -14,6 +14,7 @@ import { Plus } from "lucide-react";
 import Link from "next/link";
 import { getCompanyDepartments } from "@/lib/services/company";
 import { getCurrentUser, userHasPermission } from "@/lib/auth";
+import { ActionLoadingForm } from "@/components/layout/action-loading";
 
 export const dynamic = "force-dynamic";
 
@@ -170,7 +171,12 @@ export default async function WorkOrdersPage({
             <CardTitle className="text-base">Create production WO (BOM)</CardTitle>
           </CardHeader>
           <CardContent>
-            <form action={actionCreateProductionWo} className="space-y-3">
+            <ActionLoadingForm
+              theme="creating"
+              title="Creating work order"
+              action={actionCreateProductionWo}
+              className="space-y-3"
+            >
               <input type="hidden" name="type" value="PRODUCTION" />
               <div>
                 <label className="text-[10px] uppercase text-slate-500">
@@ -253,7 +259,7 @@ export default async function WorkOrdersPage({
                 <Plus className="mr-1 h-4 w-4" />
                 Create production WO
               </Button>
-            </form>
+            </ActionLoadingForm>
           </CardContent>
         </Card>
 
@@ -262,7 +268,12 @@ export default async function WorkOrdersPage({
             <CardTitle className="text-base">Create task-only WO</CardTitle>
           </CardHeader>
           <CardContent>
-            <form action={actionCreateTaskWo} className="space-y-3">
+            <ActionLoadingForm
+              theme="creating"
+              title="Creating task WO"
+              action={actionCreateTaskWo}
+              className="space-y-3"
+            >
               <div>
                 <label className="text-[10px] uppercase text-slate-500">
                   Description
@@ -313,7 +324,7 @@ export default async function WorkOrdersPage({
                 <Plus className="mr-1 h-4 w-4" />
                 Task-only WO
               </Button>
-            </form>
+            </ActionLoadingForm>
           </CardContent>
         </Card>
       </div>

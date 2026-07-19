@@ -16,6 +16,7 @@ import {
 } from "@/lib/services/kitting";
 import Link from "next/link";
 import { CalendarClock } from "lucide-react";
+import { ActionLoadingForm } from "@/components/layout/action-loading";
 
 export const dynamic = "force-dynamic";
 
@@ -159,7 +160,7 @@ export default async function KittingPage() {
                   )}
                 </div>
                 {u.ready ? (
-                  <form action={actionCreateKit}>
+                  <ActionLoadingForm theme="kitting" action={actionCreateKit}>
                     <input
                       type="hidden"
                       name="workOrderId"
@@ -168,7 +169,7 @@ export default async function KittingPage() {
                     <Button type="submit" size="sm">
                       {u.inWindow ? "Open kit traveler" : "Kit early"}
                     </Button>
-                  </form>
+                  </ActionLoadingForm>
                 ) : (
                   <span className="text-xs text-slate-500">
                     Awaiting material
@@ -219,12 +220,12 @@ export default async function KittingPage() {
                     Due {formatDate(wo.dueDate)}
                   </p>
                 </div>
-                <form action={actionCreateKit}>
+                <ActionLoadingForm theme="kitting" action={actionCreateKit}>
                   <input type="hidden" name="workOrderId" value={wo.id} />
                   <Button type="submit" size="sm">
                     Create kit order
                   </Button>
-                </form>
+                </ActionLoadingForm>
               </div>
             ))}
           </CardContent>
@@ -305,7 +306,7 @@ export default async function KittingPage() {
                 </p>
               </CardHeader>
               <CardContent>
-                <form action={actionCompleteKit}>
+                <ActionLoadingForm theme="kitting" action={actionCompleteKit}>
                   <input type="hidden" name="kitOrderId" value={kit.id} />
                   <table className="mb-3 w-full text-sm">
                     <thead>
@@ -397,7 +398,7 @@ export default async function KittingPage() {
                       Pick complete kit → traveler
                     </Button>
                   )}
-                </form>
+                </ActionLoadingForm>
               </CardContent>
             </Card>
           );

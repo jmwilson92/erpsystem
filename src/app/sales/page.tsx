@@ -7,6 +7,7 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 import { actionPlanSalesOrder } from "@/app/actions";
 import Link from "next/link";
 import { ShoppingBag, Factory, Truck, PackageCheck, Plus, FileText } from "lucide-react";
+import { ActionLoadingForm } from "@/components/layout/action-loading";
 
 export const dynamic = "force-dynamic";
 
@@ -182,12 +183,12 @@ export default async function SalesOrdersPage({
                 <td className="px-3 py-3 text-right">
                   <div className="flex justify-end gap-1">
                     {["OPEN", "PLANNED"].includes(so.status) && (
-                      <form action={actionPlanSalesOrder}>
+                      <ActionLoadingForm theme="planning" action={actionPlanSalesOrder}>
                         <input type="hidden" name="salesOrderId" value={so.id} />
                         <Button type="submit" size="sm" variant="secondary">
                           Plan
                         </Button>
-                      </form>
+                      </ActionLoadingForm>
                     )}
                     <Link href={`/sales/${so.id}`}>
                       <Button size="sm" variant="outline">

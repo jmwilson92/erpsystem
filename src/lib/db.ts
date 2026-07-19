@@ -8,7 +8,7 @@ import fs from "fs";
 // test-drive sandbox copies re-materialize from the migrated master whenever
 // the schema changes — otherwise a sandbox created before a new column would
 // keep failing with "column does not exist" even after `prisma db push`.
-const PRISMA_CLIENT_EPOCH = "serialization-rma-v30";
+const PRISMA_CLIENT_EPOCH = "merge-local-work-v31";
 
 /** Cookie that puts a request into a private test-drive sandbox. */
 export const SANDBOX_COOKIE = "forge-sandbox";
@@ -164,6 +164,21 @@ function ensureSqliteSchema(file: string) {
 
 function createClientForFile(file: string) {
   ensureSqliteSchema(file);
+  // busy_timeout / WAL reduce P1008 under concurrent page loads (HTTP smoke)
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const Database = require("better-sqlite3") as typeof import("better-sqlite3");
+    const db = new Database(file);
+    try {
+      db.pragma("journal_mode = WAL");
+      db.pragma("busy_timeout = 15000");
+      db.pragma("synchronous = NORMAL");
+    } finally {
+      db.close();
+    }
+  } catch {
+    /* best-effort */
+  }
   const adapter = new PrismaBetterSqlite3({ url: `file:${file}` });
   return new PrismaClient({ adapter });
 }

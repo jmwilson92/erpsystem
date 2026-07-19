@@ -35,6 +35,8 @@ export type WiStepInput = {
   mediaUrls?: string[]; // recordings
   drawingLinks?: string[];
   requiresSignOff?: boolean;
+  /** Optional linked CM test procedure (ATP / functional) */
+  testProcedureId?: string | null;
 };
 
 function jsonArr(v?: string[] | null) {
@@ -83,6 +85,7 @@ function stepCreateData(st: WiStepInput, i: number) {
     drawingLinks: jsonArr(st.drawingLinks),
     requiresSignOff: st.requiresSignOff ?? true,
     sortOrder: st.stepNumber ?? i + 1,
+    testProcedureId: st.testProcedureId || null,
   };
 }
 

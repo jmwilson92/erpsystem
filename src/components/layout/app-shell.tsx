@@ -6,6 +6,7 @@ import { Sidebar } from "./sidebar";
 import { Header } from "./header";
 import { CommandPalette } from "./command-palette";
 import { ThemeProvider, useTheme } from "./theme-provider";
+import { ActionLoadingProvider } from "./action-loading";
 import { Toaster } from "sonner";
 
 export type DemoUser = {
@@ -106,15 +107,17 @@ export function AppShell({
   }
   return (
     <ThemeProvider>
-      <ShellInner
-        demoUsers={demoUsers}
-        currentUser={currentUser}
-        notifications={notifications}
-        company={company}
-        disabledModules={disabledModules}
-      >
-        {children}
-      </ShellInner>
+      <ActionLoadingProvider>
+        <ShellInner
+          demoUsers={demoUsers}
+          currentUser={currentUser}
+          notifications={notifications}
+          company={company}
+          disabledModules={disabledModules}
+        >
+          {children}
+        </ShellInner>
+      </ActionLoadingProvider>
     </ThemeProvider>
   );
 }

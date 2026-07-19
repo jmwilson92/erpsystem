@@ -33,9 +33,11 @@ async function main() {
     "JournalAttachment",
     "WorkCenterStaff",
     "TraceEvent", "ReceivingDocument", "ReceivingPhoto", "KitOrderLine", "KitOrder",
+    "RmaLine", "Rma", "SerialInstall", "KitSerialAssignment", "WorkOrderUnit", "SerialNumber",
+    "BudgetCharge", "BudgetForecast", "Budget",
     "ShipmentLine", "Shipment", "SalesOrderLine", "SalesOrder",
     "QuoteLine", "Quote",
-    "Budget", "ApPayment", "ApInvoice", "ArPayment", "ArInvoiceLine", "ArInvoice",
+    "ApPayment", "ApInvoice", "ArPayment", "ArInvoiceLine", "ArInvoice",
     "Rfq", "ReceivingTravelerLine", "ReceivingTraveler", "ReceiptLine", "Receipt", "PurchaseOrderLine", "PurchaseOrder",
     "Customer",
     "AssetCheckout", "Asset",
@@ -43,7 +45,7 @@ async function main() {
     "JournalLine", "JournalEntry", "Account",
     "PurchaseRequestLine", "PurchaseRequest",
     "SupplierScorecardHistory", "SupplierCertification", "AslPolicy", "Supplier",
-    "Rma", "SerialComponent", "SerialNumber", "Lot", "MaterialTransaction", "InventoryItem", "Location", "Warehouse",
+    "Lot", "MaterialTransaction", "InventoryItem", "Location", "Warehouse",
     "CarActivityLog", "MrbDisposition", "MrbCase", "NonConformance", "InspectionResult", "Inspection",
     "EngAlert", "EngDependency", "WorkTimeScan", "EngTask", "ProductionEngIssue", "Saga", "EngSprint", "PlanningQuarter", "EngSwimLane", "Campaign",
     "BusinessPriority", "UserPermission", "UserPermissionGroup", "PermissionGroupMember", "PermissionGroup", "Permission",
@@ -3410,12 +3412,59 @@ async function main() {
 
   console.log("  ✓ HR data (org chart, documents, reviews, timesheets)");
 
-  // ── Budgets ────────────────────────────────────────────────
+  // ── Budgets (enacted charge-code budgets) ──────────────────
+  const budgetOwnerId =
+    (await prisma.user.findFirst({
+      where: { role: { in: ["ADMIN", "ACCOUNTING", "HR"] }, isActive: true },
+      select: { id: true },
+    }))?.id || null;
   await prisma.budget.createMany({
     data: [
-      { name: "Production Materials", fiscalYear: 2026, department: "Production", accountCode: "1200", amount: 1500000, actual: 620000, period: "YTD" },
-      { name: "Engineering Labor", fiscalYear: 2026, department: "Engineering", accountCode: "6000", amount: 900000, actual: 410000, period: "YTD" },
-      { name: "Quality Ops", fiscalYear: 2026, department: "Quality", amount: 350000, actual: 148000, period: "YTD" },
+      {
+        number: "BDGT-00001",
+        name: "Production Materials (sample)",
+        sourceType: "STANDALONE",
+        costClass: "INDIRECT",
+        status: "ENACTED",
+        chargeCode: "IND-BDGT-00001",
+        ownerId: budgetOwnerId,
+        totalAmount: 1500000,
+        materialBudget: 1500000,
+        laborHoursBudget: 0,
+        actualMaterial: 620000,
+        actualTotal: 620000,
+        enactedAt: new Date(),
+      },
+      {
+        number: "BDGT-00002",
+        name: "Engineering Labor (sample)",
+        sourceType: "STANDALONE",
+        costClass: "INDIRECT",
+        status: "ENACTED",
+        chargeCode: "IND-BDGT-00002",
+        ownerId: budgetOwnerId,
+        totalAmount: 900000,
+        laborBudget: 900000,
+        laborHoursBudget: 12000,
+        actualLabor: 410000,
+        actualLaborHours: 5500,
+        actualTotal: 410000,
+        enactedAt: new Date(),
+      },
+      {
+        number: "BDGT-00003",
+        name: "Quality Ops (sample)",
+        sourceType: "STANDALONE",
+        costClass: "INDIRECT",
+        status: "ENACTED",
+        chargeCode: "IND-BDGT-00003",
+        ownerId: budgetOwnerId,
+        totalAmount: 350000,
+        otherBudget: 350000,
+        actualOther: 148000,
+        actualTotal: 148000,
+        enactedAt: new Date(),
+      },
     ],
   });
 

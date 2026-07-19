@@ -26,17 +26,21 @@
 1. **E2E smoke scripts** (Playwright or manual checklist automation)  
    - SO plan → PR → PO issue → receive (dock + child RCV) → kit → start WO → sign steps → RCV putaway → ship  
    - Prototype: BOM prototype cert → prototype WO → add WI steps → finish → CM release WI → BOM production cert  
+   - **Shipped:** unit smoke `npm run smoke` + GitHub Actions CI. Full browser E2E still open.
 
 2. **Auth & demo mode**  
    - Document demo PINs / personas; ensure production `DEMO_MODE=0` path is tested  
    - Session timeout, password reset, invite user flow  
+   - **Shipped:** boot guard, login rate limit, persona switcher off in prod, role-hint impersonation removed, PIN fail-closed (no default 1234)
 
 3. **Data durability**  
    - Postgres path (docker-compose) verified for beta; SQLite only for local demo  
    - Backup / restore runbook  
+   - **Shipped:** backup notes in `docs/DEPLOYMENT.md`; full Postgres dual-mode still open
 
 4. **Permissions**  
    - Spot-check: buyer can’t approve CM seats, operators can’t certify BOM, etc.  
+   - **Shipped:** hard `requirePermission` on core mutations (receive, BOM, kit, plan, MRS, ship, pack, CM, budgets, MRB, ASL, timesheet process, etc.); report/search APIs gated  
 
 ### P1 — Strongly recommended for beta quality
 
@@ -59,6 +63,7 @@
 9. **Observability**  
    - Error boundary pages (no raw stack for users)  
    - Basic health endpoint + logging for support  
+   - **Shipped:** `/api/health`, `error.tsx`, `global-error.tsx`  
 
 ### P2 — After first beta cohort
 

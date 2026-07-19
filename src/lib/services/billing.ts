@@ -172,3 +172,119 @@ export async function raiseApInvoiceForReceipt(params: {
   });
   return voucher;
 }
+
+/**
+ * Manual vendor invoice (outside / services / non-ERS).
+ * Use when the supplier bills you without a receiving-based voucher, or for
+ * non-inventory services. Optionally links a PO. Posts Dr Expense (or AP hold)
+ * / Cr AP. Pay later from Accounting → AP or the supplier Invoices tab.
+ */
+export async function createVendorApInvoice(params: {
+  supplierId: string;
+  amount: number;
+  /** Vendor's invoice number if known */
+  vendorInvoiceNumber?: string | null;
+  invoiceDate?: Date;
+  dueDate?: Date | null;
+  purchaseOrderId?: string | null;
+  description?: string | null;
+  /** GL expense account to debit (default 6000 Operating expense if present) */
+  expenseAccountId?: string | null;
+  tax?: number;
+  userId?: string | null;
+}) {
+  const amount = money(params.amount);
+  if (amount <= 0) throw new Error("Invoice amount must be positive");
+
+  const supplier = await prisma.supplier.findUnique({
+    where: { id: params.supplierId },
+  });
+  if (!supplier) throw new Error("Supplier / vendor not found");
+
+  if (params.purchaseOrderId) {
+    const po = await prisma.purchaseOrder.findUnique({
+      where: { id: params.purchaseOrderId },
+    });
+    if (!po) throw new Error("Purchase order not found");
+    if (po.supplierId !== params.supplierId) {
+      throw new Error("PO belongs to a different supplier");
+    }
+  }
+
+  const tax = money(params.tax || 0);
+  const total = money(amount + tax);
+  const count = await prisma.apInvoice.count();
+  const number = `AP-${String(count + 1).padStart(5, "0")}`;
+  const due =
+    params.dueDate ||
+    new Date(Date.now() + NET_DAYS * 86_400_000);
+
+  const notes = [
+    params.description?.trim() || "Vendor invoice",
+    params.vendorInvoiceNumber
+      ? `Vendor inv # ${params.vendorInvoiceNumber}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  const voucher = await prisma.apInvoice.create({
+    data: {
+      number,
+      supplierId: params.supplierId,
+      purchaseOrderId: params.purchaseOrderId || null,
+      invoiceDate: params.invoiceDate || new Date(),
+      dueDate: due,
+      status: "OPEN",
+      subtotal: amount,
+      tax,
+      total,
+      notes,
+    },
+  });
+
+  // Dr Expense (or default OpEx) / Cr AP
+  const expense =
+    (params.expenseAccountId
+      ? await prisma.account.findUnique({ where: { id: params.expenseAccountId } })
+      : null) ||
+    (await account("6000")) ||
+    (await account("5100")) ||
+    (await prisma.account.findFirst({
+      where: { type: "EXPENSE", isActive: true },
+      orderBy: { code: "asc" },
+    }));
+  const ap = await account("2000");
+  if (expense && ap) {
+    await postJournal({
+      description: `Vendor AP ${number} — ${supplier.name}`,
+      source: "AP",
+      sourceId: voucher.id,
+      createdById: params.userId || undefined,
+      lines: [
+        {
+          accountId: expense.id,
+          debit: total,
+          memo: notes.slice(0, 120),
+        },
+        { accountId: ap.id, credit: total, memo: number },
+      ],
+    });
+  }
+
+  await logAudit({
+    entityType: "ApInvoice",
+    entityId: voucher.id,
+    action: "VENDOR_INVOICE_CREATED",
+    userId: params.userId,
+    metadata: {
+      number,
+      supplierId: params.supplierId,
+      total,
+      purchaseOrderId: params.purchaseOrderId,
+      vendorInvoiceNumber: params.vendorInvoiceNumber,
+    },
+  });
+
+  return voucher;
+}

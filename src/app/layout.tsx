@@ -7,6 +7,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { SandboxBanner } from "@/components/layout/sandbox-banner";
 import { FlashToast } from "@/components/layout/flash-toast";
 import { getCurrentUser, listUsers } from "@/lib/auth";
+import { demoModeEnabled } from "@/lib/auth-core";
 import { prisma, SANDBOX_COOKIE } from "@/lib/db";
 import { getNotificationSummary } from "@/lib/services/notifications";
 import { readFlashToast } from "@/lib/flash";
@@ -33,9 +34,10 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  // Demo-mode identity switcher data (replace with real auth in prod)
+  // Persona switcher only when DEMO_MODE is on (evaluation / test-drive)
+  const showDemoSwitcher = demoModeEnabled();
   const [demoUsers, currentUser, company] = await Promise.all([
-    listUsers(),
+    showDemoSwitcher ? listUsers() : Promise.resolve([]),
     getCurrentUser(),
     prisma.companySettings.upsert({
       where: { id: "default" },
@@ -50,21 +52,6 @@ export default async function RootLayout({
   const inSandbox = Boolean(jar.get(SANDBOX_COOKIE)?.value);
   const flash = await readFlashToast();
 
-  // Production auth: middleware only checks that a session cookie EXISTS
-  // (edge runtime, no DB). A forged/expired cookie passes it, so enforce
-  // the resolved identity here before any page content renders.
-  const requestPath = (await headers()).get("x-pathname") || "";
-  if (
-    process.env.DEMO_MODE === "0" &&
-    !currentUser &&
-    requestPath &&
-    !["/login", "/invite", "/module-off"].some((p) =>
-      requestPath.startsWith(p)
-    )
-  ) {
-    redirect("/login");
-  }
-
   // Per-module enable/disable: block a disabled module's routes server-side
   // (before the page renders) so nothing from that module reaches the client.
   const disabledModules: string[] = company.disabledModules
@@ -76,24 +63,36 @@ export default async function RootLayout({
         }
       })()
     : [];
-  const pathname = requestPath;
+  const pathname = (await headers()).get("x-pathname") || "";
+
+  // Production auth: middleware only checks that a session cookie EXISTS
+  // (edge runtime, no DB). A forged/expired cookie passes it, so enforce
+  // the resolved identity here before any page content renders.
+  if (
+    process.env.DEMO_MODE === "0" &&
+    !currentUser &&
+    pathname &&
+    !["/login", "/invite", "/module-off", "/demo"].some((p) =>
+      pathname.startsWith(p)
+    )
+  ) {
+    redirect("/login");
+  }
+
   const blockedKey = pathname ? moduleKeyForPath(pathname) : null;
   if (blockedKey && disabledModules.includes(blockedKey)) {
     // Redirect before the disabled module's page renders — nothing from that
     // module reaches the client (not even the RSC payload).
     redirect(`/module-off?m=${blockedKey}`);
   }
-  // The persona switcher only exists in demo mode — with real auth the
-  // user list must not ship to the client at all.
-  const shellUsers =
-    process.env.DEMO_MODE === "0"
-      ? []
-      : demoUsers.map((u) => ({
-          id: u.id,
-          name: u.name,
-          role: u.role,
-          title: u.title,
-        }));
+  const shellUsers = showDemoSwitcher
+    ? demoUsers.map((u) => ({
+        id: u.id,
+        name: u.name,
+        role: u.role,
+        title: u.title,
+      }))
+    : [];
   return (
     // suppressHydrationWarning: browser extensions (e.g. Scribe) often inject
     // class/data attrs on <html>/<body> before React hydrates.

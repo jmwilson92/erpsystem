@@ -28,6 +28,27 @@ export const REPORT_CATALOG: {
   { key: "ap-aging", title: "AP Aging", group: "Financial", description: "Open payables bucketed by days outstanding" },
   { key: "wip", title: "Open Work Orders / WIP", group: "Operations", description: "Active WOs with status, priority, and standard cost" },
   { key: "inventory", title: "Inventory Valuation", group: "Operations", description: "On-hand stock by part and location with extended value" },
+  {
+    key: "inventory-onhand-cost",
+    title: "On-Hand Inventory Total Cost",
+    group: "Operations",
+    description:
+      "Grand total and by-ownership cost of all on-hand inventory (qty × unit cost)",
+  },
+  {
+    key: "gp-inventory-cost",
+    title: "Government Property Inventory Cost",
+    group: "Operations",
+    description:
+      "On-hand GOVERNMENT-owned stock cost — extended value with total",
+  },
+  {
+    key: "bom-cost",
+    title: "BOM Cost Rollup (w/ subassemblies)",
+    group: "Operations",
+    description:
+      "Unit cost of each BOM including nested subassembly BOMs — summary + explosion",
+  },
   { key: "open-pos", title: "Open Purchase Orders", group: "Operations", description: "Outstanding POs with open commitments" },
   { key: "otd", title: "Sales Order Status", group: "Operations", description: "Orders with dates, departments, and fulfillment state" },
   { key: "ncr", title: "NCR Log", group: "Quality", description: "Nonconformances with source, severity, and disposition state" },
@@ -127,15 +148,31 @@ export async function runReport(key: string): Promise<ReportTable> {
         include: { part: true, location: true },
         orderBy: [{ part: { partNumber: "asc" } }],
       });
+      const total = items.reduce(
+        (s, i) => s + i.unitCost * i.quantityOnHand,
+        0
+      );
       return {
         title: "Inventory Valuation",
         columns: ["Part", "Description", "Location", "Lot/Serial", "On hand", "Available", "Unit cost", "Extended value", "Ownership"],
-        rows: items.map((i) => [
-          i.part.partNumber, i.part.description, i.location.code,
-          i.lotNumber || i.serialNumber || "—", i.quantityOnHand, i.quantityAvailable,
-          money(i.unitCost), money(i.unitCost * i.quantityOnHand), i.ownership,
-        ]),
+        rows: [
+          ...items.map((i) => [
+            i.part.partNumber, i.part.description, i.location.code,
+            i.lotNumber || i.serialNumber || "—", i.quantityOnHand, i.quantityAvailable,
+            money(i.unitCost), money(i.unitCost * i.quantityOnHand), i.ownership,
+          ]),
+          ["", "", "", "", "", "", "TOTAL", money(total), ""],
+        ],
       };
+    }
+    case "inventory-onhand-cost": {
+      return runOnHandInventoryCostReport();
+    }
+    case "gp-inventory-cost": {
+      return runGpInventoryCostReport();
+    }
+    case "bom-cost": {
+      return runBomCostRollupReport();
     }
     case "open-pos": {
       const pos = await prisma.purchaseOrder.findMany({
@@ -183,29 +220,18 @@ export async function runReport(key: string): Promise<ReportTable> {
       };
     }
     case "serial-genealogy": {
-      const components = await prisma.serialComponent.findMany({
+      const installs = await prisma.serialInstall.findMany({
         include: {
-          parent: {
+          parentSerial: {
             include: { part: { select: { partNumber: true } } },
           },
-          componentPart: { select: { partNumber: true, isSerialized: true } },
-          componentSerial: { select: { serial: true, status: true } },
+          childPart: { select: { partNumber: true, isSerialized: true } },
+          childSerial: { select: { serial: true, status: true } },
+          workOrder: { select: { number: true } },
         },
-        orderBy: [{ parentId: "asc" }, { createdAt: "asc" }],
+        orderBy: [{ parentSerialId: "asc" }, { installedAt: "asc" }],
         take: 5000,
       });
-      const woIds = [
-        ...new Set(
-          components.map((c) => c.workOrderId).filter((x): x is string => !!x)
-        ),
-      ];
-      const wos = woIds.length
-        ? await prisma.workOrder.findMany({
-            where: { id: { in: woIds } },
-            select: { id: true, number: true },
-          })
-        : [];
-      const woById = Object.fromEntries(wos.map((w) => [w.id, w.number]));
       return {
         title: "Serial Genealogy",
         columns: [
@@ -218,19 +244,21 @@ export async function runReport(key: string): Promise<ReportTable> {
           "Component status",
           "Lot",
           "Qty",
+          "Install status",
           "Work order",
         ],
-        rows: components.map((c) => [
-          c.parent.serial,
-          c.parent.part.partNumber,
-          c.parent.status,
-          c.componentPart.partNumber,
-          c.componentPart.isSerialized ? "YES" : "no",
-          c.componentSerial?.serial || "",
-          c.componentSerial?.status || "",
-          c.lotNumber || "",
+        rows: installs.map((c) => [
+          c.parentSerial.serial,
+          c.parentSerial.part.partNumber,
+          c.parentSerial.status,
+          c.childPart.partNumber,
+          c.childPart.isSerialized ? "YES" : "no",
+          c.childSerial?.serial || "",
+          c.childSerial?.status || "",
+          c.childLotNumber || "",
           c.quantity,
-          (c.workOrderId && woById[c.workOrderId]) || "",
+          c.status,
+          c.workOrder?.number || "",
         ]),
       };
     }
@@ -238,9 +266,8 @@ export async function runReport(key: string): Promise<ReportTable> {
       const rmas = await prisma.rma.findMany({
         include: {
           customer: { select: { name: true } },
-          part: { select: { partNumber: true } },
-          serialNumber: { select: { serial: true } },
-          salesOrder: { select: { number: true } },
+          topPart: { select: { partNumber: true } },
+          topSerial: { select: { serial: true } },
         },
         orderBy: { createdAt: "desc" },
         take: 2000,
@@ -250,28 +277,30 @@ export async function runReport(key: string): Promise<ReportTable> {
         columns: [
           "RMA",
           "Status",
+          "Coverage",
           "Customer",
           "Part",
           "Serial",
-          "Sales order",
-          "Qty",
-          "Reason",
-          "Disposition",
-          "Received",
-          "Closed",
+          "Customer S/N",
+          "Symptom",
+          "Quoted",
+          "Final",
+          "Requested",
+          "Completed",
         ],
         rows: rmas.map((r) => [
           r.number,
           r.status,
+          r.coverage,
           r.customer.name,
-          r.part?.partNumber || "",
-          r.serialNumber?.serial || "",
-          r.salesOrder?.number || "",
-          r.quantity,
-          r.reason,
-          r.disposition || "",
-          r.receivedAt ? day(r.receivedAt) : "",
-          r.closedAt ? day(r.closedAt) : "",
+          r.topPart?.partNumber || "",
+          r.topSerial?.serial || "",
+          r.customerSn || "",
+          r.symptom || "",
+          r.quotedPrice,
+          r.finalPrice,
+          day(r.requestedAt),
+          r.completedAt ? day(r.completedAt) : "",
         ]),
       };
     }
@@ -390,4 +419,480 @@ export function toCsv(table: ReportTable): string {
     table.columns.map(esc).join(","),
     ...table.rows.map((r) => r.map(esc).join(",")),
   ].join("\n");
+}
+
+// ── Cost reports ───────────────────────────────────────────────────────────
+
+function invUnitCost(i: {
+  unitCost: number;
+  part: { standardCost: number; lastBuyCost: number; averageCost: number };
+}): number {
+  if (i.unitCost > 0) return i.unitCost;
+  if (i.part.averageCost > 0) return i.part.averageCost;
+  if (i.part.standardCost > 0) return i.part.standardCost;
+  if (i.part.lastBuyCost > 0) return i.part.lastBuyCost;
+  return 0;
+}
+
+async function runOnHandInventoryCostReport(): Promise<ReportTable> {
+  const items = await prisma.inventoryItem.findMany({
+    where: { quantityOnHand: { gt: 0 } },
+    include: {
+      part: {
+        select: {
+          partNumber: true,
+          description: true,
+          standardCost: true,
+          lastBuyCost: true,
+          averageCost: true,
+        },
+      },
+      location: { select: { code: true, type: true } },
+    },
+    orderBy: [{ ownership: "asc" }, { part: { partNumber: "asc" } }],
+  });
+
+  type Agg = { qty: number; ext: number; lines: number };
+  const byOwn = new Map<string, Agg>();
+  let grandQty = 0;
+  let grandExt = 0;
+
+  const detail: (string | number)[][] = [];
+  for (const i of items) {
+    const unit = invUnitCost(i);
+    const ext = unit * i.quantityOnHand;
+    grandQty += i.quantityOnHand;
+    grandExt += ext;
+    const o = i.ownership || "COMPANY";
+    const a = byOwn.get(o) || { qty: 0, ext: 0, lines: 0 };
+    a.qty += i.quantityOnHand;
+    a.ext += ext;
+    a.lines += 1;
+    byOwn.set(o, a);
+    detail.push([
+      "DETAIL",
+      o,
+      i.part.partNumber,
+      i.part.description,
+      i.location.code,
+      i.location.type,
+      i.lotNumber || i.serialNumber || "—",
+      money(i.quantityOnHand),
+      money(unit),
+      money(ext),
+    ]);
+  }
+
+  const summary: (string | number)[][] = [
+    [
+      "SUMMARY",
+      "ALL",
+      "",
+      "Grand total on-hand inventory",
+      "",
+      "",
+      "",
+      money(grandQty),
+      "",
+      money(grandExt),
+    ],
+  ];
+  for (const [own, a] of [...byOwn.entries()].sort((a, b) =>
+    a[0].localeCompare(b[0])
+  )) {
+    summary.push([
+      "SUMMARY",
+      own,
+      "",
+      `${a.lines} stock line(s)`,
+      "",
+      "",
+      "",
+      money(a.qty),
+      "",
+      money(a.ext),
+    ]);
+  }
+
+  return {
+    title: "On-Hand Inventory Total Cost",
+    columns: [
+      "Section",
+      "Ownership",
+      "Part",
+      "Description",
+      "Location",
+      "Loc type",
+      "Lot/Serial",
+      "On hand",
+      "Unit cost",
+      "Extended cost",
+    ],
+    rows: [...summary, ...detail],
+  };
+}
+
+async function runGpInventoryCostReport(): Promise<ReportTable> {
+  const items = await prisma.inventoryItem.findMany({
+    where: {
+      quantityOnHand: { gt: 0 },
+      ownership: "GOVERNMENT",
+    },
+    include: {
+      part: {
+        select: {
+          partNumber: true,
+          description: true,
+          standardCost: true,
+          lastBuyCost: true,
+          averageCost: true,
+        },
+      },
+      location: { select: { code: true, type: true, name: true } },
+      governmentProperty: {
+        select: {
+          assetTag: true,
+          contractNumber: true,
+          acquisitionCost: true,
+          propertyType: true,
+        },
+      },
+    },
+    orderBy: [{ part: { partNumber: "asc" } }],
+  });
+
+  let grandQty = 0;
+  let grandExt = 0;
+  const rows: (string | number)[][] = [];
+
+  for (const i of items) {
+    // Prefer inventory unit cost; fall back to GFP acquisition cost if stock cost is 0
+    let unit = invUnitCost(i);
+    if (unit <= 0 && i.governmentProperty?.acquisitionCost) {
+      unit = i.governmentProperty.acquisitionCost;
+    }
+    const ext = unit * i.quantityOnHand;
+    grandQty += i.quantityOnHand;
+    grandExt += ext;
+    rows.push([
+      i.part.partNumber,
+      i.part.description,
+      i.location.code,
+      i.location.type,
+      i.lotNumber || i.serialNumber || "—",
+      i.governmentProperty?.assetTag || "—",
+      i.governmentProperty?.contractNumber || "—",
+      i.governmentProperty?.propertyType || "—",
+      money(i.quantityOnHand),
+      money(unit),
+      money(ext),
+    ]);
+  }
+
+  rows.push([
+    "",
+    "TOTAL GOVERNMENT PROPERTY",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    money(grandQty),
+    "",
+    money(grandExt),
+  ]);
+
+  return {
+    title: "Government Property Inventory Cost",
+    columns: [
+      "Part",
+      "Description",
+      "Location",
+      "Loc type",
+      "Lot/Serial",
+      "Asset tag",
+      "Contract",
+      "GP type",
+      "On hand",
+      "Unit cost",
+      "Extended cost",
+    ],
+    rows,
+  };
+}
+
+type BomLineNode = {
+  componentPartId: string;
+  quantity: number;
+  scrapFactor: number;
+  componentPart: {
+    partNumber: string;
+    description: string;
+    standardCost: number;
+    lastBuyCost: number;
+    averageCost: number;
+    sourcingMethod: string;
+  };
+};
+
+type BomHeaderNode = {
+  id: string;
+  revision: string;
+  status: string;
+  partId: string;
+  part: { partNumber: string; description: string };
+  lines: BomLineNode[];
+};
+
+/**
+ * Multi-level BOM unit cost: each component uses its certified/prototype BOM
+ * rollup when present, else average → standard → last buy cost.
+ */
+async function runBomCostRollupReport(): Promise<ReportTable> {
+  const headers = (await prisma.bomHeader.findMany({
+    where: { status: { in: ["CERTIFIED", "PROTOTYPE", "IN_REVIEW"] } },
+    include: {
+      part: { select: { partNumber: true, description: true } },
+      lines: {
+        include: {
+          componentPart: {
+            select: {
+              partNumber: true,
+              description: true,
+              standardCost: true,
+              lastBuyCost: true,
+              averageCost: true,
+              sourcingMethod: true,
+            },
+          },
+        },
+        orderBy: { sortOrder: "asc" },
+      },
+    },
+    orderBy: [{ part: { partNumber: "asc" } }, { revision: "desc" }],
+  })) as BomHeaderNode[];
+
+  // Prefer latest CERTIFIED per part for subassembly lookup; fall back to PROTOTYPE
+  const byPartId = new Map<string, BomHeaderNode>();
+  for (const h of headers) {
+    const existing = byPartId.get(h.partId);
+    if (!existing) {
+      byPartId.set(h.partId, h);
+      continue;
+    }
+    const rank = (s: string) =>
+      s === "CERTIFIED" ? 0 : s === "PROTOTYPE" ? 1 : 2;
+    if (rank(h.status) < rank(existing.status)) {
+      byPartId.set(h.partId, h);
+    }
+  }
+
+  const memo = new Map<string, number>(); // partId → unit rollup
+
+  function leafCost(p: BomLineNode["componentPart"]): number {
+    if (p.averageCost > 0) return p.averageCost;
+    if (p.standardCost > 0) return p.standardCost;
+    if (p.lastBuyCost > 0) return p.lastBuyCost;
+    return 0;
+  }
+
+  function rollupPart(partId: string, chain: Set<string>): number {
+    if (memo.has(partId)) return memo.get(partId)!;
+    if (chain.has(partId)) return 0; // cycle
+    const bom = byPartId.get(partId);
+    if (!bom || !bom.lines.length) {
+      // No BOM — try part master from any line that referenced it
+      return 0;
+    }
+    const next = new Set(chain);
+    next.add(partId);
+    let total = 0;
+    for (const line of bom.lines) {
+      const qty = line.quantity * (1 + (line.scrapFactor || 0));
+      const subBom = byPartId.get(line.componentPartId);
+      let unit: number;
+      if (subBom && subBom.lines.length && !next.has(line.componentPartId)) {
+        unit = rollupPart(line.componentPartId, next);
+        if (unit <= 0) unit = leafCost(line.componentPart);
+      } else {
+        unit = leafCost(line.componentPart);
+      }
+      total += qty * unit;
+    }
+    memo.set(partId, total);
+    return total;
+  }
+
+  // Seed leaf costs for parts without BOM via their own standard on header part?
+  // Components only appear on lines — leafCost handles them.
+
+  const summaryRows: (string | number)[][] = [];
+  const detailRows: (string | number)[][] = [];
+
+  const ordered = [...headers].sort((a, b) => {
+    const c = a.part.partNumber.localeCompare(b.part.partNumber);
+    if (c !== 0) return c;
+    const rank = (s: string) =>
+      s === "CERTIFIED" ? 0 : s === "PROTOTYPE" ? 1 : 2;
+    return rank(a.status) - rank(b.status);
+  });
+
+  for (const h of ordered) {
+    // Show all listed BOM revs, but rollup uses preferred subassembly BOMs
+    const unit = rollupPart(h.partId, new Set());
+    // Recompute this header's own lines (may differ if multiple revs)
+    let headerUnit = 0;
+    const explosion: {
+      level: number;
+      path: string;
+      partNumber: string;
+      description: string;
+      qty: number;
+      unit: number;
+      extended: number;
+      source: string;
+    }[] = [];
+
+    function explode(
+      bom: BomHeaderNode,
+      level: number,
+      path: string,
+      chain: Set<string>
+    ) {
+      if (chain.has(bom.partId)) return;
+      const next = new Set(chain);
+      next.add(bom.partId);
+      for (const line of bom.lines) {
+        const qty = line.quantity * (1 + (line.scrapFactor || 0));
+        const sub = byPartId.get(line.componentPartId);
+        let unitC: number;
+        let source: string;
+        if (sub && sub.lines.length && !next.has(line.componentPartId)) {
+          unitC = rollupPart(line.componentPartId, next);
+          source =
+            unitC > 0
+              ? `BOM ${sub.part.partNumber} rev ${sub.revision}`
+              : "leaf cost";
+          if (unitC <= 0) {
+            unitC = leafCost(line.componentPart);
+            source = costSourceLabel(line.componentPart);
+          }
+        } else {
+          unitC = leafCost(line.componentPart);
+          source = costSourceLabel(line.componentPart);
+        }
+        const ext = qty * unitC;
+        if (level === 0) headerUnit += ext;
+        explosion.push({
+          level,
+          path,
+          partNumber: line.componentPart.partNumber,
+          description: line.componentPart.description,
+          qty,
+          unit: unitC,
+          extended: ext,
+          source,
+        });
+        if (sub && sub.lines.length && !next.has(line.componentPartId)) {
+          explode(
+            sub,
+            level + 1,
+            `${path}/${line.componentPart.partNumber}`,
+            next
+          );
+        }
+      }
+    }
+
+    // For multi-rev of same part, rollup this specific header's lines
+    explode(h, 0, h.part.partNumber, new Set([h.partId]));
+    // Prefer line-sum for this revision
+    const rollup = headerUnit > 0 ? headerUnit : unit;
+
+    summaryRows.push([
+      "SUMMARY",
+      h.part.partNumber,
+      h.revision,
+      h.status,
+      h.part.description,
+      money(rollup),
+      h.lines.length,
+      explosion.filter((e) => e.level > 0).length
+        ? "includes subassemblies"
+        : "flat / purchased comps",
+    ]);
+
+    for (const e of explosion) {
+      detailRows.push([
+        "DETAIL",
+        h.part.partNumber,
+        h.revision,
+        e.level,
+        e.partNumber,
+        e.description,
+        money(e.qty),
+        money(e.unit),
+        money(e.extended),
+        e.source,
+      ]);
+    }
+  }
+
+  return {
+    title: "BOM Cost Rollup (w/ subassemblies)",
+    columns: [
+      "Section",
+      "BOM part",
+      "Rev",
+      "Status",
+      "Level",
+      "Component",
+      "Description",
+      "Qty (w/ scrap)",
+      "Unit cost",
+      "Extended cost",
+      "Cost source",
+    ],
+    rows: [
+      // Summary: one row per BOM with total unit rollup in Extended
+      ...summaryRows.map((r) => [
+        "SUMMARY",
+        r[1], // part
+        r[2], // rev
+        r[3], // status
+        "",
+        "",
+        r[4], // description
+        "",
+        "",
+        r[5], // unit rollup $
+        String(r[7]),
+      ]),
+      ...detailRows.map((r) => [
+        "DETAIL",
+        r[1], // parent BOM part
+        r[2], // rev
+        "",
+        r[3], // level
+        r[4], // component PN
+        r[5], // description
+        r[6], // qty
+        r[7], // unit
+        r[8], // extended
+        r[9], // source
+      ]),
+    ],
+  };
+}
+
+function costSourceLabel(p: {
+  averageCost: number;
+  standardCost: number;
+  lastBuyCost: number;
+}): string {
+  if (p.averageCost > 0) return "avg cost";
+  if (p.standardCost > 0) return "std cost";
+  if (p.lastBuyCost > 0) return "last buy";
+  return "no cost";
 }

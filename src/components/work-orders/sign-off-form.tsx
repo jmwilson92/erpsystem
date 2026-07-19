@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { actionSignOffStep } from "@/app/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useActionLoading } from "@/components/layout/action-loading";
 
 export function SignOffStepForm({
   workOrderId,
@@ -29,6 +30,7 @@ export function SignOffStepForm({
   const [measured, setMeasured] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const { start: startLoading, stop: stopLoading } = useActionLoading();
   const needsResult = isTestStep || passFailRequired;
 
   function submit(result: "PASS" | "FAIL") {
@@ -49,6 +51,7 @@ export function SignOffStepForm({
     if (measured) fd.set("measuredValue", measured);
     if (measureUom) fd.set("measureUom", measureUom);
     const scrollY = window.scrollY;
+    startLoading("manufacturing");
     startTransition(async () => {
       try {
         const outcome = await actionSignOffStep(fd);
@@ -75,12 +78,14 @@ export function SignOffStepForm({
             })
           );
           router.refresh();
+          stopLoading();
           // After paint, force top (refresh can fight rAF once)
           setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 50);
           setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 200);
           return;
         }
         router.refresh();
+        stopLoading();
         // Same station — restore scroll after RSC refresh
         setTimeout(() => {
           window.scrollTo(0, scrollY);
@@ -91,6 +96,7 @@ export function SignOffStepForm({
           }
         }, 80);
       } catch (e) {
+        stopLoading();
         setError(e instanceof Error ? e.message : "Sign-off failed");
       }
     });

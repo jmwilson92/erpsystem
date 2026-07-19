@@ -250,6 +250,12 @@ export default async function PurchasingPage({
         description="Search POs past & present · multi-step PR approvals · travelers on Receiving"
         actions={
           <div className="flex flex-wrap gap-2">
+            <Link href="/purchasing/pr/new">
+              <Button size="sm">
+                <FileInput className="mr-1.5 h-3.5 w-3.5" />
+                New purchase request
+              </Button>
+            </Link>
             <Link href="/purchasing/approvals">
               <Button size="sm" variant="outline">
                 <Settings2 className="mr-1.5 h-3.5 w-3.5" />

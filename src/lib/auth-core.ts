@@ -30,6 +30,49 @@ export function demoModeEnabled() {
   return process.env.DEMO_MODE !== "0";
 }
 
+// ─── Login rate limit (in-process; good enough for single-instance beta) ──
+
+const loginAttempts = new Map<string, { count: number; resetAt: number }>();
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_MAX_ATTEMPTS = 10;
+
+function loginKey(email: string) {
+  return email.trim().toLowerCase();
+}
+
+/** Throws if this e-mail is temporarily locked out after failed logins. */
+export function assertLoginNotRateLimited(email: string) {
+  const key = loginKey(email);
+  const now = Date.now();
+  const row = loginAttempts.get(key);
+  if (!row) return;
+  if (now > row.resetAt) {
+    loginAttempts.delete(key);
+    return;
+  }
+  if (row.count >= LOGIN_MAX_ATTEMPTS) {
+    const mins = Math.ceil((row.resetAt - now) / 60_000);
+    throw new Error(
+      `Too many failed sign-in attempts. Try again in ${mins} minute(s).`
+    );
+  }
+}
+
+export function recordLoginFailure(email: string) {
+  const key = loginKey(email);
+  const now = Date.now();
+  const row = loginAttempts.get(key);
+  if (!row || now > row.resetAt) {
+    loginAttempts.set(key, { count: 1, resetAt: now + LOGIN_WINDOW_MS });
+    return;
+  }
+  row.count += 1;
+}
+
+export function clearLoginFailures(email: string) {
+  loginAttempts.delete(loginKey(email));
+}
+
 // ─── Passwords (scrypt) ─────────────────────────────────────────
 
 export function hashPassword(password: string): string {
@@ -123,39 +166,14 @@ export async function destroySession() {
 
 // ─── Login / bootstrap ──────────────────────────────────────────
 
-// Failed-attempt throttle, per e-mail. In-memory is deliberate: single
-// instance beta; resets on deploy, which is acceptable for a lockout.
-const LOGIN_MAX_FAILURES = 5;
-const LOGIN_LOCKOUT_MS = 15 * 60_000;
-const loginFailures = new Map<string, { count: number; lockedUntil: number }>();
-
-function checkLoginThrottle(email: string) {
-  const entry = loginFailures.get(email);
-  if (entry && entry.lockedUntil > Date.now()) {
-    const mins = Math.ceil((entry.lockedUntil - Date.now()) / 60_000);
-    throw new Error(
-      `Too many failed attempts — try again in ${mins} minute${mins === 1 ? "" : "s"}`
-    );
-  }
-}
-
-function recordLoginFailure(email: string) {
-  const entry = loginFailures.get(email) ?? { count: 0, lockedUntil: 0 };
-  entry.count += 1;
-  if (entry.count >= LOGIN_MAX_FAILURES) {
-    entry.lockedUntil = Date.now() + LOGIN_LOCKOUT_MS;
-    entry.count = 0;
-  }
-  loginFailures.set(email, entry);
-}
-
 export async function loginWithPassword(params: {
   email: string;
   password: string;
   userAgent?: string;
 }) {
   const email = params.email.trim().toLowerCase();
-  checkLoginThrottle(email);
+  assertLoginNotRateLimited(email);
+
   const user = await prisma.user.findFirst({
     where: { email: { equals: email } },
   });
@@ -167,7 +185,7 @@ export async function loginWithPassword(params: {
   if (!user || !user.isActive || !user.passwordHash) fail();
   if (!verifyPassword(params.password, user!.passwordHash!)) fail();
 
-  loginFailures.delete(email);
+  clearLoginFailures(email);
   await createSession(user!.id, params.userAgent);
   await logAudit({
     entityType: "User",
@@ -322,6 +340,8 @@ export async function acceptInvite(params: {
         data: {
           passwordHash: hashPassword(params.password),
           isActive: true,
+          // Apply invite role so re-invites / role changes take effect
+          role: invite.role || existing.role,
           ...(params.name?.trim() ? { name: params.name.trim() } : {}),
         },
       })

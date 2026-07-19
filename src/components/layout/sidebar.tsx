@@ -162,42 +162,51 @@ export function Sidebar({
         })}
       </nav>
 
-      {/* Persona switcher is a demo-only affordance; with real auth
-          (DEMO_MODE=0) the layout passes no demoUsers and we show only
-          the signed-in identity. */}
       {!collapsed && (
         <div className="border-t border-slate-800/80 p-3">
           <div className="rounded-lg bg-slate-900/80 p-2.5">
-            <p className="text-xs font-medium text-slate-300">
-              {demoUsers.length > 0 ? "Demo Mode" : "Signed in"}
-              {switching && " · switching…"}
-            </p>
             {demoUsers.length > 0 ? (
-              <select
-                value={currentUser?.id || ""}
-                onChange={(e) => {
-                  const fd = new FormData();
-                  fd.set("userId", e.target.value);
-                  startSwitch(async () => {
-                    await actionSwitchDemoUser(fd);
-                    router.refresh();
-                  });
-                }}
-                className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-1.5 py-1 text-[11px] text-slate-300"
-                aria-label="Switch demo user"
-              >
-                {demoUsers.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.name} · {u.role}
-                  </option>
-                ))}
-              </select>
+              <>
+                <p className="text-xs font-medium text-slate-300">
+                  Demo Mode {switching && "· switching…"}
+                </p>
+                <select
+                  value={currentUser?.id || ""}
+                  onChange={(e) => {
+                    const fd = new FormData();
+                    fd.set("userId", e.target.value);
+                    startSwitch(async () => {
+                      await actionSwitchDemoUser(fd);
+                      router.refresh();
+                    });
+                  }}
+                  className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-1.5 py-1 text-[11px] text-slate-300"
+                  aria-label="Switch demo user"
+                >
+                  {demoUsers.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name} · {u.role}
+                    </option>
+                  ))}
+                </select>
+              </>
             ) : (
-              <p className="text-[10px] text-slate-500">
-                {currentUser
-                  ? `${currentUser.name} · ${currentUser.role}`
-                  : "No user"}
-              </p>
+              <>
+                <p className="text-xs font-medium text-slate-300">Signed in</p>
+                <p className="mt-1 text-[11px] text-slate-400">
+                  {currentUser
+                    ? `${currentUser.name} · ${currentUser.role}`
+                    : "Not signed in"}
+                </p>
+                {currentUser && (
+                  <Link
+                    href="/account"
+                    className="mt-1.5 inline-block text-[10px] text-teal-400 hover:underline"
+                  >
+                    Account & security
+                  </Link>
+                )}
+              </>
             )}
           </div>
         </div>

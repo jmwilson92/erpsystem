@@ -20,6 +20,7 @@ import { listNextLabel } from "@/lib/services/receiving-ui";
 import { ReceivingQueueSearch } from "@/components/receiving/receiving-queue-search";
 import { StationNextGuideBanner } from "@/components/receiving/station-next-guide";
 import { actionCompleteWoToStock } from "@/app/actions";
+import { ActionLoadingForm } from "@/components/layout/action-loading";
 
 export const dynamic = "force-dynamic";
 
@@ -330,12 +331,15 @@ export default async function ReceivingPage({
                       Open traveler
                     </Button>
                   </Link>
-                  <form action={actionCompleteWoToStock}>
+                  <ActionLoadingForm
+                    theme="receiving"
+                    action={actionCompleteWoToStock}
+                  >
                     <input type="hidden" name="workOrderId" value={wo.id} />
                     <Button type="submit" size="sm">
                       Put away @ {wo.workCenter || "RCV-01"} → stock
                     </Button>
-                  </form>
+                  </ActionLoadingForm>
                 </div>
               </div>
             ))

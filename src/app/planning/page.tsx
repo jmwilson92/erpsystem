@@ -4,13 +4,35 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { StatCard } from "@/components/shared/stat-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { formatDate } from "@/lib/utils";
 import Link from "next/link";
-import { Plus, LineChart, ClipboardList, Factory, Gauge, AlertTriangle } from "lucide-react";
+import {
+  Plus,
+  LineChart,
+  ClipboardList,
+  Factory,
+  Gauge,
+  AlertTriangle,
+  CalendarRange,
+  Settings2,
+} from "lucide-react";
 import { getCapacityAndWorkload } from "@/lib/services/capacity";
-import { actionRemoveWorkCenterStaff } from "@/app/actions";
+import { getPlanningExceptions } from "@/lib/services/planning-exceptions";
+import {
+  getPlanningSettings,
+  type CalendarMode,
+} from "@/lib/services/schedule";
+import {
+  actionRemoveWorkCenterStaff,
+  actionSavePlanningSettings,
+  actionRescheduleWorkOrder,
+  actionBulkRescheduleUnscheduled,
+} from "@/app/actions";
 import { listUsers } from "@/lib/auth";
 import { AssignStaffForm } from "@/components/planning/assign-staff-form";
+import { ActionLoadingForm } from "@/components/layout/action-loading";
+import { addWeeks, startOfWeek, endOfWeek } from "date-fns";
 
 export const dynamic = "force-dynamic";
 
@@ -25,9 +47,27 @@ export default async function PlanningPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const sp = await searchParams;
-  const tab = pick(sp, "tab") || "forecast";
+  const tab = pick(sp, "tab") || "overview";
+  const weekOffset = Math.min(8, Math.max(0, Number(pick(sp, "week") || 0) || 0));
+  const weekSpan = Math.min(4, Math.max(1, Number(pick(sp, "span") || 1) || 1));
+  const horizonStart = startOfWeek(addWeeks(new Date(), weekOffset), {
+    weekStartsOn: 1,
+  });
+  const horizonEnd = endOfWeek(
+    addWeeks(horizonStart, weekSpan - 1),
+    { weekStartsOn: 1 }
+  );
 
-  const [forecasts, mrsList, mwoCount, capacity, users] = await Promise.all([
+  const [
+    forecasts,
+    mrsList,
+    mwoCount,
+    capacity,
+    users,
+    exceptionsPack,
+    planningSettings,
+    scheduleWos,
+  ] = await Promise.all([
     prisma.forecast.findMany({
       orderBy: { createdAt: "desc" },
       include: {
@@ -44,17 +84,41 @@ export default async function PlanningPage({
       take: 30,
     }),
     prisma.workOrder.count({ where: { sourceType: "MATERIAL_REQ" } }),
-    getCapacityAndWorkload(),
+    getCapacityAndWorkload(horizonStart, {
+      horizonStart,
+      horizonEnd,
+    }),
     listUsers(),
+    getPlanningExceptions(),
+    getPlanningSettings(),
+    prisma.workOrder.findMany({
+      where: {
+        status: {
+          notIn: ["COMPLETED", "CANCELLED", "CLOSED", "SCRAPPED"],
+        },
+      },
+      orderBy: [{ plannedStart: "asc" }, { dueDate: "asc" }],
+      take: 80,
+      include: {
+        part: { select: { partNumber: true } },
+        businessPriority: { select: { number: true, title: true } },
+      },
+    }),
   ]);
 
   const selectClass =
     "flex h-9 w-full rounded-md border border-slate-700 bg-slate-950 px-2 text-sm text-slate-200";
 
+  const lateCount = exceptionsPack.counts.LATE_RISK || 0;
+  const noDatesCount =
+    (exceptionsPack.counts.NO_DATES || 0) +
+    (exceptionsPack.counts.UNSCHEDULED || 0);
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Planning"
+        description="Rough-cut capacity · working calendar · forecast → MRS → dated MWOs"
         actions={
           <Link href="/planning/forecasts/new">
             <Button size="sm">
@@ -68,9 +132,13 @@ export default async function PlanningPage({
       <div className="flex flex-wrap gap-2 border-b border-slate-800 pb-2">
         {(
           [
+            { id: "overview", label: "Overview" },
             { id: "forecast", label: "Forecast / MRS" },
-            { id: "capacity", label: "Capacity planning" },
-            { id: "workload", label: "Workload (week)" },
+            { id: "schedule", label: "Schedule" },
+            { id: "capacity", label: "Capacity" },
+            { id: "workload", label: "Workload" },
+            { id: "exceptions", label: "Exceptions" },
+            { id: "settings", label: "Calendar" },
           ] as const
         ).map((t) => (
           <Link
@@ -83,9 +151,149 @@ export default async function PlanningPage({
             }`}
           >
             {t.label}
+            {t.id === "exceptions" && exceptionsPack.exceptions.length > 0
+              ? ` (${exceptionsPack.exceptions.length})`
+              : ""}
           </Link>
         ))}
       </div>
+
+      {(tab === "overview" ||
+        tab === "capacity" ||
+        tab === "workload") && (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className="text-slate-500">Horizon:</span>
+          {[
+            { week: 0, span: 1, label: "This week" },
+            { week: 1, span: 1, label: "Next week" },
+            { week: 0, span: 2, label: "2 weeks" },
+            { week: 0, span: 4, label: "4 weeks" },
+          ].map((h) => (
+            <Link
+              key={`${h.week}-${h.span}`}
+              href={`/planning?tab=${tab === "overview" ? "overview" : tab}&week=${h.week}&span=${h.span}`}
+              className={`rounded-md px-2.5 py-1 ${
+                weekOffset === h.week && weekSpan === h.span
+                  ? "bg-teal-500/20 text-teal-300"
+                  : "border border-slate-800 text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              {h.label}
+            </Link>
+          ))}
+          {capacity.unscheduled.count > 0 && (
+            <ActionLoadingForm
+              theme="planning"
+              action={actionBulkRescheduleUnscheduled}
+              className="ml-auto"
+            >
+              <Button type="submit" size="sm" variant="secondary">
+                Reschedule {capacity.unscheduled.count} unscheduled
+              </Button>
+            </ActionLoadingForm>
+          )}
+        </div>
+      )}
+
+      {tab === "overview" && (
+        <>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <StatCard
+              title="Plant util (horizon)"
+              value={`${capacity.totals.totalCapacityPct}%`}
+              icon={Gauge}
+              accent={
+                capacity.totals.alert === "OVER"
+                  ? "red"
+                  : capacity.totals.alert === "NEAR"
+                    ? "amber"
+                    : "teal"
+              }
+            />
+            <StatCard
+              title="Scheduled load (h)"
+              value={capacity.totals.projectedHours}
+              icon={Factory}
+              accent="sky"
+            />
+            <StatCard
+              title="Unscheduled backlog (h)"
+              value={capacity.totals.unscheduledHours}
+              icon={CalendarRange}
+              accent="amber"
+            />
+            <StatCard
+              title="Late / no dates"
+              value={lateCount + noDatesCount}
+              icon={AlertTriangle}
+              accent={lateCount + noDatesCount > 0 ? "red" : "teal"}
+            />
+          </div>
+          <p className="text-xs text-slate-500">
+            Horizon {formatDate(capacity.weekStart)} –{" "}
+            {formatDate(capacity.weekEnd)} · Calendar mode{" "}
+            <span className="font-mono text-slate-400">
+              {planningSettings.calendarMode}
+            </span>{" "}
+            · Load only counts WOs with planned windows overlapping this
+            horizon. Unscheduled hours are separate — they no longer fake-load
+            Monday.
+          </p>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Top exceptions</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {exceptionsPack.exceptions.slice(0, 8).map((e, i) => (
+                  <Link
+                    key={`${e.code}-${e.entityId}-${i}`}
+                    href={e.href}
+                    className="block rounded border border-slate-800 px-3 py-2 text-sm hover:border-teal-500/30"
+                  >
+                    <span
+                      className={
+                        e.severity === "critical"
+                          ? "text-rose-400"
+                          : "text-amber-400"
+                      }
+                    >
+                      {e.code}
+                    </span>
+                    <span className="ml-2 text-slate-300">{e.title}</span>
+                    <p className="text-xs text-slate-500">{e.detail}</p>
+                  </Link>
+                ))}
+                {!exceptionsPack.exceptions.length && (
+                  <p className="text-sm text-slate-500">No exceptions — clean shop.</p>
+                )}
+                <Link
+                  href="/planning?tab=exceptions"
+                  className="text-xs text-teal-400 hover:underline"
+                >
+                  All exceptions →
+                </Link>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Forecast / MRS pulse</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm text-slate-400">
+                <p>
+                  {forecasts.length} forecasts · {mrsList.length} MRS ·{" "}
+                  {mwoCount} MWOs
+                </p>
+                <Link href="/planning?tab=forecast">
+                  <Button size="sm" variant="outline">
+                    Open forecast board
+                  </Button>
+                </Link>
+              </CardContent>
+            </Card>
+          </div>
+        </>
+      )}
 
       {tab === "forecast" && (
         <>
@@ -226,18 +434,24 @@ export default async function PlanningPage({
             </div>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <StatCard
-              title="Available hrs (week)"
+              title="Available hrs (horizon)"
               value={capacity.totals.availableHours}
               icon={Gauge}
               accent="teal"
             />
             <StatCard
-              title="Projected load (hrs)"
+              title="Scheduled load (hrs)"
               value={capacity.totals.projectedHours}
               icon={Factory}
               accent="sky"
+            />
+            <StatCard
+              title="Unscheduled (hrs)"
+              value={capacity.totals.unscheduledHours}
+              icon={CalendarRange}
+              accent="amber"
             />
             <StatCard
               title="Near capacity"
@@ -253,12 +467,238 @@ export default async function PlanningPage({
             />
           </div>
           <p className="text-xs text-slate-500">
-            Week of {formatDate(capacity.weekStart)} –{" "}
-            {formatDate(capacity.weekEnd)} · Capacity = staffed hours ×
-            efficiency − approved/pending PTO · Alerts at ≥85% (near) and
-            &gt;100% (over)
+            Horizon {formatDate(capacity.weekStart)} –{" "}
+            {formatDate(capacity.weekEnd)} · Available = staffed hours ×
+            efficiency − PTO (incl. pending) · Load = WO hours whose{" "}
+            <strong className="font-medium text-slate-400">planned window</strong>{" "}
+            overlaps this horizon (rough-cut, not finite sequencing) · Alerts ≥
+            85% near / &gt;100% over
           </p>
+          {capacity.unscheduled.count > 0 && (
+            <Card className="border-amber-500/30">
+              <CardHeader>
+                <CardTitle className="text-base text-amber-200">
+                  Unscheduled backlog ({capacity.unscheduled.count} WOs ·{" "}
+                  {capacity.unscheduled.hours}h)
+                </CardTitle>
+                <p className="text-xs text-slate-500">
+                  No planned start/end (and no due+estimate to synthesize). Open
+                  the traveler and use Back from due or Forward from today.
+                </p>
+              </CardHeader>
+              <CardContent className="flex flex-wrap gap-2">
+                {capacity.unscheduled.workOrders.map((w) => (
+                  <Link
+                    key={w.id}
+                    href={`/work-orders/${w.id}`}
+                    className="rounded border border-slate-700 px-2 py-1 font-mono text-xs text-sky-400"
+                  >
+                    {w.number}
+                    <span className="ml-1 text-slate-500">{w.estimatedHours}h</span>
+                  </Link>
+                ))}
+              </CardContent>
+            </Card>
+          )}
         </>
+      )}
+
+      {tab === "schedule" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Open work schedule</CardTitle>
+            <p className="text-xs text-slate-500">
+              Ordered by planned start. Use traveler actions to reschedule.
+            </p>
+          </CardHeader>
+          <CardContent className="overflow-x-auto">
+            <table className="w-full min-w-[720px] text-sm">
+              <thead className="text-left text-[10px] uppercase text-slate-500">
+                <tr>
+                  <th className="pb-2">WO</th>
+                  <th className="pb-2">Part</th>
+                  <th className="pb-2">Station</th>
+                  <th className="pb-2">Planned</th>
+                  <th className="pb-2">Due</th>
+                  <th className="pb-2">Est</th>
+                  <th className="pb-2">Risk</th>
+                  <th className="pb-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {scheduleWos.map((wo) => (
+                  <tr key={wo.id} className="border-t border-slate-800/80">
+                    <td className="py-2">
+                      <Link
+                        href={`/work-orders/${wo.id}`}
+                        className="font-mono text-sky-400"
+                      >
+                        {wo.number}
+                      </Link>
+                      <StatusBadge status={wo.status} className="ml-1" />
+                    </td>
+                    <td className="py-2 text-slate-400">
+                      {wo.part?.partNumber || "—"}
+                    </td>
+                    <td className="py-2 font-mono text-xs text-slate-400">
+                      {wo.workCenter || "—"}
+                    </td>
+                    <td className="py-2 text-xs text-slate-400">
+                      {formatDate(wo.plannedStart)} → {formatDate(wo.plannedEnd)}
+                    </td>
+                    <td className="py-2 text-xs">{formatDate(wo.dueDate)}</td>
+                    <td className="py-2 tabular-nums text-slate-400">
+                      {wo.estimatedMinutes != null
+                        ? `${Math.round((wo.estimatedMinutes / 60) * 10) / 10}h`
+                        : "—"}
+                    </td>
+                    <td className="py-2 text-xs">
+                      {wo.scheduleRisk && wo.scheduleRisk !== "OK" ? (
+                        <span className="text-amber-400">{wo.scheduleRisk}</span>
+                      ) : (
+                        <span className="text-slate-600">—</span>
+                      )}
+                    </td>
+                    <td className="py-2 text-right">
+                      <ActionLoadingForm
+                        theme="planning"
+                        action={actionRescheduleWorkOrder}
+                        className="inline"
+                      >
+                        <input type="hidden" name="workOrderId" value={wo.id} />
+                        <input
+                          type="hidden"
+                          name="mode"
+                          value={wo.dueDate ? "BACK" : "FORWARD"}
+                        />
+                        <Button type="submit" size="sm" variant="outline">
+                          Reschedule
+                        </Button>
+                      </ActionLoadingForm>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!scheduleWos.length && (
+              <p className="py-8 text-center text-slate-500">No open work orders.</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {tab === "exceptions" && (
+        <div className="space-y-2">
+          <p className="text-xs text-slate-500">
+            Planner action queue — clear late risk and missing dates first.
+          </p>
+          {exceptionsPack.exceptions.map((e, i) => (
+            <Link
+              key={`${e.code}-${e.entityId}-${i}`}
+              href={e.href}
+              className={`block rounded-lg border px-4 py-3 ${
+                e.severity === "critical"
+                  ? "border-rose-500/30 bg-rose-500/5"
+                  : "border-slate-800 bg-slate-950/40"
+              }`}
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-mono text-xs text-teal-400">
+                  {e.entityNumber}
+                </span>
+                <span
+                  className={`text-xs font-semibold ${
+                    e.severity === "critical" ? "text-rose-400" : "text-amber-400"
+                  }`}
+                >
+                  {e.code}
+                </span>
+                <span className="text-sm text-slate-200">{e.title}</span>
+              </div>
+              <p className="mt-1 text-xs text-slate-500">{e.detail}</p>
+            </Link>
+          ))}
+          {!exceptionsPack.exceptions.length && (
+            <p className="py-12 text-center text-slate-500">No exceptions.</p>
+          )}
+        </div>
+      )}
+
+      {tab === "settings" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Settings2 className="h-4 w-4" />
+              Working calendar
+            </CardTitle>
+            <p className="text-xs text-slate-500">
+              How back/forward schedule walks days. Capacity available hours still
+              use staffed hours − PTO; this only controls schedule advance rate.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <ActionLoadingForm
+              theme="planning"
+              action={actionSavePlanningSettings}
+              className="max-w-lg space-y-4"
+            >
+              <div>
+                <label className="text-[10px] uppercase text-slate-500">
+                  Calendar mode
+                </label>
+                <select
+                  name="calendarMode"
+                  defaultValue={planningSettings.calendarMode}
+                  className={`${selectClass} mt-1`}
+                >
+                  {(
+                    [
+                      ["FIXED_SHIFT", "Fixed shift hours / day"],
+                      ["WORK_CENTER", "Work center capacityHoursPerDay"],
+                      ["STAFFED", "Staffed hours at the station"],
+                      ["CUSTOM_SHIFT", "Custom shift hours"],
+                    ] as [CalendarMode, string][]
+                  ).map(([v, label]) => (
+                    <option key={v} value={v}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] uppercase text-slate-500">
+                    Fixed shift hours
+                  </label>
+                  <Input
+                    name="fixedShiftHours"
+                    type="number"
+                    step="0.5"
+                    min={1}
+                    defaultValue={planningSettings.fixedShiftHours}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase text-slate-500">
+                    Custom shift hours
+                  </label>
+                  <Input
+                    name="customShiftHours"
+                    type="number"
+                    step="0.5"
+                    min={1}
+                    defaultValue={planningSettings.customShiftHours}
+                    className="mt-1"
+                  />
+                </div>
+              </div>
+              <Button type="submit" size="sm">
+                Save calendar settings
+              </Button>
+            </ActionLoadingForm>
+          </CardContent>
+        </Card>
       )}
 
       {tab === "capacity" && (() => {

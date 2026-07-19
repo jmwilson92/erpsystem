@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
-import { formatDate, parseJsonArray } from "@/lib/utils";
+import { formatDate, formatCurrency, parseJsonArray } from "@/lib/utils";
 import {
   actionAddEmployeeDocument,
   actionAddFeedbackNote,
@@ -26,7 +26,9 @@ import {
   actionSavePerformanceReview,
   actionSignOffReview,
   actionSubmitSelfReview,
+  actionSetUserCompensation,
 } from "@/app/actions";
+import { ActionLoadingForm } from "@/components/layout/action-loading";
 
 export const dynamic = "force-dynamic";
 
@@ -75,6 +77,10 @@ export default async function PersonPage({
   );
   const completed = reviews.filter((r) => r.status === "COMPLETED");
   const activeGoals = goals.filter((g) => g.status === "ACTIVE");
+  const canEditComp =
+    persona.isHrAdmin ||
+    me.role === "ADMIN" ||
+    me.role === "ACCOUNTING";
 
   return (
     <div className="space-y-6">
@@ -146,6 +152,66 @@ export default async function PersonPage({
                 ))}
               </div>
             )}
+            <div className="space-y-2 border-t border-slate-800 pt-3">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                Compensation (labor charge rate)
+              </p>
+              {canEditComp ? (
+                <ActionLoadingForm
+                  theme="default"
+                  action={actionSetUserCompensation}
+                  className="space-y-2"
+                >
+                  <input type="hidden" name="userId" value={user.id} />
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] uppercase text-slate-500">
+                        Hourly $
+                      </label>
+                      <Input
+                        name="hourlyRate"
+                        type="number"
+                        step="0.01"
+                        min={0}
+                        defaultValue={user.hourlyRate || ""}
+                        className="mt-0.5 h-8 text-xs"
+                        placeholder="65.00"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase text-slate-500">
+                        Annual salary $
+                      </label>
+                      <Input
+                        name="annualSalary"
+                        type="number"
+                        step="1"
+                        min={0}
+                        defaultValue={user.annualSalary || ""}
+                        className="mt-0.5 h-8 text-xs"
+                        placeholder="Optional"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-slate-600">
+                    Used when charging enacted budgets. Salary ÷ 2080 fills
+                    hourly if rate empty.
+                  </p>
+                  <Button type="submit" size="sm" variant="outline" className="h-8">
+                    Save compensation
+                  </Button>
+                </ActionLoadingForm>
+              ) : (
+                <p className="text-xs text-slate-400">
+                  {user.hourlyRate
+                    ? `${formatCurrency(user.hourlyRate)}/hr`
+                    : "Rate not set"}
+                  {user.annualSalary
+                    ? ` · salary ${formatCurrency(user.annualSalary)}`
+                    : ""}
+                </p>
+              )}
+            </div>
             {certs.length > 0 && (
               <div className="space-y-0.5 border-t border-slate-800 pt-2">
                 {certs.map((c) => (

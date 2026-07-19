@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main, beta, "release/**"]
+  pull_request:
+    branches: [main, beta]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Typecheck & lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Prisma generate
+        run: npx prisma generate
+
+      - name: TypeScript
+        run: npx tsc --noEmit
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: Production env assert (script dry-run)
+        run: node scripts/assert-production-env.mjs --dry-run
+
+      - name: Unit smoke (auth + modules)
+        run: npx tsx scripts/smoke-unit.ts
+
+      - name: Service verification chunks (A–I)
+        run: npm run verify:svc

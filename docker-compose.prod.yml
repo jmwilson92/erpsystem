@@ -12,10 +12,14 @@ services:
   forgerp:
     environment:
       DATABASE_URL: "file:/data/forgerp.db"
+      # Login required, no persona switcher
       DEMO_MODE: "0"
-      # Demo dataset on first boot so beta users land in a working system.
-      # Set to "0" for a clean instance you onboard via Setup Wizard.
-      SEED_ON_FIRST_BOOT: "1"
+      ALLOW_DEMO_IN_PRODUCTION: "0"
+      # Clean instance — onboard via Setup Wizard / Data Import.
+      # Flip to "1" if beta users should land in the demo dataset.
+      SEED_ON_FIRST_BOOT: "0"
+      # Public URL for invite links / QR codes
+      NEXT_PUBLIC_APP_URL: "${NEXT_PUBLIC_APP_URL:-https://${DOMAIN:-erp.example.com}}"
       RESEND_API_KEY: "${RESEND_API_KEY:-}"
       EMAIL_FROM: "${EMAIL_FROM:-}"
     ports: !override []

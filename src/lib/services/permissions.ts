@@ -1,22 +1,37 @@
 import { prisma } from "@/lib/db";
 import { PERMISSIONS } from "@/lib/auth";
 
+/** Skip re-running N inserts on every page view (process-local). */
+let catalogReady = false;
+let groupsReady = false;
+
+/**
+ * Ensure permission rows exist. Batch-insert missing only — sequential
+ * upserts of the full catalog were timing out SQLite under load.
+ */
 export async function ensurePermissionCatalog() {
-  for (const p of PERMISSIONS) {
-    await prisma.permission.upsert({
-      where: { code: p.code },
-      create: {
+  if (catalogReady) return;
+  const existing = await prisma.permission.findMany({
+    select: { code: true },
+  });
+  const have = new Set(existing.map((e) => e.code));
+  const missing = PERMISSIONS.filter((p) => !have.has(p.code));
+  if (missing.length) {
+    await prisma.permission.createMany({
+      data: missing.map((p) => ({
         code: p.code,
         name: p.name,
         module: p.module,
-      },
-      update: { name: p.name, module: p.module },
+      })),
     });
   }
+  catalogReady = true;
 }
 
 export async function ensureDefaultPermissionGroups() {
   await ensurePermissionCatalog();
+  if (groupsReady) return;
+
   const defaults: {
     code: string;
     name: string;
@@ -93,6 +108,12 @@ export async function ensureDefaultPermissionGroups() {
     },
   ];
 
+  // Preload all permission ids in one query
+  const allPerms = await prisma.permission.findMany({
+    select: { id: true, code: true },
+  });
+  const permByCode = new Map(allPerms.map((p) => [p.code, p.id]));
+
   for (const g of defaults) {
     const group = await prisma.permissionGroup.upsert({
       where: { code: g.code },
@@ -105,24 +126,33 @@ export async function ensureDefaultPermissionGroups() {
       update: { name: g.name },
     });
     for (const code of g.perms) {
-      const perm = await prisma.permission.findUnique({ where: { code } });
-      if (!perm) continue;
+      const permissionId = permByCode.get(code);
+      if (!permissionId) continue;
       await prisma.permissionGroupMember.upsert({
         where: {
           groupId_permissionId: {
             groupId: group.id,
-            permissionId: perm.id,
+            permissionId,
           },
         },
-        create: { groupId: group.id, permissionId: perm.id },
+        create: { groupId: group.id, permissionId },
         update: {},
       });
     }
   }
+  groupsReady = true;
 }
 
 export async function listPermissionGroups() {
-  await ensureDefaultPermissionGroups();
+  // Ensure only if groups look empty — avoid write storm on every list
+  const groupCount = await prisma.permissionGroup.count();
+  if (groupCount === 0 || !groupsReady) {
+    try {
+      await ensureDefaultPermissionGroups();
+    } catch (e) {
+      console.error("listPermissionGroups ensure", e);
+    }
+  }
   return prisma.permissionGroup.findMany({
     include: {
       permissions: { include: { permission: true } },

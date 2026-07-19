@@ -10,6 +10,7 @@ import {
   actionCreateManualShipment,
 } from "@/app/actions";
 import Link from "next/link";
+import { ActionLoadingForm } from "@/components/layout/action-loading";
 
 export const dynamic = "force-dynamic";
 
@@ -76,7 +77,12 @@ export default async function ShippingPage() {
           </p>
         </CardHeader>
         <CardContent>
-          <form action={actionCreateManualShipment} className="space-y-3">
+          <ActionLoadingForm
+            theme="creating"
+            title="Creating shipment"
+            action={actionCreateManualShipment}
+            className="space-y-3"
+          >
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <label className="text-[10px] uppercase text-slate-500">
@@ -174,7 +180,7 @@ export default async function ShippingPage() {
             <Button type="submit" size="sm">
               Create shipping order
             </Button>
-          </form>
+          </ActionLoadingForm>
         </CardContent>
       </Card>
 
@@ -236,12 +242,12 @@ export default async function ShippingPage() {
                         </Button>
                       </Link>
                     ) : (
-                      <form action={actionQueueShipment}>
+                      <ActionLoadingForm theme="shipping" action={actionQueueShipment}>
                         <input type="hidden" name="salesOrderId" value={so.id} />
                         <Button type="submit" size="sm" variant="outline">
                           Queue packing list
                         </Button>
-                      </form>
+                      </ActionLoadingForm>
                     )}
                   </div>
                 </div>

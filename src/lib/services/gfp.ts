@@ -546,7 +546,12 @@ export async function decideGfpConsumption(params: {
     where: { id: params.approvedById },
   });
   if (!approver) throw new Error("Approver not found");
-  const expectedPin = approver.pinCode || "1234";
+  if (!approver.pinCode?.trim()) {
+    throw new Error(
+      "Approver has no PIN configured — set a PIN before approving"
+    );
+  }
+  const expectedPin = approver.pinCode.trim();
   if (!params.pinCode || params.pinCode.trim() !== expectedPin) {
     throw new Error("Invalid PIN — approval not recorded");
   }

@@ -15,6 +15,28 @@ import { userHasPermission } from "@/lib/auth";
 
 const DEFAULT_LABOR_RATE = 65; // $/hr for shop/overhead time without a rate
 
+async function laborRateForUser(userId: string): Promise<number> {
+  try {
+    const { resolveUserLaborRate } = await import("@/lib/services/budgets");
+    return resolveUserLaborRate(userId);
+  } catch {
+    return DEFAULT_LABOR_RATE;
+  }
+}
+
+async function budgetIdForChargeCode(
+  code: string | null | undefined
+): Promise<string | null> {
+  if (!code) return null;
+  try {
+    const { findBudgetByChargeCode } = await import("@/lib/services/budgets");
+    const b = await findBudgetByChargeCode(code);
+    return b?.id || null;
+  } catch {
+    return null;
+  }
+}
+
 export type Holiday = { date: string; name: string };
 
 export async function getPayrollPolicy() {
@@ -528,13 +550,16 @@ export async function saveTimecardGrid(params: {
   await prisma.timeEntry.deleteMany({
     where: { timesheetId: sheet.id, status: "DRAFT" },
   });
+  const rate = await laborRateForUser(sheet.userId);
   for (const c of creates) {
+    const budgetId = await budgetIdForChargeCode(c.chargeCode);
     await prisma.timeEntry.create({
       data: {
         userId: sheet.userId,
         timesheetId: sheet.id,
         status: "DRAFT",
-        laborRate: DEFAULT_LABOR_RATE,
+        laborRate: rate,
+        budgetId,
         ...c,
       },
     });
@@ -574,8 +599,13 @@ async function departmentManagerFor(
 
 /**
  * Build the routed approval buckets for a submitted sheet:
- * PROJECT (per project) -> the project's PM; DIRECT (per department)
- * -> that department's manager; HR (sick/holiday/PTO/overhead) -> HR.
+ * BUDGET (per enacted charge code) -> budget owner;
+ * PROJECT (per project, no budget) -> PM;
+ * DIRECT (per department) -> department manager;
+ * HR (sick/holiday/PTO/overhead without budget) -> HR.
+ *
+ * A single period can produce multiple buckets when the worker charged
+ * several budgets / projects / departments.
  */
 async function buildApprovalBuckets(sheetId: string) {
   const sheet = await prisma.timesheet.findUniqueOrThrow({
@@ -587,6 +617,15 @@ async function buildApprovalBuckets(sheetId: string) {
           workOrder: { select: { number: true, department: true } },
           project: {
             select: { id: true, number: true, projectManagerId: true },
+          },
+          budget: {
+            select: {
+              id: true,
+              number: true,
+              name: true,
+              chargeCode: true,
+              ownerId: true,
+            },
           },
           engTask: {
             select: {
@@ -625,7 +664,42 @@ async function buildApprovalBuckets(sheetId: string) {
       })
     )?.id || sheet.user.managerId;
 
+  // Resolve budget ids from charge codes when not already set
   for (const e of sheet.entries) {
+    if (!e.budgetId && e.chargeCode) {
+      const b = await budgetIdForChargeCode(e.chargeCode);
+      if (b) {
+        (e as { budgetId: string | null }).budgetId = b;
+        const full = await prisma.budget.findUnique({
+          where: { id: b },
+          select: {
+            id: true,
+            number: true,
+            name: true,
+            chargeCode: true,
+            ownerId: true,
+          },
+        });
+        (e as { budget: typeof full }).budget = full;
+      }
+    }
+  }
+
+  for (const e of sheet.entries) {
+    // Budget charge wins — owner approves that slice of the period
+    if (e.budgetId && e.budget) {
+      add(
+        `B:${e.budgetId}`,
+        {
+          category: "BUDGET",
+          refId: e.budgetId,
+          label: `Budget ${e.budget.number}${e.budget.chargeCode ? ` · ${e.budget.chargeCode}` : ""} — ${e.budget.name}`,
+          approverId: e.budget.ownerId || sheet.user.managerId,
+        },
+        e.hours
+      );
+      continue;
+    }
     if (HR_TYPES.includes(e.type)) {
       add(
         "HR",
@@ -649,8 +723,6 @@ async function buildApprovalBuckets(sheetId: string) {
         e.hours
       );
     } else if (e.engTaskId && e.engTask) {
-      // Engineering task time with no work order/project of its own — route
-      // to the task's project PM if it has one, else the engineer's manager.
       const proj = e.engTask.project;
       if (proj) {
         add(
@@ -680,7 +752,6 @@ async function buildApprovalBuckets(sheetId: string) {
     } else {
       const dept =
         e.workOrder?.department || sheet.user.department || "GENERAL";
-      // Resolved below (needs a query per distinct department)
       add(
         `D:${dept}`,
         {
@@ -732,22 +803,38 @@ async function finalizeApprovedTimesheet(sheetId: string) {
           cls.doubletime * policy.dtMultiplier) /
         worked
       : 1;
+  const userRate = await laborRateForUser(sheet.userId);
   for (const e of sheet.entries) {
-    const rate = e.laborRate || DEFAULT_LABOR_RATE;
+    const rate = e.laborRate || userRate || DEFAULT_LABOR_RATE;
     const mult = WORKED_TYPES.includes(e.type) ? blend : 1;
+    let budgetId = e.budgetId;
+    if (!budgetId && e.chargeCode) {
+      budgetId = await budgetIdForChargeCode(e.chargeCode);
+    }
     await prisma.timeEntry.update({
       where: { id: e.id },
       data: {
         status: "APPROVED",
         laborRate: rate,
         costAmount: Math.round(e.hours * rate * mult * 100) / 100,
+        ...(budgetId ? { budgetId } : {}),
       },
     });
   }
-  return prisma.timesheet.update({
+  const updated = await prisma.timesheet.update({
     where: { id: sheetId },
     data: { status: "APPROVED", approvedAt: new Date() },
   });
+  // Roll approved labor into enacted budgets + accounting
+  try {
+    const { postTimesheetBudgetCharges } = await import(
+      "@/lib/services/budgets"
+    );
+    await postTimesheetBudgetCharges(sheetId);
+  } catch {
+    /* non-fatal */
+  }
+  return updated;
 }
 
 /** Decide one routed approval bucket. */

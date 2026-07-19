@@ -8,8 +8,14 @@ export const DEMO_USER_COOKIE = "forge-demo-user";
  *  1. Real login session (email+password → HttpOnly cookie) always wins.
  *  2. DEMO_MODE (default on): the sidebar persona switcher cookie, then
  *     DEMO_USER_ROLE. Set DEMO_MODE=0 in production to require login.
+ *
+ * `roleHint` is **deprecated and ignored** for identity. Call sites that
+ * used getCurrentUser("CM") used to impersonate a random user of that
+ * role in demo mode (wrong audit trail). Use requirePermission() instead.
  */
+// roleHint kept for call-site compatibility; intentionally unused
 export async function getCurrentUser(roleHint?: string) {
+  void roleHint;
   // 1. Real session
   try {
     const { getSessionUser } = await import("./auth-core");
@@ -22,9 +28,7 @@ export async function getCurrentUser(roleHint?: string) {
   // 2. Demo fallback (evaluation / test-drive) — off when DEMO_MODE=0
   if (process.env.DEMO_MODE === "0") return null;
 
-  // The active persona always wins — roleHint is only a fallback for
-  // when no persona has been chosen, never an override of it. (Otherwise
-  // e.g. sign-offs get attributed to the first user of the hinted role.)
+  // Persona switcher cookie first (never skip for a role hint)
   try {
     const jar = await cookies();
     const demoId = jar.get(DEMO_USER_COOKIE)?.value;
@@ -35,9 +39,10 @@ export async function getCurrentUser(roleHint?: string) {
       if (byCookie?.isActive) return byCookie;
     }
   } catch {
-    // outside a request scope (scripts) — fall through to role lookup
+    // outside a request scope (scripts) — fall through
   }
-  const role = roleHint || process.env.DEMO_USER_ROLE || "ADMIN";
+
+  const role = process.env.DEMO_USER_ROLE || "ADMIN";
   const user = await prisma.user.findFirst({
     where: { role, isActive: true },
   });
@@ -170,6 +175,11 @@ const ACTION_PERMISSIONS: { code: string; name: string; module: string }[] = [
   { code: "quality.ncr.manage", name: "Manage NCRs", module: "quality" },
   { code: "mrb.disposition", name: "Disposition MRB cases", module: "mrb" },
   { code: "mrb.car.manage", name: "Manage CARs", module: "mrb" },
+  { code: "rma.view", name: "View RMAs", module: "quality" },
+  { code: "rma.create", name: "Create RMA requests", module: "quality" },
+  { code: "rma.issue", name: "Issue / approve RMAs", module: "quality" },
+  { code: "rma.adjust_price", name: "Adjust RMA repair quote price", module: "quality" },
+  { code: "serials.manage", name: "Install/remove serial as-built", module: "work-orders" },
   { code: "gfp.manage", name: "Manage government property", module: "government-property" },
   // Programs & business
   { code: "leadership.priority.read", name: "Read business priorities", module: "leadership" },
@@ -178,6 +188,7 @@ const ACTION_PERMISSIONS: { code: string; name: string; module: string }[] = [
   { code: "pmo.project.manage", name: "Manage projects", module: "pmo" },
   { code: "pmo.quarter.manage", name: "Manage PI quarters/sprints", module: "pmo" },
   { code: "pmo.alerts.read", name: "Read PM dependency alerts", module: "pmo" },
+  { code: "budgets.manage", name: "Create / enact budgets & charge codes", module: "pmo" },
   { code: "accounting.journal.post", name: "Post journal entries", module: "accounting" },
   { code: "accounting.reports.read", name: "View GAAP reports", module: "accounting" },
   { code: "accounting.account.create", name: "Create GL accounts", module: "accounting" },
@@ -349,7 +360,15 @@ export async function userHasPermission(
 
   // Action defaults per role (companies override via groups/grants)
   const roleDefaults: Record<string, string[]> = {
-    PM: ["pmo.alerts.read", "pmo.project.manage", "pmo.program.manage", "pmo.quarter.manage", "leadership.priority.read"],
+    PM: [
+      "pmo.alerts.read",
+      "pmo.project.manage",
+      "pmo.program.manage",
+      "pmo.quarter.manage",
+      "budgets.manage",
+      "purchasing.pr.create",
+      "leadership.priority.read",
+    ],
     EXECUTIVE: [
       "leadership.priority.manage",
       "leadership.priority.read",
@@ -368,13 +387,54 @@ export async function userHasPermission(
       "cm.vote",
       "wi.create",
       "wi.edit",
+      "purchasing.pr.create",
       "leadership.priority.read",
     ],
-    CM: ["cm.ecr.create", "cm.ecr.manage", "cm.vote", "wi.release", "products.manage"],
-    QUALITY: ["qa.inspect", "test.record", "quality.ncr.create", "quality.ncr.manage", "mrb.disposition", "mrb.car.manage"],
+    CM: [
+      "cm.ecr.create",
+      "cm.ecr.manage",
+      "cm.vote",
+      "wi.release",
+      "bom.certify",
+      "products.manage",
+    ],
     PURCHASING: ["purchasing.pr.create", "purchasing.pr.approve", "purchasing.po.convert", "purchasing.po.close", "receiving.receive", "receiving.putaway", "suppliers.manage", "suppliers.scorecard.refresh"],
-    PRODUCTION: ["workorders.create", "workorders.status.update", "workorders.signoff", "workorders.complete", "kitting.create", "kitting.complete", "workcenters.manage", "inventory.putaway"],
-    OPERATOR: ["workorders.signoff", "kitting.complete", "test.record"],
+    PRODUCTION: [
+      "workorders.create",
+      "workorders.status.update",
+      "workorders.signoff",
+      "workorders.complete",
+      "kitting.create",
+      "kitting.complete",
+      "workcenters.manage",
+      "inventory.putaway",
+      "sales.order.ship",
+      "receiving.receive",
+      "receiving.putaway",
+      "serials.manage",
+      "purchasing.pr.create",
+      "rma.view",
+      "rma.create",
+    ],
+    QUALITY: [
+      "qa.inspect",
+      "test.record",
+      "quality.ncr.create",
+      "quality.ncr.manage",
+      "mrb.disposition",
+      "mrb.car.manage",
+      "rma.view",
+      "rma.create",
+      "rma.issue",
+      "rma.adjust_price",
+      "serials.manage",
+    ],
+    OPERATOR: [
+      "workorders.signoff",
+      "kitting.complete",
+      "test.record",
+      "serials.manage",
+    ],
     HR: ["hr.admin", "hr.pto.request", "hr.pto.decide", "hr.time.decide", "hr.expense.decide", "hr.review.manage", "hr.goal.manage", "hr.docs.manage", "admin.users.manage"],
     ADMIN: PERMISSIONS.map((p) => p.code),
   };
@@ -403,15 +463,27 @@ export async function userCanSeeFinancials(
   return userHasPermission(userId, "accounting.reports.read");
 }
 
+/** Require a signed-in user (session or demo persona). */
+export async function requireUser(roleHint?: string) {
+  const user = await getCurrentUser(roleHint);
+  if (!user) {
+    throw new Error("Sign in required");
+  }
+  return user;
+}
+
+/**
+ * Hard gate for mutating server actions.
+ * ADMIN always passes (via userHasPermission). Everyone else needs an
+ * explicit grant / group / role default. Throws on deny — never soft-falls.
+ */
 export async function requirePermission(
   permissionCode: string,
   roleHint?: string
 ) {
-  const user = await getCurrentUser(roleHint);
-  const ok = await userHasPermission(user?.id, permissionCode);
-  if (!ok && user?.role !== "ADMIN") {
-    // Soft gate in demo: allow ADMIN via role; others need grant
-    if (user?.role === "ADMIN") return user;
+  const user = await requireUser(roleHint);
+  const ok = await userHasPermission(user.id, permissionCode);
+  if (!ok) {
     throw new Error(`Permission denied: ${permissionCode}`);
   }
   return user;

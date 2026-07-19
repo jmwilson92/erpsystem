@@ -4,10 +4,12 @@ import { useState, useTransition } from "react";
 import { actionConvertPrToPo } from "@/app/actions";
 import { Button } from "@/components/ui/button";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
+import { useActionLoading } from "@/components/layout/action-loading";
 
 export function ConvertPrToPoButton({ prId }: { prId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const { start: startLoading, stop: stopLoading } = useActionLoading();
 
   return (
     <div className="space-y-1">
@@ -20,6 +22,7 @@ export function ConvertPrToPoButton({ prId }: { prId: string }) {
           setError(null);
           const fd = new FormData();
           fd.set("id", prId);
+          startLoading("purchasing");
           startTransition(async () => {
             try {
               await actionConvertPrToPo(fd);
@@ -28,6 +31,7 @@ export function ConvertPrToPoButton({ prId }: { prId: string }) {
                 // Successful convert redirects to PO detail
                 return;
               }
+              stopLoading();
               setError(
                 e instanceof Error
                   ? e.message

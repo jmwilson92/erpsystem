@@ -8,6 +8,7 @@ import {
   Factory,
   ClipboardList,
   FileText,
+  FileInput,
   Boxes,
   ShoppingCart,
   ShoppingBag,
@@ -39,8 +40,8 @@ import {
   FileSpreadsheet,
   Wallet,
   SlidersHorizontal,
-  Barcode,
-  Undo2,
+  RotateCcw,
+  ScanBarcode,
   type LucideIcon,
 } from "lucide-react";
 
@@ -92,6 +93,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/workcenters", label: "Workcenters", icon: Factory, keywords: ["machines", "cells", "capacity"] },
       { href: "/kitting", label: "Kitting", icon: Boxes, keywords: ["pick", "stage", "shortage"] },
       { href: "/planning", label: "Planning & MRP", icon: LineChart, keywords: ["forecast", "mrs", "capacity", "demand"] },
+      { href: "/budgets", label: "Budgets", icon: Landmark, keywords: ["budget", "charge code", "direct", "indirect", "enact"] },
     ],
   },
   {
@@ -109,7 +111,8 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Supply Chain",
     items: [
       { href: "/items", label: "Items", icon: Package, keywords: ["item master", "part number", "item cards"] },
-      { href: "/purchasing", label: "Purchasing", icon: ShoppingCart, keywords: ["pr", "po", "requisition", "buy"] },
+      { href: "/purchasing", label: "Purchasing", icon: ShoppingCart, keywords: ["pr", "po", "requisition", "buy", "purchase request"] },
+      { href: "/purchasing/pr/new", label: "New PR", icon: FileInput, keywords: ["purchase request", "standalone pr", "buy", "requisition"] },
       { href: "/receiving", label: "Receiving", icon: PackageCheck, keywords: ["dock", "inspection", "gfp", "traveler"] },
       { href: "/suppliers", label: "Suppliers / ASL", icon: Award, keywords: ["vendor", "scorecard", "approved supplier"] },
       { href: "/inventory", label: "Inventory", icon: Package, keywords: ["stock", "bins", "kanban", "quarantine"] },
@@ -127,13 +130,8 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/quality", label: "NCR / Quality", icon: AlertTriangle, keywords: ["nonconformance", "yield", "trend"] },
       { href: "/mrb", label: "MRB", icon: FileWarning, keywords: ["material review board", "disposition"] },
       { href: "/mrb?view=cars", label: "CAR", icon: FileWarning, keywords: ["corrective action", "8d", "root cause"] },
-    ],
-  },
-  {
-    label: "Serialization & RMA",
-    items: [
-      { href: "/serialization", label: "Serial Registry", icon: Barcode, keywords: ["serial number", "genealogy", "as-built", "traceability", "unit"] },
-      { href: "/rma", label: "RMA / Returns", icon: Undo2, keywords: ["return", "customer return", "rma", "warranty"] },
+      { href: "/rma", label: "RMA", icon: RotateCcw, keywords: ["return", "warranty", "repair", "customer return"] },
+      { href: "/trace/serials", label: "Serial trace", icon: ScanBarcode, keywords: ["as-built", "genealogy", "serial number", "sn tree"] },
     ],
   },
   {

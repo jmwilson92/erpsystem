@@ -1,6 +1,12 @@
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { seedStepAssignments } from "@/lib/services/workcenters";
+import {
+  backSchedule,
+  estimateMinutesForWorkInstructions,
+  forwardSchedule,
+  KIT_BUFFER_MINUTES,
+} from "@/lib/services/schedule";
 
 export type WorkOrderSourceType =
   | "SALES_ORDER"
@@ -80,11 +86,18 @@ export async function createWorkOrder(params: {
   salesOrderLineId?: string;
   salesOrderRef?: string;
   materialRequisitionId?: string;
+  /** Customer RMA repair WO (no sales order) */
+  rmaId?: string;
+  quoteId?: string;
   sourceType?: WorkOrderSourceType;
   travelerNotes?: string;
   /** BACKLOG | PLANNED | RELEASED (default PLANNED) */
   status?: string;
   businessPriorityId?: string;
+  /** BACK | FORWARD — default BACK when dueDate set, else FORWARD */
+  scheduleMode?: "BACK" | "FORWARD" | "MANUAL";
+  parentWorkOrderId?: string;
+  scheduleOffsetMinutes?: number;
 }) {
   const type = params.type || (params.bomHeaderId || params.partId ? "PRODUCTION" : "TASK_ONLY");
   const sourceType = resolveWorkOrderSource({
@@ -144,22 +157,45 @@ export async function createWorkOrder(params: {
     wiIds = linked.map((w) => w.id);
   }
 
-  let estimatedMinutes = 0;
-  if (wiIds.length) {
-    const steps = await prisma.workInstructionStep.findMany({
-      where: { workInstructionId: { in: wiIds } },
-    });
-    estimatedMinutes = steps.reduce((s, st) => s + (st.estimatedMinutes || 30), 0);
-  }
-  // kit + buffer
-  estimatedMinutes = Math.round(estimatedMinutes * (params.quantity || 1) + 60);
+  const estBreakdown = await estimateMinutesForWorkInstructions(
+    wiIds,
+    params.quantity || 1
+  );
+  let estimatedMinutes = estBreakdown.estimatedMinutes;
+  if (estimatedMinutes <= 0) estimatedMinutes = KIT_BUFFER_MINUTES;
 
   const dueDate = params.dueDate;
   let plannedEnd = params.plannedEnd;
   let plannedStart = params.plannedStart;
-  if (dueDate && !plannedEnd) plannedEnd = dueDate;
-  if (plannedEnd && !plannedStart) {
-    plannedStart = new Date(plannedEnd.getTime() - estimatedMinutes * 60 * 1000);
+  let scheduleMode = params.scheduleMode || null;
+  let scheduleRisk: string | null = null;
+
+  if (!plannedStart || !plannedEnd) {
+    if (
+      (params.scheduleMode === "FORWARD" || (!dueDate && !params.scheduleMode)) &&
+      !params.plannedStart
+    ) {
+      const fwd = await forwardSchedule({
+        startDate: params.plannedStart || new Date(),
+        estimatedMinutes,
+        dueDate: dueDate || null,
+        workCenter: params.workCenter,
+      });
+      plannedStart = plannedStart || fwd.plannedStart;
+      plannedEnd = plannedEnd || fwd.plannedEnd;
+      scheduleMode = "FORWARD";
+      scheduleRisk = fwd.scheduleRisk;
+    } else if (dueDate || plannedEnd) {
+      const back = await backSchedule({
+        dueDate: (dueDate || plannedEnd) as Date,
+        estimatedMinutes,
+        workCenter: params.workCenter,
+      });
+      plannedEnd = plannedEnd || back.plannedEnd;
+      plannedStart = plannedStart || back.plannedStart;
+      scheduleMode = scheduleMode || "BACK";
+      scheduleRisk = back.scheduleRisk;
+    }
   }
 
   const number = await nextWorkOrderNumber(workOrderPrefix(sourceType));
@@ -218,6 +254,8 @@ export async function createWorkOrder(params: {
       salesOrderLineId: params.salesOrderLineId,
       salesOrderRef: params.salesOrderRef,
       materialRequisitionId: params.materialRequisitionId || null,
+      rmaId: params.rmaId || null,
+      quoteId: params.quoteId || null,
       businessPriorityId: params.businessPriorityId || null,
       workCenter: params.workCenter,
       department: params.department,
@@ -228,6 +266,12 @@ export async function createWorkOrder(params: {
       plannedStart,
       plannedEnd,
       estimatedMinutes,
+      scheduleMode,
+      scheduleRisk,
+      estimateSource: estBreakdown.source,
+      estimateUpdatedAt: new Date(),
+      parentWorkOrderId: params.parentWorkOrderId || null,
+      scheduleOffsetMinutes: params.scheduleOffsetMinutes ?? null,
       kitStatus: "NOT_STARTED",
       standardCost,
       travelerNotes,
@@ -315,7 +359,7 @@ export async function ensureWorkOrderTravelerSteps(params: {
   });
   if (!wo) throw new Error("Work order not found");
 
-  const wiIds = wo.instructions.map((i) => i.workInstructionId);
+  const wiIds: string[] = wo.instructions.map((i) => i.workInstructionId);
 
   // Attach released WI for the part if none linked
   if (wiIds.length === 0 && wo.partId) {
@@ -400,11 +444,13 @@ export async function ensureWorkOrderTravelerSteps(params: {
 
 /**
  * Start floor work on a traveler — moves to IN_PROGRESS and ensures WI steps exist.
- * Allowed from KITTED, RELEASED, READY_TO_KIT (or kitStatus KITTED).
+ * Production WOs require kit complete (KITTED) unless type is PROTOTYPE/TASK.
  */
 export async function startWorkOrderProduction(params: {
   workOrderId: string;
   userId?: string;
+  /** Explicit override for admin rework — still logs audit via caller */
+  allowWithoutKit?: boolean;
 }) {
   const wo = await prisma.workOrder.findUnique({
     where: { id: params.workOrderId },
@@ -417,10 +463,23 @@ export async function startWorkOrderProduction(params: {
     "READY_TO_KIT",
     "IN_PROGRESS",
   ]);
-  const kitOk = wo.kitStatus === "KITTED";
-  if (!allowed.has(wo.status) && !kitOk) {
+  if (!allowed.has(wo.status) && wo.kitStatus !== "KITTED") {
     throw new Error(
       `Cannot start production from status ${wo.status}. Release the WO or complete kitting first.`
+    );
+  }
+
+  const needsKit =
+    wo.type === "PRODUCTION" ||
+    wo.type === "REWORK" ||
+    (!wo.type && wo.partId);
+  if (
+    needsKit &&
+    wo.kitStatus !== "KITTED" &&
+    !params.allowWithoutKit
+  ) {
+    throw new Error(
+      "Complete kitting (kit status KITTED) before starting production"
     );
   }
 
@@ -519,7 +578,12 @@ export async function signOffStep(params: {
 }) {
   const user = await prisma.user.findUnique({ where: { id: params.userId } });
   if (!user) throw new Error("User not found");
-  const expectedPin = user.pinCode || "1234";
+  if (!user.pinCode?.trim()) {
+    throw new Error(
+      "Your account has no PIN configured — ask HR/admin to set one before signing"
+    );
+  }
+  const expectedPin = user.pinCode.trim();
   if (!params.pinCode || params.pinCode.trim() !== expectedPin) {
     throw new Error("Invalid PIN — sign-off not recorded");
   }

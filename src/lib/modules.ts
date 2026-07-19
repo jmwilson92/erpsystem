@@ -66,15 +66,24 @@ export const MODULES: ModuleDef[] = [
   {
     key: "quality",
     label: "Quality & Compliance",
-    description: "QA inspection, test center, test procedures, NCR, MRB / CAR",
-    prefixes: ["/qa", "/test-center", "/test-procedures", "/quality", "/mrb"],
+    description:
+      "QA inspection, test center, test procedures, NCR, MRB / CAR, RMA, serial trace",
+    prefixes: [
+      "/qa",
+      "/test-center",
+      "/test-procedures",
+      "/quality",
+      "/mrb",
+      "/rma",
+      "/trace",
+    ],
   },
   {
     key: "serialization",
     label: "Serialization & RMA",
     description:
       "Per-unit serial genealogy (as-built) and customer returns (RMA)",
-    prefixes: ["/serialization", "/rma"],
+    prefixes: ["/trace/serials", "/rma"],
   },
   {
     key: "accounting",
@@ -91,8 +100,8 @@ export const MODULES: ModuleDef[] = [
   {
     key: "pmo",
     label: "Programs & PMO",
-    description: "Programs, PMO, PI planning, leadership",
-    prefixes: ["/pmo", "/leadership"],
+    description: "Programs, PMO, PI planning, leadership, project budgets",
+    prefixes: ["/pmo", "/leadership", "/budgets"],
   },
 ];
 

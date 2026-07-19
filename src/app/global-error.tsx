@@ -1,8 +1,8 @@
 "use client";
 
 /**
- * Root-layout error boundary. Rendered when the layout itself fails, so
- * it must ship its own <html>/<body> and inline styles (no app CSS).
+ * Root-level error UI (replaces root layout when it crashes).
+ * Keep styling self-contained — layout may not mount.
  */
 export default function GlobalError({
   error,
@@ -22,35 +22,54 @@ export default function GlobalError({
           justifyContent: "center",
           background: "#020617",
           color: "#e2e8f0",
-          fontFamily: "system-ui, sans-serif",
-          textAlign: "center",
+          fontFamily:
+            "ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif",
+          padding: 24,
         }}
       >
-        <div style={{ maxWidth: 420, padding: 32 }}>
-          <p style={{ fontSize: 48, margin: 0 }}>🔧</p>
-          <h1 style={{ fontSize: 20, margin: "16px 0 8px" }}>
-            Something broke on our side
+        <div style={{ maxWidth: 420, textAlign: "center" }}>
+          <p
+            style={{
+              fontSize: 11,
+              letterSpacing: "0.2em",
+              textTransform: "uppercase",
+              color: "#fb7185",
+              fontWeight: 600,
+            }}
+          >
+            ForgeRP
+          </p>
+          <h1 style={{ fontSize: 20, margin: "12px 0" }}>
+            Application error
           </h1>
           <p style={{ fontSize: 14, color: "#94a3b8", lineHeight: 1.5 }}>
-            The app hit an unexpected error. Your data is safe — reload the
-            page, and if it keeps happening quote the reference below to
-            support.
+            The shell failed to render. Reload the page. If this persists,
+            check server logs and{" "}
+            <code style={{ color: "#5eead4" }}>/api/health</code>.
           </p>
           {error.digest && (
-            <p style={{ fontFamily: "monospace", fontSize: 12, color: "#64748b" }}>
-              Reference: {error.digest}
+            <p
+              style={{
+                fontFamily: "ui-monospace, monospace",
+                fontSize: 11,
+                color: "#475569",
+                marginTop: 12,
+              }}
+            >
+              ref {error.digest}
             </p>
           )}
           <button
+            type="button"
             onClick={() => reset()}
             style={{
-              marginTop: 16,
-              padding: "8px 20px",
+              marginTop: 20,
+              padding: "8px 14px",
               borderRadius: 8,
-              border: "1px solid #334155",
-              background: "#0ea5e9",
-              color: "#fff",
-              fontSize: 14,
+              border: "none",
+              background: "#0d9488",
+              color: "white",
+              fontWeight: 600,
               cursor: "pointer",
             }}
           >

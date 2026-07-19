@@ -318,7 +318,12 @@ export async function recordTestStepSignOff(params: {
     where: { id: params.userId },
     select: { pinCode: true },
   });
-  const expectedPin = user.pinCode || "1234";
+  if (!user.pinCode?.trim()) {
+    throw new Error(
+      "Your account has no PIN configured — ask HR/admin to set one before signing"
+    );
+  }
+  const expectedPin = user.pinCode.trim();
   if (!params.pinCode || params.pinCode.trim() !== expectedPin) {
     throw new Error("PIN verification failed");
   }
