@@ -1,0 +1,7 @@
+{$DOMAIN} {
+	reverse_proxy forgerp:3000
+	encode gzip
+
+	# App already sets security headers; Caddy handles TLS + HSTS preload.
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+}

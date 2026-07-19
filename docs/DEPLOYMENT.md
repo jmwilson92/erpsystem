@@ -67,8 +67,47 @@ Environment variables:
 | Variable | Purpose | Default |
 | --- | --- | --- |
 | `DATABASE_URL` | `file:` path or Postgres URL | `file:./prisma/dev.db` |
+| `DEMO_MODE` | `0` = require real login (production); unset = demo personas | unset |
 | `SEED_ON_FIRST_BOOT` | Docker only — demo data on first boot | `1` |
+| `RESEND_API_KEY` | Optional — deliver invites / PO / quote e-mail via Resend | unset |
+| `EMAIL_FROM` | From address for outbound e-mail (a domain verified in Resend) | `<company>@erp.local` |
 | `XAI_API_KEY` | Optional — upgrades the AI Assistant | unset |
+
+---
+
+## Go live on a VM with HTTPS (recommended beta path)
+
+One small VM (Hetzner / DigitalOcean / Lightsail), Docker installed
+(Compose v2.24+), and a domain pointed at it:
+
+```bash
+git clone <your-repo> forgerp && cd forgerp
+echo "DOMAIN=erp.example.com" > .env
+# optional real e-mail delivery:
+# echo "RESEND_API_KEY=re_..." >> .env
+# echo "EMAIL_FROM=erp@example.com" >> .env
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+```
+
+That's the whole deploy: Caddy terminates HTTPS (certificates are
+fetched and renewed automatically), the app runs with `DEMO_MODE=0`
+(real login), and the first visit shows **"claim this instance"** where
+you create the admin account. Invite everyone else from
+**Admin → Roles & Permissions** — invite links are e-mailed when Resend
+is configured, and always visible in the Email Center either way.
+
+**Backups:** schedule the bundled script on the host —
+
+```bash
+crontab -e
+# 15 2 * * * /path/to/forgerp/scripts/backup-db.sh
+```
+
+It takes a consistent online copy nightly into `./backups/` and keeps
+30 days. Copy that directory off-box (rsync/rclone) for real safety.
+
+**Monitoring:** point a free uptime checker (UptimeRobot etc.) at
+`https://erp.example.com/api/health`.
 
 ---
 
@@ -85,8 +124,9 @@ database file first as a habit.
 
 ## Going to production — checklist
 
-- [ ] Replace demo auth with a real provider (see `SECURITY.md`)
-- [ ] Front with HTTPS (reverse proxy or platform TLS)
-- [ ] Set `SEED_ON_FIRST_BOOT=0` / start from the Setup Wizard
-- [ ] Schedule database file backups
+- [ ] `DEMO_MODE=0` (built-in e-mail + password auth; the prod compose overlay sets it)
+- [ ] Front with HTTPS (the `docker-compose.prod.yml` + Caddy path does this automatically)
+- [ ] Decide `SEED_ON_FIRST_BOOT` — demo data for beta testers, or `0` + Setup Wizard
+- [ ] Schedule `scripts/backup-db.sh` in cron
+- [ ] Optional: `RESEND_API_KEY` + `EMAIL_FROM` for real invite delivery
 - [ ] Review role permissions under **Admin → Roles & Permissions**

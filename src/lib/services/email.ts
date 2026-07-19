@@ -1,10 +1,11 @@
 /**
  * Email integration — outbound composing/sending and inbound parsing.
  *
- * Transport: when SMTP_URL is configured a real transport would be
- * plugged in here; without it messages are logged and marked SENT so
- * the whole flow (compose → send → log → entity link) works end-to-end
- * in demo/self-host mode.
+ * Transport: set RESEND_API_KEY (and EMAIL_FROM, e.g. "erp@yourdomain.com")
+ * to deliver for real via the Resend HTTP API — no SDK needed. Without a
+ * key, messages are logged to the Email Center and marked SENT so the
+ * whole flow (compose → send → log → entity link) still works and invite
+ * links can be copied from there.
  */
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
@@ -25,13 +26,15 @@ export async function sendEmail(params: {
   const company = await prisma.companySettings.findUnique({
     where: { id: "default" },
   });
-  const fromAddr = `${(company?.name || "ForgeRP").toLowerCase().replace(/[^a-z0-9]+/g, ".")}@erp.local`;
+  const apiKey = process.env.RESEND_API_KEY;
+  const fromAddr =
+    process.env.EMAIL_FROM ||
+    `${(company?.name || "ForgeRP").toLowerCase().replace(/[^a-z0-9]+/g, ".")}@erp.local`;
 
-  const hasTransport = Boolean(process.env.SMTP_URL);
   const msg = await prisma.emailMessage.create({
     data: {
       direction: "OUTBOUND",
-      status: hasTransport ? "QUEUED" : "SENT",
+      status: apiKey ? "QUEUED" : "SENT",
       fromAddr,
       toAddr: params.to.trim(),
       subject: params.subject.trim(),
@@ -39,13 +42,45 @@ export async function sendEmail(params: {
       entityType: params.entityType || null,
       entityId: params.entityId || null,
       entityLabel: params.entityLabel || null,
-      sentAt: hasTransport ? null : new Date(),
+      sentAt: apiKey ? null : new Date(),
       createdById: params.userId || null,
     },
   });
 
-  // Real transport hook: deliver via SMTP_URL then update status/sentAt.
-  // Kept out of the demo path deliberately — see docs/DEPLOYMENT.md.
+  if (apiKey) {
+    try {
+      const resp = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from: fromAddr,
+          to: [msg.toAddr],
+          subject: msg.subject,
+          text: msg.body,
+        }),
+      });
+      if (!resp.ok) {
+        throw new Error(`Resend ${resp.status}: ${(await resp.text()).slice(0, 300)}`);
+      }
+      await prisma.emailMessage.update({
+        where: { id: msg.id },
+        data: { status: "SENT", sentAt: new Date() },
+      });
+    } catch (err) {
+      // Delivery failure never breaks the calling flow — the message stays
+      // in the Email Center with the error, links can be shared manually.
+      await prisma.emailMessage.update({
+        where: { id: msg.id },
+        data: {
+          status: "FAILED",
+          error: err instanceof Error ? err.message : "Delivery failed",
+        },
+      });
+    }
+  }
 
   await logAudit({
     entityType: "EmailMessage",
