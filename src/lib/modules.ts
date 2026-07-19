@@ -70,6 +70,13 @@ export const MODULES: ModuleDef[] = [
     prefixes: ["/qa", "/test-center", "/test-procedures", "/quality", "/mrb"],
   },
   {
+    key: "serialization",
+    label: "Serialization & RMA",
+    description:
+      "Per-unit serial genealogy (as-built) and customer returns (RMA)",
+    prefixes: ["/serialization", "/rma"],
+  },
+  {
     key: "accounting",
     label: "Accounting",
     description: "General ledger, AR / AP, payroll, banking",

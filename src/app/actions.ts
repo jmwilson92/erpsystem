@@ -7217,3 +7217,58 @@ export async function actionCompleteSetup(): Promise<void> {
   revalidatePath("/", "layout");
   redirect("/");
 }
+
+// ─── Serialization & RMA ────────────────────────────────────────
+
+export async function actionCreateRma(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  const { createRma } = await import("@/lib/services/serialization");
+  let rma;
+  try {
+    rma = await createRma({
+      customerId: (formData.get("customerId") as string) || "",
+      salesOrderId: ((formData.get("salesOrderId") as string) || "").trim() || null,
+      partId: ((formData.get("partId") as string) || "").trim() || null,
+      serialNumberId:
+        ((formData.get("serialNumberId") as string) || "").trim() || null,
+      quantity: Number(formData.get("quantity") || 1),
+      reason: (formData.get("reason") as string) || "",
+      userId: user?.id,
+    });
+  } catch (e) {
+    await flashToast(
+      e instanceof Error ? e.message : "Could not create RMA",
+      "error"
+    );
+    redirect("/rma");
+  }
+  await flashToast(`${rma.number} created`);
+  revalidatePath("/rma");
+  redirect(`/rma/${rma.id}`);
+}
+
+export async function actionTransitionRma(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  const rmaId = (formData.get("rmaId") as string) || "";
+  const to = (formData.get("to") as string) || "";
+  const { transitionRma } = await import("@/lib/services/serialization");
+  try {
+    await transitionRma({
+      rmaId,
+      to,
+      disposition: ((formData.get("disposition") as string) || "").trim() || null,
+      dispositionNotes:
+        ((formData.get("dispositionNotes") as string) || "").trim() || null,
+      userId: user?.id,
+    });
+    await flashToast(`RMA moved to ${to.replaceAll("_", " ").toLowerCase()}`);
+  } catch (e) {
+    await flashToast(
+      e instanceof Error ? e.message : "RMA update failed",
+      "error"
+    );
+  }
+  revalidatePath("/rma");
+  revalidatePath(`/rma/${rmaId}`);
+  revalidatePath("/serialization");
+}

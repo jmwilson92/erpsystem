@@ -140,6 +140,13 @@ export default async function WorkOrderDetailPage({
   const selectClass =
     "flex h-8 w-full min-w-0 max-w-full rounded-md border border-slate-700 bg-slate-950 px-2 text-xs text-slate-200";
 
+  // Per-unit serials minted when this WO's finished units went to stock
+  const unitSerials = await prisma.serialNumber.findMany({
+    where: { workOrderId: wo.id, partId: wo.partId || undefined },
+    include: { _count: { select: { components: true } } },
+    orderBy: { serial: "asc" },
+  });
+
   const material = await checkBomMaterialAvailability(wo.id);
   const openKit = wo.kitOrders.find((k) =>
     ["OPEN", "PICKING", "SHORT"].includes(k.status)
@@ -732,6 +739,33 @@ export default async function WorkOrderDetailPage({
           </Card>
         )}
       </div>
+
+      {/* Per-unit serials with as-built genealogy (serialized parts) */}
+      {unitSerials.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Unit serials ({unitSerials.length})</CardTitle>
+            <p className="text-xs text-slate-500">
+              One serial per finished unit — each links to its own as-built
+              genealogy (which component serials / lots are inside).
+            </p>
+          </CardHeader>
+          <CardContent className="flex flex-wrap gap-2">
+            {unitSerials.map((s) => (
+              <Link
+                key={s.id}
+                href={`/serialization/${s.id}`}
+                className="rounded border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-xs text-sky-400 hover:border-sky-600"
+              >
+                {s.serial}
+                <span className="ml-2 text-slate-500">
+                  {s._count.components} as-built · {s.status}
+                </span>
+              </Link>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Material readiness — shortage visibility only; PRs from SO / MRS plan */}
       {material.requirements.length > 0 && (

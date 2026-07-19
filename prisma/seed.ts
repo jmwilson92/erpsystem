@@ -43,7 +43,7 @@ async function main() {
     "JournalLine", "JournalEntry", "Account",
     "PurchaseRequestLine", "PurchaseRequest",
     "SupplierScorecardHistory", "SupplierCertification", "AslPolicy", "Supplier",
-    "SerialNumber", "Lot", "MaterialTransaction", "InventoryItem", "Location", "Warehouse",
+    "Rma", "SerialComponent", "SerialNumber", "Lot", "MaterialTransaction", "InventoryItem", "Location", "Warehouse",
     "CarActivityLog", "MrbDisposition", "MrbCase", "NonConformance", "InspectionResult", "Inspection",
     "EngAlert", "EngDependency", "WorkTimeScan", "EngTask", "ProductionEngIssue", "Saga", "EngSprint", "PlanningQuarter", "EngSwimLane", "Campaign",
     "BusinessPriority", "UserPermission", "UserPermissionGroup", "PermissionGroupMember", "PermissionGroup", "Permission",
@@ -1012,6 +1012,158 @@ async function main() {
     }),
   ]);
   console.log("  ✓ Part vendor catalog lines (ASL only)");
+
+  // ── Expanded item catalog — a realistic working set to run the system
+  //    with: electronics, interconnect, hardware, machined metal,
+  //    consumables, and a few make-items. BUY parts get an ASL vendor
+  //    line (so they're immediately purchasable) and most get stock.
+  {
+    type CatSpec = {
+      pn: string;
+      desc: string;
+      cost: number;
+      lead: number;
+      sup: typeof supAero;
+      mfr?: string;
+      lot?: boolean;
+      ser?: boolean;
+      test?: boolean;
+      stock?: number;
+      make?: boolean;
+    };
+    const catalog: CatSpec[] = [
+      // Electronics (SiliconForge)
+      { pn: "RES-0603-1K", desc: "Resistor 1K 0603 1%", cost: 0.09, lead: 14, sup: supChip, lot: true, stock: 8000 },
+      { pn: "RES-0603-100R", desc: "Resistor 100R 0603 1%", cost: 0.09, lead: 14, sup: supChip, lot: true, stock: 6500 },
+      { pn: "CAP-0805-100N", desc: "Capacitor 100nF X7R 0805", cost: 0.11, lead: 14, sup: supChip, lot: true, stock: 9000 },
+      { pn: "CAP-ELEC-47U", desc: "Capacitor 47uF electrolytic 25V", cost: 0.34, lead: 21, sup: supChip, lot: true, stock: 1200 },
+      { pn: "IC-OPAMP-2", desc: "Dual precision op-amp SOIC-8", cost: 2.4, lead: 28, sup: supChip, lot: true, stock: 400 },
+      { pn: "IC-CAN-XCVR", desc: "CAN FD transceiver SOIC-8", cost: 3.1, lead: 35, sup: supChip, lot: true, stock: 350 },
+      { pn: "IC-FPGA-A7", desc: "Artix-7 FPGA FGG484", cost: 96, lead: 90, sup: supChip, lot: true, stock: 24 },
+      { pn: "XTAL-25M", desc: "Crystal 25 MHz 3225", cost: 0.62, lead: 21, sup: supChip, lot: true, stock: 900 },
+      { pn: "LED-0603-GRN", desc: "LED green 0603", cost: 0.08, lead: 14, sup: supChip, lot: true, stock: 4000 },
+      { pn: "DIO-TVS-24V", desc: "TVS diode 24V SMB", cost: 0.42, lead: 21, sup: supChip, lot: true, stock: 1500 },
+      { pn: "REG-BUCK-5V", desc: "Buck regulator module 5V/3A", cost: 6.8, lead: 35, sup: supChip, lot: true, stock: 220 },
+      { pn: "SEN-IMU-9AX", desc: "9-axis IMU sensor module", cost: 38, lead: 45, sup: supChip, lot: true, ser: true, test: true, stock: 30 },
+      // Interconnect (AeroConnect)
+      { pn: "CON-D38999-11", desc: "D38999 connector shell size 11", cost: 96, lead: 42, sup: supAero, test: true, stock: 40 },
+      { pn: "CON-D38999-25", desc: "D38999 connector shell size 25", cost: 210, lead: 49, sup: supAero, test: true, stock: 16 },
+      { pn: "CON-BACKSHELL-11", desc: "EMI backshell size 11", cost: 34, lead: 35, sup: supAero, stock: 60 },
+      { pn: "CON-SMA-BLKHD", desc: "SMA bulkhead jack", cost: 8.5, lead: 28, sup: supAero, stock: 120 },
+      { pn: "CBL-COAX-RG316", desc: "RG316 coax cable assembly 500mm", cost: 22, lead: 30, sup: supAero, stock: 80 },
+      { pn: "CBL-PWR-16AWG", desc: "Power harness 16AWG 2-cond shielded", cost: 15, lead: 30, sup: supAero, stock: 90 },
+      { pn: "WIRE-22AWG-WHT", desc: "Hookup wire 22AWG white MIL-W-22759 (100 ft)", cost: 28, lead: 14, sup: supAero, lot: true, stock: 45 },
+      { pn: "PIN-CONTACT-20", desc: "Crimp contact pin size 20 (bag of 100)", cost: 46, lead: 28, sup: supAero, stock: 55 },
+      // Hardware (FastenRight)
+      { pn: "SCR-M4-12", desc: "M4x12 socket head cap screw SS", cost: 0.11, lead: 7, sup: supFast, stock: 3000 },
+      { pn: "SCR-M2-6", desc: "M2x6 pan head screw SS", cost: 0.06, lead: 7, sup: supFast, stock: 5000 },
+      { pn: "NUT-M3-NYLOC", desc: "M3 nyloc nut SS", cost: 0.05, lead: 7, sup: supFast, stock: 4000 },
+      { pn: "WASH-M3-FLAT", desc: "M3 flat washer SS", cost: 0.02, lead: 7, sup: supFast, stock: 8000 },
+      { pn: "WASH-M3-LOCK", desc: "M3 split lock washer SS", cost: 0.03, lead: 7, sup: supFast, stock: 6000 },
+      { pn: "INS-M3-BRASS", desc: "M3 heat-set threaded insert brass", cost: 0.18, lead: 14, sup: supFast, stock: 2500 },
+      { pn: "STD-M3-10-HEX", desc: "M3x10 hex standoff brass", cost: 0.22, lead: 14, sup: supFast, stock: 1800 },
+      { pn: "PIN-DOWEL-3X8", desc: "Dowel pin 3x8mm hardened", cost: 0.35, lead: 14, sup: supFast, stock: 800 },
+      { pn: "RIV-POP-3MM", desc: "Pop rivet 3mm aluminum", cost: 0.04, lead: 7, sup: supFast, stock: 5000 },
+      { pn: "CLMP-CBL-6MM", desc: "Cable clamp 6mm cushioned", cost: 0.55, lead: 14, sup: supFast, stock: 900 },
+      // Machined / metals (PrecisionMetals)
+      { pn: "PLT-AL-6061-3T", desc: "Aluminum plate 6061-T6 3mm 300x300", cost: 42, lead: 21, sup: supMetal, lot: true, stock: 25 },
+      { pn: "BRKT-L-STEEL", desc: "L-bracket steel zinc plated", cost: 3.2, lead: 21, sup: supMetal, stock: 300 },
+      { pn: "HSNK-EXTR-40", desc: "Heatsink extrusion 40x40x20", cost: 4.8, lead: 28, sup: supMetal, stock: 250 },
+      { pn: "CHAS-1U-AL", desc: "1U aluminum chassis blank", cost: 88, lead: 35, sup: supMetal, stock: 18 },
+      { pn: "SHIM-SS-0.1", desc: "Stainless shim stock 0.1mm sheet", cost: 12, lead: 21, sup: supMetal, lot: true, stock: 40 },
+      { pn: "STK-AL-ROD-25", desc: "Aluminum rod 25mm dia (1m)", cost: 18, lead: 21, sup: supMetal, lot: true, stock: 30 },
+      { pn: "PNL-FR4-2MM", desc: "FR4 panel stock 2mm 450x300", cost: 9.5, lead: 21, sup: supMetal, lot: true, stock: 60 },
+      { pn: "EXT-RAIL-200", desc: "Extruded rail 20x20 200mm", cost: 6.4, lead: 21, sup: supMetal, stock: 140 },
+      // Consumables / chemicals
+      { pn: "CHEM-EPOXY-2P", desc: "Two-part structural epoxy 50ml", cost: 21, lead: 14, sup: supFast, lot: true, stock: 35 },
+      { pn: "CHEM-LOCTITE-243", desc: "Threadlocker medium strength 10ml", cost: 9.8, lead: 14, sup: supFast, lot: true, stock: 50 },
+      { pn: "SOLD-SAC305-05", desc: "Solder wire SAC305 0.5mm 250g", cost: 32, lead: 14, sup: supChip, lot: true, stock: 28 },
+      { pn: "CHEM-CONF-COAT", desc: "Conformal coating acrylic 1L", cost: 54, lead: 21, sup: supChip, lot: true, stock: 12 },
+      { pn: "ESD-BAG-100", desc: "ESD shielding bags 100x150 (pack of 100)", cost: 14, lead: 7, sup: supFast, stock: 65 },
+      { pn: "LBL-POLY-THT", desc: "Polyimide thermal-transfer labels (roll)", cost: 26, lead: 14, sup: supFast, stock: 40 },
+      // Make items (no vendor — built in-house)
+      { pn: "MCH-HSG-SMALL", desc: "Machined housing, small sensor", cost: 145, lead: 0, sup: supMetal, make: true, ser: true, stock: 6 },
+      { pn: "HARN-MAIN-01", desc: "Main harness assembly", cost: 210, lead: 0, sup: supAero, make: true, test: true, stock: 4 },
+      { pn: "PNL-FRONT-1U", desc: "Front panel 1U machined + silkscreen", cost: 64, lead: 0, sup: supMetal, make: true, stock: 8 },
+      { pn: "ASM-PSU-24V", desc: "Power supply sub-assembly 24V", cost: 380, lead: 0, sup: supChip, make: true, ser: true, test: true, stock: 3 },
+    ];
+
+    let lotSeq = 100;
+    for (const c of catalog) {
+      const p = await prisma.part.create({
+        data: {
+          partNumber: c.pn,
+          description: c.desc,
+          revision: "A",
+          partType: c.make ? "MAKE" : "BUY",
+          sourcingMethod: c.make ? "BUILD" : "PURCHASE",
+          itemStructure: c.make ? "SUB_ASSEMBLY" : "RAW_MATERIAL",
+          standardCost: c.cost,
+          lastBuyCost: c.make ? 0 : c.cost * 1.03,
+          averageCost: c.cost,
+          leadTimeDays: c.lead,
+          isLotControlled: !!c.lot,
+          isSerialized: !!c.ser,
+          requiresFunctionalTest: !!c.test,
+          uom: "EA",
+          uomUnitId: uom.EA.id,
+          inventoryAccountId: invRm.id,
+        },
+      });
+      if (!c.make) {
+        await prisma.partVendor.create({
+          data: {
+            partId: p.id,
+            supplierId: c.sup.id,
+            vendorPartNumber: `${c.sup.code.replace("SUP-", "")}-${c.pn}`,
+            vendorDescription: c.desc,
+            manufacturer: c.mfr,
+            unitCost: Math.round(c.cost * 1.03 * 100) / 100,
+            leadTimeDays: c.lead,
+            isPreferred: true,
+          },
+        });
+      }
+      if (c.stock) {
+        await prisma.inventoryItem.create({
+          data: {
+            partId: p.id,
+            locationId: (lotSeq % 2 ? loc["STG-A1"] : loc["STG-B2"]).id,
+            quantityOnHand: c.stock,
+            quantityAvailable: c.stock,
+            unitCost: c.cost,
+            lotNumber: c.lot ? `LOT-${c.pn.slice(0, 8)}-${lotSeq}` : undefined,
+            ownership: "COMPANY",
+          },
+        });
+      }
+      lotSeq++;
+    }
+    // Cover the ASM-1000 BOM so a build can actually be kitted out of the
+    // box (these were short: PCB-2200 ×2, CBL-6600/BRK-7700/FW-1000 ×0).
+    const topUps: [string, number, number][] = [
+      ["PCB-2200", 20, 610],
+      ["CBL-6600", 25, 320],
+      ["BRK-7700", 25, 890],
+      ["FW-1000", 50, 0],
+    ];
+    for (const [pn, qty, cost] of topUps) {
+      const p = part[pn];
+      if (!p) continue;
+      await prisma.inventoryItem.create({
+        data: {
+          partId: p.id,
+          locationId: loc["STG-A1"].id,
+          quantityOnHand: qty,
+          quantityAvailable: qty,
+          unitCost: cost,
+          lotNumber: `LOT-${pn}-SEED`,
+          ownership: "COMPANY",
+        },
+      });
+    }
+    console.log(`  ✓ Expanded catalog: ${catalog.length} additional items (ASL-linked + stocked) + BOM stock top-ups`);
+  }
 
   // ── Purchase Requests → POs → Receipts → Inspection/MRB ────
   const pr1 = await prisma.purchaseRequest.create({

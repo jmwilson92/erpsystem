@@ -1702,10 +1702,13 @@ export async function completeWorkOrderToStock(params: {
 
   const lotNumber =
     params.lotNumber || `LOT-WO-${wo.number.replace(/\W/g, "")}`;
+  // Serialized parts get one serial PER UNIT (with as-built genealogy),
+  // minted below after the inventory row exists. The single inventory
+  // row carries the first serial only when the run is one unit.
   const serialNumber =
     params.serialNumber ||
-    (wo.part?.isSerialized
-      ? `SN-${wo.number}-${Date.now().toString(36).toUpperCase()}`
+    (wo.part?.isSerialized && (wo.quantity || 1) <= 1
+      ? `SN-${wo.number}-01`
       : undefined);
 
   // Create FG inventory — committed to SO if linked, else available
@@ -1742,18 +1745,23 @@ export async function completeWorkOrderToStock(params: {
     },
   });
 
-  if (serialNumber && wo.partId) {
-    await prisma.serialNumber
-      .create({
-        data: {
-          serial: serialNumber,
-          partId: wo.partId,
-          status: "IN_STOCK",
-          workOrderId: wo.id,
-          lotNumber,
-        },
-      })
-      .catch(() => null);
+  let unitSerials: { id: string; serial: string }[] = [];
+  if (wo.part?.isSerialized && wo.partId) {
+    const { mintUnitSerials, buildUnitAsBuilt } = await import(
+      "./serialization"
+    );
+    unitSerials = await mintUnitSerials({
+      workOrderId: wo.id,
+      partId: wo.partId,
+      quantity: wo.quantity || 1,
+      lotNumber,
+      userId: params.userId,
+    });
+    await buildUnitAsBuilt({
+      workOrderId: wo.id,
+      unitSerialIds: unitSerials.map((s) => s.id),
+      userId: params.userId,
+    });
   }
 
   await prisma.workOrder.update({
@@ -1816,7 +1824,17 @@ export async function completeWorkOrderToStock(params: {
     metadata: { lotNumber, serialNumber, inventoryItemId: inv.id },
   });
 
-  return { workOrderId: wo.id, inventoryItemId: inv.id, lotNumber, serialNumber };
+  return {
+    workOrderId: wo.id,
+    inventoryItemId: inv.id,
+    lotNumber,
+    // Summary string for toasts: single serial, or the minted range
+    serialNumber:
+      unitSerials.length > 1
+        ? `${unitSerials[0].serial}…${unitSerials[unitSerials.length - 1].serial.slice(-2)} (${unitSerials.length} units)`
+        : unitSerials[0]?.serial || serialNumber,
+    unitSerials,
+  };
 }
 
 export async function syncSalesOrderReadyStatus(salesOrderId: string, userId?: string) {

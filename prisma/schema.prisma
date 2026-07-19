@@ -286,6 +286,8 @@ model Part {
   productPartLinks   ProductPart[]
   productVariants    ProductVariant[]
   productionEngIssues ProductionEngIssue[]
+  serialComponents   SerialComponent[] @relation("SerialComponentPart")
+  rmas               Rma[]         @relation("RmaPart")
 
   @@index([sourcingMethod])
   @@index([itemStructure])
@@ -2492,6 +2494,66 @@ model SerialNumber {
   lotNumber   String?
   uid         String? // DoD Unique Item Identifier
   ownership   String  @default("COMPANY")
+  createdAt   DateTime @default(now())
+
+  /// As-built: the components accounted to THIS unit (serialized + lot-only)
+  components  SerialComponent[] @relation("SerialParent")
+  /// Where-used: parent assemblies this serial is installed in
+  installedIn SerialComponent[] @relation("SerialComponentUnit")
+  rmas        Rma[]
+
+  @@index([partId, status])
+  @@index([workOrderId])
+}
+
+/// One as-built line of a serialized assembly: which component (by serial
+/// when the component part is serialized, by lot otherwise) went into which
+/// top-level unit. Written when a WO's finished units are serialized.
+model SerialComponent {
+  id                String  @id @default(cuid())
+  parentId          String
+  parent            SerialNumber @relation("SerialParent", fields: [parentId], references: [id], onDelete: Cascade)
+  componentPartId   String
+  componentPart     Part    @relation("SerialComponentPart", fields: [componentPartId], references: [id])
+  /// Set when the component part is serialized — the exact unit installed
+  componentSerialId String?
+  componentSerial   SerialNumber? @relation("SerialComponentUnit", fields: [componentSerialId], references: [id])
+  lotNumber         String?
+  quantity          Float   @default(1)
+  workOrderId       String?
+  createdAt         DateTime @default(now())
+
+  @@index([parentId])
+  @@index([componentSerialId])
+  @@index([componentPartId])
+}
+
+/// Customer return (RMA). Supplier returns stay on the MRB path.
+model Rma {
+  id               String  @id @default(cuid())
+  number           String  @unique
+  status           String  @default("REQUESTED") // REQUESTED, AUTHORIZED, RECEIVED, IN_EVALUATION, DISPOSITIONED, CLOSED, REJECTED
+  customerId       String
+  customer         Customer @relation(fields: [customerId], references: [id])
+  salesOrderId     String?
+  salesOrder       SalesOrder? @relation(fields: [salesOrderId], references: [id])
+  shipmentId       String?
+  partId           String?
+  part             Part?   @relation("RmaPart", fields: [partId], references: [id])
+  serialNumberId   String?
+  serialNumber     SerialNumber? @relation(fields: [serialNumberId], references: [id])
+  quantity         Float   @default(1)
+  reason           String
+  disposition      String? // REPAIR, REPLACE, CREDIT, RETURN_TO_STOCK, SCRAP
+  dispositionNotes String?
+  receivedAt       DateTime?
+  closedAt         DateTime?
+  createdById      String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([status])
+  @@index([customerId])
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -3046,6 +3108,7 @@ model Customer {
   quotes        Quote[]
   receivingTravelers ReceivingTraveler[]
   products      Product[]
+  rmas          Rma[]
 }
 
 model ArInvoice {
@@ -3176,6 +3239,7 @@ model SalesOrder {
   workOrders    WorkOrder[]
   traceEvents   TraceEvent[]
   virtualAssets VirtualAsset[]
+  rmas          Rma[]
 }
 
 // ═══════════════════════════════════════════════════════════════

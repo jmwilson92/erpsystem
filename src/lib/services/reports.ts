@@ -31,6 +31,8 @@ export const REPORT_CATALOG: {
   { key: "open-pos", title: "Open Purchase Orders", group: "Operations", description: "Outstanding POs with open commitments" },
   { key: "otd", title: "Sales Order Status", group: "Operations", description: "Orders with dates, departments, and fulfillment state" },
   { key: "ncr", title: "NCR Log", group: "Quality", description: "Nonconformances with source, severity, and disposition state" },
+  { key: "serial-genealogy", title: "Serial Genealogy", group: "Quality", description: "Per-unit as-built: every serialized unit with its component serials and lots" },
+  { key: "rma-log", title: "RMA Log", group: "Quality", description: "Customer returns with status, disposition, and linked serials" },
   { key: "scorecards", title: "Supplier Scorecards", group: "Quality", description: "OTD, quality PPM, and overall grade per supplier" },
   { key: "timecards", title: "Timecard Summary", group: "People", description: "Hours by employee and status for recent periods" },
   { key: "pto", title: "PTO Ledger", group: "People", description: "Requests with dates, hours, and approval state" },
@@ -177,6 +179,99 @@ export async function runReport(key: string): Promise<ReportTable> {
         rows: ncrs.map((n) => [
           n.number, n.part?.partNumber || "—", n.quantity, n.severity,
           n.source || "—", n.supplier?.name || "—", n.status, day(n.createdAt),
+        ]),
+      };
+    }
+    case "serial-genealogy": {
+      const components = await prisma.serialComponent.findMany({
+        include: {
+          parent: {
+            include: { part: { select: { partNumber: true } } },
+          },
+          componentPart: { select: { partNumber: true, isSerialized: true } },
+          componentSerial: { select: { serial: true, status: true } },
+        },
+        orderBy: [{ parentId: "asc" }, { createdAt: "asc" }],
+        take: 5000,
+      });
+      const woIds = [
+        ...new Set(
+          components.map((c) => c.workOrderId).filter((x): x is string => !!x)
+        ),
+      ];
+      const wos = woIds.length
+        ? await prisma.workOrder.findMany({
+            where: { id: { in: woIds } },
+            select: { id: true, number: true },
+          })
+        : [];
+      const woById = Object.fromEntries(wos.map((w) => [w.id, w.number]));
+      return {
+        title: "Serial Genealogy",
+        columns: [
+          "Unit serial",
+          "Unit part",
+          "Unit status",
+          "Component part",
+          "Serialized",
+          "Component serial",
+          "Component status",
+          "Lot",
+          "Qty",
+          "Work order",
+        ],
+        rows: components.map((c) => [
+          c.parent.serial,
+          c.parent.part.partNumber,
+          c.parent.status,
+          c.componentPart.partNumber,
+          c.componentPart.isSerialized ? "YES" : "no",
+          c.componentSerial?.serial || "",
+          c.componentSerial?.status || "",
+          c.lotNumber || "",
+          c.quantity,
+          (c.workOrderId && woById[c.workOrderId]) || "",
+        ]),
+      };
+    }
+    case "rma-log": {
+      const rmas = await prisma.rma.findMany({
+        include: {
+          customer: { select: { name: true } },
+          part: { select: { partNumber: true } },
+          serialNumber: { select: { serial: true } },
+          salesOrder: { select: { number: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 2000,
+      });
+      return {
+        title: "RMA Log",
+        columns: [
+          "RMA",
+          "Status",
+          "Customer",
+          "Part",
+          "Serial",
+          "Sales order",
+          "Qty",
+          "Reason",
+          "Disposition",
+          "Received",
+          "Closed",
+        ],
+        rows: rmas.map((r) => [
+          r.number,
+          r.status,
+          r.customer.name,
+          r.part?.partNumber || "",
+          r.serialNumber?.serial || "",
+          r.salesOrder?.number || "",
+          r.quantity,
+          r.reason,
+          r.disposition || "",
+          r.receivedAt ? day(r.receivedAt) : "",
+          r.closedAt ? day(r.closedAt) : "",
         ]),
       };
     }

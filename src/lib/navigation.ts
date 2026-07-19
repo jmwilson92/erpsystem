@@ -39,6 +39,8 @@ import {
   FileSpreadsheet,
   Wallet,
   SlidersHorizontal,
+  Barcode,
+  Undo2,
   type LucideIcon,
 } from "lucide-react";
 
@@ -125,6 +127,13 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/quality", label: "NCR / Quality", icon: AlertTriangle, keywords: ["nonconformance", "yield", "trend"] },
       { href: "/mrb", label: "MRB", icon: FileWarning, keywords: ["material review board", "disposition"] },
       { href: "/mrb?view=cars", label: "CAR", icon: FileWarning, keywords: ["corrective action", "8d", "root cause"] },
+    ],
+  },
+  {
+    label: "Serialization & RMA",
+    items: [
+      { href: "/serialization", label: "Serial Registry", icon: Barcode, keywords: ["serial number", "genealogy", "as-built", "traceability", "unit"] },
+      { href: "/rma", label: "RMA / Returns", icon: Undo2, keywords: ["return", "customer return", "rma", "warranty"] },
     ],
   },
   {
