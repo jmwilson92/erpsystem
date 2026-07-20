@@ -6,7 +6,13 @@ import {
   listJournalEntries,
   getCashFlowStatement,
   runDueAutoReversals,
+  getAccountingOverview,
 } from "@/lib/services/gaap";
+import { getBankingOverview } from "@/lib/services/banking";
+import {
+  IncomeExpenseTrendChart,
+  SpendDonut,
+} from "@/components/accounting/overview-charts";
 import {
   listRecurringJournals,
   runDueRecurringJournals,
@@ -26,6 +32,13 @@ import {
   Scale,
   CheckCircle2,
   XCircle,
+  FilePlus2,
+  Receipt,
+  Banknote,
+  HandCoins,
+  Wallet,
+  CreditCard,
+  ArrowRight,
 } from "lucide-react";
 import {
   actionPostJournal,
@@ -85,7 +98,7 @@ export default async function AccountingPage({
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const sp = searchParams ? await searchParams : {};
-  const defaultTab = pick(sp, "tab") || "pl";
+  const defaultTab = pick(sp, "tab") || "overview";
   const periodFrom = pick(sp, "from");
   const periodTo = pick(sp, "to");
   const jeStatus = pick(sp, "jeStatus");
@@ -106,9 +119,11 @@ export default async function AccountingPage({
   }
 
   const pack = await getGaapReportPack();
-  const [cashFlow, recurringTemplates] = await Promise.all([
+  const [cashFlow, recurringTemplates, overview, bankOverview] = await Promise.all([
     getCashFlowStatement({ from: validFrom, to: validTo }),
     listRecurringJournals(),
+    getAccountingOverview({ months: 12 }),
+    getBankingOverview(),
   ]);
   const [
     accounts,
@@ -583,8 +598,9 @@ export default async function AccountingPage({
         </CardContent>
       </Card>
 
-      <Tabs defaultValue={defaultTab || "pl"}>
+      <Tabs defaultValue={defaultTab || "overview"}>
         <TabsList className="flex h-auto flex-wrap">
+          <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="pl">Income Statement</TabsTrigger>
           <TabsTrigger value="bs">Balance Sheet</TabsTrigger>
           <TabsTrigger value="cf">Cash Flow</TabsTrigger>
@@ -609,6 +625,165 @@ export default async function AccountingPage({
           </TabsTrigger>
           <TabsTrigger value="banking">Banking</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="overview" className="space-y-4">
+          {/* Greeting */}
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <h2 className="text-xl font-semibold text-slate-100">
+                {(() => {
+                  const h = new Date().getHours();
+                  const part = h < 12 ? "morning" : h < 18 ? "afternoon" : "evening";
+                  const first = settingsUser?.name?.split(" ")[0];
+                  return `Good ${part}${first ? `, ${first}` : ""}`;
+                })()}
+              </h2>
+              <p className="text-sm text-slate-500">
+                Here&apos;s how the books look over the last 12 months.
+              </p>
+            </div>
+            <span className="text-xs text-slate-500">
+              {acctSettings.basis === "CASH" ? "Cash" : "Accrual"} basis ·{" "}
+              {overview.netIncome >= 0 ? "profitable" : "operating at a loss"} trailing year
+            </span>
+          </div>
+
+          {/* Quick actions */}
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+            {[
+              { label: "Journal entry", icon: FilePlus2, tab: "post", accent: "text-sky-400" },
+              { label: "Record expense", icon: Receipt, tab: "expense", accent: "text-amber-400" },
+              { label: "Receive payment", icon: HandCoins, tab: "ar", accent: "text-emerald-400" },
+              { label: "Pay a bill", icon: Banknote, tab: "ap", accent: "text-rose-400" },
+              { label: "Bank feeds", icon: CreditCard, tab: "banking", accent: "text-teal-400" },
+              { label: "Run payroll", icon: Wallet, tab: "payroll", accent: "text-violet-400" },
+            ].map((a) => (
+              <Link
+                key={a.tab}
+                href={`/accounting?tab=${a.tab}`}
+                className="flex flex-col items-center gap-1.5 rounded-xl border border-slate-800 bg-slate-900/40 px-2 py-3 text-center transition hover:border-teal-500/40 hover:bg-slate-900/70"
+              >
+                <a.icon className={`h-5 w-5 ${a.accent}`} />
+                <span className="text-xs font-medium text-slate-300">{a.label}</span>
+              </Link>
+            ))}
+          </div>
+
+          {/* Trend + bank accounts */}
+          <div className="grid gap-4 lg:grid-cols-3">
+            <Card className="lg:col-span-2">
+              <CardHeader className="pb-1">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <CardTitle className="text-base">Income vs. expenses</CardTitle>
+                  <div className="flex items-center gap-4 text-xs">
+                    <span className="flex items-center gap-1.5 text-slate-400">
+                      <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
+                      Income{" "}
+                      <span className="font-mono text-slate-300">
+                        {formatCurrency(overview.totalIncome)}
+                      </span>
+                    </span>
+                    <span className="flex items-center gap-1.5 text-slate-400">
+                      <span className="inline-block h-2 w-2 rounded-full bg-rose-500" />
+                      Expenses{" "}
+                      <span className="font-mono text-slate-300">
+                        {formatCurrency(overview.totalExpense)}
+                      </span>
+                    </span>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-500">
+                  Trailing 12 months · net{" "}
+                  <span
+                    className={
+                      overview.netIncome >= 0 ? "text-emerald-400" : "text-rose-400"
+                    }
+                  >
+                    {formatCurrency(overview.netIncome)}
+                  </span>
+                </p>
+              </CardHeader>
+              <CardContent>
+                <IncomeExpenseTrendChart data={overview.trend} />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base">Bank accounts</CardTitle>
+                  <Link
+                    href="/accounting?tab=banking"
+                    className="flex items-center gap-0.5 text-xs text-teal-400 hover:underline"
+                  >
+                    Banking <ArrowRight className="h-3 w-3" />
+                  </Link>
+                </div>
+                <p className="text-lg font-bold tabular-nums text-slate-100">
+                  {formatCurrency(
+                    bankOverview.reduce((s, a) => s + a.currentBalance, 0)
+                  )}
+                  <span className="ml-2 text-xs font-normal text-slate-500">
+                    across {bankOverview.length}
+                  </span>
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-1.5">
+                {bankOverview.length === 0 && (
+                  <p className="py-4 text-center text-sm text-slate-500">
+                    No bank accounts connected yet.
+                  </p>
+                )}
+                {bankOverview.map((a) => (
+                  <Link
+                    key={a.id}
+                    href={`/accounting?tab=banking&acct=${a.id}`}
+                    className="flex items-center gap-2 rounded-lg border border-slate-800 px-2.5 py-1.5 text-sm hover:border-teal-500/40"
+                  >
+                    {a.kind === "CREDIT_CARD" ? (
+                      <CreditCard className="h-4 w-4 shrink-0 text-violet-400" />
+                    ) : (
+                      <Landmark className="h-4 w-4 shrink-0 text-teal-400" />
+                    )}
+                    <span className="min-w-0 flex-1 truncate text-slate-300">
+                      {a.name}
+                      {a.last4 ? (
+                        <span className="text-slate-600"> ···{a.last4}</span>
+                      ) : null}
+                    </span>
+                    {a.unmatched > 0 && (
+                      <span className="shrink-0 rounded-full bg-amber-500/20 px-1.5 py-px text-[10px] font-semibold text-amber-300">
+                        {a.unmatched} to review
+                      </span>
+                    )}
+                    <span className="shrink-0 font-mono tabular-nums text-slate-200">
+                      {formatCurrency(a.currentBalance)}
+                    </span>
+                  </Link>
+                ))}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Spend donut + aging */}
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Where the money went</CardTitle>
+                <p className="text-xs text-slate-500">
+                  Spending by category · trailing 12 months
+                </p>
+              </CardHeader>
+              <CardContent>
+                <SpendDonut data={overview.spendByCategory} />
+              </CardContent>
+            </Card>
+            <div className="space-y-4">
+              <AgingSummary title="AR aging — who owes you" buckets={arAging} tone="ar" />
+              <AgingSummary title="AP aging — what you owe" buckets={apAging} tone="ap" />
+            </div>
+          </div>
+        </TabsContent>
 
         <TabsContent value="pl">
           <Card>

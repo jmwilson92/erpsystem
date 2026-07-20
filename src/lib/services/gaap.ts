@@ -721,6 +721,98 @@ export async function runDueAutoReversals() {
   return results;
 }
 
+/**
+ * Accounting home dashboard: a trailing income/expense/net trend by month
+ * and a spending-by-category breakdown, both computed from posted journal
+ * activity. Feeds the Overview tab's charts. Independent of the page's
+ * AR/AP period filter so the home view stays stable.
+ */
+export async function getAccountingOverview(opts?: { months?: number }) {
+  const months = opts?.months ?? 12;
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1);
+
+  const [accounts, lines] = await Promise.all([
+    prisma.account.findMany({ select: { id: true, code: true, name: true, type: true } }),
+    prisma.journalLine.findMany({
+      where: { journalEntry: { status: "POSTED", date: { gte: start } } },
+      select: {
+        debit: true,
+        credit: true,
+        accountId: true,
+        journalEntry: { select: { date: true } },
+      },
+    }),
+  ]);
+  const acctById = new Map(accounts.map((a) => [a.id, a]));
+
+  // Month buckets, oldest → newest, keyed YYYY-M
+  const buckets: { key: string; label: string; income: number; expense: number; net: number }[] = [];
+  const idxByKey = new Map<string, number>();
+  for (let i = 0; i < months; i++) {
+    const d = new Date(start.getFullYear(), start.getMonth() + i, 1);
+    const key = `${d.getFullYear()}-${d.getMonth()}`;
+    idxByKey.set(key, buckets.length);
+    buckets.push({
+      key,
+      label: d.toLocaleDateString("en-US", { month: "short", year: "2-digit" }),
+      income: 0,
+      expense: 0,
+      net: 0,
+    });
+  }
+
+  // Spending by category (expense + COGS), period activity
+  const spendByAcct = new Map<string, number>();
+
+  for (const l of lines) {
+    const a = acctById.get(l.accountId);
+    if (!a) continue;
+    const d = l.journalEntry.date;
+    const idx = idxByKey.get(`${d.getFullYear()}-${d.getMonth()}`);
+    if (a.type === "REVENUE" && idx != null) {
+      buckets[idx].income += (l.credit || 0) - (l.debit || 0);
+    } else if (["EXPENSE", "COGS"].includes(a.type)) {
+      const spent = (l.debit || 0) - (l.credit || 0);
+      if (idx != null) buckets[idx].expense += spent;
+      spendByAcct.set(l.accountId, (spendByAcct.get(l.accountId) || 0) + spent);
+    }
+  }
+  for (const b of buckets) {
+    b.income = Math.round(b.income * 100) / 100;
+    b.expense = Math.round(b.expense * 100) / 100;
+    b.net = Math.round((b.income - b.expense) * 100) / 100;
+  }
+
+  // Top 6 spend categories + "Other"
+  const spendRows = [...spendByAcct.entries()]
+    .map(([id, amount]) => ({
+      name: acctById.get(id)?.name || "—",
+      code: acctById.get(id)?.code || "",
+      amount: Math.round(amount * 100) / 100,
+    }))
+    .filter((r) => r.amount > 0)
+    .sort((a, b) => b.amount - a.amount);
+  const topSpend = spendRows.slice(0, 6);
+  const otherSpend = spendRows.slice(6).reduce((s, r) => s + r.amount, 0);
+  if (otherSpend > 0) {
+    topSpend.push({ name: "Other", code: "", amount: Math.round(otherSpend * 100) / 100 });
+  }
+
+  const totalIncome = buckets.reduce((s, b) => s + b.income, 0);
+  const totalExpense = buckets.reduce((s, b) => s + b.expense, 0);
+
+  return {
+    months,
+    trend: buckets.map(({ label, income, expense, net }) => ({ label, income, expense, net })),
+    spendByCategory: topSpend,
+    totalSpend: Math.round(spendRows.reduce((s, r) => s + r.amount, 0) * 100) / 100,
+    totalIncome: Math.round(totalIncome * 100) / 100,
+    totalExpense: Math.round(totalExpense * 100) / 100,
+    netIncome: Math.round((totalIncome - totalExpense) * 100) / 100,
+  };
+}
+
 /* ── Statement of Cash Flows (indirect method) ─────────────────── */
 
 function classifyLiability(a: { name: string; code: string }) {
