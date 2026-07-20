@@ -73,7 +73,24 @@ export function StandalonePrForm({
   const [lines, setLines] = useState<Line[]>([emptyLine()]);
   const [projectId, setProjectId] = useState("");
   // Default to general company buy (office/facility) — most ad-hoc PRs
-  const [purpose, setPurpose] = useState<Purpose>("FACILITIES");
+  const [purpose, setPurpose] = useState<Purpose>("OTHER");
+  // Vendor type-ahead: free text matched against name/code/"Name (CODE)"
+  const [supplierText, setSupplierText] = useState("");
+  const matchedSupplierId = useMemo(() => {
+    const q = supplierText.trim().toLowerCase();
+    if (!q) return "";
+    const exact = suppliers.find(
+      (s) =>
+        `${s.name} (${s.code})`.toLowerCase() === q ||
+        s.name.toLowerCase() === q ||
+        s.code.toLowerCase() === q
+    );
+    if (exact) return exact.id;
+    const starts = suppliers.filter((s) =>
+      s.name.toLowerCase().startsWith(q)
+    );
+    return starts.length === 1 ? starts[0].id : "";
+  }, [supplierText, suppliers]);
 
   const requiresCatalog =
     purpose === "MANUFACTURING" || purpose === "PROJECT";
@@ -161,16 +178,10 @@ export function StandalonePrForm({
           {(
             [
               {
-                id: "FACILITIES" as const,
-                title: "Office / facility (general)",
-                detail:
-                  "Chairs, tables, office supplies, building — no project, no catalog required",
-              },
-              {
                 id: "OTHER" as const,
-                title: "Company / overhead budget",
+                title: "Company / overhead (incl. facilities)",
                 detail:
-                  "Any non-job buy on a charge code or standalone budget — describe what you need",
+                  "Office, facility, and any non-job buy on a charge code or budget — describe what you need, no catalog required",
               },
               {
                 id: "MANUFACTURING" as const,
@@ -255,18 +266,25 @@ export function StandalonePrForm({
           <label className="text-[10px] uppercase text-slate-500">
             Preferred supplier / vendor (optional)
           </label>
-          <select name="supplierId" className={`${selectClass} mt-1`}>
-            <option value="">
-              {isGeneralCompany
-                ? "— None · purchasing will source —"
-                : "— Buyer to source —"}
-            </option>
+          {/* Type-ahead: start typing the vendor's name; matches resolve to
+              the supplier record on save. */}
+          <Input
+            list="pr-vendor-list"
+            value={supplierText}
+            onChange={(e) => setSupplierText(e.target.value)}
+            placeholder={
+              isGeneralCompany
+                ? "Type vendor name — or leave blank, purchasing will source"
+                : "Type vendor name — blank = buyer to source"
+            }
+            className="mt-1"
+          />
+          <datalist id="pr-vendor-list">
             {suppliers.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.code} · {s.name}
-              </option>
+              <option key={s.id} value={`${s.name} (${s.code})`} />
             ))}
-          </select>
+          </datalist>
+          <input type="hidden" name="supplierId" value={matchedSupplierId} />
           {isGeneralCompany && (
             <p className="mt-1 text-[10px] text-slate-600">
               Leave blank for chairs, furniture, supplies, etc. — vendor is

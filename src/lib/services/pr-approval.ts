@@ -465,9 +465,14 @@ export async function startPrApprovalWorkflow(params: {
           : "confirm demand";
       stage = `${step.name} — ${charge.ownerLabel} (${phase})`;
       if (!approverId) {
-        approverId = await fallbackUserForRole(
-          step.approverRole || "PURCHASING"
-        );
+        // The demand owner is NEVER a purchaser — purchasing packages the
+        // buy, it does not confirm its own demand. Fall back through
+        // operations leadership instead.
+        approverId =
+          (await fallbackUserForRole("PRODUCTION")) ||
+          (await fallbackUserForRole("EXECUTIVE")) ||
+          (await fallbackUserForRole("ADMIN"));
+        stage = `${step.name} — operations owner (${phase})`;
       }
       if (routing === "PURCHASE_APPROVAL" || routing === "CHARGE_OWNER") {
         // track last owner step as purchase approver for escalation dedupe

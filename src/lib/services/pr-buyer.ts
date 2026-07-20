@@ -389,10 +389,29 @@ export async function clockOutBuyerWork(params: {
     return { hours: 0, entryId: null as string | null };
   }
 
+  // Resolve the sales order (direct charge, or via the WO the PR feeds)
+  // so the timecard names it and accounting can cost labor per SO.
+  let soNumber: string | null = null;
+  let soId: string | null = pr.salesOrderId;
+  if (!soId && pr.workOrderId) {
+    const wo = await prisma.workOrder.findUnique({
+      where: { id: pr.workOrderId },
+      select: { salesOrderId: true },
+    });
+    soId = wo?.salesOrderId || null;
+  }
+  if (soId) {
+    const so = await prisma.salesOrder.findUnique({
+      where: { id: soId },
+      select: { number: true },
+    });
+    soNumber = so?.number || null;
+  }
+
   let chargeCode: string | null = null;
   if (pr.chargeType === "INDIRECT") chargeCode = "IND-BUYER";
   else if (pr.chargeType === "DIRECT") chargeCode = "DIR-BUYER";
-  else if (pr.chargeType === "SALES_ORDER") chargeCode = `SO-${pr.salesOrderId?.slice(-6) || "BUY"}`;
+  else if (pr.chargeType === "SALES_ORDER") chargeCode = soNumber || "SO-BUY";
   else if (pr.chargeType === "PROGRAM") chargeCode = null; // project/wbs carries it
 
   const { getOrCreateTimesheet } = await import("@/lib/services/timesheets");
@@ -420,7 +439,7 @@ export async function clockOutBuyerWork(params: {
       projectId: pr.projectId || undefined,
       wbsElementId: pr.wbsElementId || undefined,
       chargeCode: chargeCode || undefined,
-      description: `Buyer package ${pr.number}${
+      description: `Buyer package ${pr.number}${soNumber ? ` for ${soNumber}` : ""}${
         params.reason ? ` (${params.reason})` : ""
       }`,
       status: "SUBMITTED",

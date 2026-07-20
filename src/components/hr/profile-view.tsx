@@ -159,31 +159,43 @@ export function ProfileView({
                         <p className="text-xs font-medium text-sky-400">
                           Complete your self-assessment
                         </p>
-                        {questions.map((q, i) => (
-                          <div key={i} className="space-y-1">
-                            <input type="hidden" name="question" value={q} />
-                            <p className="text-xs text-slate-300">{q}</p>
-                            <div className="flex gap-2">
-                              <select
-                                name="rating"
-                                className={selectClass}
-                                defaultValue="3"
-                              >
-                                {[1, 2, 3, 4, 5].map((n) => (
-                                  <option key={n} value={n}>
-                                    {n}/5
-                                  </option>
-                                ))}
-                              </select>
-                              <Input
+                        {questions.map((q, i) => {
+                          // Numeric scale only where the question asks for a
+                          // rating; open questions get a full writing box.
+                          const isRating = /^rate\b|\brate (yourself|your)\b|1-5|1–5/i.test(q);
+                          return (
+                            <div key={i} className="space-y-1">
+                              <input type="hidden" name="question" value={q} />
+                              <p className="text-xs font-medium text-slate-200">{q}</p>
+                              {isRating ? (
+                                <select
+                                  name="rating"
+                                  className={`${selectClass} w-28`}
+                                  defaultValue="3"
+                                >
+                                  {[1, 2, 3, 4, 5].map((n) => (
+                                    <option key={n} value={n}>
+                                      {n}/5
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <input type="hidden" name="rating" value="0" />
+                              )}
+                              <textarea
                                 name="comment"
                                 required
-                                placeholder="Explain your rating (required)"
-                                className="h-9 flex-1 text-xs"
+                                rows={isRating ? 2 : 4}
+                                placeholder={
+                                  isRating
+                                    ? "Explain your rating (required)"
+                                    : "Your answer — take the space you need (required)"
+                                }
+                                className="w-full rounded-md border border-slate-700 bg-slate-950 p-2 text-xs text-slate-200 placeholder:text-slate-600"
                               />
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                         <Button type="submit" size="sm">
                           Submit self-review
                         </Button>
@@ -193,9 +205,11 @@ export function ProfileView({
                   {self.length > 0 && (
                     <div className="space-y-0.5 text-xs text-slate-500">
                       {self.map((s, i) => (
-                        <div key={i} className="flex justify-between">
+                        <div key={i} className="flex justify-between gap-3">
                           <span>{s.question}</span>
-                          <span className="text-teal-400">{s.rating}/5</span>
+                          <span className="shrink-0 text-teal-400">
+                            {s.rating > 0 ? `${s.rating}/5` : "answered"}
+                          </span>
                         </div>
                       ))}
                     </div>

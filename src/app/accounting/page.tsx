@@ -481,6 +481,34 @@ export default async function AccountingPage({
     if (!soId) continue;
     spendBySo.set(soId, (spendBySo.get(soId) || 0) + po.totalAmount);
   }
+  // Labor charged to SOs (buyer packaging time, etc.) rolls into SO spend
+  const soLabor = await prisma.timeEntry.findMany({
+    where: {
+      costAmount: { gt: 0 },
+      purchaseRequest: {
+        OR: [
+          { salesOrderId: { not: null } },
+          { workOrder: { salesOrderId: { not: null } } },
+        ],
+      },
+    },
+    select: {
+      costAmount: true,
+      purchaseRequest: {
+        select: {
+          salesOrderId: true,
+          workOrder: { select: { salesOrderId: true } },
+        },
+      },
+    },
+  });
+  for (const t of soLabor) {
+    const soId =
+      t.purchaseRequest?.salesOrderId ||
+      t.purchaseRequest?.workOrder?.salesOrderId;
+    if (!soId) continue;
+    spendBySo.set(soId, (spendBySo.get(soId) || 0) + t.costAmount);
+  }
   const soSpendOrders = spendBySo.size
     ? await prisma.salesOrder.findMany({
         where: { id: { in: [...spendBySo.keys()] } },

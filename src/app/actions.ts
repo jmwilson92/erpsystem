@@ -3248,6 +3248,34 @@ export async function actionUpdatePoDeliveryDates(formData: FormData): Promise<v
   redirect(`/purchasing/po/${poId}`);
 }
 
+/** Set / change a work order's due date (drives the due/schedule panel). */
+export async function actionSetWorkOrderDueDate(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  const workOrderId = (formData.get("workOrderId") as string) || "";
+  const raw = ((formData.get("dueDate") as string) || "").trim();
+  if (!workOrderId) return;
+  const dueDate = raw ? new Date(raw) : null;
+  if (raw && Number.isNaN(dueDate?.getTime())) {
+    await flashToast("Invalid date", "error");
+  } else {
+    await prisma.workOrder.update({
+      where: { id: workOrderId },
+      data: { dueDate },
+    });
+    await logAudit({
+      entityType: "WorkOrder",
+      entityId: workOrderId,
+      action: "DUE_DATE_SET",
+      userId: user?.id,
+      metadata: { dueDate: raw || null },
+    });
+    await flashToast(raw ? `Due date set to ${raw}` : "Due date cleared");
+  }
+  revalidatePath(`/work-orders/${workOrderId}`);
+  revalidatePath("/work-orders");
+  redirect(`/work-orders/${workOrderId}`);
+}
+
 /** Ask admins for a permission you were just denied. */
 export async function actionRequestPermission(formData: FormData): Promise<void> {
   const user = await getCurrentUser();
@@ -8323,11 +8351,10 @@ export async function actionSubmitSelfReview(
   const questions = formData.getAll("question").map(String);
   const ratings = formData.getAll("rating").map(String);
   const comments = formData.getAll("comment").map(String);
-  // Every rating must be explained.
+  // Every question needs an answer.
   if (questions.some((_, i) => !(comments[i] || "").trim())) {
-    throw new Error(
-      "Explain each rating — a comment is required for every question."
-    );
+    await flashToast("Answer every question before submitting", "error");
+    redirect("/hr");
   }
   await submitSelfReview({
     reviewId,

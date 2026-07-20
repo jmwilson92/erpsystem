@@ -25,6 +25,12 @@ export default async function KittingPage() {
   await sweepKitReadiness().catch(() => []);
 
   const upcoming = await getUpcomingKits();
+  const kitStageLocation = (
+    await prisma.companySettings.findUnique({
+      where: { id: "default" },
+      select: { kittingLocation: true },
+    })
+  )?.kittingLocation;
   const [kits, readyWosRaw] = await Promise.all([
     prisma.kitOrder.findMany({
       orderBy: { createdAt: "desc" },
@@ -88,6 +94,33 @@ export default async function KittingPage() {
       binsByPart[pid] = await getAvailableInventory(pid);
     })
   );
+
+  // Inbound-but-not-stocked: received on a traveler that hasn't finished
+  // put-away yet — explains "why is my kit still short after receiving".
+  const inboundByPart: Record<string, { qty: number; travelers: string[] }> = {};
+  if (openPartIds.length) {
+    const inboundLines = await prisma.receivingTravelerLine.findMany({
+      where: {
+        partId: { in: openPartIds },
+        traveler: {
+          status: { in: ["WAITING", "PARTIAL", "IN_INSPECTION", "READY_TO_STOCK"] },
+        },
+      },
+      select: {
+        partId: true,
+        quantity: true,
+        traveler: { select: { number: true, status: true } },
+      },
+    });
+    for (const l of inboundLines) {
+      if (!l.partId) continue;
+      const cur = inboundByPart[l.partId] || { qty: 0, travelers: [] };
+      cur.qty += l.quantity;
+      const label = `${l.traveler.number} (${l.traveler.status.replace(/_/g, " ").toLowerCase()})`;
+      if (!cur.travelers.includes(label)) cur.travelers.push(label);
+      inboundByPart[l.partId] = cur;
+    }
+  }
 
   const selectClass =
     "flex h-8 w-full max-w-xs rounded-md border border-slate-700 bg-slate-950 px-2 text-xs text-slate-200";
@@ -280,6 +313,15 @@ export default async function KittingPage() {
         </h2>
         {kits.map((kit) => {
           const open = ["OPEN", "PICKING", "SHORT"].includes(kit.status);
+          // Shortage check: can every line be covered from available bins?
+          const shortLines = kit.lines.filter((l) => {
+            const avail = (binsByPart[l.partId] || []).reduce(
+              (s, b) => s + b.quantityAvailable,
+              0
+            );
+            return avail < l.quantityRequired;
+          });
+          const isShort = shortLines.length > 0;
           return (
             <Card key={kit.id}>
               <CardHeader className="pb-2">
@@ -384,6 +426,19 @@ export default async function KittingPage() {
                                     match
                                   </p>
                                 )}
+                              {open &&
+                                inboundByPart[l.partId] &&
+                                (binsByPart[l.partId] || []).reduce(
+                                  (s, b) => s + b.quantityAvailable,
+                                  0
+                                ) < l.quantityRequired && (
+                                  <p className="mt-0.5 text-[10px] text-sky-400">
+                                    {inboundByPart[l.partId].qty} inbound on{" "}
+                                    {inboundByPart[l.partId].travelers.join(", ")}{" "}
+                                    — finish receiving &amp; put-away to free it
+                                    for kitting.
+                                  </p>
+                                )}
                             </td>
                             <td className="py-2">
                               <StatusBadge status={l.status} />
@@ -394,9 +449,39 @@ export default async function KittingPage() {
                     </tbody>
                   </table>
                   {open && (
-                    <Button type="submit" size="sm">
-                      Pick complete kit → traveler
-                    </Button>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <Button type="submit" size="sm">
+                        {isShort
+                          ? "Pick partial kit → traveler"
+                          : "Pick complete kit → traveler"}
+                      </Button>
+                      {isShort && (
+                        <span className="text-xs text-amber-400">
+                          Short on{" "}
+                          {shortLines
+                            .map((l) => l.part.partNumber)
+                            .join(", ")}{" "}
+                          — picking what&apos;s available; the rest stays on
+                          backorder.
+                        </span>
+                      )}
+                      {kitStageLocation && (
+                        <span className="text-xs text-slate-500">
+                          After picking, stage the kit at{" "}
+                          <span className="font-mono text-teal-400">
+                            {kitStageLocation}
+                          </span>
+                          .
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {!open && kitStageLocation && (
+                    <p className="rounded-lg border border-teal-900/50 bg-teal-500/5 px-3 py-2 text-xs text-teal-300">
+                      Kit picked — move it to staging location{" "}
+                      <span className="font-mono">{kitStageLocation}</span> for
+                      the production floor.
+                    </p>
                   )}
                 </ActionLoadingForm>
               </CardContent>

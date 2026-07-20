@@ -25,6 +25,7 @@ import {
   actionAssignKitSerialToUnit,
   actionInstallSerialOnWo,
   actionRemoveSerialInstall,
+  actionSetWorkOrderDueDate,
 } from "@/app/actions";
 import { checkBomMaterialAvailability } from "@/lib/services/order-fulfillment";
 import { ensureWorkOrderTravelerSteps } from "@/lib/services/work-orders";
@@ -718,6 +719,26 @@ export default async function WorkOrderDetailPage({
           <CardContent className="space-y-2 p-4">
             <p className="text-xs text-slate-500">Due / schedule</p>
             <p className="font-medium text-slate-200">{formatDate(wo.dueDate)}</p>
+            <form
+              action={actionSetWorkOrderDueDate}
+              className="flex items-end gap-1.5"
+            >
+              <input type="hidden" name="workOrderId" value={wo.id} />
+              <label className="text-[10px] uppercase text-slate-500">
+                Set due date
+                <input
+                  name="dueDate"
+                  type="date"
+                  defaultValue={
+                    wo.dueDate ? wo.dueDate.toISOString().slice(0, 10) : ""
+                  }
+                  className="mt-0.5 block h-8 rounded-md border border-slate-700 bg-slate-950 px-2 text-xs text-slate-200"
+                />
+              </label>
+              <Button type="submit" size="sm" variant="outline" className="h-8 text-xs">
+                Save
+              </Button>
+            </form>
             <p className="text-xs text-slate-500">
               Plan {formatDate(wo.plannedStart)} → {formatDate(wo.plannedEnd)}
               {wo.estimatedMinutes != null
