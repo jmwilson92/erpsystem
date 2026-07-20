@@ -132,7 +132,7 @@ export default async function ApprovalsPage() {
                 <span className="flex items-center gap-3 text-xs text-slate-500">
                   {pr.supplier && <span>{pr.supplier}</span>}
                   <span className="tabular-nums">
-                    ${'{'}pr.totalEstimate.toLocaleString(){'}'}
+                    {formatCurrency(pr.totalEstimate)}
                   </span>
                   <span className="max-w-[220px] truncate text-[10px]">
                     {pr.stage}
@@ -171,7 +171,7 @@ export default async function ApprovalsPage() {
                 </span>
                 <span className="flex items-center gap-3 text-xs text-slate-500">
                   <span className="tabular-nums">
-                    ${'{'}po.totalAmount.toLocaleString(){'}'}
+                    {formatCurrency(po.totalAmount)}
                   </span>
                   <span className="max-w-[220px] truncate text-[10px]">
                     {po.stage}

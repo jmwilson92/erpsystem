@@ -15,9 +15,11 @@ services:
       # Login required, no persona switcher
       DEMO_MODE: "0"
       ALLOW_DEMO_IN_PRODUCTION: "0"
-      # Clean instance — onboard via Setup Wizard / Data Import.
-      # Flip to "1" if beta users should land in the demo dataset.
-      SEED_ON_FIRST_BOOT: "0"
+      # Load config essentials only (chart of accounts, UOMs, permissions,
+      # approval pipeline, default settings) — no demo content. Claim the
+      # instance on first visit to create your admin. Use "1" to land in the
+      # full demo dataset instead, or "0" to start completely empty.
+      SEED_ON_FIRST_BOOT: "prod"
       # Public URL for invite links / QR codes
       NEXT_PUBLIC_APP_URL: "${NEXT_PUBLIC_APP_URL:-https://${DOMAIN:-erp.example.com}}"
       RESEND_API_KEY: "${RESEND_API_KEY:-}"

@@ -14,6 +14,7 @@
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
+    "db:seed:prod": "tsx prisma/seed-prod.ts",
     "predb:reset": "node -e \"const fs=require('fs');for(const f of ['prisma/dev.db','prisma/dev.db-wal','prisma/dev.db-shm'])try{fs.rmSync(f)}catch{};try{fs.rmSync('prisma/sandboxes',{recursive:true,force:true})}catch{}\"",
     "db:reset": "prisma db push --force-reset && tsx prisma/seed.ts",
     "db:studio": "prisma studio",
