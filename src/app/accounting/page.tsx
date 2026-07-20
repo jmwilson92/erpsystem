@@ -8,6 +8,7 @@ import {
   runDueAutoReversals,
   getAccountingOverview,
   getReclassifyData,
+  getMonthEndCloseStatus,
 } from "@/lib/services/gaap";
 import { getBankingOverview } from "@/lib/services/banking";
 import {
@@ -50,6 +51,9 @@ import {
   BookOpen,
   ListTree,
   BarChart3,
+  Download,
+  Printer,
+  ClipboardCheck,
 } from "lucide-react";
 import {
   actionPostJournal,
@@ -130,12 +134,14 @@ export default async function AccountingPage({
   }
 
   const pack = await getGaapReportPack();
-  const [cashFlow, recurringTemplates, overview, bankOverview] = await Promise.all([
-    getCashFlowStatement({ from: validFrom, to: validTo }),
-    listRecurringJournals(),
-    getAccountingOverview({ months: 12 }),
-    getBankingOverview(),
-  ]);
+  const [cashFlow, recurringTemplates, overview, bankOverview, closeStatus] =
+    await Promise.all([
+      getCashFlowStatement({ from: validFrom, to: validTo }),
+      listRecurringJournals(),
+      getAccountingOverview({ months: 12 }),
+      getBankingOverview(),
+      getMonthEndCloseStatus(),
+    ]);
   const reclassifyData =
     defaultTab === "reclassify"
       ? await getReclassifyData({
@@ -349,6 +355,25 @@ export default async function AccountingPage({
       >
         Chart
       </Link>
+    </div>
+  );
+  const reportTools = (report: string, hasChart: boolean) => (
+    <div className="flex shrink-0 flex-wrap items-center gap-2">
+      {hasChart && viewToggle(report)}
+      <a
+        href={`/accounting/export?report=${report}${periodSuffix}`}
+        className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1 text-xs text-slate-300 transition hover:border-slate-500"
+      >
+        <Download className="h-3.5 w-3.5" /> CSV
+      </a>
+      <a
+        href={`/accounting/reports/print?report=${report}${periodSuffix}`}
+        target="_blank"
+        rel="noreferrer"
+        className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1 text-xs text-slate-300 transition hover:border-slate-500"
+      >
+        <Printer className="h-3.5 w-3.5" /> Print
+      </a>
     </div>
   );
 
@@ -654,25 +679,64 @@ export default async function AccountingPage({
         </CardContent>
       </Card>
 
-      {/* Month-end close */}
+      {/* Month-end close checklist */}
       <Card className="border-slate-800">
-        <CardContent className="flex flex-wrap items-center justify-between gap-3 p-3">
-          <div className="flex items-center gap-2 text-sm text-slate-400">
-            {acctSettings.closedThroughDate ? (
-              <Lock className="h-4 w-4 text-slate-400" />
-            ) : (
-              <LockOpen className="h-4 w-4 text-emerald-400" />
-            )}
-            <span>
-              <span className="font-medium text-slate-200">Month-end close.</span>{" "}
-              {acctSettings.closedThroughDate
-                ? `Journals dated on/before ${formatDate(
-                    acctSettings.closedThroughDate
-                  )} are locked from posting, approval, and voiding.`
-                : "Books are fully open. Set a closing date to lock prior-period journals."}
+        <CardHeader className="pb-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ClipboardCheck className="h-4 w-4 text-teal-400" />
+              Month-end close
+            </CardTitle>
+            <span
+              className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs ${
+                closeStatus.ready
+                  ? "border-emerald-800 text-emerald-400"
+                  : "border-amber-800 text-amber-400"
+              }`}
+            >
+              {closeStatus.ready ? (
+                <CheckCircle2 className="h-3.5 w-3.5" />
+              ) : (
+                <XCircle className="h-3.5 w-3.5" />
+              )}
+              {closeStatus.ready
+                ? "Ready to close"
+                : `${closeStatus.openCount} item${closeStatus.openCount === 1 ? "" : "s"} open`}
             </span>
           </div>
-          <div className="flex items-center gap-2">
+          <p className="text-xs text-slate-500">
+            {acctSettings.closedThroughDate
+              ? `Books closed through ${formatDate(acctSettings.closedThroughDate)} — journals on/before that date are locked from posting, approval, and voiding.`
+              : "Clear these before locking the period. The close never blocks — items are guidance."}
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="space-y-1.5">
+            {closeStatus.items.map((it) => (
+              <Link
+                key={it.key}
+                href={it.href}
+                scroll={false}
+                className="flex items-center gap-2 rounded-lg border border-slate-800 px-3 py-1.5 text-sm hover:border-slate-600"
+              >
+                {it.done ? (
+                  <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
+                ) : (
+                  <XCircle className="h-4 w-4 shrink-0 text-amber-400" />
+                )}
+                <span className="text-slate-200">{it.label}</span>
+                <span className="ml-2 truncate text-xs text-slate-500">
+                  {it.detail}
+                </span>
+                {!it.done && (
+                  <span className="ml-auto shrink-0 rounded-full bg-amber-500/20 px-1.5 text-[10px] font-semibold text-amber-300">
+                    {it.count}
+                  </span>
+                )}
+              </Link>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-end gap-2 border-t border-slate-800 pt-3">
             <form action={actionSetAccountingCloseDate} className="flex items-end gap-2">
               <label className="text-xs text-slate-500">
                 Close through
@@ -690,7 +754,7 @@ export default async function AccountingPage({
                 />
               </label>
               <Button type="submit" size="sm" className="h-8">
-                Close period
+                {acctSettings.closedThroughDate ? "Update close date" : "Close period"}
               </Button>
             </form>
             {acctSettings.closedThroughDate && (
@@ -802,6 +866,38 @@ export default async function AccountingPage({
               </Link>
             ))}
           </div>
+
+          {/* Books-close status */}
+          <Link
+            href="/accounting?tab=pl"
+            scroll={false}
+            className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-800 bg-slate-900/40 px-4 py-2.5 text-sm transition hover:border-teal-500/40"
+          >
+            <ClipboardCheck className="h-4 w-4 shrink-0 text-teal-400" />
+            <span className="font-medium text-slate-200">Month-end close</span>
+            <span
+              className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs ${
+                closeStatus.ready
+                  ? "border-emerald-800 text-emerald-400"
+                  : "border-amber-800 text-amber-400"
+              }`}
+            >
+              {closeStatus.ready ? (
+                <CheckCircle2 className="h-3 w-3" />
+              ) : (
+                <XCircle className="h-3 w-3" />
+              )}
+              {closeStatus.ready
+                ? "Ready to close"
+                : `${closeStatus.openCount} item${closeStatus.openCount === 1 ? "" : "s"} to clear`}
+            </span>
+            <span className="text-xs text-slate-500">
+              {closeStatus.closedThroughDate
+                ? `Closed through ${formatDate(closeStatus.closedThroughDate)}`
+                : "Books open"}
+            </span>
+            <ArrowRight className="ml-auto h-4 w-4 text-slate-500" />
+          </Link>
 
           {/* Trend + bank accounts */}
           <div className="grid gap-4 lg:grid-cols-3">
@@ -923,7 +1019,7 @@ export default async function AccountingPage({
           <Card>
             <CardHeader className="flex-row items-center justify-between space-y-0">
               <CardTitle>Income Statement (GAAP)</CardTitle>
-              {viewToggle("pl")}
+              {reportTools("pl", true)}
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               {reportView === "chart" ? (
@@ -969,7 +1065,7 @@ export default async function AccountingPage({
           <Card>
             <CardHeader className="flex-row items-center justify-between space-y-0">
               <CardTitle>Balance Sheet</CardTitle>
-              {viewToggle("bs")}
+              {reportTools("bs", true)}
             </CardHeader>
             {reportView === "chart" ? (
               <CardContent>
@@ -1013,7 +1109,7 @@ export default async function AccountingPage({
             <CardHeader className="space-y-1">
               <div className="flex items-center justify-between">
                 <CardTitle>Statement of Cash Flows (indirect method)</CardTitle>
-                {viewToggle("cf")}
+                {reportTools("cf", true)}
               </div>
               <p className="text-xs text-slate-500">
                 {formatDate(cashFlow.from)} → {formatDate(cashFlow.to)} · from
@@ -1122,8 +1218,9 @@ export default async function AccountingPage({
 
         <TabsContent value="tb">
           <Card>
-            <CardHeader>
+            <CardHeader className="flex-row items-center justify-between space-y-0">
               <CardTitle>Trial Balance</CardTitle>
+              {reportTools("tb", false)}
             </CardHeader>
             <CardContent>
               <table className="w-full text-sm">

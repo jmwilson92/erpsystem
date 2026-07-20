@@ -209,6 +209,91 @@ export async function getAccountRegister(
   };
 }
 
+/**
+ * Month-end close readiness: the open items an accountant should clear (or
+ * consciously accept) before locking a period, plus the current close date.
+ * Each item is a soft check — the close itself is never blocked.
+ */
+export async function getMonthEndCloseStatus() {
+  const [
+    unmatchedBankTxns,
+    unreconciledBankTxns,
+    pendingJournals,
+    draftJournals,
+    settings,
+    lastPosted,
+  ] = await Promise.all([
+    prisma.bankTransaction.count({ where: { status: "UNMATCHED" } }),
+    prisma.bankTransaction.count({ where: { status: "MATCHED" } }),
+    prisma.journalEntry.count({ where: { status: "PENDING_APPROVAL" } }),
+    prisma.journalEntry.count({ where: { status: "DRAFT" } }),
+    prisma.accountingSettings.findUnique({
+      where: { id: "default" },
+      select: { closedThroughDate: true },
+    }),
+    prisma.journalEntry.findFirst({
+      where: { status: "POSTED" },
+      orderBy: { date: "desc" },
+      select: { date: true },
+    }),
+  ]);
+
+  const items = [
+    {
+      key: "bank",
+      label: "Bank & card transactions categorized",
+      count: unmatchedBankTxns,
+      done: unmatchedBankTxns === 0,
+      detail:
+        unmatchedBankTxns === 0
+          ? "All imported transactions are posted to the GL."
+          : `${unmatchedBankTxns} imported transaction(s) still need a category.`,
+      href: "/accounting?tab=banking",
+    },
+    {
+      key: "reconcile",
+      label: "Bank transactions reconciled",
+      count: unreconciledBankTxns,
+      done: unreconciledBankTxns === 0,
+      detail:
+        unreconciledBankTxns === 0
+          ? "Nothing is waiting to be reconciled."
+          : `${unreconciledBankTxns} categorized transaction(s) not yet reconciled.`,
+      href: "/accounting?tab=banking",
+    },
+    {
+      key: "approvals",
+      label: "Journal entries approved",
+      count: pendingJournals,
+      done: pendingJournals === 0,
+      detail:
+        pendingJournals === 0
+          ? "No journals waiting on approval."
+          : `${pendingJournals} journal entr(y/ies) pending approval.`,
+      href: "/accounting?tab=je&jeStatus=PENDING_APPROVAL",
+    },
+    {
+      key: "drafts",
+      label: "No draft journals left open",
+      count: draftJournals,
+      done: draftJournals === 0,
+      detail:
+        draftJournals === 0
+          ? "No unposted drafts."
+          : `${draftJournals} draft journal(s) not yet posted.`,
+      href: "/accounting?tab=je&jeStatus=DRAFT",
+    },
+  ];
+
+  return {
+    items,
+    ready: items.every((i) => i.done),
+    openCount: items.filter((i) => !i.done).length,
+    closedThroughDate: settings?.closedThroughDate ?? null,
+    lastPostedDate: lastPosted?.date ?? null,
+  };
+}
+
 /* ── Reclassify tool ───────────────────────────────────────────── */
 
 /**
