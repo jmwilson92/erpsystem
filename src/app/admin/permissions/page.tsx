@@ -14,6 +14,8 @@ import {
   actionCreatePermissionGroup,
   actionToggleGroupPermission,
   actionInviteUser,
+  actionDecidePermissionRequest,
+  actionAdminResetPin,
 } from "@/app/actions";
 import { Input } from "@/components/ui/input";
 
@@ -41,6 +43,11 @@ export default async function PermissionsAdminPage() {
     console.error("ensureDefaultPermissionGroups", e);
   }
 
+  const accessRequests = await prisma.permissionRequest.findMany({
+    where: { status: "PENDING" },
+    include: { user: { select: { name: true, role: true } } },
+    orderBy: { createdAt: "asc" },
+  });
   const [pendingInvites, groups, users, directGrants] = await Promise.all([
     prisma.userInvite.findMany({
       where: { acceptedAt: null, expiresAt: { gt: new Date() } },
@@ -76,6 +83,101 @@ export default async function PermissionsAdminPage() {
         title="Roles & Permissions"
         description="Assign permission groups or grant individual actions to users"
       />
+
+      {/* Access requests — raised from the "no permission" page */}
+      {accessRequests.length > 0 && (
+        <Card className="border-amber-900/50">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">
+              Access requests ({accessRequests.length})
+            </CardTitle>
+            <p className="text-xs text-slate-500">
+              People who hit a permission wall and asked for access. Grant
+              permanently, grant for 24 hours, or deny.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {accessRequests.map((r) => (
+              <div
+                key={r.id}
+                className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-800 px-3 py-2 text-sm"
+              >
+                <span className="text-slate-200">{r.user.name}</span>
+                <span className="text-xs text-slate-500">{r.user.role}</span>
+                <span className="font-mono text-xs text-amber-300">
+                  {r.permissionCode}
+                </span>
+                {r.note && (
+                  <span className="min-w-0 flex-1 truncate text-xs text-slate-500">
+                    “{r.note}”
+                  </span>
+                )}
+                <div className="ml-auto flex gap-1.5">
+                  {(
+                    [
+                      ["GRANT", "Grant", "default"],
+                      ["GRANT_ONCE", "Grant 24h", "secondary"],
+                      ["DENY", "Deny", "outline"],
+                    ] as const
+                  ).map(([decision, label, variant]) => (
+                    <form key={decision} action={actionDecidePermissionRequest}>
+                      <input type="hidden" name="id" value={r.id} />
+                      <input type="hidden" name="decision" value={decision} />
+                      <Button
+                        type="submit"
+                        size="sm"
+                        variant={variant}
+                        className={`h-7 text-xs ${decision === "DENY" ? "text-rose-400" : ""}`}
+                      >
+                        {label}
+                      </Button>
+                    </form>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Sign-off PIN reset */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Reset a sign-off PIN</CardTitle>
+          <p className="text-xs text-slate-500">
+            For techs who forgot their shop-floor PIN. Leave the PIN blank to
+            clear it (they set a new one under My Account).
+          </p>
+        </CardHeader>
+        <CardContent>
+          <form action={actionAdminResetPin} className="flex flex-wrap items-end gap-2">
+            <label className="text-xs text-slate-500">
+              User
+              <select name="userId" required className={`${selectClass} mt-1 w-64`}>
+                <option value="">— Select —</option>
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name} · {u.role}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-xs text-slate-500">
+              New PIN (4–6 digits, blank = clear)
+              <Input
+                name="pin"
+                inputMode="numeric"
+                pattern="\d{0,6}"
+                maxLength={6}
+                className="mt-1 h-9 w-40"
+              />
+            </label>
+            <Button type="submit" size="sm" className="h-9">
+              Reset PIN
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
 
       <Card className="border-teal-900/40">
         <CardHeader className="pb-2">

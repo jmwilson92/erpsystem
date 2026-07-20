@@ -1124,10 +1124,16 @@ async function applyTravelerSplit(params: {
   return { allReceived: false, anyReceived, openLines, child };
 }
 
-/** Close PO from purchasing when every line is fully received. */
+/**
+ * Close PO from purchasing. Normal close requires every line fully
+ * received; `short: true` closes with open quantities (requires a reason,
+ * recorded in the audit trail and PO notes).
+ */
 export async function closePurchaseOrderFromReceiving(params: {
   purchaseOrderId: string;
   userId?: string;
+  short?: boolean;
+  reason?: string | null;
 }) {
   const po = await prisma.purchaseOrder.findUnique({
     where: { id: params.purchaseOrderId },
@@ -1135,33 +1141,47 @@ export async function closePurchaseOrderFromReceiving(params: {
   });
   if (!po) throw new Error("Purchase order not found");
 
-  const allReceived = po.lines.every((l) => l.quantityReceived >= l.quantity);
-  if (!allReceived) {
-    const open = po.lines
-      .filter((l) => l.quantityReceived < l.quantity)
-      .map((l) => `${l.description}: ${l.quantity - l.quantityReceived} open`)
-      .join("; ");
-    throw new Error(
-      `Cannot close PO — material still open on lines. ${open}`
-    );
-  }
-
   if (["CLOSED", "CANCELLED"].includes(po.status)) {
     return po;
   }
 
+  const openLines = po.lines.filter((l) => l.quantityReceived < l.quantity);
+  const openSummary = openLines
+    .map((l) => `${l.description}: ${l.quantity - l.quantityReceived} open`)
+    .join("; ");
+
+  if (openLines.length > 0 && !params.short) {
+    throw new Error(
+      `Material still open — use "Close short" to close anyway. ${openSummary}`
+    );
+  }
+  if (params.short && openLines.length > 0 && !params.reason?.trim()) {
+    throw new Error("Closing short requires a reason");
+  }
+
+  const closedShort = params.short && openLines.length > 0;
   // Only close the PO — travelers keep their own lifecycle (COMPLETE/CLOSED independently)
   const updated = await prisma.purchaseOrder.update({
     where: { id: po.id },
-    data: { status: "CLOSED" },
+    data: {
+      status: "CLOSED",
+      ...(closedShort
+        ? {
+            notes: `${po.notes ? po.notes + "\n" : ""}Closed short (${openSummary}) — ${params.reason!.trim()}`,
+          }
+        : {}),
+    },
   });
 
   await logAudit({
     entityType: "PurchaseOrder",
     entityId: po.id,
-    action: "CLOSED_BY_PURCHASING",
+    action: closedShort ? "CLOSED_SHORT" : "CLOSED_BY_PURCHASING",
     userId: params.userId,
-    metadata: { poNumber: po.number },
+    metadata: {
+      poNumber: po.number,
+      ...(closedShort ? { open: openSummary, reason: params.reason } : {}),
+    },
   });
 
   return updated;

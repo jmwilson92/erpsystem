@@ -297,8 +297,8 @@ export default async function MyTimesheetPage() {
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                   Company holidays
                 </p>
-                {holidays.map((h) => (
-                  <p key={h.date} className="text-xs">
+                {holidays.map((h, i) => (
+                  <p key={`${h.date}-${i}`} className="text-xs">
                     <span className="font-mono text-slate-500">{h.date}</span>{" "}
                     {h.name}
                   </p>

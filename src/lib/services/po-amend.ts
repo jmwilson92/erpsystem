@@ -281,3 +281,133 @@ export async function listPoAmendmentsForUser(params: {
   }
   return out;
 }
+
+/**
+ * Update the PO's delivery dates (header EDD and/or per-line promises)
+ * WITHOUT the re-approval round — date slips are a supplier reality, not
+ * a commercial change. The charge owner (budget owner → WBS owner →
+ * project PM → requester) is notified of the new date and asked to flag
+ * it if unacceptable. Every change is audited.
+ */
+export async function updatePoDeliveryDates(params: {
+  poId: string;
+  promisedDate?: Date | null;
+  linePromised?: Record<string, Date | null>;
+  userId?: string | null;
+}) {
+  const po = await prisma.purchaseOrder.findUnique({
+    where: { id: params.poId },
+    include: {
+      lines: true,
+      supplier: { select: { name: true } },
+      purchaseRequest: {
+        include: {
+          budget: { select: { ownerId: true, name: true } },
+          wbsElement: { select: { ownerId: true } },
+          project: { select: { projectManagerId: true } },
+          workOrder: {
+            select: {
+              salesOrder: { select: { number: true } },
+              project: { select: { projectManagerId: true } },
+            },
+          },
+        },
+      },
+    },
+  });
+  if (!po) throw new Error("PO not found");
+  if (["CLOSED", "CANCELLED"].includes(po.status)) {
+    throw new Error(`PO is ${po.status} — dates can no longer change`);
+  }
+
+  const changes: string[] = [];
+  const fmt = (d: Date | null | undefined) =>
+    d ? d.toISOString().slice(0, 10) : "—";
+
+  if (params.promisedDate !== undefined) {
+    const oldStr = fmt(po.promisedDate);
+    const newStr = fmt(params.promisedDate);
+    if (oldStr !== newStr) {
+      await prisma.purchaseOrder.update({
+        where: { id: po.id },
+        data: { promisedDate: params.promisedDate },
+      });
+      changes.push(`PO delivery ${oldStr} → ${newStr}`);
+    }
+  }
+  for (const [lineId, date] of Object.entries(params.linePromised || {})) {
+    const line = po.lines.find((l) => l.id === lineId);
+    if (!line) continue;
+    const oldStr = fmt(line.promisedDate);
+    const newStr = fmt(date);
+    if (oldStr !== newStr) {
+      await prisma.purchaseOrderLine.update({
+        where: { id: lineId },
+        data: { promisedDate: date },
+      });
+      changes.push(`Line ${line.lineNumber} (${line.description}) ${oldStr} → ${newStr}`);
+    }
+  }
+
+  if (changes.length === 0) return { changed: 0, notified: null };
+
+  await logAudit({
+    entityType: "PurchaseOrder",
+    entityId: po.id,
+    action: "DELIVERY_DATE_UPDATED",
+    userId: params.userId,
+    metadata: { poNumber: po.number, changes },
+  });
+
+  // Resolve the charge owner to notify
+  const pr = po.purchaseRequest;
+  const ownerId =
+    pr?.budget?.ownerId ||
+    pr?.wbsElement?.ownerId ||
+    pr?.project?.projectManagerId ||
+    pr?.workOrder?.project?.projectManagerId ||
+    pr?.requestedById ||
+    null;
+  let notified: string | null = null;
+  if (ownerId && ownerId !== params.userId) {
+    const owner = await prisma.user.findUnique({
+      where: { id: ownerId },
+      select: { name: true, email: true },
+    });
+    if (owner?.email) {
+      let soNumber = pr?.workOrder?.salesOrder?.number || null;
+      if (!soNumber && pr?.salesOrderId) {
+        const so = await prisma.salesOrder.findUnique({
+          where: { id: pr.salesOrderId },
+          select: { number: true },
+        });
+        soNumber = so?.number || null;
+      }
+      const context = pr?.budget?.name
+        ? `budget "${pr.budget.name}"`
+        : soNumber
+          ? `sales order ${soNumber}`
+          : "your charge";
+      try {
+        const { sendEmail } = await import("@/lib/services/email");
+        await sendEmail({
+          to: owner.email,
+          subject: `Delivery date changed on ${po.number} (${po.supplier.name})`,
+          body: [
+            `<p>The delivery date on purchase order <strong>${po.number}</strong> — charged to ${context} — was updated:</p>`,
+            `<ul>${changes.map((c) => `<li>${c}</li>`).join("")}</ul>`,
+            `<p>If the new date is <strong>not acceptable</strong>, reply to purchasing or comment on the PO so it can be worked with the supplier.</p>`,
+          ].join("\n"),
+          entityType: "PurchaseOrder",
+          entityId: po.id,
+          entityLabel: po.number,
+          userId: params.userId || undefined,
+        });
+        notified = owner.name;
+      } catch {
+        /* email center failure never blocks the date change */
+      }
+    }
+  }
+  return { changed: changes.length, notified };
+}

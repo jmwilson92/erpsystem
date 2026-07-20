@@ -42,7 +42,7 @@ async function main() {
     "Customer",
     "AssetCheckout", "Asset",
     "BankTransaction", "BankAccount", "EmailMessage", "AuthSession", "UserInvite",
-    "ScheduledReport", "RecurringJournal", "JournalLine", "JournalEntry", "Account",
+    "CycleCountLine", "CycleCount", "PermissionRequest", "ScheduledReport", "RecurringJournal", "JournalLine", "JournalEntry", "Account",
     "PurchaseRequestLine", "PurchaseRequest",
     "SupplierScorecardHistory", "SupplierCertification", "AslPolicy", "Supplier",
     "Lot", "MaterialTransaction", "InventoryItem", "Location", "Warehouse",

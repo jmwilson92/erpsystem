@@ -539,12 +539,22 @@ export async function actionCloseGfpTraveler(formData: FormData): Promise<void> 
 /** Close PO from the purchasing PO module (not receiving dock). */
 export async function actionClosePurchaseOrder(formData: FormData): Promise<void> {
   const purchaseOrderId = formData.get("purchaseOrderId") as string;
-  const { requirePermission } = await import("@/lib/auth");
-  const user = await requirePermission("purchasing.po.close");
-  await closePurchaseOrderFromReceiving({
-    purchaseOrderId,
-    userId: user?.id,
-  });
+  try {
+    const { requirePermission } = await import("@/lib/auth");
+    const user = await requirePermission("purchasing.po.close");
+    await closePurchaseOrderFromReceiving({
+      purchaseOrderId,
+      userId: user?.id,
+      short: (formData.get("short") as string) === "true",
+      reason: ((formData.get("reason") as string) || "").trim() || null,
+    });
+    await flashToast("PO closed");
+  } catch (e) {
+    await flashToast(
+      e instanceof Error ? e.message : "Could not close the PO",
+      "error"
+    );
+  }
   revalidateFulfillmentPaths([
     "/purchasing",
     `/purchasing/po/${purchaseOrderId}`,
@@ -3189,6 +3199,289 @@ export async function actionCreateQuote(formData: FormData): Promise<void> {
   revalidatePath("/sales");
   revalidatePath("/sales/quotes");
   redirect(`/sales/quotes/${quote.id}`);
+}
+
+/**
+ * Update PO delivery dates (header EDD + per-line promises) without the
+ * re-approval round; the charge owner is notified of the change.
+ */
+export async function actionUpdatePoDeliveryDates(formData: FormData): Promise<void> {
+  const poId = formData.get("poId") as string;
+  const user = await getCurrentUser();
+  if (!user || !["ADMIN", "PURCHASING"].includes(user.role)) {
+    await flashToast("Delivery dates are updated by purchasing", "error");
+    redirect(`/purchasing/po/${poId}`);
+  }
+  const parseDate = (v: FormDataEntryValue | null): Date | null | undefined => {
+    const s = ((v as string) || "").trim();
+    if (s === "") return null;
+    const d = new Date(s);
+    return Number.isNaN(d.getTime()) ? undefined : d;
+  };
+  const linePromised: Record<string, Date | null> = {};
+  for (const [key, value] of formData.entries()) {
+    if (key.startsWith("lineDate_")) {
+      const parsed = parseDate(value);
+      if (parsed !== undefined) linePromised[key.slice("lineDate_".length)] = parsed;
+    }
+  }
+  try {
+    const { updatePoDeliveryDates } = await import("@/lib/services/po-amend");
+    const res = await updatePoDeliveryDates({
+      poId,
+      promisedDate: parseDate(formData.get("promisedDate")),
+      linePromised,
+      userId: user!.id,
+    });
+    await flashToast(
+      res.changed === 0
+        ? "No date changes"
+        : `Delivery date updated${res.notified ? ` — ${res.notified} notified` : ""}`
+    );
+  } catch (e) {
+    await flashToast(
+      e instanceof Error ? e.message : "Could not update delivery dates",
+      "error"
+    );
+  }
+  revalidatePath(`/purchasing/po/${poId}`);
+  redirect(`/purchasing/po/${poId}`);
+}
+
+/** Ask admins for a permission you were just denied. */
+export async function actionRequestPermission(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  const code = ((formData.get("code") as string) || "").trim();
+  if (!user || !code) return;
+  const existing = await prisma.permissionRequest.findFirst({
+    where: { userId: user.id, permissionCode: code, status: "PENDING" },
+  });
+  if (!existing) {
+    await prisma.permissionRequest.create({
+      data: {
+        userId: user.id,
+        permissionCode: code,
+        note: ((formData.get("note") as string) || "").trim() || null,
+      },
+    });
+    // Give admins a heads-up through the email center
+    try {
+      const admins = await prisma.user.findMany({
+        where: { role: "ADMIN", isActive: true },
+        select: { email: true },
+        take: 5,
+      });
+      const { sendEmail } = await import("@/lib/services/email");
+      for (const a of admins) {
+        if (!a.email) continue;
+        await sendEmail({
+          to: a.email,
+          subject: `Permission request: ${user.name} → ${code}`,
+          body: `<p><strong>${user.name}</strong> requested permission <code>${code}</code>. Decide under Admin → Roles &amp; Permissions.</p>`,
+          entityType: "PermissionRequest",
+          entityId: user.id,
+          userId: user.id,
+        });
+      }
+    } catch {
+      /* email is best-effort */
+    }
+  }
+  await flashToast("Request sent to your admins");
+  revalidatePath("/no-access");
+  redirect(`/no-access?code=${encodeURIComponent(code)}`);
+}
+
+/** Admin decision on a permission request: grant, grant 24h, or deny. */
+export async function actionDecidePermissionRequest(
+  formData: FormData
+): Promise<void> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const admin = await getCurrentUser();
+  if (!admin || !(await userHasPermission(admin.id, "admin.permissions"))) {
+    throw new Error("Deciding permission requests requires admin");
+  }
+  const id = (formData.get("id") as string) || "";
+  const decision = (formData.get("decision") as string) || ""; // GRANT | GRANT_ONCE | DENY
+  const req = await prisma.permissionRequest.findUnique({ where: { id } });
+  if (!req || req.status !== "PENDING") {
+    await flashToast("Request already decided", "error");
+    redirect("/admin/permissions");
+  }
+
+  if (decision === "DENY") {
+    await prisma.permissionRequest.update({
+      where: { id },
+      data: { status: "DENIED", decidedById: admin.id, decidedAt: new Date() },
+    });
+    await flashToast("Request denied");
+  } else {
+    // Ensure the permission exists in the catalog, then grant
+    let perm = await prisma.permission.findFirst({
+      where: { code: req!.permissionCode },
+    });
+    if (!perm) {
+      perm = await prisma.permission.create({
+        data: {
+          code: req!.permissionCode,
+          name: req!.permissionCode,
+          module: req!.permissionCode.split(".")[0] || "general",
+        },
+      });
+    }
+    const expiresAt =
+      decision === "GRANT_ONCE"
+        ? new Date(Date.now() + 24 * 60 * 60 * 1000)
+        : null;
+    await prisma.userPermission.upsert({
+      where: {
+        userId_permissionId: { userId: req!.userId, permissionId: perm.id },
+      },
+      create: {
+        userId: req!.userId,
+        permissionId: perm.id,
+        allowed: true,
+        expiresAt,
+      },
+      update: { allowed: true, expiresAt },
+    });
+    await prisma.permissionRequest.update({
+      where: { id },
+      data: {
+        status: decision === "GRANT_ONCE" ? "GRANTED_ONCE" : "GRANTED",
+        decidedById: admin.id,
+        decidedAt: new Date(),
+      },
+    });
+    await logAudit({
+      entityType: "User",
+      entityId: req!.userId,
+      action: "PERMISSION_GRANTED",
+      userId: admin.id,
+      metadata: { code: req!.permissionCode, temporary: decision === "GRANT_ONCE" },
+    });
+    await flashToast(
+      decision === "GRANT_ONCE" ? "Granted for 24 hours" : "Granted permanently"
+    );
+  }
+  revalidatePath("/admin/permissions");
+  redirect("/admin/permissions");
+}
+
+/** Set / change my own shop-floor sign-off PIN. */
+export async function actionSetMyPin(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user) return;
+  const pin = ((formData.get("pin") as string) || "").trim();
+  const confirm = ((formData.get("pinConfirm") as string) || "").trim();
+  if (!/^\d{4,6}$/.test(pin)) {
+    await flashToast("PIN must be 4–6 digits", "error");
+  } else if (pin !== confirm) {
+    await flashToast("PINs don't match", "error");
+  } else {
+    await prisma.user.update({ where: { id: user.id }, data: { pinCode: pin } });
+    await logAudit({
+      entityType: "User",
+      entityId: user.id,
+      action: "PIN_CHANGED",
+      userId: user.id,
+    });
+    await flashToast("Sign-off PIN updated");
+  }
+  revalidatePath("/account");
+  redirect("/account");
+}
+
+/** Admin: reset (or clear) a user's sign-off PIN. */
+export async function actionAdminResetPin(formData: FormData): Promise<void> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const admin = await getCurrentUser();
+  if (!admin || !(await userHasPermission(admin.id, "admin.permissions"))) {
+    throw new Error("Resetting PINs requires admin");
+  }
+  const userId = (formData.get("userId") as string) || "";
+  const pin = ((formData.get("pin") as string) || "").trim();
+  if (!userId) return;
+  if (pin && !/^\d{4,6}$/.test(pin)) {
+    await flashToast("PIN must be 4–6 digits (blank to clear)", "error");
+  } else {
+    await prisma.user.update({
+      where: { id: userId },
+      data: { pinCode: pin || null },
+    });
+    await logAudit({
+      entityType: "User",
+      entityId: userId,
+      action: pin ? "PIN_RESET_BY_ADMIN" : "PIN_CLEARED_BY_ADMIN",
+      userId: admin.id,
+    });
+    await flashToast(pin ? "PIN reset" : "PIN cleared");
+  }
+  revalidatePath("/admin/permissions");
+  redirect("/admin/permissions");
+}
+
+/** Quote issued to the customer — enters the awaiting-PO queue. */
+export async function actionMarkQuoteSent(formData: FormData): Promise<void> {
+  const quoteId = formData.get("quoteId") as string;
+  const quote = await prisma.quote.findUnique({ where: { id: quoteId } });
+  if (!quote) return;
+  if (quote.status !== "DRAFT") {
+    await flashToast(`Quote is ${quote.status} — only drafts can be marked sent`, "error");
+  } else {
+    await prisma.quote.update({ where: { id: quoteId }, data: { status: "SENT" } });
+    await logAudit({
+      entityType: "Quote",
+      entityId: quoteId,
+      action: "QUOTE_SENT",
+      userId: (await getCurrentUser())?.id,
+      metadata: { number: quote.number },
+    });
+    await flashToast(`${quote.number} marked sent — awaiting customer PO`);
+  }
+  revalidatePath("/sales/quotes");
+  redirect("/sales/quotes");
+}
+
+/**
+ * Customer sent their PO: record its number on the quote, accept, and
+ * convert to a sales order in one step (the customer PO carries onto
+ * the SO).
+ */
+export async function actionRecordCustomerPo(formData: FormData): Promise<void> {
+  const quoteId = formData.get("quoteId") as string;
+  const customerPo = ((formData.get("customerPo") as string) || "").trim();
+  const user = await getCurrentUser();
+  if (!customerPo) {
+    await flashToast("Enter the customer's PO number", "error");
+    redirect("/sales/quotes");
+  }
+  try {
+    await prisma.quote.update({
+      where: { id: quoteId },
+      data: { customerPo, status: "ACCEPTED" },
+    });
+    const so = await convertQuoteToSalesOrder({ quoteId, userId: user?.id });
+    await logAudit({
+      entityType: "Quote",
+      entityId: quoteId,
+      action: "CUSTOMER_PO_RECORDED",
+      userId: user?.id,
+      metadata: { customerPo, salesOrder: so.number },
+    });
+    await flashToast(`Customer PO ${customerPo} recorded — ${so.number} created`);
+    revalidateFulfillmentPaths([`/sales/${so.id}`, "/sales/quotes"]);
+    redirect(`/sales/${so.id}`);
+  } catch (e) {
+    // redirect() throws NEXT_REDIRECT — let it through
+    if (e instanceof Error && e.message.includes("NEXT_REDIRECT")) throw e;
+    await flashToast(
+      e instanceof Error ? e.message : "Could not convert the quote",
+      "error"
+    );
+    revalidatePath("/sales/quotes");
+    redirect("/sales/quotes");
+  }
 }
 
 export async function actionAcceptQuote(formData: FormData): Promise<void> {
@@ -8270,6 +8563,40 @@ export async function actionSaveCompanyProfile(
   });
   await flashToast("Company profile saved");
   revalidatePath("/", "layout");
+}
+
+/** Company address, PO terms, kitting location, break timers. */
+export async function actionSaveCompanyOps(formData: FormData): Promise<void> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const user = await getCurrentUser();
+  if (!(await userHasPermission(user?.id, "admin.permissions"))) {
+    throw new Error("Only an administrator can change company settings");
+  }
+  // Breaks arrive one per line: "Break 15" / "Lunch 30"
+  const breaks = ((formData.get("breaks") as string) || "")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((l) => {
+      const m = l.match(/^(.+?)\s+(\d{1,3})$/);
+      return m ? { name: m[1].trim(), minutes: Number(m[2]) } : null;
+    })
+    .filter((b): b is { name: string; minutes: number } => !!b && b.minutes > 0);
+  await prisma.companySettings.upsert({
+    where: { id: "default" },
+    create: { id: "default" },
+    update: {
+      address: ((formData.get("address") as string) || "").trim() || null,
+      poTerms: ((formData.get("poTerms") as string) || "").trim() || null,
+      kittingLocation:
+        ((formData.get("kittingLocation") as string) || "").trim() || null,
+      breaksConfig: breaks.length ? JSON.stringify(breaks) : null,
+      updatedById: user?.id,
+    },
+  });
+  await flashToast("Company operations settings saved");
+  revalidatePath("/", "layout");
+  redirect("/admin/settings");
 }
 
 export async function actionSetModuleEnabled(

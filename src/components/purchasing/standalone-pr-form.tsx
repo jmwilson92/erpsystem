@@ -324,7 +324,7 @@ export function StandalonePrForm({
         {purpose !== "PROJECT" && (
           <input type="hidden" name="projectId" value="" />
         )}
-        <div className="sm:col-span-2">
+        <div className="flex flex-col justify-end sm:col-span-2">
           <label className="text-[10px] uppercase text-slate-500">
             {requiresCatalog
               ? "Job / project budget (optional)"
@@ -339,7 +339,7 @@ export function StandalonePrForm({
             ))}
           </select>
         </div>
-        <div className="sm:col-span-2">
+        <div className="flex flex-col justify-end sm:col-span-2">
           <label className="text-[10px] uppercase text-slate-500">
             Justification *
           </label>
@@ -385,7 +385,7 @@ export function StandalonePrForm({
               className="grid gap-2 rounded border border-slate-800 bg-slate-950/40 p-3 sm:grid-cols-12"
             >
               {requiresCatalog ? (
-                <div className="sm:col-span-5">
+                <div className="flex flex-col justify-end sm:col-span-5">
                   <label className="text-[10px] uppercase text-slate-500">
                     Catalog part *
                   </label>
@@ -411,7 +411,7 @@ export function StandalonePrForm({
                 </div>
               ) : (
                 <>
-                  <div className="sm:col-span-3">
+                  <div className="flex flex-col justify-end sm:col-span-3">
                     <label className="text-[10px] uppercase text-slate-500">
                       Catalog part (optional)
                     </label>
@@ -429,7 +429,7 @@ export function StandalonePrForm({
                       ))}
                     </select>
                   </div>
-                  <div className="sm:col-span-4">
+                  <div className="flex flex-col justify-end sm:col-span-4">
                     <label className="text-[10px] uppercase text-slate-500">
                       Description *
                     </label>
@@ -450,7 +450,7 @@ export function StandalonePrForm({
                   </div>
                 </>
               )}
-              <div className="sm:col-span-2">
+              <div className="flex flex-col justify-end sm:col-span-2">
                 <label className="text-[10px] uppercase text-slate-500">
                   Qty *
                 </label>
@@ -465,7 +465,7 @@ export function StandalonePrForm({
                   onChange={(e) => updateLine(i, { quantity: e.target.value })}
                 />
               </div>
-              <div className="sm:col-span-2">
+              <div className="flex flex-col justify-end sm:col-span-2">
                 <label className="text-[10px] uppercase text-slate-500">
                   Unit $
                 </label>
@@ -481,7 +481,7 @@ export function StandalonePrForm({
                   }
                 />
               </div>
-              <div className="sm:col-span-1">
+              <div className="flex flex-col justify-end sm:col-span-1">
                 <label className="text-[10px] uppercase text-slate-500">
                   UOM
                 </label>

@@ -97,6 +97,7 @@ model User {
   wikiPagesEdited     ProjectWikiPage[]
   permissionGroups    UserPermissionGroup[]
   userPermissions     UserPermission[]
+  permissionRequests  PermissionRequest[]
   gfpCheckedOut       GovernmentProperty[]   @relation("GfpCheckedOut")
   gfpAudits           GfpAuditRecord[]       @relation("GfpAuditor")
   gfpCheckouts        GfpCheckout[]          @relation("GfpCheckoutUser")
@@ -2127,8 +2128,28 @@ model UserPermission {
   permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
   /// true = grant, false = explicit deny
   allowed      Boolean @default(true)
+  /// Temporary grant — permission lapses after this time (one-time grants)
+  expiresAt    DateTime?
 
   @@unique([userId, permissionId])
+}
+
+/// "I need access" — raised when a user hits a permission wall. Admins
+/// grant permanently, grant for 24h, or deny.
+model PermissionRequest {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permissionCode String
+  note           String?
+  /// PENDING | GRANTED | GRANTED_ONCE | DENIED
+  status         String   @default("PENDING")
+  decidedById    String?
+  decidedAt      DateTime?
+  createdAt      DateTime @default(now())
+
+  @@index([status])
+  @@index([userId])
 }
 
 /// Configurable engineering swim lanes (create / deactivate).
@@ -3432,6 +3453,40 @@ model RecurringJournal {
   createdAt   DateTime @default(now())
 }
 
+/// Periodic inventory cycle count: pick a scope, count, record variances.
+model CycleCount {
+  id          String   @id @default(cuid())
+  number      String   @unique
+  /// OPEN | COUNTING | COMPLETE | CANCELLED
+  status      String   @default("OPEN")
+  scope       String?  // free-text: warehouse/location/ABC class counted
+  notes       String?
+  createdById String?
+  createdAt   DateTime @default(now())
+  completedAt DateTime?
+
+  lines       CycleCountLine[]
+}
+
+model CycleCountLine {
+  id            String   @id @default(cuid())
+  cycleCountId  String
+  cycleCount    CycleCount @relation(fields: [cycleCountId], references: [id], onDelete: Cascade)
+  partId        String
+  location      String?
+  systemQty     Float
+  countedQty    Float?
+  /// countedQty - systemQty once counted
+  variance      Float?
+  countedById   String?
+  countedAt     DateTime?
+  /// Set when the variance was posted as an inventory adjustment
+  adjustedAt    DateTime?
+
+  @@index([cycleCountId])
+  @@index([partId])
+}
+
 model Customer {
   id            String @id @default(cuid())
   code          String @unique
@@ -3443,6 +3498,11 @@ model Customer {
   shipToAddress String?
   paymentTerms  String @default("NET30")
   creditLimit   Float  @default(0)
+  /// Requested credit terms under review (e.g. "NET45 requested 7/20")
+  creditTermsRequested String?
+  /// Signed credit application / terms request document
+  creditDocUrl  String?
+  creditDocName String?
   isActive      Boolean @default(true)
 
   invoices      ArInvoice[]
@@ -4365,6 +4425,14 @@ model CompanySettings {
   /// JSON planning prefs: calendarMode, fixedShiftHours, customShiftHours, …
   /// See PlanningSettings in src/lib/services/schedule.ts
   planningSettings String?
+  /// Terms & conditions printed at the bottom of every purchase order
+  poTerms        String?
+  /// Company mailing address (letterhead / PO PDF)
+  address        String?
+  /// JSON [{name:"Break",minutes:15},{name:"Lunch",minutes:30}] — header break timers
+  breaksConfig   String?
+  /// Where finished kits are staged (guides the kitter after picking)
+  kittingLocation String?
   setupCompleted Boolean  @default(false)
   updatedById    String?
   updatedAt      DateTime @updatedAt

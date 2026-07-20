@@ -117,6 +117,12 @@ export type PurchaseOrderPdfData = {
   };
   shipTo?: string;
   buyerName?: string;
+  /** Company name + address block for the letterhead (falls back to ForgeRP defaults) */
+  companyName?: string;
+  companyAddress?: string;
+  companyContact?: string;
+  /** Terms & conditions printed after the notes (from company settings) */
+  terms?: string;
   lines: {
     lineNumber: number;
     partNumber?: string;
@@ -132,22 +138,30 @@ export type PurchaseOrderPdfData = {
 export function generatePurchaseOrderPdf(data: PurchaseOrderPdfData) {
   const pdf = createBrandedPdf("Purchase Order", data.number);
   const { doc, margin } = pdf;
-  let y = 100;
+  // Start below the branded header's "Generated …" line (baseline 100) so
+  // the company block never overlaps it.
+  let y = 124;
 
   doc.setFontSize(10);
   doc.setTextColor(30, 41, 59);
   doc.setFont("helvetica", "bold");
-  doc.text("Forge Dynamics LLC", margin, y);
+  doc.text(data.companyName || "ForgeRP", margin, y);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
   doc.setTextColor(100, 116, 139);
-  y += 12;
-  doc.text("1200 Precision Way · Huntsville, AL 35806", margin, y);
-  y += 11;
-  doc.text("purchasing@forgedynamics.example · CAGE 1FORG", margin, y);
+  if (data.companyAddress) {
+    for (const lineTxt of data.companyAddress.split("\n")) {
+      y += 11;
+      doc.text(lineTxt, margin, y);
+    }
+  }
+  if (data.companyContact) {
+    y += 11;
+    doc.text(data.companyContact, margin, y);
+  }
 
   // Vendor block right
-  let ry = 100;
+  let ry = 124;
   doc.setFont("helvetica", "bold");
   doc.setTextColor(30, 41, 59);
   doc.setFontSize(9);
@@ -227,7 +241,8 @@ export function generatePurchaseOrderPdf(data: PurchaseOrderPdfData) {
   doc.text("UOM", 420, y);
   doc.text("Unit $", 480, y, { align: "right" });
   doc.text("Ext $", 612 - margin - 4, y, { align: "right" });
-  y += 14;
+  // Breathing room between the header band and the first item row
+  y += 22;
 
   doc.setFont("helvetica", "normal");
   doc.setTextColor(30, 41, 59);
@@ -279,9 +294,39 @@ export function generatePurchaseOrderPdf(data: PurchaseOrderPdfData) {
     doc.setTextColor(30, 41, 59);
     const noteLines = doc.splitTextToSize(data.notes, 512);
     doc.text(noteLines, margin, y);
+    y += noteLines.length * 11;
   }
 
-  y = 740;
+  if (data.terms) {
+    y += 24;
+    if (y > 680) {
+      doc.addPage();
+      y = margin;
+    }
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.setTextColor(100, 116, 139);
+    doc.text("Terms & Conditions", margin, y);
+    y += 12;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.5);
+    doc.setTextColor(71, 85, 105);
+    const termLines = doc.splitTextToSize(data.terms, 512) as string[];
+    for (const t of termLines) {
+      if (y > 730) {
+        doc.addPage();
+        y = margin;
+      }
+      doc.text(t, margin, y);
+      y += 10;
+    }
+  }
+
+  y = Math.max(y + 20, 740);
+  if (y > 750) {
+    doc.addPage();
+    y = margin;
+  }
   doc.setFontSize(8);
   doc.setTextColor(148, 163, 184);
   doc.text(

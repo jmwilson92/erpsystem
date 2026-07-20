@@ -57,9 +57,15 @@ export function parseHolidays(policy: { holidays: string | null }): Holiday[] {
   if (!policy.holidays) return [];
   try {
     const arr = JSON.parse(policy.holidays);
-    return Array.isArray(arr)
-      ? arr.filter((h) => h && typeof h.date === "string")
-      : [];
+    if (!Array.isArray(arr)) return [];
+    // Dedupe by date — the picker can save the same day twice
+    const seen = new Set<string>();
+    return arr.filter((h) => {
+      if (!h || typeof h.date !== "string") return false;
+      if (seen.has(h.date)) return false;
+      seen.add(h.date);
+      return true;
+    });
   } catch {
     return [];
   }

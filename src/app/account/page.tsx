@@ -6,7 +6,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ChangePasswordForm } from "@/components/auth/auth-forms";
-import { actionLogout } from "@/app/actions";
+import { actionLogout, actionSetMyPin } from "@/app/actions";
 import { formatDate } from "@/lib/utils";
 import Link from "next/link";
 import { KeyRound, LogOut, ShieldCheck } from "lucide-react";
@@ -57,6 +57,56 @@ export default async function AccountPage() {
           </CardContent>
         </Card>
       )}
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <ShieldCheck className="h-4 w-4 text-teal-400" />
+            Sign-off PIN
+          </CardTitle>
+          <p className="text-xs text-slate-500">
+            Your personal 4–6 digit PIN confirms shop-floor sign-offs (work
+            instruction steps, test procedures, GFP approvals).{" "}
+            {user.pinCode
+              ? "A PIN is set — enter a new one to change it."
+              : "No PIN set yet."}{" "}
+            Forgot it? An admin can reset it under Roles &amp; Permissions.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <form action={actionSetMyPin} className="flex flex-wrap items-end gap-2">
+            <label className="text-xs text-slate-500">
+              New PIN (4–6 digits)
+              <input
+                name="pin"
+                type="password"
+                inputMode="numeric"
+                pattern="\d{4,6}"
+                minLength={4}
+                maxLength={6}
+                required
+                className="mt-1 block h-9 w-36 rounded-md border border-slate-700 bg-slate-950 px-2 text-sm text-slate-200"
+              />
+            </label>
+            <label className="text-xs text-slate-500">
+              Confirm PIN
+              <input
+                name="pinConfirm"
+                type="password"
+                inputMode="numeric"
+                pattern="\d{4,6}"
+                minLength={4}
+                maxLength={6}
+                required
+                className="mt-1 block h-9 w-36 rounded-md border border-slate-700 bg-slate-950 px-2 text-sm text-slate-200"
+              />
+            </label>
+            <Button type="submit" size="sm" className="h-9">
+              {user.pinCode ? "Change PIN" : "Set PIN"}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>

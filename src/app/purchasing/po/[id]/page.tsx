@@ -11,6 +11,7 @@ import {
   actionClosePurchaseOrder,
   actionAmendPo,
   actionDecidePoAmendment,
+  actionUpdatePoDeliveryDates,
 } from "@/app/actions";
 import { getCurrentUser } from "@/lib/auth";
 import { Input } from "@/components/ui/input";
@@ -18,8 +19,6 @@ import { Textarea } from "@/components/ui/textarea";
 import Link from "next/link";
 import type { PurchaseOrderPdfData } from "@/lib/pdf";
 import { ActivityTimeline } from "@/components/shared/activity-timeline";
-import { EmailComposeCard } from "@/components/shared/email-compose-card";
-import { composePoEmail } from "@/lib/services/email";
 
 export const dynamic = "force-dynamic";
 
@@ -43,8 +42,16 @@ export default async function PoDetailPage({
   });
   if (!po) notFound();
 
-  const emailDraft = await composePoEmail(po.id);
   const currentUser = await getCurrentUser();
+  const apInvoices = await prisma.apInvoice.findMany({
+    where: { purchaseOrderId: po.id },
+    orderBy: { invoiceDate: "desc" },
+  });
+  const invoiceTotal = apInvoices.reduce((s, i) => s + i.total, 0);
+  const invoicePaid = apInvoices.reduce((s, i) => s + i.amountPaid, 0);
+  const allInvoicesPaid =
+    apInvoices.length > 0 &&
+    apInvoices.every((i) => ["PAID", "VOID"].includes(i.status));
   const canAmend =
     !!currentUser &&
     ["ADMIN", "PURCHASING"].includes(currentUser.role) &&
@@ -72,8 +79,14 @@ export default async function PoDetailPage({
   const buyer = po.buyerId
     ? await prisma.user.findUnique({ where: { id: po.buyerId } })
     : null;
+  const company = await prisma.companySettings.findUnique({
+    where: { id: "default" },
+  });
 
   const pdfData: PurchaseOrderPdfData = {
+    companyName: company?.name || undefined,
+    companyAddress: company?.address || undefined,
+    terms: company?.poTerms || undefined,
     number: po.number,
     orderDate: formatDate(po.orderDate),
     promisedDate: formatDate(po.promisedDate),
@@ -112,6 +125,14 @@ export default async function PoDetailPage({
   const canClosePo =
     allLinesReceived &&
     !["CLOSED", "CANCELLED"].includes(po.status) &&
+    ["RECEIVED", "PARTIAL_RECEIPT", "INVOICED", "ISSUED", "ACKNOWLEDGED"].includes(
+      po.status
+    );
+  const isPurchasing =
+    !!currentUser && ["ADMIN", "PURCHASING"].includes(currentUser.role);
+  const canCloseShort =
+    isPurchasing &&
+    !allLinesReceived &&
     ["RECEIVED", "PARTIAL_RECEIPT", "INVOICED", "ISSUED", "ACKNOWLEDGED"].includes(
       po.status
     );
@@ -470,6 +491,17 @@ export default async function PoDetailPage({
             </div>
           )}
 
+          {company?.poTerms && (
+            <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-3">
+              <p className="mb-1 text-[10px] font-semibold uppercase text-slate-500">
+                Terms &amp; Conditions
+              </p>
+              <pre className="whitespace-pre-wrap font-sans text-[11px] leading-relaxed text-slate-500">
+                {company.poTerms}
+              </pre>
+            </div>
+          )}
+
           <p className="text-[11px] text-slate-600">
             Please acknowledge this purchase order and confirm the delivery date. Receiving is
             performed against traveler{" "}
@@ -490,34 +522,108 @@ export default async function PoDetailPage({
         const quoteUrl = po.quoteFileUrl || po.purchaseRequest?.quoteFileUrl;
         const quoteName =
           po.quoteFileName || po.purchaseRequest?.quoteFileName || "Quote file";
-        if (!quoteUrl) return null;
+        const soleSource = po.purchaseRequest?.soleSource;
+        if (!quoteUrl && !soleSource) return null;
         return (
           <Card>
-            <CardContent className="space-y-2 p-4">
+            <CardContent className="space-y-3 p-4">
               <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                Supplier quote
+                Procurement package
               </p>
-              <a
-                href={quoteUrl}
-                download={quoteName}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center justify-between rounded border border-slate-800 px-3 py-2 text-sm hover:border-teal-500/30"
-              >
-                <span className="truncate text-slate-200">{quoteName}</span>
-                <span className="text-[10px] uppercase tracking-wider text-slate-500">
-                  Open
-                </span>
-              </a>
+              {quoteUrl ? (
+                <a
+                  href={quoteUrl}
+                  download={quoteName}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-between rounded border border-slate-800 px-3 py-2 text-sm hover:border-teal-500/30"
+                >
+                  <span className="truncate text-slate-200">{quoteName}</span>
+                  <span className="text-[10px] uppercase tracking-wider text-slate-500">
+                    Open
+                  </span>
+                </a>
+              ) : (
+                <p className="text-xs text-slate-500">No quote file attached.</p>
+              )}
               {!po.quoteFileUrl && po.purchaseRequest?.quoteFileUrl && (
                 <p className="text-[11px] text-slate-600">
-                  Carried from {po.purchaseRequest.number}.
+                  Quote carried from {po.purchaseRequest.number}.
                 </p>
+              )}
+              {soleSource && (
+                <div className="rounded-lg border border-amber-900/50 bg-amber-500/5 px-3 py-2 text-xs text-amber-200/90">
+                  <span className="font-semibold text-amber-300">
+                    Sole source procurement.
+                  </span>{" "}
+                  {po.purchaseRequest?.soleSourceJustification ||
+                    "No justification recorded."}
+                </div>
               )}
             </CardContent>
           </Card>
         );
       })()}
+
+      {/* Delivery dates — purchasing keeps these current as the supplier
+          slips/pulls in; changing them notifies the charge owner (no
+          re-approval round for a date change). */}
+      {isPurchasing && !["CLOSED", "CANCELLED"].includes(po.status) && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Delivery dates</CardTitle>
+            <p className="text-xs text-slate-500">
+              Update as the supplier confirms or slips. Saving notifies the
+              budget / sales-order owner of the new date so they can flag it
+              if unacceptable.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <form action={actionUpdatePoDeliveryDates} className="space-y-3">
+              <input type="hidden" name="poId" value={po.id} />
+              <div className="flex flex-wrap items-end gap-3">
+                <label className="text-xs text-slate-400">
+                  PO delivery (EDD)
+                  <Input
+                    name="promisedDate"
+                    type="date"
+                    defaultValue={
+                      po.promisedDate
+                        ? po.promisedDate.toISOString().slice(0, 10)
+                        : ""
+                    }
+                    className="mt-1 h-9 w-44"
+                  />
+                </label>
+              </div>
+              {po.lines.length > 1 && (
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {po.lines.map((l) => (
+                    <label key={l.id} className="text-xs text-slate-400">
+                      <span className="block truncate">
+                        Line {l.lineNumber} · {l.description}
+                      </span>
+                      <Input
+                        name={`lineDate_${l.id}`}
+                        type="date"
+                        defaultValue={
+                          l.promisedDate
+                            ? l.promisedDate.toISOString().slice(0, 10)
+                            : ""
+                        }
+                        className="mt-1 h-8"
+                      />
+                    </label>
+                  ))}
+                </div>
+              )}
+              <Button type="submit" size="sm">
+                Save dates &amp; notify owner
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      )}
 
       {po.receivingTravelers.length > 0 && (
         <Card>
@@ -535,21 +641,107 @@ export default async function PoDetailPage({
                 <StatusBadge status={t.status} />
               </Link>
             ))}
-            {canClosePo && (
-              <p className="pt-1 text-xs text-emerald-400/90">
-                All lines fully received — you can close this PO when purchasing is done
-                (invoice match, etc.).
-              </p>
-            )}
           </CardContent>
         </Card>
       )}
 
-      <EmailComposeCard
-        draft={emailDraft}
-        returnTo={`/purchasing/po/${id}`}
-        title="Email PO to supplier"
-      />
+      {/* Invoice status + close — purchasing's checklist before closing */}
+      {!["CLOSED", "CANCELLED"].includes(po.status) && (
+        <Card
+          className={
+            allInvoicesPaid && allLinesReceived
+              ? "border-emerald-900/50"
+              : "border-slate-800"
+          }
+        >
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Invoice &amp; close</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            <div className="flex flex-wrap gap-2 text-xs">
+              <span
+                className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 ${
+                  allLinesReceived
+                    ? "border-emerald-800 text-emerald-400"
+                    : "border-amber-800 text-amber-400"
+                }`}
+              >
+                {allLinesReceived
+                  ? "✓ All material received"
+                  : "◌ Material still open"}
+              </span>
+              <span
+                className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 ${
+                  allInvoicesPaid
+                    ? "border-emerald-800 text-emerald-400"
+                    : apInvoices.length
+                      ? "border-amber-800 text-amber-400"
+                      : "border-slate-700 text-slate-400"
+                }`}
+              >
+                {apInvoices.length === 0
+                  ? "◌ No supplier invoice yet"
+                  : allInvoicesPaid
+                    ? "✓ Invoice paid — good to close"
+                    : `◌ Invoice open — ${formatCurrency(invoiceTotal - invoicePaid)} outstanding`}
+              </span>
+            </div>
+            {apInvoices.length > 0 && (
+              <div className="space-y-1">
+                {apInvoices.map((inv) => (
+                  <p
+                    key={inv.id}
+                    className="flex items-center justify-between rounded border border-slate-800 px-3 py-1.5 text-xs"
+                  >
+                    <span className="font-mono text-amber-400">{inv.number}</span>
+                    <span className="text-slate-400">
+                      {formatCurrency(inv.amountPaid)} / {formatCurrency(inv.total)}
+                    </span>
+                    <StatusBadge status={inv.status} />
+                  </p>
+                ))}
+              </div>
+            )}
+            <div className="flex flex-wrap items-end gap-3 border-t border-slate-800 pt-3">
+              {canClosePo && (
+                <form action={actionClosePurchaseOrder}>
+                  <input type="hidden" name="purchaseOrderId" value={po.id} />
+                  <Button type="submit" size="sm">
+                    Close PO
+                  </Button>
+                </form>
+              )}
+              {canCloseShort && (
+                <form
+                  action={actionClosePurchaseOrder}
+                  className="flex flex-wrap items-end gap-2"
+                >
+                  <input type="hidden" name="purchaseOrderId" value={po.id} />
+                  <input type="hidden" name="short" value="true" />
+                  <label className="text-xs text-slate-400">
+                    Close short — reason (required)
+                    <Input
+                      name="reason"
+                      required
+                      placeholder="e.g. remaining qty cancelled with supplier"
+                      className="mt-1 h-9 w-72"
+                    />
+                  </label>
+                  <Button type="submit" size="sm" variant="outline">
+                    Close short
+                  </Button>
+                </form>
+              )}
+              {!canClosePo && !canCloseShort && (
+                <p className="text-xs text-slate-500">
+                  Closing is available once the PO is issued and receiving has
+                  begun (purchasing role).
+                </p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <ActivityTimeline entityType="PurchaseOrder" entityId={id} />
     </div>

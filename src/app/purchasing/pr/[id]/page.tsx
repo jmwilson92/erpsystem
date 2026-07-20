@@ -409,7 +409,7 @@ export default async function PrDetailPage({
                         {pr.lines.map((l) => (
                           <tr
                             key={l.id}
-                            className="border-t border-slate-800/70 align-middle"
+                            className="border-t border-slate-800/70 align-bottom"
                           >
                             <td className="px-3 py-2">
                               {l.partId && partMap.get(l.partId) && (
@@ -696,6 +696,52 @@ export default async function PrDetailPage({
                       </div>
                     </div>
                   ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Procurement package — visible to every viewer once data exists,
+              so approvers and auditors see the quote + sole-source basis
+              without digging through the activity log. */}
+          {(pr.quoteFileUrl || pr.soleSource) && (
+            <Card className="border-slate-800">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Procurement package</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs uppercase tracking-wide text-slate-500">
+                    Supplier quote
+                  </span>
+                  {pr.quoteFileUrl ? (
+                    <a
+                      href={pr.quoteFileUrl}
+                      download={pr.quoteFileName || "quote"}
+                      className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1 text-xs text-teal-400 hover:border-teal-600"
+                    >
+                      📎 {pr.quoteFileName || "Download quote"}
+                    </a>
+                  ) : (
+                    <span className="text-xs text-slate-500">none attached</span>
+                  )}
+                </div>
+                <div>
+                  <span className="text-xs uppercase tracking-wide text-slate-500">
+                    Sole source
+                  </span>
+                  {pr.soleSource ? (
+                    <p className="mt-1 rounded-lg border border-amber-900/50 bg-amber-500/5 px-3 py-2 text-xs text-amber-200/90">
+                      <span className="font-semibold text-amber-300">
+                        Sole source procurement.
+                      </span>{" "}
+                      {pr.soleSourceJustification || "No justification recorded."}
+                    </p>
+                  ) : (
+                    <span className="ml-2 text-xs text-slate-500">
+                      no — competed / catalog buy
+                    </span>
+                  )}
                 </div>
               </CardContent>
             </Card>

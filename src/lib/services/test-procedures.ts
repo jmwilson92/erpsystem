@@ -316,7 +316,7 @@ export async function recordTestStepSignOff(params: {
 }) {
   const user = await prisma.user.findUniqueOrThrow({
     where: { id: params.userId },
-    select: { pinCode: true },
+    select: { pinCode: true, name: true },
   });
   if (!user.pinCode?.trim()) {
     throw new Error(
@@ -325,7 +325,7 @@ export async function recordTestStepSignOff(params: {
   }
   const expectedPin = user.pinCode.trim();
   if (!params.pinCode || params.pinCode.trim() !== expectedPin) {
-    throw new Error("PIN verification failed");
+    throw new Error(`Invalid PIN for ${user.name} — each person signs with their own PIN (set it under My Account)`);
   }
 
   const step = await prisma.testProcedureStep.findUniqueOrThrow({

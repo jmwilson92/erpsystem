@@ -31,7 +31,9 @@ export async function register() {
         "",
       ].join("\n")
     );
-    process.exit(1);
+    // Throwing (not process.exit) kills startup the same way without
+    // tripping Next's Edge-runtime static analysis warning.
+    throw new Error("ForgeRP production requires DEMO_MODE=0 (or ALLOW_DEMO_IN_PRODUCTION=1)");
   }
 
   if (demoOff) {

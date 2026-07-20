@@ -89,11 +89,10 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Manufacturing",
     items: [
       { href: "/work-orders", label: "Work Orders", icon: ClipboardList, keywords: ["wo", "traveler", "job"] },
-      { href: "/work-instructions", label: "Work Instructions", icon: FileText, keywords: ["wi", "router", "steps"] },
       { href: "/workcenters", label: "Workcenters", icon: Factory, keywords: ["machines", "cells", "capacity"] },
+      { href: "/test-center", label: "Test Center", icon: FlaskConical, keywords: ["ate", "burn-in", "test station"] },
       { href: "/kitting", label: "Kitting", icon: Boxes, keywords: ["pick", "stage", "shortage"] },
       { href: "/planning", label: "Planning & MRP", icon: LineChart, keywords: ["forecast", "mrs", "capacity", "demand"] },
-      { href: "/budgets", label: "Budgets", icon: Landmark, keywords: ["budget", "charge code", "direct", "indirect", "enact"] },
     ],
   },
   {
@@ -102,6 +101,8 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/engineering", label: "Engineering", icon: Briefcase, keywords: ["tasks", "board", "disciplines"] },
       { href: "/requirements", label: "Requirements", icon: ListChecks, keywords: ["jama", "trace", "verification", "shall", "coverage", "system requirements"] },
       { href: "/bom", label: "BOMs", icon: Layers, keywords: ["bill of materials", "where used", "revision"] },
+      { href: "/work-instructions", label: "Work Instructions", icon: FileText, keywords: ["wi", "router", "steps"] },
+      { href: "/test-procedures", label: "Test Procedures", icon: ClipboardList, keywords: ["atp", "test procedure", "acceptance test", "functional test", "cm controlled"] },
       { href: "/products", label: "Products (PLM)", icon: Package2, keywords: ["product lifecycle", "catalog"] },
       { href: "/cm", label: "Config Management", icon: GitBranch, keywords: ["ecr", "eco", "change", "baseline"] },
       { href: "/uom", label: "UOM Master", icon: Gauge, keywords: ["units", "conversion", "measure"] },
@@ -125,8 +126,6 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Quality & Compliance",
     items: [
       { href: "/qa", label: "QA Inspection", icon: ClipboardCheck, keywords: ["visual", "gd&t", "first article"] },
-      { href: "/test-center", label: "Test Center", icon: FlaskConical, keywords: ["ate", "burn-in", "test station"] },
-      { href: "/test-procedures", label: "Test Procedures", icon: ClipboardList, keywords: ["atp", "test procedure", "acceptance test", "functional test", "cm controlled"] },
       { href: "/quality", label: "NCR / Quality", icon: AlertTriangle, keywords: ["nonconformance", "yield", "trend"] },
       { href: "/mrb", label: "MRB", icon: FileWarning, keywords: ["material review board", "disposition"] },
       { href: "/mrb?view=cars", label: "CAR", icon: FileWarning, keywords: ["corrective action", "8d", "root cause"] },
@@ -142,6 +141,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/pmo", label: "PMO", icon: FolderKanban, keywords: ["programs", "projects", "wbs", "evm", "spi", "cpi"] },
       { href: "/pmo/pi", label: "PI Planning", icon: CalendarRange, keywords: ["program increment", "safe", "sprint"] },
       { href: "/pmo/alerts", label: "PM Alerts", icon: AlertTriangle, keywords: ["program alerts", "risk"] },
+      { href: "/budgets", label: "Budgets", icon: Landmark, keywords: ["budget", "charge code", "direct", "indirect", "enact"] },
       { href: "/accounting", label: "Accounting", icon: Landmark, keywords: ["gl", "gaap", "p&l", "balance sheet", "ar", "ap", "payroll", "banking", "reconcile"] },
       { href: "/hr", label: "HR / Workforce", icon: Users2, keywords: ["time", "pto", "expenses", "reviews"] },
     ],

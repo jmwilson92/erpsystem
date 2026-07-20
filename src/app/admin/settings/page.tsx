@@ -8,7 +8,9 @@ import {
   actionSaveCompanyProfile,
   actionSaveAccountingSettings,
   actionSetModuleEnabled,
+  actionSaveCompanyOps,
 } from "@/app/actions";
+import { Input } from "@/components/ui/input";
 import { MODULES } from "@/lib/modules";
 import { Button } from "@/components/ui/button";
 import { parseJsonArray } from "@/lib/utils";
@@ -123,6 +125,84 @@ export default async function AdminSettingsPage() {
               textareaRows={6}
             />
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Operations: address, PO terms, kitting location, breaks */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Building2 className="h-4 w-4 text-teal-400" />
+            Company operations
+          </CardTitle>
+          <p className="text-xs text-slate-500">
+            Address (letterhead / PO PDF), purchase-order terms &amp;
+            conditions, the kit staging location, and break timers.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <form action={actionSaveCompanyOps} className="grid gap-3 sm:grid-cols-2">
+            <label className="text-xs text-slate-500">
+              Company address (one line per row)
+              <textarea
+                name="address"
+                rows={3}
+                defaultValue={company.address || ""}
+                placeholder={"1200 Precision Way\nHuntsville, AL 35806"}
+                className="mt-1 w-full rounded-md border border-slate-700 bg-slate-950 p-2 text-sm text-slate-200"
+                disabled={!canEdit}
+              />
+            </label>
+            <label className="text-xs text-slate-500">
+              Break timers (name + minutes, one per line)
+              <textarea
+                name="breaks"
+                rows={3}
+                defaultValue={(() => {
+                  try {
+                    const arr = JSON.parse(company.breaksConfig || "[]") as {
+                      name: string;
+                      minutes: number;
+                    }[];
+                    return arr.map((b) => `${b.name} ${b.minutes}`).join("\n");
+                  } catch {
+                    return "";
+                  }
+                })()}
+                placeholder={"Break 15\nLunch 30"}
+                className="mt-1 w-full rounded-md border border-slate-700 bg-slate-950 p-2 text-sm text-slate-200"
+                disabled={!canEdit}
+              />
+            </label>
+            <label className="text-xs text-slate-500 sm:col-span-2">
+              PO terms &amp; conditions (printed on every purchase order)
+              <textarea
+                name="poTerms"
+                rows={5}
+                defaultValue={company.poTerms || ""}
+                placeholder="1. Acceptance of this order constitutes agreement to these terms…"
+                className="mt-1 w-full rounded-md border border-slate-700 bg-slate-950 p-2 text-sm text-slate-200"
+                disabled={!canEdit}
+              />
+            </label>
+            <label className="text-xs text-slate-500">
+              Kit staging location (guides the kitter after picking)
+              <Input
+                name="kittingLocation"
+                defaultValue={company.kittingLocation || ""}
+                placeholder="e.g. KIT-STAGE-01"
+                className="mt-1"
+                disabled={!canEdit}
+              />
+            </label>
+            {canEdit && (
+              <div className="flex items-end">
+                <Button type="submit" size="sm">
+                  Save operations settings
+                </Button>
+              </div>
+            )}
+          </form>
         </CardContent>
       </Card>
 

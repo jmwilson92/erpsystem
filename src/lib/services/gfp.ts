@@ -553,7 +553,7 @@ export async function decideGfpConsumption(params: {
   }
   const expectedPin = approver.pinCode.trim();
   if (!params.pinCode || params.pinCode.trim() !== expectedPin) {
-    throw new Error("Invalid PIN — approval not recorded");
+    throw new Error(`Invalid PIN for ${approver.name} — each person signs with their own PIN (set it under My Account)`);
   }
 
   const rec = await prisma.gfpConsumption.findUnique({

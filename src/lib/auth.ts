@@ -329,7 +329,7 @@ export async function userHasPermission(
   if (!user) return false;
   if (user.role === "ADMIN") return true;
 
-  // Explicit deny
+  // Explicit deny / grant. Temporary grants (expiresAt) lapse silently.
   const direct = await prisma.userPermission.findFirst({
     where: {
       userId,
@@ -338,7 +338,9 @@ export async function userHasPermission(
     include: { permission: true },
   });
   if (direct && !direct.allowed) return false;
-  if (direct?.allowed) return true;
+  if (direct?.allowed && (!direct.expiresAt || direct.expiresAt > new Date())) {
+    return true;
+  }
 
   const viaGroup = await prisma.userPermissionGroup.findFirst({
     where: {
@@ -484,7 +486,10 @@ export async function requirePermission(
   const user = await requireUser(roleHint);
   const ok = await userHasPermission(user.id, permissionCode);
   if (!ok) {
-    throw new Error(`Permission denied: ${permissionCode}`);
+    // Land on the friendly no-access page (with a request-permission
+    // button) instead of a masked server error.
+    const { redirect } = await import("next/navigation");
+    redirect(`/no-access?code=${encodeURIComponent(permissionCode)}`);
   }
   return user;
 }

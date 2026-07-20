@@ -585,7 +585,7 @@ export async function signOffStep(params: {
   }
   const expectedPin = user.pinCode.trim();
   if (!params.pinCode || params.pinCode.trim() !== expectedPin) {
-    throw new Error("Invalid PIN — sign-off not recorded");
+    throw new Error(`Invalid PIN for ${user.name} — each person signs with their own PIN (set it under My Account)`);
   }
 
   const completion = await prisma.workOrderStepCompletion.findUnique({
