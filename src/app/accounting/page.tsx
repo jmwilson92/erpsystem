@@ -7,12 +7,19 @@ import {
   getCashFlowStatement,
   runDueAutoReversals,
   getAccountingOverview,
+  getReclassifyData,
 } from "@/lib/services/gaap";
 import { getBankingOverview } from "@/lib/services/banking";
 import {
   IncomeExpenseTrendChart,
   SpendDonut,
 } from "@/components/accounting/overview-charts";
+import { ReclassifyGrid } from "@/components/accounting/reclassify-grid";
+import {
+  IncomeStatementChart,
+  BalanceSheetChart,
+  CashFlowChart,
+} from "@/components/accounting/report-charts";
 import {
   listRecurringJournals,
   runDueRecurringJournals,
@@ -129,6 +136,14 @@ export default async function AccountingPage({
     getAccountingOverview({ months: 12 }),
     getBankingOverview(),
   ]);
+  const reclassifyData =
+    defaultTab === "reclassify"
+      ? await getReclassifyData({
+          accountId: pick(sp, "acct") || null,
+          from: validFrom,
+          to: validTo,
+        })
+      : null;
   const [
     accounts,
     journals,
@@ -277,7 +292,7 @@ export default async function AccountingPage({
       key: "journals",
       label: "Journals",
       icon: BookOpen,
-      tabs: ["je", "post", "recurring"],
+      tabs: ["je", "post", "recurring", "reclassify"],
       badge: pendingJe.length || undefined,
     },
     { key: "coa", label: "Chart of Accounts", icon: ListTree, tabs: ["coa"] },
@@ -296,6 +311,7 @@ export default async function AccountingPage({
     je: "Register",
     post: "Post entry",
     recurring: `Recurring${recurringTemplates.length ? ` (${recurringTemplates.length})` : ""}`,
+    reclassify: "Reclassify",
     pl: "Income Statement",
     bs: "Balance Sheet",
     cf: "Cash Flow",
@@ -305,6 +321,35 @@ export default async function AccountingPage({
   const activeGroup = NAV.find((n) => n.tabs.includes(defaultTab)) ?? NAV[0];
   const showPeriodBar = ["sales", "expenses", "journals", "reports"].includes(
     activeGroup.key
+  );
+
+  // Table ⇄ Chart toggle on reports (QuickBooks-style).
+  const reportView = pick(sp, "view") === "chart" ? "chart" : "table";
+  const viewToggle = (tab: string) => (
+    <div className="inline-flex shrink-0 rounded-lg border border-slate-700 p-0.5 text-xs">
+      <Link
+        href={`/accounting?tab=${tab}${periodSuffix}`}
+        scroll={false}
+        className={`rounded-md px-2.5 py-1 transition ${
+          reportView === "table"
+            ? "bg-slate-800 text-teal-400"
+            : "text-slate-400 hover:text-slate-200"
+        }`}
+      >
+        Table
+      </Link>
+      <Link
+        href={`/accounting?tab=${tab}&view=chart${periodSuffix}`}
+        scroll={false}
+        className={`rounded-md px-2.5 py-1 transition ${
+          reportView === "chart"
+            ? "bg-slate-800 text-teal-400"
+            : "text-slate-400 hover:text-slate-200"
+        }`}
+      >
+        Chart
+      </Link>
+    </div>
   );
 
   // QuickBooks-style date-range presets (server-computed, pure links).
@@ -876,10 +921,21 @@ export default async function AccountingPage({
 
         <TabsContent value="pl">
           <Card>
-            <CardHeader>
+            <CardHeader className="flex-row items-center justify-between space-y-0">
               <CardTitle>Income Statement (GAAP)</CardTitle>
+              {viewToggle("pl")}
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
+              {reportView === "chart" ? (
+                <IncomeStatementChart
+                  revenue={pl.revenue}
+                  cogs={pl.cogs}
+                  grossProfit={pl.grossProfit}
+                  operatingExpenses={pl.operatingExpenses}
+                  netIncome={pl.netIncome}
+                />
+              ) : (
+              <>
               <Section title="Revenue" rows={pl.revenueAccounts} />
               <div className="flex justify-between font-medium">
                 <span>Total revenue</span>
@@ -903,15 +959,28 @@ export default async function AccountingPage({
                   {formatCurrency(pl.netIncome)}
                 </span>
               </div>
+              </>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
 
         <TabsContent value="bs">
           <Card>
-            <CardHeader>
+            <CardHeader className="flex-row items-center justify-between space-y-0">
               <CardTitle>Balance Sheet</CardTitle>
+              {viewToggle("bs")}
             </CardHeader>
+            {reportView === "chart" ? (
+              <CardContent>
+                <BalanceSheetChart
+                  assets={bs.assets}
+                  liabilities={bs.liabilities}
+                  equity={bs.equity}
+                  currentEarnings={bs.currentEarnings}
+                />
+              </CardContent>
+            ) : (
             <CardContent className="grid gap-6 md:grid-cols-2">
               <div>
                 <Section title="Assets" rows={bs.assetAccounts} />
@@ -935,13 +1004,17 @@ export default async function AccountingPage({
                 </p>
               </div>
             </CardContent>
+            )}
           </Card>
         </TabsContent>
 
         <TabsContent value="cf">
           <Card>
-            <CardHeader>
-              <CardTitle>Statement of Cash Flows (indirect method)</CardTitle>
+            <CardHeader className="space-y-1">
+              <div className="flex items-center justify-between">
+                <CardTitle>Statement of Cash Flows (indirect method)</CardTitle>
+                {viewToggle("cf")}
+              </div>
               <p className="text-xs text-slate-500">
                 {formatDate(cashFlow.from)} → {formatDate(cashFlow.to)} · from
                 posted journal activity. Defaults to calendar year-to-date;
@@ -949,6 +1022,15 @@ export default async function AccountingPage({
               </p>
             </CardHeader>
             <CardContent className="max-w-2xl space-y-4 text-sm">
+              {reportView === "chart" ? (
+                <CashFlowChart
+                  operating={cashFlow.operatingTotal}
+                  investing={cashFlow.investingTotal}
+                  financing={cashFlow.financingTotal}
+                  netChange={cashFlow.netChange}
+                />
+              ) : (
+              <>
               <div>
                 <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Operating activities
@@ -1032,6 +1114,8 @@ export default async function AccountingPage({
                   ? "Ties to cash-account movement on the ledger."
                   : `Ledger cash moved ${formatCurrency(cashFlow.cashMovement)} — difference usually means journals posted directly between non-cash accounts and cash outside the period, or unclassified accounts.`}
               </p>
+              </>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -2005,6 +2089,75 @@ export default async function AccountingPage({
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+        <TabsContent value="reclassify" className="space-y-4">
+          {reclassifyData && (
+            <div className="grid gap-4 lg:grid-cols-[15rem_1fr]">
+              {/* Account rail */}
+              <Card className="h-fit">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">Accounts</CardTitle>
+                  <p className="text-xs text-slate-500">Filter lines by account</p>
+                </CardHeader>
+                <CardContent className="max-h-[36rem] overflow-y-auto p-0">
+                  <Link
+                    href="/accounting?tab=reclassify"
+                    scroll={false}
+                    className={`flex items-center justify-between border-b border-slate-900/70 px-3 py-1.5 text-xs hover:bg-slate-900/50 ${
+                      !pick(sp, "acct")
+                        ? "bg-teal-500/10 text-teal-300"
+                        : "text-slate-300"
+                    }`}
+                  >
+                    <span>All accounts</span>
+                  </Link>
+                  {reclassifyData.accounts.map((a) => {
+                    const active = a.id === pick(sp, "acct");
+                    return (
+                      <Link
+                        key={a.id}
+                        href={`/accounting?tab=reclassify&acct=${a.id}`}
+                        scroll={false}
+                        className={`flex items-center gap-2 border-b border-slate-900/70 px-3 py-1 text-xs hover:bg-slate-900/50 ${
+                          active ? "bg-teal-500/10" : ""
+                        }`}
+                      >
+                        <span className="font-mono text-teal-400">{a.code}</span>
+                        <span className="truncate text-slate-300">{a.name}</span>
+                        <span className="ml-auto shrink-0 font-mono tabular-nums text-slate-500">
+                          {formatCurrency(a.balance)}
+                        </span>
+                      </Link>
+                    );
+                  })}
+                </CardContent>
+              </Card>
+
+              {/* Transaction grid */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">
+                    Reclassify transactions
+                    <span className="ml-2 text-xs font-normal text-slate-500">
+                      {reclassifyData.total} line
+                      {reclassifyData.total === 1 ? "" : "s"}
+                      {pick(sp, "acct")
+                        ? ` in ${reclassifyData.accounts.find((a) => a.id === pick(sp, "acct"))?.code || ""}`
+                        : ""}
+                    </span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ReclassifyGrid
+                    lines={reclassifyData.lines}
+                    accounts={reclassifyData.accounts}
+                    activeAcct={pick(sp, "acct")}
+                  />
+                </CardContent>
+              </Card>
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="expense">

@@ -3,6 +3,10 @@
  * income statement, balance sheet, cash activity proxy from journals.
  */
 import { prisma } from "@/lib/db";
+import { logAudit } from "@/lib/audit";
+
+const isDebitNormal = (type: string) =>
+  ["ASSET", "EXPENSE", "COGS"].includes(type);
 
 export async function getGaapReportPack() {
   const [accounts, journals, ar, ap, woAgg, engLabor, projectDev] =
@@ -203,6 +207,147 @@ export async function getAccountRegister(
     // newest first for display
     rows: windowRows.reverse(),
   };
+}
+
+/* ── Reclassify tool ───────────────────────────────────────────── */
+
+/**
+ * Data for the reclassify workspace: the full account list (left rail,
+ * with balances) plus a page of posted journal lines — optionally scoped
+ * to one account — with the context an accountant needs to re-file them
+ * (date, JE #, account, memo, charge code, signed amount, source).
+ */
+export async function getReclassifyData(opts?: {
+  accountId?: string | null;
+  from?: Date | null;
+  to?: Date | null;
+  take?: number;
+}) {
+  const take = opts?.take ?? 200;
+  const accounts = await prisma.account.findMany({
+    where: { isActive: true },
+    orderBy: { code: "asc" },
+    select: { id: true, code: true, name: true, type: true, balance: true },
+  });
+
+  const lines = await prisma.journalLine.findMany({
+    where: {
+      journalEntry: {
+        status: "POSTED",
+        ...(opts?.from || opts?.to
+          ? {
+              date: {
+                ...(opts.from ? { gte: opts.from } : {}),
+                ...(opts.to ? { lte: opts.to } : {}),
+              },
+            }
+          : {}),
+      },
+      ...(opts?.accountId ? { accountId: opts.accountId } : {}),
+    },
+    orderBy: [{ journalEntry: { date: "desc" } }, { id: "desc" }],
+    take,
+    select: {
+      id: true,
+      debit: true,
+      credit: true,
+      memo: true,
+      chargeCode: true,
+      account: { select: { id: true, code: true, name: true, type: true } },
+      journalEntry: {
+        select: { id: true, number: true, date: true, description: true, source: true },
+      },
+    },
+  });
+
+  return {
+    accounts,
+    lines: lines.map((l) => {
+      const debitNormal = isDebitNormal(l.account.type);
+      const signed = debitNormal
+        ? (l.debit || 0) - (l.credit || 0)
+        : (l.credit || 0) - (l.debit || 0);
+      return {
+        id: l.id,
+        date: l.journalEntry.date,
+        jeId: l.journalEntry.id,
+        jeNumber: l.journalEntry.number,
+        description: l.journalEntry.description,
+        source: l.journalEntry.source,
+        accountId: l.account.id,
+        accountCode: l.account.code,
+        accountName: l.account.name,
+        memo: l.memo,
+        chargeCode: l.chargeCode,
+        amount: Math.round(signed * 100) / 100,
+      };
+    }),
+    total: lines.length,
+  };
+}
+
+/**
+ * Move posted journal lines to a different account (QuickBooks-style
+ * reclassify). Rebalances both accounts by the line's natural-sign amount,
+ * respects the month-end close, records an audit trail, and skips lines
+ * already on the target. The double-entry stays balanced because only the
+ * account on one side of each line changes, not the debit/credit amounts.
+ */
+export async function reclassifyJournalLines(params: {
+  lineIds: string[];
+  toAccountId: string;
+  userId?: string | null;
+}) {
+  if (!params.lineIds.length) return { moved: 0, skipped: 0 };
+  const target = await prisma.account.findUniqueOrThrow({
+    where: { id: params.toAccountId },
+  });
+  const lines = await prisma.journalLine.findMany({
+    where: { id: { in: params.lineIds } },
+    include: {
+      account: { select: { type: true, code: true } },
+      journalEntry: { select: { date: true, status: true, number: true } },
+    },
+  });
+
+  let moved = 0;
+  let skipped = 0;
+  for (const l of lines) {
+    if (l.accountId === target.id) {
+      skipped++;
+      continue;
+    }
+    if (l.journalEntry.status === "POSTED") {
+      await assertPeriodOpen(l.journalEntry.date, "reclassify");
+      const amt = (l.debit || 0) - (l.credit || 0); // raw debit-positive
+      const oldDelta = isDebitNormal(l.account.type) ? amt : -amt;
+      const newDelta = isDebitNormal(target.type) ? amt : -amt;
+      await prisma.account.update({
+        where: { id: l.accountId },
+        data: { balance: { decrement: oldDelta } },
+      });
+      await prisma.account.update({
+        where: { id: target.id },
+        data: { balance: { increment: newDelta } },
+      });
+    }
+    await prisma.journalLine.update({
+      where: { id: l.id },
+      data: { accountId: target.id },
+    });
+    moved++;
+  }
+
+  if (moved > 0) {
+    await logAudit({
+      entityType: "JournalLine",
+      entityId: params.toAccountId,
+      action: "RECLASSIFY",
+      userId: params.userId,
+      metadata: { moved, toAccount: target.code, lineIds: params.lineIds },
+    });
+  }
+  return { moved, skipped };
 }
 
 async function applyJournalBalances(

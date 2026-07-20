@@ -7549,6 +7549,39 @@ export async function actionReverseJournal(formData: FormData): Promise<void> {
   redirect("/accounting?tab=je");
 }
 
+export async function actionReclassifyLines(formData: FormData): Promise<void> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const { reclassifyJournalLines } = await import("@/lib/services/gaap");
+  const user = await getCurrentUser();
+  if (!user || !(await userHasPermission(user.id, "accounting.journal.post"))) {
+    throw new Error("Reclassifying entries requires accounting authority");
+  }
+  const lineIds = formData.getAll("lineIds").map(String).filter(Boolean);
+  const toAccountId = ((formData.get("toAccountId") as string) || "").trim();
+  const acct = ((formData.get("acct") as string) || "").trim();
+  if (!toAccountId) {
+    await flashToast("Pick an account to reclassify into", "error");
+    redirect(`/accounting?tab=reclassify${acct ? `&acct=${acct}` : ""}`);
+  }
+  if (lineIds.length === 0) {
+    await flashToast("Select at least one transaction line", "error");
+    redirect(`/accounting?tab=reclassify${acct ? `&acct=${acct}` : ""}`);
+  }
+  try {
+    const res = await reclassifyJournalLines({ lineIds, toAccountId, userId: user.id });
+    await flashToast(
+      `Reclassified ${res.moved} line${res.moved === 1 ? "" : "s"}${res.skipped ? ` · ${res.skipped} already there` : ""}`
+    );
+  } catch (e) {
+    await flashToast(
+      e instanceof Error ? e.message : "Reclassify failed",
+      "error"
+    );
+  }
+  revalidatePath("/accounting");
+  redirect(`/accounting?tab=reclassify${acct ? `&acct=${acct}` : ""}`);
+}
+
 export async function actionCreateRecurringJournal(
   formData: FormData
 ): Promise<void> {
