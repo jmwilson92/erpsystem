@@ -12,6 +12,12 @@
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { userHasPermission } from "@/lib/auth";
+import {
+  computeFederalWithholding,
+  computeFica,
+  PERIODS_PER_YEAR,
+  type FilingStatus,
+} from "@/lib/services/tax-tables";
 
 const DEFAULT_LABOR_RATE = 65; // $/hr for shop/overhead time without a rate
 
@@ -1027,14 +1033,44 @@ export async function processTimesheet(params: {
     0
   );
 
-  // Withholding profile: per-employee percentages + statutory FICA
-  // (7.65% employee-withheld, matched 7.65% by the employer).
+  // Federal withholding via the IRS percentage method (Pub 15-T) from
+  // the employee's W-4 profile; FICA with the SS wage-base cap and
+  // Additional Medicare from YTD gross; state stays a flat percentage.
   const r2 = (n: number) => Math.round(n * 100) / 100;
   const gross = r2(amount);
-  const fedWithheld = r2(gross * (sheet.user.fedWithholdingPct ?? 0.12));
+  const taxYear = sheet.periodEnd.getFullYear();
+  const policy = await getPayrollPolicy();
+  const periodsPerYear = PERIODS_PER_YEAR[policy.timesheetFrequency] || 52;
+  const ytdAgg = await prisma.timesheet.aggregate({
+    where: {
+      userId: sheet.userId,
+      status: "PROCESSED",
+      id: { not: sheet.id },
+      periodEnd: {
+        gte: new Date(taxYear, 0, 1),
+        lte: sheet.periodEnd,
+      },
+    },
+    _sum: { grossPay: true },
+  });
+  const ytdGrossBefore = ytdAgg._sum.grossPay || 0;
+
+  const fedWithheld = computeFederalWithholding({
+    grossForPeriod: gross,
+    periodsPerYear,
+    filingStatus: (sheet.user.filingStatus as FilingStatus) || "SINGLE",
+    dependentCredits: sheet.user.dependentCredits || 0,
+    extraPerPeriod: sheet.user.extraWithholding || 0,
+    year: taxYear,
+  });
   const stateWithheld = r2(gross * (sheet.user.stateWithholdingPct ?? 0.04));
-  const ficaEmployee = r2(gross * FICA_RATE);
-  const ficaEmployer = r2(gross * FICA_RATE);
+  const fica = computeFica({
+    grossForPeriod: gross,
+    ytdGrossBefore,
+    year: taxYear,
+  });
+  const ficaEmployee = fica.employeeTotal;
+  const ficaEmployer = fica.employerTotal;
   const netPay = r2(gross - fedWithheld - stateWithheld - ficaEmployee);
 
   let journalEntryId: string | null = null;
@@ -1116,7 +1152,8 @@ export async function getPayStub(timesheetId: string) {
       user: {
         select: {
           id: true, name: true, email: true, department: true, title: true,
-          fedWithholdingPct: true, stateWithholdingPct: true,
+          stateWithholdingPct: true, filingStatus: true,
+          dependentCredits: true, extraWithholding: true,
         },
       },
       entries: { select: { hours: true, type: true } },
@@ -1171,10 +1208,13 @@ export async function getPayrollRun() {
       include: {
         user: {
           select: {
+            id: true,
             name: true,
             department: true,
-            fedWithholdingPct: true,
             stateWithholdingPct: true,
+            filingStatus: true,
+            dependentCredits: true,
+            extraWithholding: true,
           },
         },
         entries: { select: { hours: true, costAmount: true, laborRate: true, type: true } },
@@ -1198,27 +1238,52 @@ export async function getPayrollRun() {
     );
 
   const r2 = (n: number) => Math.round(n * 100) / 100;
-  const readyRows = ready.map((t) => {
-    const grossPay = r2(cost(t.entries));
-    // Preview of what processing will withhold, at today's rates
-    const netPay = r2(
-      grossPay *
-        (1 -
-          (t.user.fedWithholdingPct ?? 0.12) -
-          (t.user.stateWithholdingPct ?? 0.04) -
-          FICA_RATE)
-    );
-    return {
-      id: t.id,
-      employee: t.user.name,
-      department: t.user.department,
-      periodStart: t.periodStart,
-      periodEnd: t.periodEnd,
-      hours: t.entries.reduce((s, e) => s + e.hours, 0),
-      grossPay,
-      netPay,
-    };
-  });
+  const policy = await getPayrollPolicy();
+  const periodsPerYear = PERIODS_PER_YEAR[policy.timesheetFrequency] || 52;
+  const readyRows = await Promise.all(
+    ready.map(async (t) => {
+      const grossPay = r2(cost(t.entries));
+      // Preview of what processing will withhold, at today's rates
+      const taxYear = t.periodEnd.getFullYear();
+      const ytdAgg = await prisma.timesheet.aggregate({
+        where: {
+          userId: t.user.id,
+          status: "PROCESSED",
+          periodEnd: { gte: new Date(taxYear, 0, 1), lte: t.periodEnd },
+        },
+        _sum: { grossPay: true },
+      });
+      const fed = computeFederalWithholding({
+        grossForPeriod: grossPay,
+        periodsPerYear,
+        filingStatus: (t.user.filingStatus as FilingStatus) || "SINGLE",
+        dependentCredits: t.user.dependentCredits || 0,
+        extraPerPeriod: t.user.extraWithholding || 0,
+        year: taxYear,
+      });
+      const fica = computeFica({
+        grossForPeriod: grossPay,
+        ytdGrossBefore: ytdAgg._sum.grossPay || 0,
+        year: taxYear,
+      });
+      const netPay = r2(
+        grossPay -
+          fed -
+          r2(grossPay * (t.user.stateWithholdingPct ?? 0.04)) -
+          fica.employeeTotal
+      );
+      return {
+        id: t.id,
+        employee: t.user.name,
+        department: t.user.department,
+        periodStart: t.periodStart,
+        periodEnd: t.periodEnd,
+        hours: t.entries.reduce((s, e) => s + e.hours, 0),
+        grossPay,
+        netPay,
+      };
+    })
+  );
 
   return {
     ready: readyRows,

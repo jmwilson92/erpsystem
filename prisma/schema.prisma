@@ -37,9 +37,18 @@ model User {
   hourlyRate    Float    @default(0)
   /// Optional annual salary (display / conversion aid for HR — not payroll tax calc)
   annualSalary  Float?
-  /// Payroll withholding profile (simple percentages; FICA is fixed 7.65%)
+  /// Payroll withholding profile. Federal tax uses the IRS percentage
+  /// method (Pub 15-T) from the W-4 fields below; state stays a flat
+  /// percentage since state schemes vary. fedWithholdingPct is retained
+  /// only as a legacy fallback when no filing status is set.
   fedWithholdingPct   Float @default(0.12)
   stateWithholdingPct Float @default(0.04)
+  /// W-4 filing status: SINGLE | MARRIED | HEAD (of household)
+  filingStatus        String @default("SINGLE")
+  /// W-4 step 3 — annual dependents / other credits in dollars
+  dependentCredits    Float @default(0)
+  /// W-4 step 4c — extra withholding per pay period in dollars
+  extraWithholding    Float @default(0)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -3269,6 +3278,13 @@ model BankAccount {
   /// Running feed balance (from imported transactions)
   currentBalance Float   @default(0)
   isActive      Boolean  @default(true)
+  /// Plaid live-feed link (null = manual/file-import account)
+  plaidItemId     String?
+  plaidAccountId  String?
+  plaidAccessToken String?
+  /// transactions/sync cursor — resumes where the last sync stopped
+  plaidCursor     String?
+  lastPlaidSyncAt DateTime?
   createdAt     DateTime @default(now())
 
   transactions  BankTransaction[]

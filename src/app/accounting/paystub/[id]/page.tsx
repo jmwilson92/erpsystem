@@ -60,8 +60,13 @@ export default async function PayStubPage({
         <div className="text-right text-neutral-600">
           <p>Hours this period: {hours.toFixed(1)}</p>
           <p>
-            Withholding: fed{" "}
-            {((sheet.user.fedWithholdingPct ?? 0.12) * 100).toFixed(1)}% · state{" "}
+            Federal:{" "}
+            {sheet.user.filingStatus === "MARRIED"
+              ? "Married filing jointly"
+              : sheet.user.filingStatus === "HEAD"
+                ? "Head of household"
+                : "Single"}{" "}
+            (IRS percentage method) · state{" "}
             {((sheet.user.stateWithholdingPct ?? 0.04) * 100).toFixed(1)}%
           </p>
         </div>

@@ -22,6 +22,11 @@ services:
       NEXT_PUBLIC_APP_URL: "${NEXT_PUBLIC_APP_URL:-https://${DOMAIN:-erp.example.com}}"
       RESEND_API_KEY: "${RESEND_API_KEY:-}"
       EMAIL_FROM: "${EMAIL_FROM:-}"
+      # Live bank feeds (free keys at dashboard.plaid.com; env:
+      # sandbox for testing, production once approved by Plaid)
+      PLAID_CLIENT_ID: "${PLAID_CLIENT_ID:-}"
+      PLAID_SECRET: "${PLAID_SECRET:-}"
+      PLAID_ENV: "${PLAID_ENV:-sandbox}"
     ports: !override []
 
   caddy:

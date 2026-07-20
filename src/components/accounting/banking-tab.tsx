@@ -5,6 +5,8 @@ import {
   getBankingOverview,
   suggestBankCategories,
 } from "@/lib/services/banking";
+import { plaidEnabled } from "@/lib/services/plaid";
+import { PlaidLinkButton } from "@/components/accounting/plaid-link-button";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,8 +17,9 @@ import {
   actionConnectBank,
   actionCategorizeBankTxn,
   actionReconcileBankTxn,
+  actionSyncPlaid,
 } from "@/app/actions";
-import { Landmark, CreditCard, Link2 } from "lucide-react";
+import { Landmark, CreditCard, Link2, RefreshCw } from "lucide-react";
 
 const selectClass =
   "h-8 rounded-lg border border-slate-700 bg-slate-950 px-2 text-xs text-slate-200";
@@ -49,7 +52,9 @@ export async function BankingTab({ selectedId }: { selectedId?: string }) {
     }),
   ]);
 
+  const plaidOn = plaidEnabled();
   const active = selectedId || overview[0]?.id || "";
+  const activeAccount = overview.find((a) => a.id === active);
   const [feed, suggestions] = active
     ? await Promise.all([
         prisma.bankTransaction.findMany({
@@ -97,6 +102,11 @@ export async function BankingTab({ selectedId }: { selectedId?: string }) {
                   {a.institution || "—"}
                   {a.last4 ? ` ···· ${a.last4}` : ""}
                   {a.glCode ? ` · GL ${a.glCode}` : ""}
+                  {a.plaidLinked && (
+                    <span className="ml-1 rounded bg-teal-500/15 px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-teal-300">
+                      Plaid
+                    </span>
+                  )}
                 </p>
                 <p className="mt-2 text-xl font-bold tabular-nums text-slate-50">
                   {formatCurrency(a.currentBalance)}
@@ -109,12 +119,26 @@ export async function BankingTab({ selectedId }: { selectedId?: string }) {
 
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Transaction feed</CardTitle>
-            <p className="text-xs text-slate-500">
-              Categorize a transaction to post it to the GL (balances against
-              the account&apos;s cash/CC-payable account), then reconcile.
-            </p>
+          <CardHeader className="flex-row items-start justify-between space-y-0 pb-2">
+            <div>
+              <CardTitle className="text-base">Transaction feed</CardTitle>
+              <p className="text-xs text-slate-500">
+                Categorize a transaction to post it to the GL (balances against
+                the account&apos;s cash/CC-payable account), then reconcile.
+                {activeAccount?.plaidLinked && activeAccount.lastPlaidSyncAt
+                  ? ` Last Plaid sync ${formatDate(activeAccount.lastPlaidSyncAt)}.`
+                  : ""}
+              </p>
+            </div>
+            {activeAccount?.plaidLinked && canPost && (
+              <form action={actionSyncPlaid}>
+                <input type="hidden" name="bankAccountId" value={activeAccount.id} />
+                <Button type="submit" size="sm" variant="outline" className="h-8">
+                  <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                  Sync now
+                </Button>
+              </form>
+            )}
           </CardHeader>
           <CardContent>
             {feed.length === 0 ? (
@@ -208,6 +232,34 @@ export async function BankingTab({ selectedId }: { selectedId?: string }) {
         </Card>
 
         <div className="space-y-4">
+          {canPost && (
+            <Card className="border-teal-900/40">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Link2 className="h-4 w-4 text-teal-400" />
+                  Live bank feed
+                </CardTitle>
+                <p className="text-xs text-slate-500">
+                  {plaidOn
+                    ? "Connect through Plaid — you log in on your bank's own screen; ForgeRP never sees your credentials. Transactions sync automatically from then on."
+                    : "Live feeds are off. Get free API keys at dashboard.plaid.com, set PLAID_CLIENT_ID, PLAID_SECRET, and PLAID_ENV on the server, and this button lights up. File import below always works."}
+                </p>
+              </CardHeader>
+              {plaidOn && (
+                <CardContent className="space-y-2">
+                  <PlaidLinkButton />
+                  {overview.some((a) => a.plaidLinked) && (
+                    <form action={actionSyncPlaid}>
+                      <Button type="submit" size="sm" variant="outline">
+                        <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                        Sync all linked accounts
+                      </Button>
+                    </form>
+                  )}
+                </CardContent>
+              )}
+            </Card>
+          )}
           {canPost && (
             <Card>
               <CardHeader className="pb-2">

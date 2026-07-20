@@ -7653,20 +7653,111 @@ export async function actionSaveWithholding(formData: FormData): Promise<void> {
     (await userHasPermission(user?.id, "hr.admin"));
   if (!allowed) throw new Error("Withholding profiles are owned by accounting / HR");
   const userId = (formData.get("userId") as string) || "";
-  // Form fields are whole percentages (12 = 12%)
-  const fed = optNum(formData, "fedPct");
-  const state = optNum(formData, "statePct");
   if (!userId) return;
+  // State is a whole percentage (4 = 4%); federal comes from the W-4
+  // fields and the IRS percentage-method tables.
+  const state = optNum(formData, "statePct");
+  const filingStatus = ((formData.get("filingStatus") as string) || "").trim();
+  const dependentCredits = optNum(formData, "dependentCredits");
+  const extraWithholding = optNum(formData, "extraWithholding");
   await prisma.user.update({
     where: { id: userId },
     data: {
-      ...(fed !== undefined ? { fedWithholdingPct: Math.min(Math.max(fed, 0), 60) / 100 } : {}),
-      ...(state !== undefined ? { stateWithholdingPct: Math.min(Math.max(state, 0), 30) / 100 } : {}),
+      ...(["SINGLE", "MARRIED", "HEAD"].includes(filingStatus)
+        ? { filingStatus }
+        : {}),
+      ...(dependentCredits !== undefined
+        ? { dependentCredits: Math.max(dependentCredits, 0) }
+        : {}),
+      ...(extraWithholding !== undefined
+        ? { extraWithholding: Math.max(extraWithholding, 0) }
+        : {}),
+      ...(state !== undefined
+        ? { stateWithholdingPct: Math.min(Math.max(state, 0), 30) / 100 }
+        : {}),
     },
   });
   await flashToast("Withholding profile saved");
   revalidatePath("/accounting");
   redirect("/accounting?tab=payroll");
+}
+
+/** Called by the Plaid Link button — returns a short-lived Link token. */
+export async function actionCreatePlaidLinkToken(): Promise<{
+  linkToken?: string;
+  error?: string;
+}> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const { createLinkToken, plaidEnabled } = await import("@/lib/services/plaid");
+  const user = await getCurrentUser();
+  if (!user || !(await userHasPermission(user.id, "accounting.journal.post"))) {
+    return { error: "Connecting banks requires accounting authority" };
+  }
+  if (!plaidEnabled()) {
+    return { error: "Plaid keys are not configured on the server" };
+  }
+  try {
+    return { linkToken: await createLinkToken(user.id) };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Could not reach Plaid" };
+  }
+}
+
+/** Plaid Link success callback — exchanges the public token and links accounts. */
+export async function actionExchangePlaidToken(params: {
+  publicToken: string;
+  institution?: string | null;
+}): Promise<{ linked?: number; error?: string }> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const { exchangePublicToken, syncPlaidTransactions } = await import(
+    "@/lib/services/plaid"
+  );
+  const user = await getCurrentUser();
+  if (!user || !(await userHasPermission(user.id, "accounting.journal.post"))) {
+    return { error: "Connecting banks requires accounting authority" };
+  }
+  try {
+    const res = await exchangePublicToken({
+      publicToken: params.publicToken,
+      institution: params.institution,
+      userId: user.id,
+    });
+    // Pull the initial history right away so the feed isn't empty
+    if (res.accountIds[0]) {
+      await syncPlaidTransactions(res.accountIds[0]);
+    }
+    revalidatePath("/accounting");
+    return { linked: res.linked };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Bank link failed" };
+  }
+}
+
+export async function actionSyncPlaid(formData: FormData): Promise<void> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const { syncPlaidTransactions, syncAllPlaid } = await import(
+    "@/lib/services/plaid"
+  );
+  const user = await getCurrentUser();
+  if (!user || !(await userHasPermission(user.id, "accounting.journal.post"))) {
+    throw new Error("Syncing banks requires accounting authority");
+  }
+  const bankAccountId = ((formData.get("bankAccountId") as string) || "").trim();
+  try {
+    const r = bankAccountId
+      ? await syncPlaidTransactions(bankAccountId)
+      : await syncAllPlaid();
+    await flashToast(
+      `Bank sync: ${r.added} new, ${r.modified} updated${r.removed ? `, ${r.removed} removed` : ""}`
+    );
+  } catch (e) {
+    await flashToast(
+      e instanceof Error ? e.message : "Bank sync failed",
+      "error"
+    );
+  }
+  revalidatePath("/accounting");
+  redirect("/accounting?tab=banking");
 }
 
 export async function actionRunPayroll(): Promise<void> {

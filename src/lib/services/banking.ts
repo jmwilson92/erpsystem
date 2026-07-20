@@ -337,6 +337,8 @@ export async function getBankingOverview() {
     currentBalance: a.currentBalance,
     unmatched: a.transactions.filter((t) => t.status === "UNMATCHED").length,
     total: a.transactions.length,
+    plaidLinked: !!a.plaidAccessToken,
+    lastPlaidSyncAt: a.lastPlaidSyncAt,
   }));
 }
 

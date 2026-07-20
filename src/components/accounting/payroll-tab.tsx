@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { getCurrentUser, userHasPermission } from "@/lib/auth";
-import { getPayrollRun, FICA_RATE } from "@/lib/services/timesheets";
+import { getPayrollRun } from "@/lib/services/timesheets";
 import { StatCard } from "@/components/shared/stat-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -30,8 +30,10 @@ export async function PayrollTab() {
           id: true,
           name: true,
           department: true,
-          fedWithholdingPct: true,
           stateWithholdingPct: true,
+          filingStatus: true,
+          dependentCredits: true,
+          extraWithholding: true,
         },
       }),
     ]);
@@ -196,11 +198,14 @@ export async function PayrollTab() {
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Withholding profiles</CardTitle>
+            <CardTitle className="text-base">W-4 withholding profiles</CardTitle>
             <p className="text-xs text-slate-500">
-              Simple flat percentages per employee. FICA is fixed at{" "}
-              {(FICA_RATE * 100).toFixed(2)}% (withheld) with an equal employer
-              match. Rates apply to future runs only.
+              Federal tax follows the IRS percentage method (Pub 15-T) from
+              each employee&apos;s W-4: filing status, annual dependent
+              credits (step 3), and extra per-paycheck withholding (step 4c).
+              Social Security caps at the annual wage base and Additional
+              Medicare kicks in over $200k automatically. State stays a flat
+              percentage. Changes apply to future runs only.
             </p>
           </CardHeader>
           <CardContent className="max-h-96 space-y-1 overflow-y-auto">
@@ -218,15 +223,43 @@ export async function PayrollTab() {
                   </span>
                 </span>
                 <label className="flex items-center gap-1 text-[11px] text-slate-500">
-                  Fed %
+                  Status
+                  <select
+                    name="filingStatus"
+                    defaultValue={e.filingStatus || "SINGLE"}
+                    className="h-7 rounded border border-slate-700 bg-slate-950 px-1 text-[11px] text-slate-200"
+                  >
+                    <option value="SINGLE">Single</option>
+                    <option value="MARRIED">Married</option>
+                    <option value="HEAD">Head of household</option>
+                  </select>
+                </label>
+                <label
+                  className="flex items-center gap-1 text-[11px] text-slate-500"
+                  title="W-4 step 3 — annual dependents / other credits in dollars"
+                >
+                  Credits $
                   <Input
-                    name="fedPct"
+                    name="dependentCredits"
                     type="number"
                     min="0"
-                    max="60"
-                    step="0.1"
-                    defaultValue={((e.fedWithholdingPct ?? 0.12) * 100).toFixed(1)}
+                    step="500"
+                    defaultValue={e.dependentCredits || 0}
                     className="h-7 w-16 text-xs"
+                  />
+                </label>
+                <label
+                  className="flex items-center gap-1 text-[11px] text-slate-500"
+                  title="W-4 step 4c — extra withholding per paycheck"
+                >
+                  Extra $
+                  <Input
+                    name="extraWithholding"
+                    type="number"
+                    min="0"
+                    step="5"
+                    defaultValue={e.extraWithholding || 0}
+                    className="h-7 w-14 text-xs"
                   />
                 </label>
                 <label className="flex items-center gap-1 text-[11px] text-slate-500">
@@ -238,7 +271,7 @@ export async function PayrollTab() {
                     max="30"
                     step="0.1"
                     defaultValue={((e.stateWithholdingPct ?? 0.04) * 100).toFixed(1)}
-                    className="h-7 w-16 text-xs"
+                    className="h-7 w-14 text-xs"
                   />
                 </label>
                 {canRun && (
