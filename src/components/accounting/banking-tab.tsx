@@ -237,12 +237,12 @@ export async function BankingTab({ selectedId }: { selectedId?: string }) {
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center gap-2 text-base">
                   <Link2 className="h-4 w-4 text-teal-400" />
-                  Live bank feed
+                  Company bank feed
                 </CardTitle>
                 <p className="text-xs text-slate-500">
                   {plaidOn
-                    ? "Connect through Plaid — you log in on your bank's own screen; ForgeRP never sees your credentials. Transactions sync automatically from then on."
-                    : "Live feeds are off. Get free API keys at dashboard.plaid.com, set PLAID_CLIENT_ID, PLAID_SECRET, and PLAID_ENV on the server, and this button lights up. File import below always works."}
+                    ? "Link the company's business checking, savings, and credit-card accounts through Plaid. Sign-in happens on the bank's own screen — ForgeRP receives a read-only transaction feed, never the credentials. New activity pulls in here for categorization into the GL."
+                    : "Live company bank feeds are off. Get free API keys at dashboard.plaid.com, set PLAID_CLIENT_ID, PLAID_SECRET, and PLAID_ENV on the server, and this button lights up. File import below always works."}
                 </p>
               </CardHeader>
               {plaidOn && (

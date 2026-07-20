@@ -108,7 +108,7 @@ export function PlaidLinkButton() {
         ) : (
           <Link2 className="mr-1.5 h-4 w-4" />
         )}
-        {busy ? "Connecting…" : "Connect bank via Plaid"}
+        {busy ? "Connecting…" : "Connect company bank via Plaid"}
       </Button>
       {status && <p className="text-xs text-slate-400">{status}</p>}
     </div>
