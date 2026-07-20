@@ -2857,6 +2857,9 @@ model Supplier {
   paymentTerms    String  @default("NET30")
   category        String?
   notes           String?
+  /// 1099-reportable vendor (contractor/service) + their tax ID (EIN/SSN)
+  is1099          Boolean @default(false)
+  taxId           String?
   // Approved Supplier List flag (must be true + status APPROVED/CONDITIONAL for PO)
   isApprovedVendor Boolean @default(false)
   approvedAt      DateTime?
@@ -3388,6 +3391,25 @@ model JournalAttachment {
   uploadedAt      DateTime @default(now())
 
   @@index([journalEntryId])
+}
+
+/// Memorized report delivery — email a financial report on a cadence.
+model ScheduledReport {
+  id          String   @id @default(cuid())
+  name        String
+  /// pl | bs | cf | tb | budget | 1099
+  report      String
+  /// WEEKLY | MONTHLY | QUARTERLY
+  frequency   String   @default("MONTHLY")
+  /// Day of month to send on (1-28); for WEEKLY, 1=Mon..7=Sun
+  dayOfMonth  Int      @default(1)
+  /// Comma-separated recipient email addresses
+  recipients  String
+  isActive    Boolean  @default(true)
+  lastRunAt   DateTime?
+  nextRunAt   DateTime?
+  createdById String?
+  createdAt   DateTime @default(now())
 }
 
 /// Memorized / recurring journal templates (rent, depreciation, accruals…)

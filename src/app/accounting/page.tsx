@@ -12,6 +12,14 @@ import {
 } from "@/lib/services/gaap";
 import { getBankingOverview } from "@/lib/services/banking";
 import {
+  getBudgetVsActual,
+  get1099Report,
+} from "@/lib/services/accounting-reports";
+import {
+  listScheduledReports,
+  runDueScheduledReports,
+} from "@/lib/services/scheduled-reports";
+import {
   IncomeExpenseTrendChart,
   SpendDonut,
 } from "@/components/accounting/overview-charts";
@@ -73,6 +81,11 @@ import {
   actionCreateExpenseEntry,
   actionReimburseExpense,
   actionSetAccountingCloseDate,
+  actionSetSupplier1099,
+  actionCreateScheduledReport,
+  actionToggleScheduledReport,
+  actionDeleteScheduledReport,
+  actionRunScheduledReports,
 } from "@/app/actions";
 import { Lock, LockOpen } from "lucide-react";
 import { getExpenseReimbursements } from "@/lib/services/hr";
@@ -129,6 +142,7 @@ export default async function AccountingPage({
   try {
     await runDueRecurringJournals();
     await runDueAutoReversals();
+    await runDueScheduledReports();
   } catch {
     /* never block the books on scheduler hiccups */
   }
@@ -150,6 +164,14 @@ export default async function AccountingPage({
           to: validTo,
         })
       : null;
+  const budgetVsActual =
+    defaultTab === "budget" ? await getBudgetVsActual() : null;
+  const report1099 =
+    defaultTab === "1099"
+      ? await get1099Report({ year: Number(pick(sp, "year")) || undefined })
+      : null;
+  const scheduledReports =
+    defaultTab === "scheduled" ? await listScheduledReports() : null;
   const [
     accounts,
     journals,
@@ -302,7 +324,12 @@ export default async function AccountingPage({
       badge: pendingJe.length || undefined,
     },
     { key: "coa", label: "Chart of Accounts", icon: ListTree, tabs: ["coa"] },
-    { key: "reports", label: "Reports", icon: BarChart3, tabs: ["pl", "bs", "cf", "tb", "cost"] },
+    {
+      key: "reports",
+      label: "Reports",
+      icon: BarChart3,
+      tabs: ["pl", "bs", "cf", "tb", "cost", "budget", "1099", "scheduled"],
+    },
     {
       key: "payroll",
       label: "Payroll",
@@ -323,6 +350,9 @@ export default async function AccountingPage({
     cf: "Cash Flow",
     tb: "Trial Balance",
     cost: "Cost Integration",
+    budget: "Budget vs Actual",
+    "1099": "1099 Vendors",
+    scheduled: "Scheduled",
   };
   const activeGroup = NAV.find((n) => n.tabs.includes(defaultTab)) ?? NAV[0];
   const showPeriodBar = ["sales", "expenses", "journals", "reports"].includes(
@@ -357,7 +387,7 @@ export default async function AccountingPage({
       </Link>
     </div>
   );
-  const reportTools = (report: string, hasChart: boolean) => (
+  const reportTools = (report: string, hasChart: boolean, hasPrint = true) => (
     <div className="flex shrink-0 flex-wrap items-center gap-2">
       {hasChart && viewToggle(report)}
       <a
@@ -366,14 +396,16 @@ export default async function AccountingPage({
       >
         <Download className="h-3.5 w-3.5" /> CSV
       </a>
-      <a
-        href={`/accounting/reports/print?report=${report}${periodSuffix}`}
-        target="_blank"
-        rel="noreferrer"
-        className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1 text-xs text-slate-300 transition hover:border-slate-500"
-      >
-        <Printer className="h-3.5 w-3.5" /> Print
-      </a>
+      {hasPrint && (
+        <a
+          href={`/accounting/reports/print?report=${report}${periodSuffix}`}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1 text-xs text-slate-300 transition hover:border-slate-500"
+        >
+          <Printer className="h-3.5 w-3.5" /> Print
+        </a>
+      )}
     </div>
   );
 
@@ -1931,6 +1963,344 @@ export default async function AccountingPage({
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+        <TabsContent value="budget">
+          {budgetVsActual && (
+            <Card>
+              <CardHeader className="flex-row items-center justify-between space-y-0">
+                <div>
+                  <CardTitle>Budget vs. Actual</CardTitle>
+                  <p className="text-xs text-slate-500">
+                    Enacted budgets · budget {formatCurrency(budgetVsActual.totalBudget)}{" "}
+                    vs actual {formatCurrency(budgetVsActual.totalActual)} ·{" "}
+                    {budgetVsActual.overCount} over budget
+                  </p>
+                </div>
+                {reportTools("budget", false, false)}
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="grid grid-cols-[1fr_5rem_6rem_6rem_6rem_8rem] gap-x-2 border-b border-slate-800 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                  <span>Budget</span>
+                  <span>Class</span>
+                  <span className="text-right">Budgeted</span>
+                  <span className="text-right">Actual</span>
+                  <span className="text-right">Variance</span>
+                  <span>Used</span>
+                </div>
+                {budgetVsActual.rows.map((r) => (
+                  <div
+                    key={r.id}
+                    className="grid grid-cols-[1fr_5rem_6rem_6rem_6rem_8rem] items-center gap-x-2 border-b border-slate-900/70 px-3 py-1.5 text-[12px] hover:bg-slate-900/40"
+                  >
+                    <span className="min-w-0 truncate text-slate-300">
+                      <span className="font-mono text-teal-400">{r.number}</span>{" "}
+                      {r.name}
+                      {r.chargeCode ? (
+                        <span className="ml-1 font-mono text-[10px] text-slate-600">
+                          {r.chargeCode}
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="text-[11px] text-slate-500">{r.costClass}</span>
+                    <span className="text-right font-mono tabular-nums text-slate-300">
+                      {formatCurrency(r.budget)}
+                    </span>
+                    <span className="text-right font-mono tabular-nums text-slate-300">
+                      {formatCurrency(r.actual)}
+                    </span>
+                    <span
+                      className={`text-right font-mono tabular-nums ${
+                        r.variance < 0 ? "text-rose-400" : "text-emerald-400"
+                      }`}
+                    >
+                      {formatCurrency(r.variance)}
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-800">
+                        <span
+                          className={`block h-full ${
+                            r.over ? "bg-rose-500" : r.pctUsed > 85 ? "bg-amber-500" : "bg-teal-500"
+                          }`}
+                          style={{ width: `${Math.min(r.pctUsed, 100)}%` }}
+                        />
+                      </span>
+                      <span className="w-9 text-right text-[11px] tabular-nums text-slate-400">
+                        {r.pctUsed}%
+                      </span>
+                    </span>
+                  </div>
+                ))}
+                {budgetVsActual.rows.length === 0 && (
+                  <p className="p-6 text-center text-sm text-slate-500">
+                    No enacted budgets yet. Create budgets under Budgets.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        <TabsContent value="1099" className="space-y-4">
+          {report1099 && (
+            <>
+              <Card>
+                <CardHeader className="flex-row items-center justify-between space-y-0">
+                  <div>
+                    <CardTitle>1099 Vendors · {report1099.year}</CardTitle>
+                    <p className="text-xs text-slate-500">
+                      {report1099.reportableCount} vendor(s) paid ≥{" "}
+                      {formatCurrency(600)} · {formatCurrency(report1099.totalPaid)}{" "}
+                      total
+                      {report1099.missingTaxIds > 0 && (
+                        <span className="ml-1 text-amber-400">
+                          · {report1099.missingTaxIds} missing a tax ID
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="inline-flex rounded-lg border border-slate-700 p-0.5 text-xs">
+                      {[0, 1, 2].map((back) => {
+                        const y = new Date().getFullYear() - back;
+                        const active = y === report1099.year;
+                        return (
+                          <Link
+                            key={y}
+                            href={`/accounting?tab=1099&year=${y}`}
+                            scroll={false}
+                            className={`rounded-md px-2.5 py-1 ${
+                              active ? "bg-slate-800 text-teal-400" : "text-slate-400 hover:text-slate-200"
+                            }`}
+                          >
+                            {y}
+                          </Link>
+                        );
+                      })}
+                    </div>
+                    {reportTools("1099", false, false)}
+                  </div>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="grid grid-cols-[1fr_9rem_7rem_6rem] gap-x-2 border-b border-slate-800 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                    <span>Vendor</span>
+                    <span>Tax ID</span>
+                    <span className="text-right">Paid {report1099.year}</span>
+                    <span>1099</span>
+                  </div>
+                  {report1099.rows.map((v) => (
+                    <div
+                      key={v.id}
+                      className="grid grid-cols-[1fr_9rem_7rem_6rem] items-center gap-x-2 border-b border-slate-900/70 px-3 py-1.5 text-[12px]"
+                    >
+                      <span className="truncate text-slate-300">
+                        <span className="font-mono text-teal-400">{v.code}</span> {v.name}
+                      </span>
+                      <span
+                        className={`font-mono text-[11px] ${
+                          v.missingTaxId && v.reportable ? "text-amber-400" : "text-slate-500"
+                        }`}
+                      >
+                        {v.taxId || (v.reportable ? "⚠ missing" : "—")}
+                      </span>
+                      <span className="text-right font-mono tabular-nums text-slate-300">
+                        {formatCurrency(v.paid)}
+                      </span>
+                      <span>
+                        {v.reportable ? (
+                          <span className="rounded-full bg-emerald-500/15 px-1.5 py-px text-[10px] font-semibold text-emerald-300">
+                            reportable
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-slate-600">under $600</span>
+                        )}
+                      </span>
+                    </div>
+                  ))}
+                  {report1099.rows.length === 0 && (
+                    <p className="p-6 text-center text-sm text-slate-500">
+                      No vendors flagged 1099-reportable. Mark them below.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">Maintain 1099 status</CardTitle>
+                  <p className="text-xs text-slate-500">
+                    Flag contractor / service vendors as 1099-reportable and record
+                    their EIN or SSN.
+                  </p>
+                </CardHeader>
+                <CardContent className="max-h-96 space-y-1 overflow-y-auto">
+                  {report1099.vendors.map((v) => (
+                    <form
+                      key={v.id}
+                      action={actionSetSupplier1099}
+                      className="flex flex-wrap items-center gap-2 border-b border-slate-900 py-1.5 text-sm"
+                    >
+                      <input type="hidden" name="supplierId" value={v.id} />
+                      <span className="min-w-0 flex-1 truncate text-slate-300">
+                        <span className="font-mono text-slate-500">{v.code}</span> {v.name}
+                      </span>
+                      <label className="flex items-center gap-1 text-[11px] text-slate-400">
+                        <input
+                          type="checkbox"
+                          name="is1099"
+                          value="true"
+                          defaultChecked={v.is1099}
+                          className="h-3.5 w-3.5 accent-teal-500"
+                        />
+                        1099
+                      </label>
+                      <Input
+                        name="taxId"
+                        defaultValue={v.taxId || ""}
+                        placeholder="EIN / SSN"
+                        className="h-7 w-32 text-xs"
+                      />
+                      <Button type="submit" size="sm" variant="outline" className="h-7 text-[10px]">
+                        Save
+                      </Button>
+                    </form>
+                  ))}
+                </CardContent>
+              </Card>
+            </>
+          )}
+        </TabsContent>
+
+        <TabsContent value="scheduled" className="space-y-4">
+          {scheduledReports && (
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">Schedule a report email</CardTitle>
+                  <p className="text-xs text-slate-500">
+                    Have a financial report emailed on a cadence.{" "}
+                    {process.env.RESEND_API_KEY
+                      ? "Delivered via your mail provider."
+                      : "Mail isn't configured, so sends are logged in the email center until you set RESEND_API_KEY."}
+                  </p>
+                </CardHeader>
+                <CardContent>
+                  <form action={actionCreateScheduledReport} className="grid gap-2">
+                    <Input name="name" placeholder="Name e.g. Monthly P&L to owners" />
+                    <select name="report" required className={selectClass} defaultValue="pl">
+                      <option value="pl">Income Statement</option>
+                      <option value="bs">Balance Sheet</option>
+                      <option value="cf">Cash Flow</option>
+                      <option value="tb">Trial Balance</option>
+                      <option value="budget">Budget vs. Actual</option>
+                      <option value="1099">1099 Vendor Summary</option>
+                    </select>
+                    <div className="grid grid-cols-2 gap-2">
+                      <select name="frequency" className={selectClass} defaultValue="MONTHLY">
+                        <option value="WEEKLY">Weekly</option>
+                        <option value="MONTHLY">Monthly</option>
+                        <option value="QUARTERLY">Quarterly</option>
+                      </select>
+                      <Input
+                        name="dayOfMonth"
+                        type="number"
+                        min="1"
+                        max="28"
+                        defaultValue="1"
+                        title="Day of month (1–28); for weekly, 1=Mon … 7=Sun"
+                      />
+                    </div>
+                    <Input
+                      name="recipients"
+                      required
+                      placeholder="Recipients — comma separated emails"
+                    />
+                    <Button type="submit" size="sm">
+                      Schedule report
+                    </Button>
+                  </form>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
+                  <div>
+                    <CardTitle className="text-base">
+                      Scheduled reports · {scheduledReports.length}
+                    </CardTitle>
+                    <p className="text-xs text-slate-500">
+                      Due reports send automatically when Accounting loads.
+                    </p>
+                  </div>
+                  <form action={actionRunScheduledReports}>
+                    <Button type="submit" size="sm" variant="outline">
+                      Send due now
+                    </Button>
+                  </form>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {scheduledReports.length === 0 && (
+                    <p className="py-4 text-center text-sm text-slate-500">
+                      Nothing scheduled yet.
+                    </p>
+                  )}
+                  {scheduledReports.map((s) => (
+                    <div
+                      key={s.id}
+                      className="rounded-lg border border-slate-800 px-3 py-2"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <span className="text-sm font-medium text-slate-200">
+                            {s.name}
+                          </span>
+                          <span className="ml-2 text-xs text-slate-500">
+                            {s.reportLabel} · {s.frequency.toLowerCase()} · day {s.dayOfMonth}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <form action={actionToggleScheduledReport}>
+                            <input type="hidden" name="id" value={s.id} />
+                            <input
+                              type="hidden"
+                              name="isActive"
+                              value={s.isActive ? "false" : "true"}
+                            />
+                            <Button
+                              type="submit"
+                              size="sm"
+                              variant="outline"
+                              className="h-6 px-2 text-[10px]"
+                            >
+                              {s.isActive ? "Pause" : "Resume"}
+                            </Button>
+                          </form>
+                          <form action={actionDeleteScheduledReport}>
+                            <input type="hidden" name="id" value={s.id} />
+                            <Button
+                              type="submit"
+                              size="sm"
+                              variant="outline"
+                              className="h-6 px-2 text-[10px] text-rose-400"
+                            >
+                              Delete
+                            </Button>
+                          </form>
+                        </div>
+                      </div>
+                      <p className="mt-1 truncate text-[11px] text-slate-500">
+                        → {s.recipients} ·{" "}
+                        {s.isActive
+                          ? `next ${s.nextRunAt ? formatDate(s.nextRunAt) : "—"}`
+                          : "paused"}
+                        {s.lastRunAt ? ` · last ${formatDate(s.lastRunAt)}` : ""}
+                      </p>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="post">

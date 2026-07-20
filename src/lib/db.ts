@@ -8,7 +8,7 @@ import fs from "fs";
 // test-drive sandbox copies re-materialize from the migrated master whenever
 // the schema changes — otherwise a sandbox created before a new column would
 // keep failing with "column does not exist" even after `prisma db push`.
-const PRISMA_CLIENT_EPOCH = "plaid-tax-v33";
+const PRISMA_CLIENT_EPOCH = "reports-1099-v34";
 
 /** Cookie that puts a request into a private test-drive sandbox. */
 export const SANDBOX_COOKIE = "forge-sandbox";

@@ -50,7 +50,7 @@ async function main() {
     "Customer",
     "AssetCheckout", "Asset",
     "BankTransaction", "BankAccount", "EmailMessage", "AuthSession", "UserInvite",
-    "RecurringJournal", "JournalLine", "JournalEntry", "Account",
+    "ScheduledReport", "RecurringJournal", "JournalLine", "JournalEntry", "Account",
     "PurchaseRequestLine", "PurchaseRequest",
     "SupplierScorecardHistory", "SupplierCertification", "AslPolicy", "Supplier",
     "Lot", "MaterialTransaction", "InventoryItem", "Location", "Warehouse",

@@ -5,6 +5,7 @@
  */
 import { prisma } from "@/lib/db";
 import { getGaapReportPack, getCashFlowStatement } from "@/lib/services/gaap";
+import { getBudgetVsActual, get1099Report } from "@/lib/services/accounting-reports";
 import { getCurrentUser, userHasPermission } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
@@ -94,6 +95,39 @@ export async function GET(req: Request) {
       ...cf.financing.map((r) => ["Financing", `${r.code} ${r.account}`, money(r.amount)]),
       ["Financing", "Net cash from financing", money(cf.financingTotal)],
       ["", "Net change in cash", money(cf.netChange)],
+    ];
+  } else if (report === "budget") {
+    const b = await getBudgetVsActual();
+    name = "budget-vs-actual";
+    rows = [
+      ["Budget", "Name", "Charge code", "Owner", "Status", "Budget", "Actual", "Variance", "% used"],
+      ...b.rows.map((r) => [
+        r.number,
+        r.name,
+        r.chargeCode || "",
+        r.owner || "",
+        r.status,
+        money(r.budget),
+        money(r.actual),
+        money(r.variance),
+        r.pctUsed,
+      ]),
+      ["", "", "", "", "Totals", money(b.totalBudget), money(b.totalActual), money(b.totalVariance), ""],
+    ];
+  } else if (report === "1099") {
+    const r = await get1099Report({
+      year: Number(url.searchParams.get("year")) || undefined,
+    });
+    name = `1099-vendors-${r.year}`;
+    rows = [
+      ["Vendor code", "Vendor", "Tax ID", "Paid (YTD)", "1099 reportable"],
+      ...r.rows.map((v) => [
+        v.code,
+        v.name,
+        v.taxId || "",
+        money(v.paid),
+        v.reportable ? "YES" : "no",
+      ]),
     ];
   } else {
     return new Response("Unknown report", { status: 400 });

@@ -7549,6 +7549,95 @@ export async function actionReverseJournal(formData: FormData): Promise<void> {
   redirect("/accounting?tab=je");
 }
 
+export async function actionSetSupplier1099(formData: FormData): Promise<void> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const { setSupplier1099 } = await import("@/lib/services/accounting-reports");
+  const user = await getCurrentUser();
+  if (!user || !(await userHasPermission(user.id, "accounting.reports.read"))) {
+    throw new Error("Editing 1099 status requires accounting access");
+  }
+  const supplierId = ((formData.get("supplierId") as string) || "").trim();
+  if (!supplierId) return;
+  await setSupplier1099({
+    supplierId,
+    is1099: (formData.get("is1099") as string) === "true",
+    taxId: ((formData.get("taxId") as string) || "").trim() || null,
+    userId: user.id,
+  });
+  await flashToast("Vendor 1099 settings saved");
+  revalidatePath("/accounting");
+  redirect("/accounting?tab=1099");
+}
+
+export async function actionCreateScheduledReport(formData: FormData): Promise<void> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const { createScheduledReport } = await import("@/lib/services/scheduled-reports");
+  const user = await getCurrentUser();
+  if (!user || !(await userHasPermission(user.id, "accounting.reports.read"))) {
+    throw new Error("Scheduling reports requires accounting access");
+  }
+  try {
+    await createScheduledReport({
+      name: ((formData.get("name") as string) || "").trim(),
+      report: ((formData.get("report") as string) || "").trim(),
+      frequency: (formData.get("frequency") as string) || "MONTHLY",
+      dayOfMonth: optNum(formData, "dayOfMonth") || 1,
+      recipients: (formData.get("recipients") as string) || "",
+      createdById: user.id,
+    });
+    await flashToast("Report schedule created");
+  } catch (e) {
+    await flashToast(e instanceof Error ? e.message : "Could not schedule report", "error");
+  }
+  revalidatePath("/accounting");
+  redirect("/accounting?tab=scheduled");
+}
+
+export async function actionToggleScheduledReport(formData: FormData): Promise<void> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const { setScheduledReportActive } = await import("@/lib/services/scheduled-reports");
+  const user = await getCurrentUser();
+  if (!user || !(await userHasPermission(user.id, "accounting.reports.read"))) {
+    throw new Error("Not authorized");
+  }
+  await setScheduledReportActive(
+    formData.get("id") as string,
+    (formData.get("isActive") as string) === "true"
+  );
+  revalidatePath("/accounting");
+  redirect("/accounting?tab=scheduled");
+}
+
+export async function actionDeleteScheduledReport(formData: FormData): Promise<void> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const { deleteScheduledReport } = await import("@/lib/services/scheduled-reports");
+  const user = await getCurrentUser();
+  if (!user || !(await userHasPermission(user.id, "accounting.reports.read"))) {
+    throw new Error("Not authorized");
+  }
+  await deleteScheduledReport(formData.get("id") as string);
+  await flashToast("Report schedule deleted");
+  revalidatePath("/accounting");
+  redirect("/accounting?tab=scheduled");
+}
+
+export async function actionRunScheduledReports(): Promise<void> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const { runDueScheduledReports } = await import("@/lib/services/scheduled-reports");
+  const user = await getCurrentUser();
+  if (!user || !(await userHasPermission(user.id, "accounting.reports.read"))) {
+    throw new Error("Not authorized");
+  }
+  const sent = await runDueScheduledReports(user.id);
+  await flashToast(
+    sent.length
+      ? `Sent ${sent.length} scheduled report${sent.length === 1 ? "" : "s"}`
+      : "No reports were due"
+  );
+  revalidatePath("/accounting");
+  redirect("/accounting?tab=scheduled");
+}
+
 export async function actionReclassifyLines(formData: FormData): Promise<void> {
   const { userHasPermission } = await import("@/lib/auth");
   const { reclassifyJournalLines } = await import("@/lib/services/gaap");
