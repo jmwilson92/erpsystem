@@ -24,6 +24,14 @@ services:
       ALLOW_DEMO_IN_PRODUCTION: ${ALLOW_DEMO_IN_PRODUCTION:-1}
       DEMO_MODE: ${DEMO_MODE:-}
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+      # Live company bank feeds — set these in .env to test Plaid (sandbox
+      # works fine on localhost). Blank = file/CSV/OFX import only.
+      PLAID_CLIENT_ID: ${PLAID_CLIENT_ID:-}
+      PLAID_SECRET: ${PLAID_SECRET:-}
+      PLAID_ENV: ${PLAID_ENV:-sandbox}
+      # Invite / reset email (optional). Blank = links shown in audit log.
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
     volumes:
       - forgerp-data:/data
     restart: unless-stopped
