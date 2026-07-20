@@ -21,7 +21,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { StatCard } from "@/components/shared/stat-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatCurrency, formatDate } from "@/lib/utils";
@@ -39,6 +39,10 @@ import {
   Wallet,
   CreditCard,
   ArrowRight,
+  LayoutDashboard,
+  BookOpen,
+  ListTree,
+  BarChart3,
 } from "lucide-react";
 import {
   actionPostJournal,
@@ -254,6 +258,55 @@ export default async function AccountingPage({
     "accounting.journal.post"
   );
 
+  // QuickBooks-style primary nav — each area maps to one or more views.
+  // The active area is whichever contains the current ?tab=. Multi-view
+  // areas (Expenses, Journals, Reports) get a secondary sub-nav.
+  const payrollReady = payrollQueue.filter((t) => t.status === "APPROVED").length;
+  const NAV: {
+    key: string;
+    label: string;
+    icon: typeof Landmark;
+    tabs: string[];
+    badge?: number;
+  }[] = [
+    { key: "overview", label: "Overview", icon: LayoutDashboard, tabs: ["overview"] },
+    { key: "banking", label: "Banking", icon: CreditCard, tabs: ["banking"] },
+    { key: "sales", label: "Sales", icon: HandCoins, tabs: ["ar"] },
+    { key: "expenses", label: "Expenses", icon: Receipt, tabs: ["ap", "expense"] },
+    {
+      key: "journals",
+      label: "Journals",
+      icon: BookOpen,
+      tabs: ["je", "post", "recurring"],
+      badge: pendingJe.length || undefined,
+    },
+    { key: "coa", label: "Chart of Accounts", icon: ListTree, tabs: ["coa"] },
+    { key: "reports", label: "Reports", icon: BarChart3, tabs: ["pl", "bs", "cf", "tb", "cost"] },
+    {
+      key: "payroll",
+      label: "Payroll",
+      icon: Wallet,
+      tabs: ["payroll"],
+      badge: payrollReady || undefined,
+    },
+  ];
+  const SUBLABEL: Record<string, string> = {
+    ap: "Bills & AP",
+    expense: "Expense / card entry",
+    je: "Register",
+    post: "Post entry",
+    recurring: `Recurring${recurringTemplates.length ? ` (${recurringTemplates.length})` : ""}`,
+    pl: "Income Statement",
+    bs: "Balance Sheet",
+    cf: "Cash Flow",
+    tb: "Trial Balance",
+    cost: "Cost Integration",
+  };
+  const activeGroup = NAV.find((n) => n.tabs.includes(defaultTab)) ?? NAV[0];
+  const showPeriodBar = ["sales", "expenses", "journals", "reports"].includes(
+    activeGroup.key
+  );
+
   // QuickBooks-style date-range presets (server-computed, pure links).
   const iso = (d: Date) => d.toISOString().slice(0, 10);
   const now = new Date();
@@ -341,7 +394,8 @@ export default async function AccountingPage({
         description={`${acctSettings.basis} basis · FY starts month ${acctSettings.fiscalYearStartMonth}`}
       />
 
-      {/* Period filter bar */}
+      {/* Period filter bar — only where line lists are filtered */}
+      {showPeriodBar && (
       <Card>
         <CardContent className="space-y-3 p-3">
           {/* Quick date-range presets (QuickBooks-style) */}
@@ -418,7 +472,10 @@ export default async function AccountingPage({
           </div>
         </CardContent>
       </Card>
+      )}
 
+      {activeGroup.key === "overview" && (
+      <>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           title="Total Assets"
@@ -504,7 +561,12 @@ export default async function AccountingPage({
           )}
         </span>
       </div>
+      </>
+      )}
 
+      {/* Settings + month-end close live in the Reports area */}
+      {activeGroup.key === "reports" && (
+      <>
       {/* Accounting settings — editable inline; also on Admin → Company Settings */}
       <Card className="border-slate-800">
         <CardContent className="flex flex-wrap items-center gap-x-8 gap-y-3 p-3">
@@ -597,34 +659,60 @@ export default async function AccountingPage({
           </div>
         </CardContent>
       </Card>
+      </>
+      )}
 
-      <Tabs defaultValue={defaultTab || "overview"}>
-        <TabsList className="flex h-auto flex-wrap">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="pl">Income Statement</TabsTrigger>
-          <TabsTrigger value="bs">Balance Sheet</TabsTrigger>
-          <TabsTrigger value="cf">Cash Flow</TabsTrigger>
-          <TabsTrigger value="tb">Trial Balance</TabsTrigger>
-          <TabsTrigger value="ar">AR</TabsTrigger>
-          <TabsTrigger value="ap">AP</TabsTrigger>
-          <TabsTrigger value="coa">Chart of Accounts</TabsTrigger>
-          <TabsTrigger value="je">
-            Journals{pendingJe.length ? ` (${pendingJe.length})` : ""}
-          </TabsTrigger>
-          <TabsTrigger value="cost">Cost Integration</TabsTrigger>
-          <TabsTrigger value="post">Post JE</TabsTrigger>
-          <TabsTrigger value="recurring">
-            Recurring{recurringTemplates.length ? ` (${recurringTemplates.length})` : ""}
-          </TabsTrigger>
-          <TabsTrigger value="expense">Expenses</TabsTrigger>
-          <TabsTrigger value="payroll">
-            Payroll
-            {payrollQueue.filter((t) => t.status === "APPROVED").length > 0
-              ? ` (${payrollQueue.filter((t) => t.status === "APPROVED").length})`
-              : ""}
-          </TabsTrigger>
-          <TabsTrigger value="banking">Banking</TabsTrigger>
-        </TabsList>
+      <Tabs value={defaultTab}>
+        {/* Primary section nav (QuickBooks-style, real links) */}
+        <div className="-mx-1 flex items-center gap-0.5 overflow-x-auto border-b border-slate-800 px-1">
+          {NAV.map((n) => {
+            const active = n.key === activeGroup.key;
+            const Icon = n.icon;
+            return (
+              <Link
+                key={n.key}
+                href={`/accounting?tab=${n.tabs[0]}`}
+                scroll={false}
+                className={`flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2.5 text-sm font-medium transition ${
+                  active
+                    ? "border-teal-500 text-teal-400"
+                    : "border-transparent text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                <Icon className="h-4 w-4" />
+                {n.label}
+                {n.badge ? (
+                  <span className="rounded-full bg-amber-500/20 px-1.5 text-[10px] font-semibold text-amber-300">
+                    {n.badge}
+                  </span>
+                ) : null}
+              </Link>
+            );
+          })}
+        </div>
+
+        {/* Secondary sub-nav for multi-view areas */}
+        {activeGroup.tabs.length > 1 && (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            {activeGroup.tabs.map((t) => {
+              const active = t === defaultTab;
+              return (
+                <Link
+                  key={t}
+                  href={`/accounting?tab=${t}${periodSuffix}`}
+                  scroll={false}
+                  className={`rounded-full border px-3 py-1 text-xs transition ${
+                    active
+                      ? "border-teal-500 bg-teal-500/10 text-teal-300"
+                      : "border-slate-700 text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  {SUBLABEL[t] || t}
+                </Link>
+              );
+            })}
+          </div>
+        )}
 
         <TabsContent value="overview" className="space-y-4">
           {/* Greeting */}
@@ -661,6 +749,7 @@ export default async function AccountingPage({
               <Link
                 key={a.tab}
                 href={`/accounting?tab=${a.tab}`}
+                scroll={false}
                 className="flex flex-col items-center gap-1.5 rounded-xl border border-slate-800 bg-slate-900/40 px-2 py-3 text-center transition hover:border-teal-500/40 hover:bg-slate-900/70"
               >
                 <a.icon className={`h-5 w-5 ${a.accent}`} />
