@@ -276,6 +276,7 @@ async function main() {
       { code: "RCV-01", name: "Receiving Dock", area: "RECEIVING", department: "Logistics", capacityHoursPerDay: 16, isDefault: true, sortOrder: 1 },
     ].map((w) => prisma.workCenter.create({ data: w }))
   );
+  const wc = Object.fromEntries(workCenters.map((w) => [w.code, w]));
   console.log(`  ✓ ${workCenters.length} work centers (Mfg / QA / Test / Shipping / Receiving)`);
 
   // Staff assignments for capacity planning
@@ -816,6 +817,14 @@ async function main() {
           { code: "SHIP-01", name: "Shipping Staging", type: "SHIPPING" },
           // GFP area — material instances here are government-owned (P/N is not inherently GFP)
           { code: "GFP-01", name: "Government Property Cage", type: "GFP" },
+          // Kit staging — picked kits wait here before the line (kittingLocation)
+          { code: "STAGE-01", name: "Kit Staging", type: "STAGING" },
+          // Work-center floor locations — WIP kits travel here during production
+          { code: "WC-ASM-01", name: "Assembly Cell 1 floor", type: "WIP", workCenterId: wc["ASM-01"].id },
+          { code: "WC-ASM-02", name: "Assembly Cell 2 floor", type: "WIP", workCenterId: wc["ASM-02"].id },
+          { code: "WC-MCH-01", name: "CNC Mill floor", type: "WIP", workCenterId: wc["MCH-01"].id },
+          { code: "WC-QA-01", name: "QA Lab floor", type: "WIP", workCenterId: wc["QA-01"].id },
+          { code: "WC-TEST-01", name: "Functional Test floor", type: "WIP", workCenterId: wc["TEST-01"].id },
         ],
       },
     },
@@ -3355,6 +3364,14 @@ async function main() {
         "Engineering", "Quality", "Supply Chain", "Programs",
         "Finance", "Human Resources", "Operations", "Executive",
         "Configuration Management",
+      ]),
+      // Kitting stages picked kits at this location (matches STAGE-01 above)
+      kittingLocation: "STAGE-01",
+      // Default company breaks — power the header break/lunch countdown
+      breaksConfig: JSON.stringify([
+        { name: "Morning break", minutes: 15 },
+        { name: "Lunch", minutes: 30 },
+        { name: "Afternoon break", minutes: 15 },
       ]),
       // Left false so the dashboard invites new companies into the wizard
       setupCompleted: false,
