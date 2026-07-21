@@ -633,6 +633,7 @@ export default async function SupplierDetailPage({
                     <option value="AS9100D">AS9100D</option>
                     <option value="ISO14001">ISO 14001</option>
                     <option value="NADCAP">NADCAP</option>
+                    <option value="NDA">NDA (signed)</option>
                     <option value="OTHER">Other</option>
                   </select>
                 </div>

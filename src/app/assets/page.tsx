@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, userHasPermission } from "@/lib/auth";
 import { getAssetsOverview } from "@/lib/services/assets";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatCard } from "@/components/shared/stat-card";
@@ -24,6 +24,7 @@ const selectClass =
 export default async function AssetsPage() {
   const user = await getCurrentUser();
   if (!user) return null;
+  const canManage = await userHasPermission(user.id, "assets.manage");
 
   const [{ assets, counts }, people, openWos, openTasks] = await Promise.all([
     getAssetsOverview(),
@@ -60,32 +61,42 @@ export default async function AssetsPage() {
         <StatCard title="Offsite now" value={counts.offsite} icon={PlaneTakeoff} accent="amber" />
       </div>
 
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">Add an asset</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form action={actionCreateAsset} className="grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
-            <Input name="name" required placeholder="Name" className="h-9 sm:col-span-2" />
-            <select name="category" className="h-9 rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm text-slate-200" defaultValue="EQUIPMENT">
-              <option value="EQUIPMENT">Equipment</option>
-              <option value="TEST_EQUIPMENT">Test equipment</option>
-              <option value="TOOL">Tool</option>
-              <option value="IT">IT</option>
-              <option value="DEMO_UNIT">Demo unit</option>
-              <option value="VEHICLE">Vehicle</option>
-            </select>
-            <Input name="serialNumber" placeholder="Serial #" className="h-9" />
-            <select name="locationScope" className="h-9 rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm text-slate-200" defaultValue="IN_HOUSE_ONLY">
-              <option value="IN_HOUSE_ONLY">In-house only</option>
-              <option value="OFFSITE_OK">Offsite OK</option>
-            </select>
-            <Button type="submit" size="sm" className="h-9">
-              Add asset
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+      {canManage && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Add an asset</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form action={actionCreateAsset} className="grid gap-2 sm:grid-cols-3 lg:grid-cols-7">
+              <Input name="name" required placeholder="Name" className="h-9 sm:col-span-2" />
+              <select name="category" className="h-9 rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm text-slate-200" defaultValue="EQUIPMENT">
+                <option value="EQUIPMENT">Equipment</option>
+                <option value="TEST_EQUIPMENT">Test equipment</option>
+                <option value="TOOL">Tool</option>
+                <option value="IT">IT</option>
+                <option value="DEMO_UNIT">Demo unit</option>
+                <option value="VEHICLE">Vehicle</option>
+              </select>
+              <Input name="serialNumber" placeholder="Serial #" className="h-9" />
+              <Input
+                name="purchaseValue"
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder="Cost ($)"
+                className="h-9"
+              />
+              <select name="locationScope" className="h-9 rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm text-slate-200" defaultValue="IN_HOUSE_ONLY">
+                <option value="IN_HOUSE_ONLY">In-house only</option>
+                <option value="OFFSITE_OK">Offsite OK</option>
+              </select>
+              <Button type="submit" size="sm" className="h-9">
+                Add asset
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader className="pb-2">
@@ -135,7 +146,7 @@ export default async function AssetsPage() {
                         {holder.offsite && holder.destination
                           ? ` · offsite → ${holder.destination}`
                           : ""}
-                        {holder.dueAt ? ` · due ${formatDate(holder.dueAt)}` : ""}
+                        {holder.dueAt ? ` · return due ${formatDate(holder.dueAt)}` : ""}
                         {a.workOrder ? ` · WO ${a.workOrder.number}` : ""}
                         {a.engTask ? ` · task: ${a.engTask.name}` : ""}
                         {holder.purpose ? ` · ${holder.purpose}` : ""}
@@ -193,7 +204,10 @@ export default async function AssetsPage() {
                             <Input name="destination" placeholder="Destination" className="h-8 text-xs" />
                           </>
                         )}
-                        <Input name="dueAt" type="date" className="h-8 text-xs" />
+                        <label className="flex items-center gap-1.5 text-xs text-slate-400">
+                          <span className="shrink-0">Return due</span>
+                          <Input name="dueAt" type="date" title="Date the asset is due back" className="h-8 text-xs" />
+                        </label>
                         <Button type="submit" size="sm" className="h-8">
                           Confirm checkout
                         </Button>

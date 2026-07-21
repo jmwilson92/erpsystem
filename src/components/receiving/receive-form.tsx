@@ -45,6 +45,7 @@ export function ReceiveForm({
   locations,
   isGfpTraveler = false,
   defaultContractNumber = "",
+  showHints = true,
 }: {
   purchaseOrderId?: string;
   travelerId: string;
@@ -52,6 +53,7 @@ export function ReceiveForm({
   locations: LocationOption[];
   isGfpTraveler?: boolean;
   defaultContractNumber?: string;
+  showHints?: boolean;
 }) {
   const openLines = useMemo(
     () =>
@@ -245,13 +247,15 @@ export function ReceiveForm({
 
   return (
     <form id="receive-form" onSubmit={submit} className="space-y-5">
-      <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-200/90">
-        <strong className="font-medium">Partial receives are fine.</strong> Enter only
-        the qty that arrived. Open qty becomes a child traveler like{" "}
-        <span className="font-mono">RCV-T-00005-02</span>.
-      </div>
+      {showHints && (
+        <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-200/90">
+          <strong className="font-medium">Partial receives are fine.</strong> Enter only
+          the qty that arrived. Open qty becomes a child traveler like{" "}
+          <span className="font-mono">RCV-T-00005-02</span>.
+        </div>
+      )}
 
-      {anyBypassLine && (
+      {showHints && anyBypassLine && (
         <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-200/90">
           <strong className="font-medium">Dock putaway:</strong> lines with no
           QA / functional test go straight into stock when you sign off and pick
@@ -259,7 +263,7 @@ export function ReceiveForm({
         </div>
       )}
 
-      {anyRouteInspect && (
+      {showHints && anyRouteInspect && (
         <div className="flex items-start gap-2 rounded-lg border border-violet-500/30 bg-violet-500/10 px-3 py-2 text-xs text-violet-200">
           <FlaskConical className="mt-0.5 h-4 w-4 shrink-0" />
           <span>
@@ -273,7 +277,7 @@ export function ReceiveForm({
         </div>
       )}
 
-      {mixedModes && (
+      {showHints && mixedModes && (
         <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs text-sky-200">
           One submit: standard lines → put away at dock now; lines needing checks
           → sequential child travelers (-01, -02…) for you to finish and stock.

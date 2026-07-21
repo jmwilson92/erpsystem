@@ -7,6 +7,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { ActivityTimeline } from "@/components/shared/activity-timeline";
+import { Input } from "@/components/ui/input";
+import { getCurrentUser, userHasPermission } from "@/lib/auth";
+import { actionConsumeVirtualAsset } from "@/app/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +36,7 @@ export default async function VirtualAssetDetailPage({
       product: { select: { id: true, name: true } },
       project: { select: { id: true, number: true } },
       salesOrder: { select: { id: true, number: true } },
+      workOrder: { select: { id: true, number: true } },
       assignments: {
         orderBy: { createdAt: "desc" },
         include: { user: { select: { name: true } } },
@@ -40,6 +44,18 @@ export default async function VirtualAssetDetailPage({
     },
   });
   if (!va) notFound();
+
+  const user = await getCurrentUser();
+  const canManage = await userHasPermission(user?.id, "va.manage");
+  const consumable = !["CONSUMED", "RETIRED"].includes(va.status);
+  const openWos = consumable
+    ? await prisma.workOrder.findMany({
+        where: { status: { notIn: ["COMPLETE", "CLOSED", "CANCELLED"] } },
+        orderBy: { number: "asc" },
+        select: { id: true, number: true, description: true },
+        take: 100,
+      })
+    : [];
 
   const expiring =
     va.expiresAt && va.expiresAt.getTime() - Date.now() < 30 * 86_400_000;
@@ -119,6 +135,17 @@ export default async function VirtualAssetDetailPage({
               ) : null
             }
           />
+          {va.workOrder && (
+            <Field
+              label="Consumed into"
+              value={
+                <Link href={`/work-orders/${va.workOrder.id}`} className="text-teal-400 hover:underline">
+                  {va.workOrder.number}
+                  {va.consumedAt ? ` · ${formatDate(va.consumedAt)}` : ""}
+                </Link>
+              }
+            />
+          )}
           {va.renewalUrl && (
             <Field
               label="Renewal"
@@ -137,6 +164,45 @@ export default async function VirtualAssetDetailPage({
           )}
         </CardContent>
       </Card>
+
+      {canManage && consumable && (
+        <Card className="border-violet-500/30">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Consume into an assembly</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form
+              action={actionConsumeVirtualAsset}
+              className="grid gap-2 sm:grid-cols-4"
+            >
+              <input type="hidden" name="assetId" value={va.id} />
+              <select
+                name="workOrderId"
+                required
+                className="h-9 rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm text-slate-200 sm:col-span-2"
+                defaultValue=""
+              >
+                <option value="" disabled>
+                  Work order / assembly…
+                </option>
+                {openWos.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.number} — {(w.description || "").slice(0, 50)}
+                  </option>
+                ))}
+              </select>
+              <Input name="notes" placeholder="Notes (e.g. installed on SN)" className="h-9" />
+              <Button type="submit" size="sm" className="h-9">
+                Consume into build
+              </Button>
+            </form>
+            <p className="mt-2 text-[11px] text-slate-500">
+              Marks this license/digital asset as consumed by the build — it ships
+              with the assembly and leaves the available pool.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader className="pb-2">

@@ -5,14 +5,17 @@ import { Button } from "@/components/ui/button";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTheme } from "./theme-provider";
+import { BreakTimer, type BreakOption } from "./break-timer";
 import type { ShellNotifications } from "./app-shell";
 
 export function Header({
   onOpenCommand,
   notifications,
+  breaks = [],
 }: {
   onOpenCommand?: () => void;
   notifications?: ShellNotifications;
+  breaks?: BreakOption[];
 }) {
   const [time, setTime] = useState<string>("");
   const [bellOpen, setBellOpen] = useState(false);
@@ -67,6 +70,7 @@ export function Header({
         <span className="hidden text-xs tabular-nums text-muted-foreground md:inline">
           {time}
         </span>
+        <BreakTimer breaks={breaks} />
         <Button
           type="button"
           variant="ghost"

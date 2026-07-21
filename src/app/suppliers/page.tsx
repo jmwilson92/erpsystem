@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { ToggleField } from "@/components/ui/toggle-field";
 import { scoreRatingColor, cn } from "@/lib/utils";
 import { getAslPolicy } from "@/lib/services/asl";
-import { actionUpdateAslPolicy } from "@/app/actions";
+import { actionUpdateAslPolicy, actionCreateSupplier } from "@/app/actions";
 import Link from "next/link";
 import { Search, X, ShieldCheck } from "lucide-react";
 import type { Prisma } from "@prisma/client";
@@ -141,6 +141,29 @@ export default async function SuppliersPage({
         </CardContent>
       </Card>
 
+      <details className="rounded-xl border border-slate-800 bg-slate-950/50">
+        <summary className="cursor-pointer list-none px-4 py-3 text-sm text-slate-300 hover:text-teal-300">
+          + Add a vendor{" "}
+          <span className="text-xs text-slate-500">
+            (starts as a prospect — upload QMS certs &amp; NDA on their page, then
+            approve to the ASL)
+          </span>
+        </summary>
+        <form
+          action={actionCreateSupplier}
+          className="grid gap-2 border-t border-slate-800 p-4 sm:grid-cols-3 lg:grid-cols-7"
+        >
+          <Input name="name" required placeholder="Vendor name" className="h-9 sm:col-span-2" />
+          <Input name="code" placeholder="Code (auto if blank)" className="h-9" />
+          <Input name="category" placeholder="Category" className="h-9" />
+          <Input name="contactName" placeholder="Contact" className="h-9" />
+          <Input name="contactEmail" type="email" placeholder="Email" className="h-9" />
+          <Button type="submit" size="sm" className="h-9">
+            Add vendor
+          </Button>
+        </form>
+      </details>
+
       <form
         method="get"
         className="rounded-xl border border-slate-800 bg-slate-950/50 p-3"
@@ -207,13 +230,18 @@ export default async function SuppliersPage({
               const onAsl =
                 s.isApprovedVendor &&
                 (s.status === "APPROVED" || s.status === "CONDITIONAL");
+              const soon = new Date(now.getTime() + 30 * 24 * 3600 * 1000);
               const certLabels = s.certifications.map((c) => {
                 const expired =
                   c.status === "EXPIRED" ||
                   (c.expiresAt && c.expiresAt < now);
+                const expiringSoon =
+                  !expired && !!c.expiresAt && c.expiresAt < soon;
                 return {
                   type: c.certType,
                   expired: !!expired,
+                  expiringSoon,
+                  expiresAt: c.expiresAt,
                 };
               });
               return (
@@ -286,9 +314,17 @@ export default async function SuppliersPage({
                               "rounded border px-1 py-0.5 text-[10px]",
                               c.expired
                                 ? "border-red-500/40 text-red-400"
-                                : "border-slate-700 text-slate-400"
+                                : c.expiringSoon
+                                  ? "border-amber-500/40 text-amber-400"
+                                  : "border-slate-700 text-slate-400"
                             )}
-                            title={c.expired ? "Expired" : "Valid"}
+                            title={
+                              c.expired
+                                ? `Expired${c.expiresAt ? ` ${c.expiresAt.toLocaleDateString()}` : ""} — needs re-up`
+                                : c.expiringSoon
+                                  ? `Expires ${c.expiresAt?.toLocaleDateString()} — re-up soon`
+                                  : "Valid"
+                            }
                           >
                             {c.type}
                           </span>

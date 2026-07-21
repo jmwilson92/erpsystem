@@ -1518,6 +1518,45 @@ export async function completeKitOrder(params: {
         userId: params.userId,
       });
 
+      // Government property consumed into a build needs a PM sign-off on
+      // record — file the consumption approval automatically at pick time.
+      if (
+        item.ownership === "GOVERNMENT" ||
+        item.location.type === "GFP" ||
+        item.location.code.toUpperCase().startsWith("GFP")
+      ) {
+        const prop = await prisma.governmentProperty.findFirst({
+          where: {
+            inventoryItemId: item.id,
+            status: { notIn: ["DISPOSED", "CONSUMED"] },
+          },
+        });
+        if (prop) {
+          const alreadyPending = await prisma.gfpConsumption.findFirst({
+            where: {
+              propertyId: prop.id,
+              workOrderId: kit.workOrderId,
+              status: "PENDING_APPROVAL",
+            },
+          });
+          if (alreadyPending) {
+            await prisma.gfpConsumption.update({
+              where: { id: alreadyPending.id },
+              data: { quantity: alreadyPending.quantity + take },
+            });
+          } else {
+            const { requestGfpConsumption } = await import("./gfp");
+            await requestGfpConsumption({
+              propertyId: prop.id,
+              workOrderId: kit.workOrderId,
+              quantity: take,
+              reason: `Kitted on ${kit.number} for ${kit.workOrder.number} (contract ${prop.contractNumber || "—"})`,
+              requestedById: params.userId,
+            });
+          }
+        }
+      }
+
       lastLot = item.lotNumber;
       lastLocId = item.locationId;
       lastInvId = item.id;

@@ -3642,6 +3642,10 @@ function parseCustomerForm(formData: FormData) {
     creditLimit: formData.get("creditLimit")
       ? Number(formData.get("creditLimit"))
       : 0,
+    // Always strings so clearing the field clears the stored value on update
+    creditTermsRequested: ((formData.get("creditTermsRequested") as string) || "").trim(),
+    creditDocUrl: ((formData.get("creditDocUrl") as string) || "").trim(),
+    creditDocName: ((formData.get("creditDocName") as string) || "").trim(),
     // Checkbox: present = active; hidden "true" on create also counts
     isActive:
       formData.get("isActive") === "true" || formData.get("isActive") === "on",
@@ -7732,7 +7736,8 @@ export async function actionRecordTestSignOff(
 
 export async function actionCreateAsset(formData: FormData): Promise<void> {
   const { createAsset } = await import("@/lib/services/assets");
-  const user = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("assets.manage");
   if (!user) return;
   const name = ((formData.get("name") as string) || "").trim();
   if (!name) return;
@@ -8624,6 +8629,283 @@ export async function actionSaveCompanyOps(formData: FormData): Promise<void> {
   await flashToast("Company operations settings saved");
   revalidatePath("/", "layout");
   redirect("/admin/settings");
+}
+
+export async function actionReleaseCommitment(
+  formData: FormData
+): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  // Releasing another project's reserved stock is an owner-level move.
+  const user = await requirePermission("inventory.putaway");
+  const partId = ((formData.get("partId") as string) || "").trim();
+  const salesOrderId = ((formData.get("salesOrderId") as string) || "").trim() || null;
+  const qty = Number(formData.get("qty"));
+  const reason = ((formData.get("reason") as string) || "").trim();
+  try {
+    if (!reason) throw new Error("Give a reason — the charge owner sees this on the release");
+    const { releaseCommitment } = await import("@/lib/services/commitments");
+    const { released } = await releaseCommitment({
+      partId,
+      salesOrderId,
+      qty,
+      reason,
+      approvedById: user?.id,
+    });
+    // Refresh WOs waiting on this part so MRS/kitting see the freed stock.
+    const { refreshAllWaitingMaterial } = await import(
+      "@/lib/services/order-fulfillment"
+    );
+    await refreshAllWaitingMaterial().catch(() => {});
+    await flashToast(`Released ${released} back to available stock`);
+  } catch (err) {
+    await flashToast(
+      err instanceof Error ? err.message : "Could not release commitment",
+      "error"
+    );
+  }
+  revalidatePath(`/inventory/committed/${partId}`);
+  revalidatePath("/inventory");
+  redirect(`/inventory/committed/${partId}`);
+}
+
+export async function actionCreateLocation(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("inventory.locations.manage");
+  const code = ((formData.get("code") as string) || "").trim().toUpperCase();
+  const name = ((formData.get("name") as string) || "").trim();
+  const type = ((formData.get("type") as string) || "STORAGE").trim();
+  let warehouseId = ((formData.get("warehouseId") as string) || "").trim();
+  try {
+    if (!code) throw new Error("Location code is required (e.g. A-01-03)");
+    if (!warehouseId) {
+      const wh = await prisma.warehouse.findFirst({ orderBy: { code: "asc" } });
+      if (!wh) throw new Error("No warehouse exists yet");
+      warehouseId = wh.id;
+    }
+    const dupe = await prisma.location.findFirst({
+      where: { warehouseId, code },
+    });
+    if (dupe) throw new Error(`Location ${code} already exists in that warehouse`);
+    await prisma.location.create({
+      data: { warehouseId, code, name: name || null, type },
+    });
+    await prisma.auditLog.create({
+      data: {
+        entityType: "Location",
+        entityId: code,
+        action: "CREATED",
+        metadata: JSON.stringify({ code, name, type }),
+        userId: user?.id ?? null,
+      },
+    });
+    await flashToast(`Location ${code} added`);
+  } catch (err) {
+    await flashToast(
+      err instanceof Error ? err.message : "Could not add location",
+      "error"
+    );
+  }
+  revalidatePath("/inventory");
+  redirect("/inventory");
+}
+
+export async function actionConsumeVirtualAsset(
+  formData: FormData
+): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("va.manage");
+  const assetId = ((formData.get("assetId") as string) || "").trim();
+  const workOrderId = ((formData.get("workOrderId") as string) || "").trim();
+  const notes = ((formData.get("notes") as string) || "").trim();
+  try {
+    const va = await prisma.virtualAsset.findUnique({ where: { id: assetId } });
+    if (!va) throw new Error("Virtual asset not found");
+    if (["CONSUMED", "RETIRED"].includes(va.status)) {
+      throw new Error(`${va.assetTag} is already ${va.status.toLowerCase()}`);
+    }
+    if (!workOrderId) throw new Error("Pick the work order / assembly it goes into");
+    const wo = await prisma.workOrder.findUnique({
+      where: { id: workOrderId },
+      select: { id: true, number: true },
+    });
+    if (!wo) throw new Error("Work order not found");
+    await prisma.virtualAsset.update({
+      where: { id: va.id },
+      data: {
+        status: "CONSUMED",
+        workOrderId: wo.id,
+        consumedAt: new Date(),
+        checkedOutToId: null,
+        checkedOutAt: null,
+      },
+    });
+    if (user?.id) {
+      await prisma.virtualAssetAssignment.create({
+        data: {
+          virtualAssetId: va.id,
+          userId: user.id,
+          action: "CONSUME",
+          notes: `Consumed into ${wo.number}${notes ? ` — ${notes}` : ""}`,
+        },
+      });
+    }
+    await prisma.auditLog.create({
+      data: {
+        entityType: "VirtualAsset",
+        entityId: va.id,
+        action: "CONSUMED_INTO_ASSEMBLY",
+        metadata: JSON.stringify({ workOrderId: wo.id, workOrder: wo.number, notes }),
+        userId: user?.id ?? null,
+      },
+    });
+    await flashToast(`${va.assetTag} consumed into ${wo.number}`);
+  } catch (err) {
+    await flashToast(
+      err instanceof Error ? err.message : "Could not consume asset",
+      "error"
+    );
+  }
+  revalidatePath(`/virtual-assets/${assetId}`);
+  redirect(`/virtual-assets/${assetId}`);
+}
+
+export async function actionCreateSupplier(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("suppliers.manage");
+  const name = ((formData.get("name") as string) || "").trim();
+  let code = ((formData.get("code") as string) || "").trim().toUpperCase();
+  let created: { id: string } | null = null;
+  try {
+    if (!name) throw new Error("Vendor name is required");
+    if (!code) {
+      // Derive a code from the name: first 4 letters + numeric suffix if taken
+      const base =
+        name.replace(/[^A-Za-z0-9]/g, "").slice(0, 4).toUpperCase() || "VEND";
+      code = base;
+      for (let i = 2; await prisma.supplier.findUnique({ where: { code } }); i++) {
+        code = `${base}${i}`;
+      }
+    } else if (await prisma.supplier.findUnique({ where: { code } })) {
+      throw new Error(`Vendor code ${code} is already taken`);
+    }
+    created = await prisma.supplier.create({
+      data: {
+        code,
+        name,
+        status: "PROSPECT",
+        isApprovedVendor: false,
+        category: ((formData.get("category") as string) || "").trim() || null,
+        contactName: ((formData.get("contactName") as string) || "").trim() || null,
+        contactEmail: ((formData.get("contactEmail") as string) || "").trim() || null,
+        contactPhone: ((formData.get("contactPhone") as string) || "").trim() || null,
+      },
+    });
+    await prisma.auditLog.create({
+      data: {
+        entityType: "Supplier",
+        entityId: created.id,
+        action: "CREATED",
+        metadata: JSON.stringify({ code, name }),
+        userId: user?.id ?? null,
+      },
+    });
+    await flashToast(
+      `Vendor ${code} added as prospect — upload certs / NDA, then approve to ASL`
+    );
+  } catch (err) {
+    await flashToast(
+      err instanceof Error ? err.message : "Could not add vendor",
+      "error"
+    );
+  }
+  revalidatePath("/suppliers");
+  redirect(created ? `/suppliers/${created.id}` : "/suppliers");
+}
+
+export async function actionCreateCycleCount(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("inventory.cyclecount");
+  const { createCycleCount } = await import("@/lib/services/cycle-counts");
+  let created: { id: string } | null = null;
+  try {
+    created = await createCycleCount({
+      scope: ((formData.get("scope") as string) || "").trim() || undefined,
+      notes: ((formData.get("notes") as string) || "").trim() || undefined,
+      userId: user?.id,
+    });
+    await flashToast("Cycle count created — start counting");
+  } catch (err) {
+    await flashToast(
+      err instanceof Error ? err.message : "Could not create cycle count",
+      "error"
+    );
+  }
+  revalidatePath("/inventory/cycle-counts");
+  redirect(created ? `/inventory/cycle-counts/${created.id}` : "/inventory/cycle-counts");
+}
+
+export async function actionRecordCycleCountLine(
+  formData: FormData
+): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("inventory.cyclecount");
+  const { recordCycleCountLine } = await import("@/lib/services/cycle-counts");
+  const cycleCountId = (formData.get("cycleCountId") as string) || "";
+  try {
+    await recordCycleCountLine({
+      lineId: (formData.get("lineId") as string) || "",
+      countedQty: Number(formData.get("countedQty")),
+      userId: user?.id,
+    });
+  } catch (err) {
+    await flashToast(
+      err instanceof Error ? err.message : "Could not record count",
+      "error"
+    );
+  }
+  revalidatePath(`/inventory/cycle-counts/${cycleCountId}`);
+  redirect(`/inventory/cycle-counts/${cycleCountId}`);
+}
+
+export async function actionCompleteCycleCount(
+  formData: FormData
+): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("inventory.cyclecount");
+  const { completeCycleCount } = await import("@/lib/services/cycle-counts");
+  const cycleCountId = (formData.get("cycleCountId") as string) || "";
+  try {
+    await completeCycleCount({ cycleCountId, userId: user?.id });
+    await flashToast("Cycle count complete — variances posted to inventory");
+  } catch (err) {
+    await flashToast(
+      err instanceof Error ? err.message : "Could not complete count",
+      "error"
+    );
+  }
+  revalidatePath("/inventory");
+  revalidatePath(`/inventory/cycle-counts/${cycleCountId}`);
+  redirect(`/inventory/cycle-counts/${cycleCountId}`);
+}
+
+export async function actionCancelCycleCount(
+  formData: FormData
+): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  await requirePermission("inventory.cyclecount");
+  const { cancelCycleCount } = await import("@/lib/services/cycle-counts");
+  const cycleCountId = (formData.get("cycleCountId") as string) || "";
+  try {
+    await cancelCycleCount(cycleCountId);
+    await flashToast("Cycle count cancelled");
+  } catch (err) {
+    await flashToast(
+      err instanceof Error ? err.message : "Could not cancel count",
+      "error"
+    );
+  }
+  revalidatePath("/inventory/cycle-counts");
+  redirect("/inventory/cycle-counts");
 }
 
 export async function actionSetModuleEnabled(

@@ -167,6 +167,9 @@ const ACTION_PERMISSIONS: { code: string; name: string; module: string }[] = [
   { code: "suppliers.manage", name: "Manage suppliers / ASL", module: "suppliers" },
   { code: "suppliers.scorecard.refresh", name: "Refresh scorecards", module: "suppliers" },
   { code: "inventory.putaway", name: "Inventory putaway / moves", module: "inventory" },
+  { code: "inventory.locations.manage", name: "Add / manage stock locations", module: "inventory" },
+  { code: "inventory.cyclecount", name: "Run cycle counts", module: "inventory" },
+  { code: "assets.manage", name: "Add / edit assets (Asset Tracker)", module: "assets" },
   { code: "va.manage", name: "Manage virtual assets", module: "virtual-assets" },
   // Quality
   { code: "qa.inspect", name: "Record QA inspections", module: "qa" },
@@ -400,7 +403,7 @@ export async function userHasPermission(
       "bom.certify",
       "products.manage",
     ],
-    PURCHASING: ["purchasing.pr.create", "purchasing.pr.approve", "purchasing.po.convert", "purchasing.po.close", "receiving.receive", "receiving.putaway", "suppliers.manage", "suppliers.scorecard.refresh"],
+    PURCHASING: ["purchasing.pr.create", "purchasing.pr.approve", "purchasing.po.convert", "purchasing.po.close", "receiving.receive", "receiving.putaway", "suppliers.manage", "suppliers.scorecard.refresh", "inventory.locations.manage"],
     PRODUCTION: [
       "workorders.create",
       "workorders.status.update",
@@ -410,6 +413,9 @@ export async function userHasPermission(
       "kitting.complete",
       "workcenters.manage",
       "inventory.putaway",
+      "inventory.locations.manage",
+      "inventory.cyclecount",
+      "assets.manage",
       "sales.order.ship",
       "receiving.receive",
       "receiving.putaway",
@@ -430,6 +436,7 @@ export async function userHasPermission(
       "rma.issue",
       "rma.adjust_price",
       "serials.manage",
+      "inventory.cyclecount",
     ],
     OPERATOR: [
       "workorders.signoff",

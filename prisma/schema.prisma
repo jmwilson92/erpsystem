@@ -677,6 +677,7 @@ model WorkOrder {
   purchaseRequests PurchaseRequest[]
   traceEvents     TraceEvent[]
   mrsLines        MaterialRequisitionLine[]
+  virtualAssets   VirtualAsset[]
   productionEngIssues ProductionEngIssue[]
   gfpConsumptions GfpConsumption[]
   assets          Asset[]
@@ -4039,7 +4040,7 @@ model VirtualAsset {
   description     String?
   /// LICENSE | DOWNLOAD | SUBSCRIPTION | DIGITAL | OTHER
   assetType       String   @default("LICENSE")
-  /// AVAILABLE | ASSIGNED | CHECKED_OUT | EXPIRED | RETIRED | SHIPPED
+  /// AVAILABLE | ASSIGNED | CHECKED_OUT | EXPIRED | RETIRED | SHIPPED | CONSUMED
   status          String   @default("AVAILABLE")
   /// INTERNAL | SOLD — internal seats vs customer deliverable licenses
   usageType       String   @default("INTERNAL")
@@ -4062,6 +4063,10 @@ model VirtualAsset {
   project         Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
   salesOrderId    String?
   salesOrder      SalesOrder? @relation(fields: [salesOrderId], references: [id], onDelete: SetNull)
+  /// Set when the asset is consumed into a build (license installed on a unit)
+  workOrderId     String?
+  workOrder       WorkOrder? @relation(fields: [workOrderId], references: [id], onDelete: SetNull)
+  consumedAt      DateTime?
   assignedToId    String?
   assignedTo      User?    @relation("VirtualAssetAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
   checkedOutToId  String?

@@ -63,6 +63,21 @@ export default async function RootLayout({
         }
       })()
     : [];
+  const breaks: { name: string; minutes: number }[] = company.breaksConfig
+    ? (() => {
+        try {
+          const parsed = JSON.parse(company.breaksConfig) as {
+            name: string;
+            minutes: number;
+          }[];
+          return Array.isArray(parsed)
+            ? parsed.filter((b) => b?.name && b.minutes > 0)
+            : [];
+        } catch {
+          return [];
+        }
+      })()
+    : [];
   const pathname = (await headers()).get("x-pathname") || "";
 
   // Production auth: middleware only checks that a session cookie EXISTS
@@ -113,6 +128,7 @@ export default async function RootLayout({
         <AppShell
           company={{ name: company.name, tagline: company.tagline }}
           disabledModules={disabledModules}
+          breaks={breaks}
           notifications={notifications}
           demoUsers={shellUsers}
           currentUser={

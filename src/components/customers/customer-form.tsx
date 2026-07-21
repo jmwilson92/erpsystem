@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { actionCreateCustomer, actionUpdateCustomer } from "@/app/actions";
+import { AddressInput } from "@/components/customers/address-input";
 import Link from "next/link";
 
 export type CustomerFormValues = {
@@ -15,6 +15,9 @@ export type CustomerFormValues = {
   shipToAddress?: string | null;
   paymentTerms?: string | null;
   creditLimit?: number | null;
+  creditTermsRequested?: string | null;
+  creditDocUrl?: string | null;
+  creditDocName?: string | null;
   isActive?: boolean;
 };
 
@@ -134,12 +137,57 @@ export function CustomerForm({
         </div>
       </div>
 
+      <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
+        <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-amber-500">
+          Credit terms request
+        </p>
+        <div className="grid gap-4 md:grid-cols-3">
+          <div>
+            <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+              Requested terms
+            </label>
+            <Input
+              name="creditTermsRequested"
+              defaultValue={customer?.creditTermsRequested || ""}
+              placeholder="e.g. NET45 — under review"
+              className="mt-1 h-9"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+              Credit application doc (URL / path)
+            </label>
+            <Input
+              name="creditDocUrl"
+              defaultValue={customer?.creditDocUrl || ""}
+              placeholder="/uploads/credit/… or https://…"
+              className="mt-1 h-9"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+              Doc label
+            </label>
+            <Input
+              name="creditDocName"
+              defaultValue={customer?.creditDocName || ""}
+              placeholder="Signed credit application"
+              className="mt-1 h-9"
+            />
+          </div>
+        </div>
+        <p className="mt-2 text-[11px] text-slate-600">
+          Track terms the customer has asked for while credit review is pending —
+          approved terms go in “Payment terms” above.
+        </p>
+      </div>
+
       <div className="grid gap-4 md:grid-cols-2">
         <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
           <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-teal-500">
             Bill to address
           </p>
-          <Textarea
+          <AddressInput
             name="billToAddress"
             rows={5}
             className="text-sm"
@@ -151,7 +199,7 @@ export function CustomerForm({
           <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-teal-500">
             Ship to address
           </p>
-          <Textarea
+          <AddressInput
             name="shipToAddress"
             rows={5}
             className="text-sm"

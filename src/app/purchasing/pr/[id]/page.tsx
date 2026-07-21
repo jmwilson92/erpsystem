@@ -26,6 +26,7 @@ import {
   isBuyerPackageComplete,
 } from "@/lib/services/pr-buyer";
 import { QuoteFileField } from "@/components/purchasing/quote-file-field";
+import { RunningClock } from "@/components/purchasing/running-clock";
 import { ChargeCodingFields } from "@/components/purchasing/charge-coding-fields";
 import { ActivityTimeline } from "@/components/shared/activity-timeline";
 import Link from "next/link";
@@ -153,7 +154,18 @@ export default async function PrDetailPage({
     prisma.user.findMany({
       where: {
         isActive: true,
-        role: { in: ["PURCHASING", "ADMIN", "EXECUTIVE"] },
+        OR: [
+          { role: { in: ["PURCHASING", "ADMIN", "EXECUTIVE"] } },
+          // Anyone individually granted purchasing permissions can buy too
+          {
+            userPermissions: {
+              some: {
+                allowed: true,
+                permission: { code: { startsWith: "purchasing." } },
+              },
+            },
+          },
+        ],
       },
       orderBy: { name: "asc" },
       select: { id: true, name: true, role: true, title: true },
@@ -256,9 +268,20 @@ export default async function PrDetailPage({
         <StatusBadge status={pr.status} />
         {pr.triggerSource && <StatusBadge status={pr.triggerSource} />}
         {pr.chargeType && <StatusBadge status={pr.chargeType} />}
-        {pr.assignedBuyer && (
-          <span className="rounded border border-sky-800/50 px-2 py-0.5 text-[11px] text-sky-300">
+        {pr.assignedBuyer ? (
+          <span className="rounded-full border border-sky-800/50 bg-sky-500/10 px-2.5 py-0.5 text-[11px] text-sky-300">
             Buyer: {pr.assignedBuyer.name}
+          </span>
+        ) : canAssign ? (
+          <a
+            href="#assign-buyer"
+            className="rounded-full border border-amber-700/50 bg-amber-500/10 px-2.5 py-0.5 text-[11px] text-amber-300 hover:border-amber-500"
+          >
+            No buyer assigned — assign ↓
+          </a>
+        ) : (
+          <span className="rounded-full border border-slate-700 px-2.5 py-0.5 text-[11px] text-slate-500">
+            No buyer assigned
           </span>
         )}
         <span className="text-xs text-slate-500">
@@ -322,7 +345,7 @@ export default async function PrDetailPage({
 
       {/* Assign buyer */}
       {canAssign && (
-        <Card className="border-slate-800">
+        <Card id="assign-buyer" className="border-slate-800">
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-base">
               <UserPlus className="h-4 w-4 text-teal-400" />
@@ -577,16 +600,18 @@ export default async function PrDetailPage({
                       Save package
                     </Button>
                     {pr.buyerWorkStartedAt && (
-                      <span className="text-[11px] text-emerald-400/90">
-                        {pr.buyerWorkStartedById === currentUser?.id
-                          ? "You're on the clock since"
-                          : `${
-                              buyers.find(
-                                (b) => b.id === pr.buyerWorkStartedById
-                              )?.name || "Buyer"
-                            } on the clock since`}{" "}
-                        {formatDate(pr.buyerWorkStartedAt, "MMM d, HH:mm")}
-                      </span>
+                      <RunningClock
+                        startedAt={pr.buyerWorkStartedAt}
+                        label={
+                          pr.buyerWorkStartedById === currentUser?.id
+                            ? "You're on the clock"
+                            : `${
+                                buyers.find(
+                                  (b) => b.id === pr.buyerWorkStartedById
+                                )?.name || "Buyer"
+                              } on the clock`
+                        }
+                      />
                     )}
                   </div>
                 </form>

@@ -8,10 +8,12 @@ import { Input } from "@/components/ui/input";
 import { formatCurrency } from "@/lib/utils";
 import { AlertTriangle, Shield, Archive, Search, X, Boxes } from "lucide-react";
 import {
+  actionCreateLocation,
   actionPutAwayAllReceiving,
   actionPutAwayItem,
   actionRunKanbanReplenishment,
 } from "@/app/actions";
+import { getCurrentUser, userHasPermission } from "@/lib/auth";
 import { findKanbanShortages } from "@/lib/services/kanban-replenishment";
 import Link from "next/link";
 import type { Prisma } from "@prisma/client";
@@ -61,18 +63,23 @@ export default async function InventoryPage({
     where.part = { isKanban: true };
   }
 
-  const [items, kanbanShortages] = await Promise.all([
-    prisma.inventoryItem.findMany({
-      where,
-      include: {
-        part: true,
-        location: { include: { warehouse: true } },
-        mrbCase: true,
-      },
-      orderBy: { updatedAt: "desc" },
-    }),
-    findKanbanShortages(),
-  ]);
+  const user = await getCurrentUser();
+  const [items, kanbanShortages, warehouses, canManageLocations, canCycleCount] =
+    await Promise.all([
+      prisma.inventoryItem.findMany({
+        where,
+        include: {
+          part: true,
+          location: { include: { warehouse: true } },
+          mrbCase: true,
+        },
+        orderBy: { updatedAt: "desc" },
+      }),
+      findKanbanShortages(),
+      prisma.warehouse.findMany({ orderBy: { code: "asc" } }),
+      userHasPermission(user?.id, "inventory.locations.manage"),
+      userHasPermission(user?.id, "inventory.cyclecount"),
+    ]);
 
   // Low stock: available ≤ 5, or kanban min breached
   let filtered = items;
@@ -141,6 +148,13 @@ export default async function InventoryPage({
         description="On-hand by location · lot/serial · GFP vs company · quarantine"
         actions={
           <div className="flex flex-wrap gap-2">
+            {canCycleCount && (
+              <Link href="/inventory/cycle-counts">
+                <Button size="sm" variant="outline">
+                  Cycle counts
+                </Button>
+              </Link>
+            )}
             <Link href="/print/labels?kind=bins">
               <Button size="sm" variant="outline">
                 Print bin labels
@@ -328,6 +342,42 @@ export default async function InventoryPage({
         </div>
       </form>
 
+      {canManageLocations && (
+        <details className="rounded-xl border border-slate-800 bg-slate-950/50">
+          <summary className="cursor-pointer list-none px-4 py-3 text-sm text-slate-300 hover:text-teal-300">
+            + Add a stock location{" "}
+            <span className="text-xs text-slate-500">
+              (bin / shelf / area — usable for putaway, kitting, and staging)
+            </span>
+          </summary>
+          <form
+            action={actionCreateLocation}
+            className="grid gap-2 border-t border-slate-800 p-4 sm:grid-cols-5"
+          >
+            <select name="warehouseId" className={selectClass} defaultValue={warehouses[0]?.id || ""}>
+              {warehouses.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.code} — {w.name}
+                </option>
+              ))}
+            </select>
+            <Input name="code" required placeholder="Code (e.g. A-01-03)" className="h-9" />
+            <Input name="name" placeholder="Name (optional)" className="h-9" />
+            <select name="type" className={selectClass} defaultValue="STORAGE">
+              <option value="STORAGE">Storage</option>
+              <option value="RECEIVING">Receiving</option>
+              <option value="QUARANTINE">Quarantine</option>
+              <option value="WIP">WIP</option>
+              <option value="SHIPPING">Shipping</option>
+              <option value="GFP">GFP area</option>
+            </select>
+            <Button type="submit" size="sm" className="h-9">
+              Add location
+            </Button>
+          </form>
+        </details>
+      )}
+
       {awaitingPutaway.length > 0 && stock !== "putaway" && (
         <Card>
           <CardContent className="space-y-2 p-4">
@@ -473,7 +523,17 @@ export default async function InventoryPage({
                     {item.quantityAvailable}
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums text-sky-400">
-                    {item.quantityCommitted}
+                    {item.quantityCommitted > 0 ? (
+                      <Link
+                        href={`/inventory/committed/${item.partId}`}
+                        className="hover:underline"
+                        title="See what this is committed to and release it"
+                      >
+                        {item.quantityCommitted}
+                      </Link>
+                    ) : (
+                      item.quantityCommitted
+                    )}
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums text-orange-400">
                     {item.quantityQuarantine || "—"}

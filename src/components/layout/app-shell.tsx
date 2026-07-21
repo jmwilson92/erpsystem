@@ -18,6 +18,8 @@ export type DemoUser = {
 
 export type ShellCompany = { name: string; tagline: string };
 
+export type ShellBreak = { name: string; minutes: number };
+
 export type ShellNotifications = {
   total: number;
   items: { label: string; count: number; href: string }[];
@@ -31,6 +33,7 @@ function ShellInner({
   notifications,
   company,
   disabledModules,
+  breaks,
 }: {
   children: React.ReactNode;
   demoUsers: DemoUser[];
@@ -38,6 +41,7 @@ function ShellInner({
   notifications: ShellNotifications;
   company: ShellCompany;
   disabledModules: string[];
+  breaks: ShellBreak[];
 }) {
   const [cmdOpen, setCmdOpen] = useState(false);
   const { theme } = useTheme();
@@ -64,7 +68,11 @@ function ShellInner({
         />
       </Suspense>
       <div className="flex min-w-0 flex-1 flex-col">
-        <Header onOpenCommand={() => setCmdOpen(true)} notifications={notifications} />
+        <Header
+          onOpenCommand={() => setCmdOpen(true)}
+          notifications={notifications}
+          breaks={breaks}
+        />
         <main className="flex-1 overflow-y-auto">
           <div className="mx-auto max-w-[1600px] p-4 md:p-6">{children}</div>
         </main>
@@ -89,6 +97,7 @@ export function AppShell({
   notifications,
   company,
   disabledModules = [],
+  breaks = [],
 }: {
   children: React.ReactNode;
   demoUsers: DemoUser[];
@@ -96,6 +105,7 @@ export function AppShell({
   notifications: ShellNotifications;
   company: ShellCompany;
   disabledModules?: string[];
+  breaks?: ShellBreak[];
 }) {
   const pathname = usePathname();
   // Auth screens render bare — no sidebar/header chrome
@@ -114,6 +124,7 @@ export function AppShell({
           notifications={notifications}
           company={company}
           disabledModules={disabledModules}
+          breaks={breaks}
         >
           {children}
         </ShellInner>

@@ -1503,6 +1503,7 @@ export default async function ReceivingTravelerDetailPage({
               purchaseOrderId={po?.id}
               travelerId={traveler.id}
               isGfpTraveler={isGfpTraveler}
+              showHints={process.env.DEMO_MODE !== "0"}
               defaultContractNumber={
                 traveler.contractNumber || po?.clin || ""
               }

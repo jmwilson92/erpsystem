@@ -13,6 +13,9 @@ export type CustomerInput = {
   shipToAddress?: string;
   paymentTerms?: string;
   creditLimit?: number;
+  creditTermsRequested?: string;
+  creditDocUrl?: string;
+  creditDocName?: string;
   isActive?: boolean;
   userId?: string;
 };
@@ -58,6 +61,9 @@ export async function createCustomer(params: CustomerInput) {
       shipToAddress: params.shipToAddress?.trim() || params.billToAddress?.trim() || null,
       paymentTerms: params.paymentTerms || "NET30",
       creditLimit: params.creditLimit ?? 0,
+      creditTermsRequested: params.creditTermsRequested?.trim() || null,
+      creditDocUrl: params.creditDocUrl?.trim() || null,
+      creditDocName: params.creditDocName?.trim() || null,
       isActive: params.isActive ?? true,
     },
   });
@@ -102,6 +108,18 @@ export async function updateCustomer(
       paymentTerms: params.paymentTerms || existing.paymentTerms,
       creditLimit:
         params.creditLimit !== undefined ? params.creditLimit : existing.creditLimit,
+      creditTermsRequested:
+        params.creditTermsRequested !== undefined
+          ? params.creditTermsRequested?.trim() || null
+          : undefined,
+      creditDocUrl:
+        params.creditDocUrl !== undefined
+          ? params.creditDocUrl?.trim() || null
+          : undefined,
+      creditDocName:
+        params.creditDocName !== undefined
+          ? params.creditDocName?.trim() || null
+          : undefined,
       isActive: params.isActive !== undefined ? params.isActive : existing.isActive,
     },
   });
