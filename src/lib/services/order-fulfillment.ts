@@ -1379,10 +1379,9 @@ export async function completeKitOrder(params: {
   if (!kit) throw new Error("Kit order not found");
   if (kit.status === "COMPLETE") return kit;
 
-  const wipLoc =
-    (await prisma.location.findFirst({ where: { type: "WIP" } })) ||
-    (await prisma.location.findFirst({ where: { code: "WIP-01" } })) ||
-    (await prisma.location.findFirst({ where: { type: "STORAGE" } }));
+  // Kit material stages at the company staging location (or WIP fallback).
+  const { resolveStagingLocation } = await import("./wip-locations");
+  const wipLoc = await resolveStagingLocation();
 
   const chargeNumber =
     kit.workOrder.project?.number ||
@@ -1607,6 +1606,25 @@ export async function completeKitOrder(params: {
         status: "PICKED",
       },
     });
+
+    // Stage the picked material as WIP inventory at the staging location,
+    // tagged to this work order, so inventory shows the kit sitting there.
+    // On-hand but not available (it's spoken for by the build).
+    if (wipLoc && line.quantityRequired > 0) {
+      await prisma.inventoryItem.create({
+        data: {
+          partId: line.partId,
+          locationId: wipLoc.id,
+          workOrderId: kit.workOrderId,
+          quantityOnHand: line.quantityRequired,
+          quantityAvailable: 0,
+          quantityCommitted: 0,
+          lotNumber: lastLot,
+          unitCost: line.part.standardCost,
+          ownership: "COMPANY",
+        },
+      });
+    }
   }
 
   await prisma.kitOrder.update({
@@ -1619,12 +1637,14 @@ export async function completeKitOrder(params: {
     data: {
       kitStatus: "KITTED",
       status: "KITTED",
+      // Kit now physically sits at the staging location.
+      currentLocationId: wipLoc?.id ?? undefined,
       statusHistory: {
         create: {
           fromStatus: "KITTING",
           toStatus: "KITTED",
           userId: params.userId,
-          notes: `Kit ${kit.number} complete — ready for production`,
+          notes: `Kit ${kit.number} complete — staged at ${wipLoc?.code || "WIP"}`,
         },
       },
     },
@@ -1845,12 +1865,18 @@ export async function completeWorkOrderToStock(params: {
       .filter((x): x is { serial: string } => !!x);
   }
 
+  // The staged WIP material is now built into the finished good — consume it
+  // so it no longer sits at a staging / work-center location in inventory.
+  const { consumeWorkOrderWip } = await import("./wip-locations");
+  await consumeWorkOrderWip({ workOrderId: wo.id, userId: params.userId });
+
   await prisma.workOrder.update({
     where: { id: wo.id },
     data: {
       status: "COMPLETED",
       quantityCompleted: wo.quantity,
       actualEnd: new Date(),
+      currentLocationId: null,
       statusHistory: {
         create: {
           fromStatus: wo.status,

@@ -8631,6 +8631,17 @@ export async function actionSaveCompanyOps(formData: FormData): Promise<void> {
   redirect("/admin/settings");
 }
 
+export async function actionClockOutForBreak(): Promise<{ closed: number }> {
+  const user = await getCurrentUser();
+  if (!user) return { closed: 0 };
+  const { clockOutAllActiveWork } = await import("@/lib/services/active-work");
+  const { closed } = await clockOutAllActiveWork({
+    userId: user.id,
+    reason: "BREAK",
+  });
+  return { closed };
+}
+
 export async function actionReleaseCommitment(
   formData: FormData
 ): Promise<void> {
@@ -8674,6 +8685,7 @@ export async function actionCreateLocation(formData: FormData): Promise<void> {
   const code = ((formData.get("code") as string) || "").trim().toUpperCase();
   const name = ((formData.get("name") as string) || "").trim();
   const type = ((formData.get("type") as string) || "STORAGE").trim();
+  const workCenterId = ((formData.get("workCenterId") as string) || "").trim() || null;
   let warehouseId = ((formData.get("warehouseId") as string) || "").trim();
   try {
     if (!code) throw new Error("Location code is required (e.g. A-01-03)");
@@ -8687,7 +8699,14 @@ export async function actionCreateLocation(formData: FormData): Promise<void> {
     });
     if (dupe) throw new Error(`Location ${code} already exists in that warehouse`);
     await prisma.location.create({
-      data: { warehouseId, code, name: name || null, type },
+      data: {
+        warehouseId,
+        code,
+        name: name || null,
+        // A location tied to a work center is a WIP floor location by nature.
+        type: workCenterId ? "WIP" : type,
+        workCenterId,
+      },
     });
     await prisma.auditLog.create({
       data: {
@@ -8820,6 +8839,37 @@ export async function actionCreateSupplier(formData: FormData): Promise<void> {
   }
   revalidatePath("/suppliers");
   redirect(created ? `/suppliers/${created.id}` : "/suppliers");
+}
+
+export async function actionMoveWorkOrder(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("workorders.status.update");
+  const workOrderId = ((formData.get("workOrderId") as string) || "").trim();
+  const locationId = ((formData.get("locationId") as string) || "").trim();
+  try {
+    if (!locationId) throw new Error("Pick a location to move the kit to");
+    const { moveWorkOrderToLocation } = await import(
+      "@/lib/services/wip-locations"
+    );
+    const { moved, location } = await moveWorkOrderToLocation({
+      workOrderId,
+      locationId,
+      userId: user?.id,
+    });
+    await flashToast(
+      moved > 0
+        ? `Moved kit (${moved} unit${moved === 1 ? "" : "s"}) to ${location.code}`
+        : `Work order now at ${location.code}`
+    );
+  } catch (err) {
+    await flashToast(
+      err instanceof Error ? err.message : "Could not move work order",
+      "error"
+    );
+  }
+  revalidatePath(`/work-orders/${workOrderId}`);
+  revalidatePath("/inventory");
+  redirect(`/work-orders/${workOrderId}`);
 }
 
 export async function actionCreateCycleCount(formData: FormData): Promise<void> {

@@ -678,6 +678,10 @@ model WorkOrder {
   traceEvents     TraceEvent[]
   mrsLines        MaterialRequisitionLine[]
   virtualAssets   VirtualAsset[]
+  wipInventory    InventoryItem[] @relation("WipInventory")
+  /// Where the kit / assembly physically sits right now (staging → work centers)
+  currentLocationId String?
+  currentLocation   Location? @relation("WoCurrentLocation", fields: [currentLocationId], references: [id], onDelete: SetNull)
   productionEngIssues ProductionEngIssue[]
   gfpConsumptions GfpConsumption[]
   assets          Asset[]
@@ -2608,12 +2612,17 @@ model Location {
   warehouse   Warehouse @relation(fields: [warehouseId], references: [id])
   code        String
   name        String?
-  // STORAGE, RECEIVING, QUARANTINE, SHIPPING, WIP, GFP (gov-furnished property cage / area)
+  // STORAGE, RECEIVING, QUARANTINE, SHIPPING, WIP, STAGING (kit staging), GFP (gov-furnished property cage / area)
   type        String @default("STORAGE")
+  /// Floor location tied to a work center (WIP travels here during production)
+  workCenterId String?
+  workCenter   WorkCenter? @relation(fields: [workCenterId], references: [id], onDelete: SetNull)
 
   inventoryItems InventoryItem[]
+  workOrdersHere WorkOrder[] @relation("WoCurrentLocation")
 
   @@unique([warehouseId, code])
+  @@index([workCenterId])
 }
 
 model InventoryItem {
@@ -2633,6 +2642,11 @@ model InventoryItem {
   lastCountedAt   DateTime?
   mrbCaseId       String?
   mrbCase         MrbCase? @relation(fields: [mrbCaseId], references: [id])
+  /// Set when this row is WIP kit material staged/issued to a work order —
+  /// it travels between staging and work-center locations, then is consumed
+  /// when the WO completes to finished goods.
+  workOrderId     String?
+  workOrder       WorkOrder? @relation("WipInventory", fields: [workOrderId], references: [id], onDelete: SetNull)
   updatedAt       DateTime @updatedAt
 
   transactions    MaterialTransaction[]
@@ -2640,6 +2654,7 @@ model InventoryItem {
 
   @@index([partId])
   @@index([ownership])
+  @@index([workOrderId])
 }
 
 model MaterialTransaction {
@@ -4623,6 +4638,7 @@ model WorkCenter {
   updatedAt       DateTime @updatedAt
 
   staff           WorkCenterStaff[]
+  locations       Location[]
 
   @@index([area, isActive])
 }

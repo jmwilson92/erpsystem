@@ -2,6 +2,8 @@
 
 import { Coffee } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { actionClockOutForBreak } from "@/app/actions";
 
 export type BreakOption = { name: string; minutes: number };
 
@@ -32,6 +34,7 @@ export function BreakTimer({ breaks }: { breaks: BreakOption[] }) {
   const [active, setActive] = useState<ActiveBreak | null>(null);
   const [remaining, setRemaining] = useState(0);
   const [mounted, setMounted] = useState(false);
+  const [clockedOut, setClockedOut] = useState<number | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -77,6 +80,11 @@ export function BreakTimer({ breaks }: { breaks: BreakOption[] }) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(rec));
     setActive(rec);
     setMenuOpen(false);
+    setClockedOut(null);
+    // Clock the person out of any live work while they're away.
+    actionClockOutForBreak()
+      .then((r) => setClockedOut(r?.closed ?? 0))
+      .catch(() => setClockedOut(null));
   }, []);
 
   const end = useCallback(() => {
@@ -125,8 +133,9 @@ export function BreakTimer({ breaks }: { breaks: BreakOption[] }) {
         )}
       </div>
 
-      {active && (
-        <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-slate-950/95 backdrop-blur-sm">
+      {active &&
+        createPortal(
+          <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center bg-slate-950/95 backdrop-blur-sm">
           <div className="relative flex h-64 w-64 items-center justify-center">
             <svg className="h-full w-full -rotate-90" viewBox="0 0 100 100">
               <circle
@@ -168,14 +177,21 @@ export function BreakTimer({ breaks }: { breaks: BreakOption[] }) {
           <p className="mt-6 text-sm text-slate-400">
             On break — work is paused. Timer keeps running if you navigate away.
           </p>
+          {clockedOut != null && clockedOut > 0 && (
+            <p className="mt-1 text-xs text-emerald-300">
+              Clocked you out of {clockedOut} active job
+              {clockedOut === 1 ? "" : "s"}.
+            </p>
+          )}
           <button
             onClick={end}
             className="mt-4 rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 hover:border-teal-500/50 hover:text-teal-300"
           >
             {overWarn ? "Back to work" : "End break early"}
           </button>
-        </div>
-      )}
+        </div>,
+          document.body
+        )}
     </>
   );
 }

@@ -26,6 +26,7 @@ import {
   actionInstallSerialOnWo,
   actionRemoveSerialInstall,
   actionSetWorkOrderDueDate,
+  actionMoveWorkOrder,
 } from "@/app/actions";
 import { checkBomMaterialAvailability } from "@/lib/services/order-fulfillment";
 import { ensureWorkOrderTravelerSteps } from "@/lib/services/work-orders";
@@ -108,7 +109,7 @@ export default async function WorkOrderDetailPage({
   // Seed WI traveler steps before load if missing
   await ensureWorkOrderTravelerSteps({ workOrderId: id }).catch(() => null);
 
-  const [wo, workCenters, priorities, measureUoms, testProcedures] =
+  const [wo, workCenters, priorities, measureUoms, testProcedures, moveLocations] =
     await Promise.all([
       prisma.workOrder.findUnique({
         where: { id },
@@ -121,6 +122,10 @@ export default async function WorkOrderDetailPage({
           createdBy: true,
           project: true,
           salesOrder: true,
+          currentLocation: { include: { workCenter: true } },
+          wipInventory: {
+            include: { part: { select: { partNumber: true } } },
+          },
           materialRequisition: true,
           businessPriority: true,
           instructions: {
@@ -170,6 +175,17 @@ export default async function WorkOrderDetailPage({
           status: true,
           partId: true,
         },
+      }),
+      // Locations a kit can move to: staging, WIP, and work-center floor spots
+      prisma.location.findMany({
+        where: {
+          OR: [
+            { type: { in: ["STAGING", "WIP", "SHIPPING"] } },
+            { workCenterId: { not: null } },
+          ],
+        },
+        include: { warehouse: { select: { code: true } }, workCenter: true },
+        orderBy: [{ type: "asc" }, { code: "asc" }],
       }),
     ]);
   if (!wo) notFound();
@@ -781,6 +797,64 @@ export default async function WorkOrderDetailPage({
                 </Button>
               </ActionLoadingForm>
             </div>
+          </CardContent>
+        </Card>
+        <Card className="min-w-0 overflow-hidden">
+          <CardContent className="space-y-2 p-4">
+            <p className="text-xs text-slate-500">Kit location (WIP)</p>
+            <p className="font-medium text-slate-200">
+              {wo.currentLocation ? (
+                <span className="font-mono text-teal-400">
+                  {wo.currentLocation.code}
+                </span>
+              ) : (
+                <span className="text-slate-500">Not staged yet</span>
+              )}
+              {wo.currentLocation?.workCenter && (
+                <span className="ml-1 text-xs text-slate-500">
+                  · {wo.currentLocation.workCenter.name}
+                </span>
+              )}
+            </p>
+            {wo.wipInventory.length > 0 && (
+              <p className="text-[11px] text-slate-500">
+                {wo.wipInventory.length} kit line(s) staged here
+              </p>
+            )}
+            {moveLocations.length > 0 ? (
+              <form
+                action={actionMoveWorkOrder}
+                className="flex items-end gap-1.5"
+              >
+                <input type="hidden" name="workOrderId" value={wo.id} />
+                <label className="text-[10px] uppercase text-slate-500">
+                  Move kit to
+                  <select
+                    name="locationId"
+                    defaultValue=""
+                    className="mt-0.5 block h-8 rounded-md border border-slate-700 bg-slate-950 px-2 text-xs text-slate-200"
+                  >
+                    <option value="" disabled>
+                      Location / work center…
+                    </option>
+                    {moveLocations.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.code}
+                        {l.workCenter ? ` — ${l.workCenter.name}` : ` (${l.type})`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <Button type="submit" size="sm" variant="outline" className="h-8 text-xs">
+                  Move
+                </Button>
+              </form>
+            ) : (
+              <p className="text-[11px] text-slate-500">
+                Add work-center or staging locations in Inventory to track kit
+                movement.
+              </p>
+            )}
           </CardContent>
         </Card>
         <Card>

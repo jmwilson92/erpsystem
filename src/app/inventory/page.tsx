@@ -64,22 +64,34 @@ export default async function InventoryPage({
   }
 
   const user = await getCurrentUser();
-  const [items, kanbanShortages, warehouses, canManageLocations, canCycleCount] =
-    await Promise.all([
-      prisma.inventoryItem.findMany({
-        where,
-        include: {
-          part: true,
-          location: { include: { warehouse: true } },
-          mrbCase: true,
-        },
-        orderBy: { updatedAt: "desc" },
-      }),
-      findKanbanShortages(),
-      prisma.warehouse.findMany({ orderBy: { code: "asc" } }),
-      userHasPermission(user?.id, "inventory.locations.manage"),
-      userHasPermission(user?.id, "inventory.cyclecount"),
-    ]);
+  const [
+    items,
+    kanbanShortages,
+    warehouses,
+    workCenters,
+    canManageLocations,
+    canCycleCount,
+  ] = await Promise.all([
+    prisma.inventoryItem.findMany({
+      where,
+      include: {
+        part: true,
+        location: { include: { warehouse: true, workCenter: true } },
+        mrbCase: true,
+        workOrder: { select: { id: true, number: true } },
+      },
+      orderBy: { updatedAt: "desc" },
+    }),
+    findKanbanShortages(),
+    prisma.warehouse.findMany({ orderBy: { code: "asc" } }),
+    prisma.workCenter.findMany({
+      where: { isActive: true },
+      orderBy: { code: "asc" },
+      select: { id: true, code: true, name: true },
+    }),
+    userHasPermission(user?.id, "inventory.locations.manage"),
+    userHasPermission(user?.id, "inventory.cyclecount"),
+  ]);
 
   // Low stock: available ≤ 5, or kanban min breached
   let filtered = items;
@@ -352,7 +364,7 @@ export default async function InventoryPage({
           </summary>
           <form
             action={actionCreateLocation}
-            className="grid gap-2 border-t border-slate-800 p-4 sm:grid-cols-5"
+            className="grid gap-2 border-t border-slate-800 p-4 sm:grid-cols-6"
           >
             <select name="warehouseId" className={selectClass} defaultValue={warehouses[0]?.id || ""}>
               {warehouses.map((w) => (
@@ -365,16 +377,31 @@ export default async function InventoryPage({
             <Input name="name" placeholder="Name (optional)" className="h-9" />
             <select name="type" className={selectClass} defaultValue="STORAGE">
               <option value="STORAGE">Storage</option>
+              <option value="STAGING">Kit staging</option>
               <option value="RECEIVING">Receiving</option>
               <option value="QUARANTINE">Quarantine</option>
               <option value="WIP">WIP</option>
               <option value="SHIPPING">Shipping</option>
               <option value="GFP">GFP area</option>
             </select>
+            <select name="workCenterId" className={selectClass} defaultValue="">
+              <option value="">No work center</option>
+              {workCenters.map((wc) => (
+                <option key={wc.id} value={wc.id}>
+                  {wc.code} — {wc.name}
+                </option>
+              ))}
+            </select>
             <Button type="submit" size="sm" className="h-9">
               Add location
             </Button>
           </form>
+          <p className="px-4 pb-3 text-[11px] text-slate-500">
+            Pick a work center to make a floor location kits travel to during
+            production (auto-typed WIP). Use <strong>Kit staging</strong> for the
+            spot picked kits wait before the line — set that same code in Admin →
+            Settings → Company operations so kitting stages there automatically.
+          </p>
         </details>
       )}
 
@@ -509,8 +536,19 @@ export default async function InventoryPage({
                   <td className="px-3 py-2 text-slate-400">
                     {item.location.warehouse.code}/{item.location.code}
                     <span className="ml-1 text-[10px] text-slate-600">
-                      {item.location.type}
+                      {item.location.workCenter
+                        ? item.location.workCenter.name
+                        : item.location.type}
                     </span>
+                    {item.workOrder && (
+                      <Link
+                        href={`/work-orders/${item.workOrder.id}`}
+                        className="ml-1 rounded bg-amber-500/10 px-1 text-[10px] text-amber-300 hover:underline"
+                        title="WIP kit material staged for this work order"
+                      >
+                        {item.workOrder.number}
+                      </Link>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums">
                     {item.quantityOnHand}
