@@ -8631,6 +8631,47 @@ export async function actionSaveCompanyOps(formData: FormData): Promise<void> {
   redirect("/admin/settings");
 }
 
+export async function actionActivatePlan(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("admin.permissions");
+  const plan = ((formData.get("plan") as string) || "").trim();
+  const billingEmail = ((formData.get("billingEmail") as string) || "").trim() || null;
+  try {
+    const { activatePlan } = await import("@/lib/services/subscription");
+    // Beta: activate in-app immediately. When Stripe is wired, this action
+    // starts a checkout session and the webhook calls activatePlan on success.
+    await activatePlan({ plan, billingEmail, userId: user?.id });
+    await flashToast(`${plan} plan activated — you're all set`);
+  } catch (err) {
+    await flashToast(
+      err instanceof Error ? err.message : "Could not activate plan",
+      "error"
+    );
+  }
+  revalidatePath("/", "layout");
+  redirect("/billing");
+}
+
+export async function actionStartTrial(): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("admin.permissions");
+  const { startTrial } = await import("@/lib/services/subscription");
+  await startTrial(user?.id);
+  await flashToast("Trial started — 30 days on us");
+  revalidatePath("/", "layout");
+  redirect("/billing");
+}
+
+export async function actionCancelSubscription(): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("admin.permissions");
+  const { cancelSubscription } = await import("@/lib/services/subscription");
+  await cancelSubscription(user?.id);
+  await flashToast("Subscription cancelled");
+  revalidatePath("/", "layout");
+  redirect("/billing");
+}
+
 export async function actionClockOutForBreak(): Promise<{ closed: number }> {
   const user = await getCurrentUser();
   if (!user) return { closed: 0 };

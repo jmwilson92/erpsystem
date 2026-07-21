@@ -3,6 +3,7 @@ import {
   ListChecks,
   Mail,
   Rocket,
+  CreditCard,
   FileBarChart,
   LayoutDashboard,
   Factory,
@@ -151,6 +152,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/admin/settings", label: "Company Settings", icon: SlidersHorizontal, keywords: ["settings", "config", "preferences", "company", "fiscal", "basis", "admin"] },
       { href: "/admin/permissions", label: "Roles & Permissions", icon: KeyRound, keywords: ["rbac", "access", "security"] },
+      { href: "/billing", label: "Plan & Billing", icon: CreditCard, keywords: ["subscription", "trial", "plan", "upgrade", "invoice", "stripe", "payment"] },
       { href: "/setup", label: "Setup Wizard", icon: Rocket, keywords: ["onboarding", "company", "getting started", "plug and play"] },
       { href: "/admin/import", label: "Data Import", icon: FileSpreadsheet, keywords: ["csv", "excel", "migrate", "onboard", "item master", "upload"] },
       { href: "/email", label: "Email Center", icon: Mail, keywords: ["inbox", "outbound", "rfq", "acknowledge", "parse", "smtp"] },

@@ -4454,6 +4454,23 @@ model CompanySettings {
   /// Where finished kits are staged (guides the kitter after picking)
   kittingLocation String?
   setupCompleted Boolean  @default(false)
+  // ── Subscription / billing (instance-per-customer SaaS) ──────────
+  /// TRIAL | STARTER | PRO | ENTERPRISE
+  plan               String   @default("TRIAL")
+  /// TRIALING | ACTIVE | PAST_DUE | CANCELLED | EXPIRED
+  subscriptionStatus String   @default("TRIALING")
+  /// End of the free trial — access is gated after this in production
+  trialEndsAt        DateTime?
+  /// End of the current paid period (renewal / access-through date)
+  currentPeriodEnd   DateTime?
+  /// Purchased seat count (null = unlimited / unmetered during beta)
+  seats              Int?
+  /// Billing contact for renewal + dunning notices
+  billingEmail       String?
+  /// Payment provider seam — "stripe" once wired; null during in-app beta
+  billingProvider    String?
+  stripeCustomerId   String?
+  stripeSubscriptionId String?
   updatedById    String?
   updatedAt      DateTime @updatedAt
 }

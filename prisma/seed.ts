@@ -3365,6 +3365,10 @@ async function main() {
         "Finance", "Human Resources", "Operations", "Executive",
         "Configuration Management",
       ]),
+      // Demo instance runs as a live Pro account (never trial-gated)
+      plan: "PRO",
+      subscriptionStatus: "ACTIVE",
+      currentPeriodEnd: new Date(Date.now() + 365 * 86_400_000),
       // Kitting stages picked kits at this location (matches STAGE-01 above)
       kittingLocation: "STAGE-01",
       // Default company breaks — power the header break/lunch countdown

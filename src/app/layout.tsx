@@ -5,7 +5,9 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { AppShell } from "@/components/layout/app-shell";
 import { SandboxBanner } from "@/components/layout/sandbox-banner";
+import { TrialBanner } from "@/components/layout/trial-banner";
 import { FlashToast } from "@/components/layout/flash-toast";
+import { getSubscriptionState } from "@/lib/services/subscription";
 import { getCurrentUser, listUsers } from "@/lib/auth";
 import { demoModeEnabled } from "@/lib/auth-core";
 import { prisma, SANDBOX_COOKIE } from "@/lib/db";
@@ -100,6 +102,28 @@ export default async function RootLayout({
     // module reaches the client (not even the RSC payload).
     redirect(`/module-off?m=${blockedKey}`);
   }
+
+  // Subscription gate: once the trial ends with no paid plan, wall the app off
+  // (production only — the demo instance is never gated). Billing, auth, and a
+  // few utility routes stay reachable so the customer can upgrade or leave.
+  const subscription = await getSubscriptionState();
+  const billingAllowlist = [
+    "/billing",
+    "/login",
+    "/invite",
+    "/legal",
+    "/demo",
+    "/module-off",
+    "/api",
+  ];
+  if (
+    subscription.enforced &&
+    !subscription.hasAccess &&
+    pathname &&
+    !billingAllowlist.some((p) => pathname.startsWith(p))
+  ) {
+    redirect("/billing?expired=1");
+  }
   const shellUsers = showDemoSwitcher
     ? demoUsers.map((u) => ({
         id: u.id,
@@ -143,6 +167,9 @@ export default async function RootLayout({
           }
         >
           {inSandbox && <SandboxBanner />}
+          {subscription.isTrialing && subscription.trialDaysLeft != null && (
+            <TrialBanner daysLeft={subscription.trialDaysLeft} />
+          )}
           {flash && (
             <FlashToast message={flash.m} kind={flash.k} stamp={flash.t} />
           )}

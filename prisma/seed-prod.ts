@@ -247,7 +247,16 @@ async function main() {
 
   // ── Default settings (rename Company from Admin → Company Settings) ──
   await prisma.companySettings.create({
-    data: { id: "default", name: "Your Company", tagline: "Manufacturing", setupCompleted: false },
+    data: {
+      id: "default",
+      name: "Your Company",
+      tagline: "Manufacturing",
+      setupCompleted: false,
+      // Fresh instance starts on a 30-day free trial
+      plan: "TRIAL",
+      subscriptionStatus: "TRIALING",
+      trialEndsAt: new Date(Date.now() + 30 * 86_400_000),
+    },
   });
   await prisma.accountingSettings.create({
     data: { id: "default", basis: "ACCRUAL", fiscalYearStartMonth: 1 },
