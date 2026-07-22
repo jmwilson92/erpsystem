@@ -31,7 +31,7 @@ export default async function EmailCenterPage() {
         description="Outbound mail composed from records (POs, quotes) and inbound mail parsed into draft records — one log for all of it"
       />
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4 lg:grid-cols-2" data-tour="email-panels">
         <Card className="border-teal-900/40">
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-base">

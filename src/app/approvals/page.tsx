@@ -60,7 +60,7 @@ export default async function ApprovalsPage() {
         description={`Pending decisions for ${scopeLabel}`}
       />
 
-      <div className="grid gap-4 sm:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-4" data-tour="approvals-stats">
         <Card>
           <CardContent className="flex items-center gap-3 p-4">
             <CalendarCheck className="h-5 w-5 text-amber-400" />

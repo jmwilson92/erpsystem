@@ -10,7 +10,9 @@ export default function DataImportPage() {
         title="Data Import"
         description="Bring your existing item master, customers, suppliers, and people in — paste straight from Excel, no file formats to fight."
       />
-      <ImportWizard />
+      <div data-tour="import-wizard">
+        <ImportWizard />
+      </div>
     </div>
   );
 }

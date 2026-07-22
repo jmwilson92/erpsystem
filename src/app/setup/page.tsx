@@ -136,7 +136,7 @@ export default async function SetupWizardPage({
             </p>
           </CardHeader>
           <CardContent>
-            <form action={actionSaveCompanyProfile} className="grid gap-3">
+            <form action={actionSaveCompanyProfile} className="grid gap-3" data-tour="setup-company">
               <label className="text-xs text-slate-500">
                 Company name
                 <Input
