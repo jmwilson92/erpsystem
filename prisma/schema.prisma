@@ -4634,9 +4634,46 @@ model QualityProgram {
   icon        String?
   isActive    Boolean @default(true)
   sortOrder   Int     @default(0)
+  /// Shared inspection template for every item in this program (ESD station
+  /// checks, FOD walk points, safety inspections). JSON [{ label }].
+  inspectionTemplate String?
 
   items       QualityItem[]
   events      QualityEvent[]
+}
+
+/// A completed inspection against a station / zone / area using the program's
+/// template. Saved to history for auditors, viewable later.
+model QualityInspection {
+  id            String   @id @default(cuid())
+  programId     String
+  itemId        String?
+  /// JSON [{ label, ok, note, photoUrl, photoName }]
+  results       String
+  passed        Boolean  @default(true)
+  performedById String?
+  performedAt   DateTime @default(now())
+  notes         String?
+  createdAt     DateTime @default(now())
+
+  @@index([programId])
+  @@index([itemId])
+}
+
+/// Relative-humidity reading for an area / workcenter, fed by the ESD humidity
+/// device API (or entered by hand) and tracked in the ESD program.
+model HumidityReading {
+  id               String   @id @default(cuid())
+  location         String
+  workcenterId     String?
+  relativeHumidity Float
+  temperatureC     Float?
+  source           String   @default("MANUAL") // MANUAL | DEVICE
+  deviceId         String?
+  recordedAt       DateTime @default(now())
+
+  @@index([location])
+  @@index([recordedAt])
 }
 
 /// A tracked record in a program: a gage, tool, chemical, ESD station, FOD

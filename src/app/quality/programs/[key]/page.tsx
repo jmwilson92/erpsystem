@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Paperclip, Tag, FileWarning } from "lucide-react";
+import { Paperclip, Tag, FileWarning, ClipboardCheck, Droplets } from "lucide-react";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { getCurrentUser, userHasPermission } from "@/lib/auth";
@@ -10,16 +10,27 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { QualityFileField } from "@/components/quality/quality-file-field";
+import { ChecklistEditor } from "@/components/quality/checklist-editor";
 import {
   actionCreateQualityItem,
   actionRecordQualityEvent,
   actionSetQualityItemStatus,
+  actionSaveInspectionTemplate,
+  actionRecordHumidity,
 } from "@/app/actions";
 import {
   getProgramByKey,
   refreshProgramStatuses,
   statusFor,
 } from "@/lib/services/quality-programs";
+import {
+  supportsInspections,
+  parseTemplate,
+  listInspections,
+  humiditySummary,
+  humidityTone,
+  type InspectionResult,
+} from "@/lib/services/inspections";
 import { formatDate } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -104,6 +115,14 @@ export default async function QualityProgramPage({
     program.key === "calibration"
       ? await (await import("@/lib/services/quality-incidents")).mrbCasesForTools(items.map((i) => i.id))
       : {};
+
+  // Inspection template + saved inspections (ESD stations, FOD walks, safety).
+  const hasInspections = supportsInspections(program.key);
+  const templateSteps = hasInspections ? parseTemplate(program.inspectionTemplate) : [];
+  const inspections = hasInspections ? await listInspections(program.id) : [];
+
+  // ESD humidity tracking.
+  const humidity = program.key === "esd" ? await humiditySummary() : null;
 
   const overdue = items.filter((i) => statusFor(i.nextDueAt, i.status) === "OVERDUE").length;
   const dueSoon = items.filter((i) => statusFor(i.nextDueAt, i.status) === "DUE_SOON").length;
@@ -295,18 +314,28 @@ export default async function QualityProgramPage({
                   </td>
                   {canManage && (
                     <td className="px-3 py-2 text-right">
-                      <form action={actionRecordQualityEvent} className="flex items-center justify-end gap-1">
-                        <input type="hidden" name="programId" value={program.id} />
-                        <input type="hidden" name="programKey" value={program.key} />
-                        <input type="hidden" name="itemId" value={it.id} />
-                        <input type="hidden" name="type" value="CHECK" />
-                        <select name="result" className="h-8 rounded-md border border-slate-700 bg-slate-950 px-1.5 text-xs text-slate-200" defaultValue="PASS">
-                          <option value="PASS">Pass</option>
-                          <option value="FAIL">Fail</option>
-                          <option value="NA">N/A</option>
-                        </select>
-                        <Button type="submit" size="sm" variant="outline" className="h-8">Log</Button>
-                      </form>
+                      <div className="flex items-center justify-end gap-1.5">
+                        {hasInspections && (
+                          <Link
+                            href={`/quality/programs/${program.key}/inspect/${it.id}`}
+                            className="inline-flex items-center gap-1 rounded-full border border-teal-500/40 bg-teal-500/10 px-2.5 py-1 text-[11px] font-medium text-teal-300 hover:bg-teal-500/20"
+                          >
+                            <ClipboardCheck className="h-3 w-3" /> Inspect
+                          </Link>
+                        )}
+                        <form action={actionRecordQualityEvent} className="flex items-center gap-1">
+                          <input type="hidden" name="programId" value={program.id} />
+                          <input type="hidden" name="programKey" value={program.key} />
+                          <input type="hidden" name="itemId" value={it.id} />
+                          <input type="hidden" name="type" value="CHECK" />
+                          <select name="result" className="h-8 rounded-md border border-slate-700 bg-slate-950 px-1.5 text-xs text-slate-200" defaultValue="PASS">
+                            <option value="PASS">Pass</option>
+                            <option value="FAIL">Fail</option>
+                            <option value="NA">N/A</option>
+                          </select>
+                          <Button type="submit" size="sm" variant="outline" className="h-8">Log</Button>
+                        </form>
+                      </div>
                     </td>
                   )}
                 </tr>
@@ -320,6 +349,136 @@ export default async function QualityProgramPage({
           </div>
         )}
       </div>
+
+      {/* ESD humidity tracking */}
+      {humidity && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Droplets className="h-4 w-4 text-sky-400" /> Relative humidity by area
+            </CardTitle>
+            <p className="text-xs text-slate-500">
+              Live readings from humidity devices (POST to <code className="text-slate-400">/api/esd/humidity</code>) or logged by hand. ESD-safe band is 30–70% RH.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {humidity.latest.length > 0 ? (
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {humidity.latest.map((r) => {
+                  const tone = humidityTone(r.relativeHumidity);
+                  return (
+                    <div key={r.id} className={`rounded-lg border px-3 py-2 ${tone === "ok" ? "border-slate-800" : "border-amber-500/40 bg-amber-500/5"}`}>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-slate-200">{r.location}</span>
+                        <span className={`text-lg font-semibold tabular-nums ${tone === "ok" ? "text-sky-300" : "text-amber-300"}`}>
+                          {r.relativeHumidity.toFixed(0)}%
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500">
+                        {r.temperatureC != null ? `${r.temperatureC.toFixed(0)}°C · ` : ""}
+                        {r.source === "DEVICE" ? "device" : "manual"} · {formatDate(r.recordedAt)}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-sm text-slate-500">No humidity readings yet.</p>
+            )}
+            {canManage && (
+              <form action={actionRecordHumidity} className="flex flex-wrap items-end gap-2 border-t border-slate-800 pt-3">
+                <div className="flex flex-col gap-1">
+                  <label className={fieldLabelClass}>Area / workcenter</label>
+                  <Input name="location" placeholder="WC-12" className="h-9 w-36" />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className={fieldLabelClass}>RH %</label>
+                  <Input name="relativeHumidity" type="number" step="0.1" placeholder="42" className="h-9 w-24" />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className={fieldLabelClass}>Temp °C</label>
+                  <Input name="temperatureC" type="number" step="0.1" placeholder="21" className="h-9 w-24" />
+                </div>
+                <Button type="submit" size="sm" className="h-9">Log reading</Button>
+              </form>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Inspection template + history (ESD / FOD / safety) */}
+      {hasInspections && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {canManage && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Inspection template</CardTitle>
+                <p className="text-xs text-slate-500">
+                  Customize what to check during a {program.eventNoun.toLowerCase()}. These steps apply to every {program.itemNoun.toLowerCase()}.
+                </p>
+              </CardHeader>
+              <CardContent>
+                <ChecklistEditor
+                  action={actionSaveInspectionTemplate}
+                  hiddenFields={{ programId: program.id, programKey: program.key }}
+                  fieldName="steps"
+                  labelKey="label"
+                  checkedKey="checked"
+                  initial={templateSteps.map((s) => ({ label: s.label, checked: false }))}
+                  addPlaceholder="Add a check point…"
+                  submitLabel="Save template"
+                  hideChecks
+                />
+              </CardContent>
+            </Card>
+          )}
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Inspection history</CardTitle>
+              <p className="text-xs text-slate-500">Saved {program.eventNoun.toLowerCase()}s — click to review.</p>
+            </CardHeader>
+            <CardContent className="space-y-1">
+              {inspections.length === 0 && <p className="text-sm text-slate-500">No inspections saved yet.</p>}
+              {inspections.map((insp) => {
+                const rows = JSON.parse(insp.results || "[]") as InspectionResult[];
+                const item = items.find((i) => i.id === insp.itemId);
+                const passCount = rows.filter((r) => r.ok).length;
+                return (
+                  <details key={insp.id} className="rounded-lg border border-slate-800 px-3 py-2 text-sm">
+                    <summary className="cursor-pointer">
+                      <span className={insp.passed ? "text-emerald-300" : "text-rose-300"}>
+                        {insp.passed ? "PASS" : "FAIL"}
+                      </span>
+                      <span className="ml-2 text-slate-300">{item ? `${item.identifier} — ${item.name}` : "—"}</span>
+                      <span className="ml-2 text-xs text-slate-500">
+                        {passCount}/{rows.length} · {formatDate(insp.performedAt)}
+                      </span>
+                    </summary>
+                    <div className="mt-2 space-y-1">
+                      {rows.map((r, i) => (
+                        <div key={i} className="flex items-start gap-2 border-t border-slate-800/60 py-1 text-xs">
+                          <span className={r.ok ? "text-emerald-400" : "text-rose-400"}>{r.ok ? "✓" : "✗"}</span>
+                          <span className="flex-1 text-slate-300">
+                            {r.label}
+                            {r.note && <span className="ml-2 text-slate-500">— {r.note}</span>}
+                          </span>
+                          {r.photoUrl && (
+                            <a href={r.photoUrl} target="_blank" rel="noreferrer" className="text-sky-400 hover:underline">
+                              photo
+                            </a>
+                          )}
+                        </div>
+                      ))}
+                      {insp.notes && <p className="pt-1 text-xs text-slate-500">{insp.notes}</p>}
+                    </div>
+                  </details>
+                );
+              })}
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Log an incident / audit / general event (not tied to one item) */}
       {canManage && (

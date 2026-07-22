@@ -25,6 +25,7 @@ export function ChecklistEditor({
   checkedLabel = "done",
   submitLabel = "Save",
   readOnly = false,
+  hideChecks = false,
 }: {
   action: (formData: FormData) => void | Promise<void>;
   hiddenFields: Record<string, string>;
@@ -36,6 +37,8 @@ export function ChecklistEditor({
   checkedLabel?: string;
   submitLabel?: string;
   readOnly?: boolean;
+  /** Template mode: hide the per-item checkboxes (steps only, no state). */
+  hideChecks?: boolean;
 }) {
   const [items, setItems] = useState<ChecklistItem[]>(initial);
   const [draft, setDraft] = useState("");
@@ -59,14 +62,16 @@ export function ChecklistEditor({
       <div className="space-y-1">
         {items.map((it, i) => (
           <div key={i} className="flex items-center gap-2 rounded border border-slate-800 px-2 py-1.5 text-sm">
-            <input
-              type="checkbox"
-              checked={it.checked}
-              disabled={readOnly}
-              onChange={(e) => setItems((xs) => xs.map((x, idx) => (idx === i ? { ...x, checked: e.target.checked } : x)))}
-            />
-            <span className={`flex-1 ${it.checked ? "text-slate-500 line-through" : "text-slate-200"}`}>{it.label}</span>
-            <span className="text-[10px] uppercase text-slate-500">{it.checked ? checkedLabel : ""}</span>
+            {!hideChecks && (
+              <input
+                type="checkbox"
+                checked={it.checked}
+                disabled={readOnly}
+                onChange={(e) => setItems((xs) => xs.map((x, idx) => (idx === i ? { ...x, checked: e.target.checked } : x)))}
+              />
+            )}
+            <span className={`flex-1 ${!hideChecks && it.checked ? "text-slate-500 line-through" : "text-slate-200"}`}>{it.label}</span>
+            {!hideChecks && <span className="text-[10px] uppercase text-slate-500">{it.checked ? checkedLabel : ""}</span>}
             {!readOnly && (
               <button
                 type="button"

@@ -8985,6 +8985,73 @@ export async function actionSetToolReportStatus(formData: FormData): Promise<voi
   redirect(`/quality/programs/tools/report/${reportId}`);
 }
 
+// ─── Program inspections (ESD stations / FOD walks / safety) ────
+
+export async function actionSaveInspectionTemplate(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("quality.programs.manage");
+  const { setInspectionTemplate } = await import("@/lib/services/inspections");
+  const key = (formData.get("programKey") as string) || "";
+  try {
+    const raw = JSON.parse((formData.get("steps") as string) || "[]") as { label?: string; step?: string }[];
+    const steps = raw.map((s) => ({ label: String(s.label ?? s.step ?? "").trim() })).filter((s) => s.label);
+    await setInspectionTemplate({
+      programId: (formData.get("programId") as string) || "",
+      steps,
+      userId: user?.id,
+    });
+    await flashToast("Inspection template saved");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not save template", "error");
+  }
+  revalidatePath(`/quality/programs/${key}`);
+  redirect(`/quality/programs/${key}`);
+}
+
+export async function actionPerformInspection(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("quality.programs.manage");
+  const { saveInspection } = await import("@/lib/services/inspections");
+  const key = (formData.get("programKey") as string) || "";
+  try {
+    const results = JSON.parse((formData.get("results") as string) || "[]");
+    await saveInspection({
+      programId: (formData.get("programId") as string) || "",
+      itemId: ((formData.get("itemId") as string) || "").trim() || undefined,
+      results,
+      notes: ((formData.get("notes") as string) || "").trim() || undefined,
+      userId: user?.id,
+    });
+    await flashToast("Inspection saved to history");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not save inspection", "error");
+  }
+  revalidatePath(`/quality/programs/${key}`);
+  redirect(`/quality/programs/${key}`);
+}
+
+export async function actionRecordHumidity(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("quality.programs.manage");
+  const { recordHumidity } = await import("@/lib/services/inspections");
+  void user;
+  try {
+    await recordHumidity({
+      location: (formData.get("location") as string) || "",
+      relativeHumidity: Number((formData.get("relativeHumidity") as string) || ""),
+      temperatureC: ((formData.get("temperatureC") as string) || "").trim()
+        ? Number(formData.get("temperatureC") as string)
+        : undefined,
+      source: "MANUAL",
+    });
+    await flashToast("Humidity reading recorded");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not record reading", "error");
+  }
+  revalidatePath(`/quality/programs/esd`);
+  redirect(`/quality/programs/esd`);
+}
+
 // ─── MRB ↔ Quality program links & incidents ────────────────────
 
 export async function actionLinkCalToolToMrb(formData: FormData): Promise<void> {
