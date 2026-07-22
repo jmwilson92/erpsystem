@@ -1,25 +1,41 @@
 "use client";
 
-import { Bell, Search, Command, Moon, Sun } from "lucide-react";
+import { Bell, Search, Command, Moon, Sun, LogOut, User as UserIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useTheme } from "./theme-provider";
 import { BreakTimer, type BreakOption } from "./break-timer";
-import type { ShellNotifications } from "./app-shell";
+import { actionLogout } from "@/app/actions";
+import type { ShellNotifications, DemoUser } from "./app-shell";
+
+function initials(name: string) {
+  return name
+    .split(/\s+/)
+    .map((p) => p[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+}
 
 export function Header({
   onOpenCommand,
   notifications,
   breaks = [],
+  currentUser,
 }: {
   onOpenCommand?: () => void;
   notifications?: ShellNotifications;
   breaks?: BreakOption[];
+  currentUser?: DemoUser | null;
 }) {
   const [time, setTime] = useState<string>("");
   const [bellOpen, setBellOpen] = useState(false);
+  const [userOpen, setUserOpen] = useState(false);
   const bellRef = useRef<HTMLDivElement>(null);
+  const userRef = useRef<HTMLDivElement>(null);
   const { theme, toggle } = useTheme();
   const router = useRouter();
 
@@ -49,6 +65,17 @@ export function Header({
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
   }, [bellOpen]);
+
+  useEffect(() => {
+    if (!userOpen) return;
+    const close = (e: MouseEvent) => {
+      if (userRef.current && !userRef.current.contains(e.target as Node)) {
+        setUserOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [userOpen]);
 
   const total = notifications?.total ?? 0;
   const items = notifications?.items ?? [];
@@ -132,8 +159,46 @@ export function Header({
           )}
         </div>
 
-        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-slate-700 to-slate-800 text-xs font-semibold text-teal-300 ring-2 ring-border">
-          AM
+        <div className="relative" ref={userRef}>
+          <button
+            onClick={() => setUserOpen((o) => !o)}
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-slate-700 to-slate-800 text-xs font-semibold text-teal-300 ring-2 ring-border transition hover:ring-teal-500/50"
+            aria-label="Account menu"
+            title={currentUser?.name || "Account"}
+          >
+            {currentUser?.name ? initials(currentUser.name) : <UserIcon className="h-4 w-4" />}
+          </button>
+          {userOpen && (
+            <div className="absolute right-0 top-11 z-50 w-56 overflow-hidden rounded-xl border border-slate-700 bg-slate-950 shadow-2xl">
+              <div className="border-b border-slate-800 px-3 py-2.5">
+                <p className="truncate text-sm font-medium text-slate-100">
+                  {currentUser?.name || "Signed in"}
+                </p>
+                {currentUser && (
+                  <p className="truncate text-[11px] text-slate-500">
+                    {currentUser.title || currentUser.role}
+                  </p>
+                )}
+              </div>
+              <Link
+                href="/account"
+                onClick={() => setUserOpen(false)}
+                className="flex items-center gap-2 px-3 py-2 text-sm text-slate-300 hover:bg-teal-500/10 hover:text-teal-300"
+              >
+                <UserIcon className="h-4 w-4" />
+                My account
+              </Link>
+              <form action={actionLogout}>
+                <button
+                  type="submit"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-sm text-rose-300 hover:bg-rose-500/10"
+                >
+                  <LogOut className="h-4 w-4" />
+                  Sign out
+                </button>
+              </form>
+            </div>
+          )}
         </div>
       </div>
     </header>

@@ -72,6 +72,7 @@ function ShellInner({
           onOpenCommand={() => setCmdOpen(true)}
           notifications={notifications}
           breaks={breaks}
+          currentUser={currentUser}
         />
         <main className="flex-1 overflow-y-auto">
           <div className="mx-auto max-w-[1600px] p-4 md:p-6">{children}</div>
