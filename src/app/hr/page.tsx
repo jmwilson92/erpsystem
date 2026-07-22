@@ -206,7 +206,7 @@ export default async function HrPage({
       )}
 
       <Tabs defaultValue={defaultTab}>
-        <TabsList className="flex h-auto flex-wrap">
+        <TabsList className="flex h-auto flex-wrap" data-tour="hr-tabs">
           <TabsTrigger value="reviews">Reviews</TabsTrigger>
           <TabsTrigger value="goals">Goals</TabsTrigger>
           <TabsTrigger value="training">

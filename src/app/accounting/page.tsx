@@ -606,7 +606,7 @@ export default async function AccountingPage({
 
       {activeGroup.key === "overview" && (
       <>
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4" data-tour="accounting-overview">
         <StatCard
           title="Total Assets"
           value={formatCurrency(bs.assets)}
@@ -833,7 +833,7 @@ export default async function AccountingPage({
 
       <Tabs value={defaultTab}>
         {/* Primary section nav (QuickBooks-style, real links) */}
-        <div className="-mx-1 flex items-center gap-0.5 overflow-x-auto border-b border-slate-800 px-1">
+        <div className="-mx-1 flex items-center gap-0.5 overflow-x-auto border-b border-slate-800 px-1" data-tour="accounting-tabs">
           {NAV.map((n) => {
             const active = n.key === activeGroup.key;
             const Icon = n.icon;
