@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Paperclip, Tag } from "lucide-react";
+import { Paperclip, Tag, FileWarning } from "lucide-react";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { getCurrentUser, userHasPermission } from "@/lib/auth";
@@ -92,6 +92,19 @@ export default async function QualityProgramPage({
     items = [...ownItems, ...calTools];
   }
 
+  // Open incidents that run a disposition process (ESD/FOD/counterfeit,
+  // whether logged here or auto-triggered from MRB).
+  const openIncidents = await prisma.qualityEvent.findMany({
+    where: { programId: program.id, type: "INCIDENT", result: "OPEN" },
+    orderBy: { performedAt: "desc" },
+  });
+
+  // MRB cases that pinned a calibration tool — shown under that tool.
+  const mrbByTool =
+    program.key === "calibration"
+      ? await (await import("@/lib/services/quality-incidents")).mrbCasesForTools(items.map((i) => i.id))
+      : {};
+
   const overdue = items.filter((i) => statusFor(i.nextDueAt, i.status) === "OVERDUE").length;
   const dueSoon = items.filter((i) => statusFor(i.nextDueAt, i.status) === "DUE_SOON").length;
   const recurring = program.defaultIntervalDays > 0;
@@ -112,8 +125,38 @@ export default async function QualityProgramPage({
         <span>{items.length} {program.itemNoun.toLowerCase()}(s)</span>
         {overdue > 0 && <span className="text-rose-300">{overdue} overdue</span>}
         {dueSoon > 0 && <span className="text-amber-300">{dueSoon} due soon</span>}
+        {openIncidents.length > 0 && <span className="text-rose-300">{openIncidents.length} open incident(s)</span>}
         {recurring && <span>Default interval: {program.defaultIntervalDays} days</span>}
       </div>
+
+      {openIncidents.length > 0 && (
+        <Card className="border-rose-500/30">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base text-rose-300">Open incidents — disposition required</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1">
+            {openIncidents.map((inc) => {
+              const steps = inc.steps ? (JSON.parse(inc.steps) as { done: boolean }[]) : [];
+              const done = steps.filter((s) => s.done).length;
+              return (
+                <Link
+                  key={inc.id}
+                  href={`/quality/programs/incident/${inc.id}`}
+                  className="flex items-center justify-between gap-2 rounded-lg border border-slate-800 px-3 py-2 text-sm hover:border-slate-700"
+                >
+                  <span className="min-w-0 truncate text-slate-300">
+                    {inc.sourceMrbId && <span className="mr-2 rounded bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-amber-300">from MRB</span>}
+                    {inc.notes || "Incident"}
+                  </span>
+                  <span className="shrink-0 text-xs text-slate-500">
+                    {steps.length > 0 ? `${done}/${steps.length} steps` : "open"}
+                  </span>
+                </Link>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
 
       {canManage && (
         <Card>
@@ -224,6 +267,22 @@ export default async function QualityProgramPage({
                         {it.documentName || "Document"}
                       </a>
                     )}
+                    {(mrbByTool[it.id] || []).map((c) => (
+                      <Link
+                        key={c.id}
+                        href="/mrb"
+                        className="mt-0.5 flex items-center gap-1 text-[11px] text-amber-300 hover:underline"
+                        title={c.title}
+                      >
+                        <FileWarning className="h-3 w-3" />
+                        {c.number}
+                        {c.disposition === "PULL_FOR_RECAL" && (
+                          <span className="rounded bg-rose-500/15 px-1 text-[9px] font-semibold uppercase text-rose-300">
+                            pull for recal
+                          </span>
+                        )}
+                      </Link>
+                    ))}
                   </td>
                   <td className="px-3 py-2 text-slate-400">{it.location || "—"}</td>
                   <td className="px-3 py-2 text-slate-400">{it.owner?.name || "—"}</td>

@@ -8,6 +8,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { formatDate } from "@/lib/utils";
 import { actionDispositionMrb, actionCloseMrbCase } from "@/app/actions";
 import { CarUpdateForm } from "@/components/mrb/car-update-form";
+import { MrbQualityLinks } from "@/components/mrb/mrb-quality-links";
+import { getCurrentUser, userHasPermission } from "@/lib/auth";
 import Link from "next/link";
 import { ClipboardList, AlertTriangle, CheckCircle2, FileWarning } from "lucide-react";
 
@@ -50,6 +52,22 @@ export default async function MrbPage({
       inventoryHolds: true,
     },
   });
+
+  // Calibration tools available to link to a case (calibration program items +
+  // Tool-Control tools flagged as needing calibration).
+  const calTools = await prisma.qualityItem.findMany({
+    where: {
+      OR: [
+        { program: { key: "calibration" } },
+        { program: { key: "tools" }, needsCalibration: true },
+      ],
+    },
+    orderBy: { identifier: "asc" },
+    select: { id: true, identifier: true, name: true },
+  });
+
+  const currentUser = await getCurrentUser();
+  const canManageMrb = await userHasPermission(currentUser?.id, "mrb.disposition");
 
   // Open = still live: needs board attention OR dispositioned but not yet
   // formally closed out. A dispositioned case stays visible in Open until
@@ -606,6 +624,12 @@ export default async function MrbPage({
                       ))}
                     </div>
                   )}
+
+                  <MrbQualityLinks
+                    mrb={mrb}
+                    calTools={calTools}
+                    canManage={canManageMrb}
+                  />
 
                   {["OPEN", "IN_REVIEW"].includes(mrb.status) && (
                     <form

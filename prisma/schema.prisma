@@ -2533,6 +2533,14 @@ model MrbCase {
   boardDate       DateTime?
   chairId         String?
   notes           String?
+  /// Calibration tool / gage suspected in this nonconformance (QualityItem id)
+  calToolId          String?
+  calToolIdentifier  String?
+  /// PENDING | PULL_FOR_RECAL | NO_ACTION — decision on the linked tool
+  calToolDisposition String?
+  /// Auto-triggered ESD / FOD incident events (QualityEvent ids)
+  esdEventId      String?
+  fodEventId      String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   closedAt        DateTime?
@@ -4758,6 +4766,11 @@ model QualityEvent {
   notes         String?
   documentUrl   String?
   documentName  String?
+  /// Incident disposition steps (JSON [{ step, done }]) for ESD / FOD /
+  /// counterfeit incidents that run a user-defined process.
+  steps         String?
+  /// Set when this incident was auto-triggered from an MRB case.
+  sourceMrbId   String?
   createdAt     DateTime @default(now())
 
   @@index([programId])

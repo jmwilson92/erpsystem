@@ -8985,6 +8985,98 @@ export async function actionSetToolReportStatus(formData: FormData): Promise<voi
   redirect(`/quality/programs/tools/report/${reportId}`);
 }
 
+// ─── MRB ↔ Quality program links & incidents ────────────────────
+
+export async function actionLinkCalToolToMrb(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("mrb.disposition");
+  const { linkCalToolToMrb } = await import("@/lib/services/quality-incidents");
+  try {
+    await linkCalToolToMrb({
+      mrbCaseId: (formData.get("mrbCaseId") as string) || "",
+      toolId: ((formData.get("toolId") as string) || "").trim() || null,
+      userId: user?.id,
+    });
+    await flashToast("Calibration tool linked");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not link tool", "error");
+  }
+  revalidatePath(`/mrb`);
+  redirect(`/mrb`);
+}
+
+export async function actionSetCalToolDisposition(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("mrb.disposition");
+  const { setCalToolDisposition } = await import("@/lib/services/quality-incidents");
+  try {
+    await setCalToolDisposition({
+      mrbCaseId: (formData.get("mrbCaseId") as string) || "",
+      disposition: ((formData.get("disposition") as string) || "NO_ACTION") as "PULL_FOR_RECAL" | "NO_ACTION",
+      userId: user?.id,
+    });
+    await flashToast("Tool disposition set");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not set disposition", "error");
+  }
+  revalidatePath(`/mrb`);
+  redirect(`/mrb`);
+}
+
+export async function actionTriggerIncidentFromMrb(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("mrb.disposition");
+  const { triggerIncidentFromMrb } = await import("@/lib/services/quality-incidents");
+  const programKey = ((formData.get("programKey") as string) || "esd") as "esd" | "fod";
+  try {
+    await triggerIncidentFromMrb({
+      mrbCaseId: (formData.get("mrbCaseId") as string) || "",
+      programKey,
+      userId: user?.id,
+    });
+    await flashToast(`${programKey.toUpperCase()} incident opened`);
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not open incident", "error");
+  }
+  revalidatePath(`/mrb`);
+  redirect(`/mrb`);
+}
+
+export async function actionUpdateIncidentSteps(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("quality.programs.manage");
+  const { updateIncidentSteps } = await import("@/lib/services/quality-incidents");
+  const eventId = (formData.get("eventId") as string) || "";
+  try {
+    const steps = JSON.parse((formData.get("steps") as string) || "[]");
+    await updateIncidentSteps({ eventId, steps, userId: user?.id });
+    await flashToast("Steps updated");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not update steps", "error");
+  }
+  revalidatePath(`/quality/programs/incident/${eventId}`);
+  redirect(`/quality/programs/incident/${eventId}`);
+}
+
+export async function actionSetIncidentResult(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("quality.programs.manage");
+  const { setIncidentResult } = await import("@/lib/services/quality-incidents");
+  const eventId = (formData.get("eventId") as string) || "";
+  try {
+    await setIncidentResult({
+      eventId,
+      result: (formData.get("result") as string) || "OPEN",
+      userId: user?.id,
+    });
+    await flashToast("Incident updated");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not update incident", "error");
+  }
+  revalidatePath(`/quality/programs/incident/${eventId}`);
+  redirect(`/quality/programs/incident/${eventId}`);
+}
+
 // ─── Recruiting / Onboarding / Background checks ────────────────
 
 export async function actionCreateRequisition(formData: FormData): Promise<void> {
