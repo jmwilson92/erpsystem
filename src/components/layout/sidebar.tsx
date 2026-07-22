@@ -103,7 +103,11 @@ export function Sidebar({
           const groupClosed = !collapsed && closedGroups.includes(group.label);
           const groupHasActive = group.items.some((i) => i.href === activeHref);
           return (
-            <div key={group.label} className="mb-3">
+            <div
+              key={group.label}
+              className="mb-3"
+              data-tour={`nav-group-${group.label.toLowerCase().replace(/[^a-z]+/g, "-")}`}
+            >
               {!collapsed && (
                 <button
                   onClick={() => toggleGroup(group.label)}
