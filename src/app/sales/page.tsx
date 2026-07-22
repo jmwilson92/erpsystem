@@ -132,7 +132,7 @@ export default async function SalesOrdersPage({
         </div>
       )}
 
-      <div className="overflow-hidden rounded-xl border border-slate-800">
+      <div className="overflow-hidden rounded-xl border border-slate-800" data-tour="so-table">
         <table className="w-full text-sm">
           <thead className="bg-slate-900/80 text-xs uppercase text-slate-500">
             <tr>

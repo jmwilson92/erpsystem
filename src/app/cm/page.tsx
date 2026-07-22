@@ -470,7 +470,7 @@ export default async function CmPage({
     <div className="space-y-6">
       <PageHeader title="Configuration Management" />
 
-      <div className="flex flex-wrap gap-2 border-b border-slate-800 pb-2">
+      <div className="flex flex-wrap gap-2 border-b border-slate-800 pb-2" data-tour="cm-tabs">
         <Link
           href="/cm?tab=submissions"
           className={cn(

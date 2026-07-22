@@ -165,10 +165,11 @@ export const TOURS: Tour[] = [
       },
       {
         route: "/sales/quotes",
-        selector: HEADER,
+        selector: '[data-tour="quote-new"]',
         title: "Draft a quote",
-        body: "Build a quote with line items and pricing, then email it to the customer straight from the module. The lifecycle is Draft → sent → customer PO recorded.",
+        body: "Start a new quote here — add line items and pricing, then email it to the customer straight from the module. The lifecycle is Draft → sent → customer PO recorded.",
         why: "Quotes capture what you promised at what price — the basis for the order and later margin analysis.",
+        placement: "bottom",
       },
       {
         route: "/sales/quotes",
@@ -179,9 +180,10 @@ export const TOURS: Tour[] = [
       },
       {
         route: "/sales",
-        selector: HEADER,
+        selector: '[data-tour="so-table"]',
         title: "The sales order drives production",
         body: "Sales Orders track each order through Open/Planned → In Production → Ready to Ship → Shipped. From here work orders are created to build what was sold.",
+        placement: "top",
       },
       {
         route: "/shipping",
@@ -203,10 +205,11 @@ export const TOURS: Tour[] = [
     steps: [
       {
         route: "/work-orders",
-        selector: HEADER,
+        selector: '[data-tour="wo-create"]',
         title: "Work Orders run the build",
-        body: "A work order (WO) carries what to build, how many, the routing of steps, and its traveler. Production, prototype, and task-only WOs all live here.",
+        body: "Create a production WO straight from a BOM (or a task-only WO for non-BOM work). The WO carries what to build, how many, the routing of steps, and its traveler.",
         why: "The WO is the spine of the shop — kitting, labor, test, and quality all attach to it.",
+        placement: "bottom",
       },
       {
         route: "/kitting",
@@ -338,23 +341,19 @@ export const TOURS: Tour[] = [
     steps: [
       {
         route: "/cm",
-        selector: HEADER,
-        title: "The controlled library",
-        body: "Configuration Management is the source of truth for controlled documents — drawings, specs, procedures, WIs — each with a revision chain. The Library tab browses them.",
+        selector: '[data-tour="cm-tabs"]',
+        title: "Submissions, Library & Numbers",
+        body: "CM has three tabs: Submissions (change requests in flight), Library (released controlled documents with revision chains), and Numbers (schemes + the master registry).",
         why: "Nothing on the floor should reference an uncontrolled copy; CM guarantees one released master per number.",
+        placement: "bottom",
       },
       {
         route: "/cm",
-        selector: HEADER,
-        title: "Numbering keeps it unique",
-        body: "The Numbers tab manages number schemes and the master registry, so every document and part draws from a controlled sequence.",
-      },
-      {
-        route: "/cm",
-        selector: HEADER,
+        selector: '[data-tour="cm-tabs"]',
         title: "Changes go through an ECR",
-        body: "A change is proposed as an engineering change request, routed to approvers, and released — which revs the document and archives the prior master.",
-        why: "This is the same controlled path that Quality Program policies now follow, so every change is reviewed and traceable.",
+        body: "A change is proposed as a submission (ECR), routed to approvers, and released — which revs the document and archives the prior master. Numbering ensures every document draws from a controlled sequence.",
+        why: "This is the same controlled path Quality Program policies now follow — submit a policy and it lands here as an ECR until released.",
+        placement: "bottom",
       },
       {
         route: "/engineering",
