@@ -146,7 +146,26 @@ export default async function HrPage({
 
   return (
     <div className="space-y-6">
-      <PageHeader title="HR & Workforce" description={description} />
+      <PageHeader
+        title="HR & Workforce"
+        description={description}
+        actions={
+          (persona.isHrAdmin || persona.isManager) && (
+            <>
+              <Link href="/recruiting">
+                <Button variant="outline" size="sm">
+                  Recruiting
+                </Button>
+              </Link>
+              <Link href="/hr/onboarding">
+                <Button variant="outline" size="sm">
+                  Onboarding
+                </Button>
+              </Link>
+            </>
+          )
+        }
+      />
 
       {persona.isHrAdmin && (
         <div className="grid gap-4 sm:grid-cols-4">

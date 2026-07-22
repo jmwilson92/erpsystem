@@ -175,9 +175,17 @@ export async function getNotificationSummary(user: {
     }
   }
 
+  // Several items can point at the same href (e.g. general + purchasing
+  // approvals both land on /approvals). Sum them so sidebar/dashboard
+  // badges reflect the combined count instead of the last one written.
+  const badges: Record<string, number> = {};
+  for (const i of items) {
+    badges[i.href] = (badges[i.href] ?? 0) + i.count;
+  }
+
   return {
     total: items.reduce((s, i) => s + i.count, 0),
     items,
-    badges: Object.fromEntries(items.map((i) => [i.href, i.count])),
+    badges,
   };
 }

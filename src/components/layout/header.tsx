@@ -156,7 +156,7 @@ export function Header({
               )}
               {items.map((item) => (
                 <button
-                  key={item.href}
+                  key={item.label}
                   onClick={() => {
                     setBellOpen(false);
                     router.push(item.href);

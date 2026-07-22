@@ -43,6 +43,7 @@ import {
   SlidersHorizontal,
   RotateCcw,
   ScanBarcode,
+  Compass,
   type LucideIcon,
 } from "lucide-react";
 
@@ -147,9 +148,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/accounting", label: "Accounting", icon: Landmark, keywords: ["gl", "gaap", "p&l", "balance sheet", "ar", "ap", "payroll", "banking", "reconcile"] },
       { href: "/accounting/banking", label: "Bank Connections", icon: CreditCard, keywords: ["plaid", "bank", "connect account", "feed", "transactions", "reconcile", "link"] },
       { href: "/accounting/payroll", label: "Payroll", icon: Users2, keywords: ["pay run", "net pay", "withholding", "w-4", "paystub", "wages"] },
-      { href: "/hr", label: "HR / Workforce", icon: Users2, keywords: ["time", "pto", "expenses", "reviews"] },
-      { href: "/recruiting", label: "Recruiting", icon: Users2, keywords: ["ats", "hiring", "candidate", "requisition", "applicant", "job", "pipeline", "recruiter"] },
-      { href: "/hr/onboarding", label: "Onboarding", icon: ClipboardCheck, keywords: ["new hire", "i-9", "w-4", "background check", "documents", "identification", "orientation"] },
+      { href: "/hr", label: "HR / Workforce", icon: Users2, keywords: ["time", "pto", "expenses", "reviews", "recruiting", "ats", "hiring", "candidate", "requisition", "applicant", "job", "pipeline", "recruiter", "onboarding", "new hire", "i-9", "w-4", "background check", "orientation"] },
     ],
   },
   {
@@ -159,6 +158,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/admin/permissions", label: "Roles & Permissions", icon: KeyRound, keywords: ["rbac", "access", "security"] },
       { href: "/billing", label: "Plan & Billing", icon: CreditCard, keywords: ["subscription", "trial", "plan", "upgrade", "invoice", "stripe", "payment"] },
       { href: "/setup", label: "Setup Wizard", icon: Rocket, keywords: ["onboarding", "company", "getting started", "plug and play"] },
+      { href: "/guides", label: "Guides & Tours", icon: Compass, keywords: ["help", "tour", "walkthrough", "interactive", "tutorial", "how to", "getting started", "narration", "voice"] },
       { href: "/admin/import", label: "Data Import", icon: FileSpreadsheet, keywords: ["csv", "excel", "migrate", "onboard", "item master", "upload"] },
       { href: "/email", label: "Email Center", icon: Mail, keywords: ["inbox", "outbound", "rfq", "acknowledge", "parse", "smtp"] },
       { href: "/demo", label: "Test Drive Page", icon: FlaskConical, keywords: ["demo", "sandbox", "trial", "landing", "prospects"] },
