@@ -4650,6 +4650,12 @@ model QualityItem {
   nextDueAt    DateTime?
   /// JSON program-specific fields (hazard class, cal range, cert #, …)
   attributes   String?
+  /// Primary attached document for this record — a calibration certificate,
+  /// an SDS for a hazardous material, a safety data sheet, etc. Stored as a
+  /// data URL (same convention as WI photos / employee docs), so it renders
+  /// as a clickable item without any external file store.
+  documentUrl  String?
+  documentName String?
   notes        String?
   createdById  String?
   createdAt    DateTime @default(now())

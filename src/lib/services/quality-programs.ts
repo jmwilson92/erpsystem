@@ -84,6 +84,8 @@ export async function createQualityItem(params: {
   intervalDays?: number;
   nextDueAt?: Date;
   attributes?: Record<string, unknown>;
+  documentUrl?: string;
+  documentName?: string;
   notes?: string;
   userId?: string;
 }) {
@@ -105,6 +107,8 @@ export async function createQualityItem(params: {
       nextDueAt: nextDue,
       status: statusFor(nextDue, "ACTIVE"),
       attributes: params.attributes ? JSON.stringify(params.attributes) : null,
+      documentUrl: params.documentUrl?.trim() || null,
+      documentName: params.documentName?.trim() || null,
       notes: params.notes?.trim() || null,
       createdById: params.userId || null,
     },

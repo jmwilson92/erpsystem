@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Paperclip } from "lucide-react";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { getCurrentUser, userHasPermission } from "@/lib/auth";
@@ -8,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { QualityFileField } from "@/components/quality/quality-file-field";
 import {
   actionCreateQualityItem,
   actionRecordQualityEvent,
@@ -24,6 +26,24 @@ export const dynamic = "force-dynamic";
 
 const selectClass =
   "flex h-9 w-full rounded-md border border-slate-700 bg-slate-950 px-2 text-sm text-slate-200";
+
+const fieldLabelClass = "text-[10px] uppercase tracking-wide text-slate-500";
+
+/** What the primary attached document is called, per program. */
+function docLabelFor(key: string): string {
+  switch (key) {
+    case "calibration":
+      return "Attach certificate";
+    case "hazmat":
+      return "Attach SDS";
+    case "safety":
+      return "Attach document";
+    case "counterfeit":
+      return "Attach evidence / photo";
+    default:
+      return "Attach document / photo";
+  }
+}
 
 export default async function QualityProgramPage({
   params,
@@ -89,32 +109,51 @@ export default async function QualityProgramPage({
             <CardTitle className="text-base">Add {program.itemNoun.toLowerCase()}</CardTitle>
           </CardHeader>
           <CardContent>
-            <form action={actionCreateQualityItem} className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            <form action={actionCreateQualityItem} className="grid items-end gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <input type="hidden" name="programId" value={program.id} />
               <input type="hidden" name="programKey" value={program.key} />
-              <Input name="identifier" placeholder="ID / tag *" className="h-9" />
-              <Input name="name" placeholder="Name / description" className="h-9" />
-              <Input name="location" placeholder="Location" className="h-9" />
-              <select name="ownerId" className={selectClass} defaultValue="">
-                <option value="">Owner…</option>
-                {people.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
-              <Input
-                name="intervalDays"
-                type="number"
-                placeholder={recurring ? `Interval days (default ${program.defaultIntervalDays})` : "Interval days"}
-                className="h-9"
-              />
-              <label className="text-[10px] uppercase text-slate-500">
-                {recurring ? "Next due" : "Due date (optional)"}
-                <Input name="nextDueAt" type="date" className="mt-0.5 h-9" />
-              </label>
-              <Button type="submit" size="sm" className="h-9 self-end lg:col-span-2">Add</Button>
+              <div className="flex flex-col gap-1">
+                <label className={fieldLabelClass}>ID / tag *</label>
+                <Input name="identifier" placeholder="e.g. CAL-0142" className="h-9" />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className={fieldLabelClass}>Name / description</label>
+                <Input name="name" placeholder="What it is" className="h-9" />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className={fieldLabelClass}>Location</label>
+                <Input name="location" placeholder="Where it lives" className="h-9" />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className={fieldLabelClass}>Owner</label>
+                <select name="ownerId" className={selectClass} defaultValue="">
+                  <option value="">Owner…</option>
+                  {people.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className={fieldLabelClass}>Interval (days)</label>
+                <Input
+                  name="intervalDays"
+                  type="number"
+                  placeholder={recurring ? `default ${program.defaultIntervalDays}` : "none"}
+                  className="h-9"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className={fieldLabelClass}>{recurring ? "Next due" : "Due date (optional)"}</label>
+                <Input name="nextDueAt" type="date" className="h-9" />
+              </div>
+              <div className="flex flex-col gap-1 sm:col-span-2 lg:col-span-1">
+                <label className={fieldLabelClass}>{docLabelFor(program.key)}</label>
+                <QualityFileField label={docLabelFor(program.key)} />
+              </div>
+              <Button type="submit" size="sm" className="h-9">Add</Button>
             </form>
             {recurring && (
-              <p className="mt-1 text-[11px] text-slate-500">
+              <p className="mt-2 text-[11px] text-slate-500">
                 Leave next-due blank to auto-set {program.defaultIntervalDays} days out. A passing {program.eventNoun.toLowerCase()} rolls the due date forward automatically.
               </p>
             )}
@@ -151,6 +190,17 @@ export default async function QualityProgramPage({
                   <td className="px-3 py-2">
                     {it.name}
                     {it.notes && <p className="text-[11px] text-slate-500">{it.notes}</p>}
+                    {it.documentUrl && (
+                      <a
+                        href={it.documentUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-sky-400 hover:underline"
+                      >
+                        <Paperclip className="h-3 w-3" />
+                        {it.documentName || "Document"}
+                      </a>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-slate-400">{it.location || "—"}</td>
                   <td className="px-3 py-2 text-slate-400">{it.owner?.name || "—"}</td>
@@ -173,7 +223,6 @@ export default async function QualityProgramPage({
                           <option value="FAIL">Fail</option>
                           <option value="NA">N/A</option>
                         </select>
-                        <Input name="documentUrl" placeholder="cert/doc URL" className="h-8 w-28 text-xs" />
                         <Button type="submit" size="sm" variant="outline" className="h-8">Log</Button>
                       </form>
                     </td>
@@ -197,26 +246,49 @@ export default async function QualityProgramPage({
             <CardTitle className="text-base">Log an event / incident</CardTitle>
           </CardHeader>
           <CardContent>
-            <form action={actionRecordQualityEvent} className="grid gap-2 sm:grid-cols-4">
+            <form action={actionRecordQualityEvent} className="grid items-end gap-3 sm:grid-cols-4">
               <input type="hidden" name="programId" value={program.id} />
               <input type="hidden" name="programKey" value={program.key} />
-              <select name="type" className={selectClass} defaultValue="CHECK">
-                <option value="CHECK">{program.eventNoun}</option>
-                <option value="INCIDENT">Incident</option>
-                <option value="AUDIT">Audit</option>
-                <option value="REVIEW">Review</option>
-                <option value="DISPOSITION">Disposition</option>
-              </select>
-              <select name="result" className={selectClass} defaultValue="CLOSED">
-                <option value="PASS">Pass</option>
-                <option value="FAIL">Fail</option>
-                <option value="OPEN">Open</option>
-                <option value="CLOSED">Closed</option>
-                <option value="NA">N/A</option>
-              </select>
-              <Input name="documentUrl" placeholder="Document URL" className="h-9" />
-              <Textarea name="notes" placeholder="What happened / findings" className="sm:col-span-3" rows={2} />
-              <Button type="submit" size="sm" className="h-9 self-end">Log event</Button>
+              <div className="flex flex-col gap-1">
+                <label className={fieldLabelClass}>Type</label>
+                <select name="type" className={selectClass} defaultValue="CHECK">
+                  <option value="CHECK">{program.eventNoun}</option>
+                  <option value="INCIDENT">Incident</option>
+                  <option value="AUDIT">Audit</option>
+                  <option value="REVIEW">Review</option>
+                  <option value="DISPOSITION">Disposition</option>
+                </select>
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className={fieldLabelClass}>Result</label>
+                <select name="result" className={selectClass} defaultValue="CLOSED">
+                  <option value="PASS">Pass</option>
+                  <option value="FAIL">Fail</option>
+                  <option value="OPEN">Open</option>
+                  <option value="CLOSED">Closed</option>
+                  <option value="NA">N/A</option>
+                </select>
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className={fieldLabelClass}>Against {program.itemNoun.toLowerCase()}</label>
+                <select name="itemId" className={selectClass} defaultValue="">
+                  <option value="">— program-level —</option>
+                  {items.map((it) => (
+                    <option key={it.id} value={it.id}>
+                      {it.identifier} — {it.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className={fieldLabelClass}>Attach document / photo</label>
+                <QualityFileField label="Attach document / photo" />
+              </div>
+              <div className="flex flex-col gap-1 sm:col-span-3">
+                <label className={fieldLabelClass}>Notes</label>
+                <Textarea name="notes" placeholder="What happened / findings" rows={2} />
+              </div>
+              <Button type="submit" size="sm" className="h-9">Log event</Button>
             </form>
           </CardContent>
         </Card>
@@ -241,7 +313,15 @@ export default async function QualityProgramPage({
               <div className="text-[11px] text-slate-500">
                 {e.performedBy?.name || "—"} · {formatDate(e.performedAt)}
                 {e.documentUrl && (
-                  <a href={e.documentUrl} target="_blank" rel="noreferrer" className="ml-2 text-sky-400 hover:underline">doc</a>
+                  <a
+                    href={e.documentUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="ml-2 inline-flex items-center gap-1 text-sky-400 hover:underline"
+                  >
+                    <Paperclip className="h-3 w-3" />
+                    {e.documentName || "doc"}
+                  </a>
                 )}
               </div>
             </div>

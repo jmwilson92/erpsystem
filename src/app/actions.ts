@@ -8743,6 +8743,8 @@ export async function actionCreateQualityItem(formData: FormData): Promise<void>
       ownerId: ((formData.get("ownerId") as string) || "").trim() || undefined,
       intervalDays: intervalRaw ? Number(intervalRaw) : undefined,
       nextDueAt: dueRaw ? new Date(dueRaw) : undefined,
+      documentUrl: ((formData.get("documentUrl") as string) || "").trim() || undefined,
+      documentName: ((formData.get("documentName") as string) || "").trim() || undefined,
       notes: ((formData.get("notes") as string) || "").trim() || undefined,
       userId: user?.id,
     });
@@ -8768,6 +8770,7 @@ export async function actionRecordQualityEvent(formData: FormData): Promise<void
       result: ((formData.get("result") as string) || "").trim() || undefined,
       notes: ((formData.get("notes") as string) || "").trim() || undefined,
       documentUrl: ((formData.get("documentUrl") as string) || "").trim() || undefined,
+      documentName: ((formData.get("documentName") as string) || "").trim() || undefined,
       performedAt: atRaw ? new Date(atRaw) : undefined,
       userId: user?.id,
     });
