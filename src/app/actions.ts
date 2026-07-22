@@ -8667,11 +8667,28 @@ export async function actionStartCheckout(formData: FormData): Promise<void> {
   try {
     const { headers } = await import("next/headers");
     const h = await headers();
-    const appUrl =
-      process.env.APP_URL ||
-      (h.get("x-forwarded-proto") && h.get("host")
-        ? `${h.get("x-forwarded-proto")}://${h.get("host")}`
-        : "http://localhost:3000");
+    // Derive the base URL the *browser* is actually using, so Stripe returns
+    // to the right place on Codespaces / proxies / custom domains without
+    // needing APP_URL. Priority: explicit APP_URL → this request's origin →
+    // forwarded host → host header.
+    let appUrl = process.env.APP_URL || "";
+    if (!appUrl) {
+      const origin = h.get("origin");
+      const referer = h.get("referer");
+      if (origin) appUrl = origin;
+      else if (referer) {
+        try {
+          appUrl = new URL(referer).origin;
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    if (!appUrl) {
+      const proto = h.get("x-forwarded-proto") || "https";
+      const host = h.get("x-forwarded-host") || h.get("host") || "localhost:3000";
+      appUrl = `${proto}://${host}`;
+    }
     url = await createCheckoutSession({
       plan,
       customerEmail: billingEmail || user?.email || undefined,
