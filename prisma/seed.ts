@@ -42,6 +42,7 @@ async function main() {
     "Customer",
     "AssetCheckout", "Asset",
     "BankTransaction", "BankAccount", "EmailMessage", "AuthSession", "UserInvite",
+    "QualityEvent", "QualityItem", "QualityProgram",
     "BackgroundCheck", "EmployeeOnboarding", "Candidate", "JobRequisition",
     "CycleCountLine", "CycleCount", "PermissionRequest", "ScheduledReport", "RecurringJournal", "JournalLine", "JournalEntry", "Account",
     "PurchaseRequestLine", "PurchaseRequest",
@@ -3690,6 +3691,51 @@ async function main() {
       console.log("  ✓ CM master copies for released work instructions");
     }
   }
+
+  // ── Quality Programs (QMS) ─────────────────────────────────
+  const qmsPrograms = [
+    { key: "calibration", name: "Calibration", itemNoun: "Gage / instrument", eventNoun: "Calibration", defaultIntervalDays: 365, icon: "Ruler", sortOrder: 1, description: "Measurement & test equipment calibration control (interval, cert, due dates)." },
+    { key: "tools", name: "Tool Control", itemNoun: "Tool", eventNoun: "Inspection", defaultIntervalDays: 180, icon: "Wrench", sortOrder: 2, description: "Controlled tooling accountability and periodic condition checks." },
+    { key: "hazmat", name: "HAZMAT", itemNoun: "Hazardous material", eventNoun: "SDS review", defaultIntervalDays: 365, icon: "FlaskConical", sortOrder: 3, description: "Hazardous material inventory, SDS control, storage & disposal." },
+    { key: "esd", name: "ESD Control", itemNoun: "ESD station / device", eventNoun: "ESD test", defaultIntervalDays: 90, icon: "Zap", sortOrder: 4, description: "ESD-protected areas, wrist straps, and mats — periodic verification." },
+    { key: "fod", name: "FOD Prevention", itemNoun: "FOD zone", eventNoun: "FOD walk", defaultIntervalDays: 7, icon: "ScanEye", sortOrder: 5, description: "Foreign object debris/damage zones, walks, and incident logging." },
+    { key: "safety", name: "Safety / EHS", itemNoun: "Safety asset / area", eventNoun: "Inspection", defaultIntervalDays: 30, icon: "ShieldAlert", sortOrder: 6, description: "Extinguishers, eyewash, PPE, inspections, and safety incidents." },
+    { key: "training", name: "Training & Certs", itemNoun: "Required training", eventNoun: "Completion", defaultIntervalDays: 365, icon: "GraduationCap", sortOrder: 7, description: "Personnel training and certifications with expiry tracking." },
+    { key: "audits", name: "Internal Audits", itemNoun: "Audit area / clause", eventNoun: "Audit", defaultIntervalDays: 365, icon: "ClipboardList", sortOrder: 8, description: "Internal QMS audit schedule (AS9101) and findings." },
+    { key: "counterfeit", name: "Counterfeit Parts", itemNoun: "Suspect part / lot", eventNoun: "Verification", defaultIntervalDays: 0, icon: "SearchCheck", sortOrder: 9, description: "Counterfeit / suspect part prevention & verification (AS5553 / AS6174)." },
+  ];
+  const progByKey: Record<string, { id: string }> = {};
+  for (const p of qmsPrograms) {
+    progByKey[p.key] = await prisma.qualityProgram.create({ data: p });
+  }
+  const dueIn = (d: number) => new Date(Date.now() + d * 86_400_000);
+  const qmsItems = [
+    { key: "calibration", identifier: "CMM-001", name: "Zeiss CMM", location: "QA Lab", nextDueAt: dueIn(40) },
+    { key: "calibration", identifier: "CAL-102", name: 'Mitutoyo calipers 6"', location: "Assembly Cell 1", nextDueAt: dueIn(-5) },
+    { key: "calibration", identifier: "TORQ-07", name: "Torque wrench 20-100 ft-lb", location: "Assembly Cell 2", nextDueAt: dueIn(9) },
+    { key: "tools", identifier: "FIX-3100", name: "Housing assembly fixture", location: "Tool crib", nextDueAt: dueIn(120) },
+    { key: "esd", identifier: "ESD-WS-01", name: "Assembly ESD workstation", location: "Assembly Cell 1", nextDueAt: dueIn(3) },
+    { key: "esd", identifier: "ESD-WS-02", name: "Rework ESD bench", location: "Rework", nextDueAt: dueIn(-2) },
+    { key: "hazmat", identifier: "CHEM-IPA", name: "Isopropyl alcohol 99%", location: "Flammables cabinet", nextDueAt: dueIn(200) },
+    { key: "fod", identifier: "FOD-ASM", name: "Assembly floor FOD zone", location: "Assembly", nextDueAt: dueIn(1) },
+    { key: "safety", identifier: "EXT-14", name: "Fire extinguisher — north bay", location: "North bay", nextDueAt: dueIn(12) },
+    { key: "training", identifier: "TRN-J-STD-001", name: "IPC J-STD-001 solder cert — P. Okonkwo", nextDueAt: dueIn(75) },
+  ];
+  for (const it of qmsItems) {
+    const prog = progByKey[it.key];
+    await prisma.qualityItem.create({
+      data: {
+        programId: prog.id,
+        identifier: it.identifier,
+        name: it.name,
+        location: it.location ?? null,
+        ownerId: qualityMgr.id,
+        nextDueAt: it.nextDueAt,
+        status: it.nextDueAt < new Date() ? "OVERDUE" : it.nextDueAt < dueIn(14) ? "DUE_SOON" : "ACTIVE",
+      },
+    });
+  }
+  console.log(`  ✓ Quality programs (${qmsPrograms.length}) + ${qmsItems.length} records`);
 
   console.log("✅ ForgeRP seed complete — all modules linked.");
 }

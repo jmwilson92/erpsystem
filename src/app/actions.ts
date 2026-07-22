@@ -8724,6 +8724,80 @@ export async function actionCancelSubscription(): Promise<void> {
   redirect("/billing");
 }
 
+// ─── Quality programs (calibration, ESD, FOD, HAZMAT, safety…) ──
+
+export async function actionCreateQualityItem(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("quality.programs.manage");
+  const { createQualityItem } = await import("@/lib/services/quality-programs");
+  const programId = (formData.get("programId") as string) || "";
+  const key = (formData.get("programKey") as string) || "";
+  const dueRaw = ((formData.get("nextDueAt") as string) || "").trim();
+  const intervalRaw = ((formData.get("intervalDays") as string) || "").trim();
+  try {
+    await createQualityItem({
+      programId,
+      identifier: (formData.get("identifier") as string) || "",
+      name: (formData.get("name") as string) || "",
+      location: ((formData.get("location") as string) || "").trim() || undefined,
+      ownerId: ((formData.get("ownerId") as string) || "").trim() || undefined,
+      intervalDays: intervalRaw ? Number(intervalRaw) : undefined,
+      nextDueAt: dueRaw ? new Date(dueRaw) : undefined,
+      notes: ((formData.get("notes") as string) || "").trim() || undefined,
+      userId: user?.id,
+    });
+    await flashToast("Record added");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not add record", "error");
+  }
+  revalidatePath(`/quality/programs/${key}`);
+  redirect(`/quality/programs/${key}`);
+}
+
+export async function actionRecordQualityEvent(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("quality.programs.manage");
+  const { recordQualityEvent } = await import("@/lib/services/quality-programs");
+  const key = (formData.get("programKey") as string) || "";
+  const atRaw = ((formData.get("performedAt") as string) || "").trim();
+  try {
+    await recordQualityEvent({
+      programId: (formData.get("programId") as string) || "",
+      itemId: ((formData.get("itemId") as string) || "").trim() || undefined,
+      type: (formData.get("type") as string) || undefined,
+      result: ((formData.get("result") as string) || "").trim() || undefined,
+      notes: ((formData.get("notes") as string) || "").trim() || undefined,
+      documentUrl: ((formData.get("documentUrl") as string) || "").trim() || undefined,
+      performedAt: atRaw ? new Date(atRaw) : undefined,
+      userId: user?.id,
+    });
+    await flashToast("Logged");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not log event", "error");
+  }
+  revalidatePath(`/quality/programs/${key}`);
+  redirect(`/quality/programs/${key}`);
+}
+
+export async function actionSetQualityItemStatus(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("quality.programs.manage");
+  const { setItemStatus } = await import("@/lib/services/quality-programs");
+  const key = (formData.get("programKey") as string) || "";
+  try {
+    await setItemStatus({
+      itemId: (formData.get("itemId") as string) || "",
+      status: (formData.get("status") as string) || "ACTIVE",
+      userId: user?.id,
+    });
+    await flashToast("Status updated");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not update", "error");
+  }
+  revalidatePath(`/quality/programs/${key}`);
+  redirect(`/quality/programs/${key}`);
+}
+
 // ─── Recruiting / Onboarding / Background checks ────────────────
 
 export async function actionCreateRequisition(formData: FormData): Promise<void> {

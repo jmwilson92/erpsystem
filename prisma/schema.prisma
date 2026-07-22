@@ -115,6 +115,8 @@ model User {
   candidatesRecruiting Candidate[]      @relation("CandidateRecruiter")
   onboardingsAsUser   EmployeeOnboarding[] @relation("OnboardingUser")
   onboardingsManaging EmployeeOnboarding[] @relation("OnboardingManager")
+  qualityItemsOwned   QualityItem[]     @relation("QualityItemOwner")
+  qualityEventsPerformed QualityEvent[] @relation("QualityEventPerformer")
 }
 
 model AuditLog {
@@ -4602,6 +4604,85 @@ model EmployeeOnboarding {
   backgroundChecks BackgroundCheck[]
 
   @@index([status])
+}
+
+// ═══════════════════════════════════════════════════════════════
+// QUALITY PROGRAMS (QMS): calibration, tools, HAZMAT, ESD, FOD,
+// safety, training, audits, counterfeit-parts — one framework.
+// ═══════════════════════════════════════════════════════════════
+
+/// A QMS program. Records (items) and events (checks/inspections) hang off it.
+model QualityProgram {
+  id          String  @id @default(cuid())
+  key         String  @unique
+  name        String
+  description String?
+  /// What the tracked records are called (Gage, Tool, Chemical, Area, Person…)
+  itemNoun    String  @default("Item")
+  /// What a logged action is called (Calibration, Inspection, Audit, Training…)
+  eventNoun   String  @default("Check")
+  /// Default recurrence in days for items in this program (0 = none)
+  defaultIntervalDays Int @default(0)
+  icon        String?
+  isActive    Boolean @default(true)
+  sortOrder   Int     @default(0)
+
+  items       QualityItem[]
+  events      QualityEvent[]
+}
+
+/// A tracked record in a program: a gage, tool, chemical, ESD station, FOD
+/// zone, safety asset, required training, audit area, or suspect part.
+model QualityItem {
+  id           String  @id @default(cuid())
+  programId    String
+  program      QualityProgram @relation(fields: [programId], references: [id], onDelete: Cascade)
+  identifier   String
+  name         String
+  location     String?
+  ownerId      String?
+  owner        User?   @relation("QualityItemOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  /// ACTIVE | DUE_SOON | OVERDUE | OUT_OF_SERVICE | RETIRED
+  status       String  @default("ACTIVE")
+  /// Recurrence override for this item (falls back to program default)
+  intervalDays Int?
+  lastActionAt DateTime?
+  nextDueAt    DateTime?
+  /// JSON program-specific fields (hazard class, cal range, cert #, …)
+  attributes   String?
+  notes        String?
+  createdById  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  events       QualityEvent[]
+
+  @@index([programId])
+  @@index([status])
+}
+
+/// A logged action against a program/item: calibration performed, inspection,
+/// FOD walk, ESD test, safety incident, training completion, audit finding.
+model QualityEvent {
+  id           String  @id @default(cuid())
+  programId    String
+  program      QualityProgram @relation(fields: [programId], references: [id], onDelete: Cascade)
+  itemId       String?
+  item         QualityItem? @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  /// CHECK | INCIDENT | AUDIT | TRAINING | DISPOSITION | REVIEW
+  type         String  @default("CHECK")
+  /// PASS | FAIL | NA | OPEN | CLOSED
+  result       String?
+  performedById String?
+  performedBy   User?  @relation("QualityEventPerformer", fields: [performedById], references: [id], onDelete: SetNull)
+  performedAt   DateTime @default(now())
+  notes         String?
+  documentUrl   String?
+  documentName  String?
+  createdAt     DateTime @default(now())
+
+  @@index([programId])
+  @@index([itemId])
 }
 
 /// Accounting system configuration (single row, id="default").
