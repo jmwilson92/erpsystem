@@ -54,7 +54,7 @@ export default async function AssetsPage() {
         description="Company tools, test equipment, and demo units. Check assets in and out, assign them to work orders or engineering tasks, and keep in-house-only gear on-site."
       />
 
-      <div className="grid gap-4 sm:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-4" data-tour="assets-stats">
         <StatCard title="Total assets" value={counts.total} icon={Boxes} accent="teal" />
         <StatCard title="Available" value={counts.available} icon={PackageCheck} accent="emerald" />
         <StatCard title="Checked out" value={counts.out} icon={Building2} accent="sky" />

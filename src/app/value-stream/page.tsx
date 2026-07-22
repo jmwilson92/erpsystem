@@ -112,7 +112,7 @@ export default async function ValueStreamPage() {
         </Card>
       )}
 
-      <div className="flex flex-col gap-2 lg:flex-row lg:items-stretch lg:gap-2">
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-stretch lg:gap-2" data-tour="vsm-stages">
         {stages.map((stage, idx) => {
           const Icon = icons[stage.key] || Package;
           const isConstraint = stage.status === "constraint";

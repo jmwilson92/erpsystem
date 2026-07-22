@@ -255,9 +255,10 @@ export const TOURS: Tour[] = [
     steps: [
       {
         route: "/planning",
-        selector: HEADER,
+        selector: '[data-tour="planning-capacity"]',
         title: "Planning balances demand & capacity",
-        body: "Planning shows rough-cut capacity across the horizon — scheduled load vs. available hours — against a working calendar, and flags late or undated work.",
+        body: "Rough-cut capacity across the horizon at a glance — plant utilization, scheduled load vs. available hours, and unscheduled backlog — against a working calendar, flagging late or undated work.",
+        placement: "bottom",
       },
       {
         route: "/planning",
@@ -277,16 +278,18 @@ export const TOURS: Tour[] = [
     steps: [
       {
         route: "/radiators",
-        selector: HEADER,
+        selector: '[data-tour="radiator-kpis"]',
         title: "Info Radiators",
-        body: "Wall-display dashboards for the floor — throughput, WIP, and exceptions sized for a big screen.",
+        body: "Wall-display dashboards for the floor — live throughput, WIP, and exceptions sized for a big screen. The tiles rotate through slides on their own.",
+        placement: "bottom",
       },
       {
         route: "/value-stream",
-        selector: HEADER,
+        selector: '[data-tour="vsm-stages"]',
         title: "Value Stream Map",
-        body: "See the end-to-end flow and where the constraint is — where work piles up between steps.",
+        body: "Each stage of the flow shows its health — healthy, watch, or constrained — so you can see where work piles up between steps.",
         why: "Managing the constraint is how you actually move the whole line faster.",
+        placement: "top",
       },
     ],
   },
@@ -447,22 +450,25 @@ export const TOURS: Tour[] = [
     steps: [
       {
         route: "/suppliers",
-        selector: HEADER,
+        selector: '[data-tour="suppliers-table"]',
         title: "Approved Supplier List",
-        body: "Each supplier's ASL line items, POs, invoices, QMS certifications, and a performance scorecard live on their profile.",
+        body: "Each row is an approved supplier. Open one for its ASL line items, POs, invoices, QMS certifications, and a performance scorecard.",
         why: "Buying from an approved, scored supplier is a flow-down requirement in AS9100 shops.",
+        placement: "top",
       },
       {
         route: "/government-property",
-        selector: HEADER,
+        selector: '[data-tour="gfp-table"]',
         title: "Government property (GFP)",
         body: "Government-furnished property is tracked apart from company stock with UID, DD-1149 movement, and DFARS accountability.",
+        placement: "top",
       },
       {
         route: "/assets",
-        selector: HEADER,
+        selector: '[data-tour="assets-stats"]',
         title: "Asset tracker",
-        body: "Tools, test equipment, and demo units with check-out/check-in. Intangibles like software licenses live under Virtual Assets.",
+        body: "Tools, test equipment, and demo units with check-out/check-in — total, available, and checked-out at a glance. Intangibles like software licenses live under Virtual Assets.",
+        placement: "bottom",
       },
     ],
   },
