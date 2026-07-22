@@ -417,16 +417,18 @@ export const TOURS: Tour[] = [
     steps: [
       {
         route: "/items",
-        selector: HEADER,
+        selector: '[data-tour="items-table"]',
         title: "Items are the part master",
-        body: "Part numbers, sourcing, standard costs, and approved vendors live here — separate from BOMs, which reference these items.",
+        body: "Part numbers, sourcing, standard costs, and approved vendors live in this table — separate from BOMs, which reference these items.",
+        placement: "top",
       },
       {
         route: "/inventory",
-        selector: HEADER,
+        selector: '[data-tour="inventory-table"]',
         title: "Inventory by location",
         body: "On-hand by bin with lot/serial tracking, government-furnished vs. company stock, and quarantine for held material.",
         why: "Lot and serial tracking is what makes full genealogy and recalls possible.",
+        placement: "top",
       },
       {
         route: "/inventory",
