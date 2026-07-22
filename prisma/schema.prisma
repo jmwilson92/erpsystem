@@ -4660,6 +4660,29 @@ model QualityInspection {
   @@index([itemId])
 }
 
+/// A finding raised during an internal audit: an NCR (needs a corrective
+/// action + reinspection) or an OFI (logged, action optional).
+model AuditFinding {
+  id               String   @id @default(cuid())
+  inspectionId     String?
+  programId        String
+  itemId           String?
+  /// NCR | OFI
+  type             String
+  description      String
+  correctiveAction String?
+  reinspectBy      DateTime?
+  /// OPEN | IN_PROGRESS | REINSPECT | CLOSED
+  status           String   @default("OPEN")
+  createdById      String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  closedAt         DateTime?
+
+  @@index([programId])
+  @@index([status])
+}
+
 /// Relative-humidity reading for an area / workcenter, fed by the ESD humidity
 /// device API (or entered by hand) and tracked in the ESD program.
 model HumidityReading {

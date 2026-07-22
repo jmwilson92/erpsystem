@@ -17,7 +17,9 @@ import {
   actionSetQualityItemStatus,
   actionSaveInspectionTemplate,
   actionRecordHumidity,
+  actionUpdateAuditFinding,
 } from "@/app/actions";
+import { listAuditFindings } from "@/lib/services/audits";
 import {
   getProgramByKey,
   refreshProgramStatuses,
@@ -123,6 +125,9 @@ export default async function QualityProgramPage({
 
   // ESD humidity tracking.
   const humidity = program.key === "esd" ? await humiditySummary() : null;
+
+  // Internal audit findings (corrective actions + OFIs).
+  const auditFindings = program.key === "audits" ? await listAuditFindings(program.id) : [];
 
   const overdue = items.filter((i) => statusFor(i.nextDueAt, i.status) === "OVERDUE").length;
   const dueSoon = items.filter((i) => statusFor(i.nextDueAt, i.status) === "DUE_SOON").length;
@@ -406,7 +411,70 @@ export default async function QualityProgramPage({
         </Card>
       )}
 
-      {/* Inspection template + history (ESD / FOD / safety) */}
+      {/* Internal audit findings — corrective actions + OFIs */}
+      {program.key === "audits" && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Audit findings</CardTitle>
+            <p className="text-xs text-slate-500">
+              NCRs carry a corrective action and reinspect-by date until closed; OFIs are logged for reference.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {auditFindings.length === 0 && <p className="text-sm text-slate-500">No findings yet.</p>}
+            {auditFindings.map((f) => {
+              const overdue =
+                f.type === "NCR" && f.reinspectBy && f.status !== "CLOSED" && f.reinspectBy.getTime() < Date.now();
+              return (
+                <div
+                  key={f.id}
+                  className={`rounded-lg border px-3 py-2 text-sm ${
+                    f.status === "CLOSED" ? "border-slate-800 opacity-70" : overdue ? "border-rose-500/40 bg-rose-500/5" : "border-slate-800"
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <StatusBadge status={f.type} className="text-[9px]" />
+                    <StatusBadge status={f.status} className="text-[9px]" />
+                    <span className="min-w-0 flex-1 text-slate-200">{f.description}</span>
+                    {f.reinspectBy && (
+                      <span className={`text-xs ${overdue ? "text-rose-300" : "text-slate-500"}`}>
+                        reinspect {formatDate(f.reinspectBy)}{overdue ? " · overdue" : ""}
+                      </span>
+                    )}
+                  </div>
+                  {f.correctiveAction && (
+                    <p className="mt-1 text-xs text-slate-400">
+                      <span className="text-slate-500">Corrective action: </span>
+                      {f.correctiveAction}
+                    </p>
+                  )}
+                  {canManage && f.status !== "CLOSED" && (
+                    <form action={actionUpdateAuditFinding} className="mt-2 flex flex-wrap items-end gap-2">
+                      <input type="hidden" name="findingId" value={f.id} />
+                      <select
+                        name="status"
+                        defaultValue={f.status}
+                        className="h-8 rounded-md border border-slate-700 bg-slate-950 px-1.5 text-xs text-slate-200"
+                      >
+                        <option value="OPEN">Open</option>
+                        <option value="IN_PROGRESS">In progress</option>
+                        <option value="REINSPECT">Ready to reinspect</option>
+                        <option value="CLOSED">Closed</option>
+                      </select>
+                      {f.type === "NCR" && (
+                        <Input name="reinspectBy" type="date" className="h-8 w-36" defaultValue={f.reinspectBy ? f.reinspectBy.toISOString().slice(0, 10) : ""} />
+                      )}
+                      <Button type="submit" size="sm" variant="outline" className="h-8">Update</Button>
+                    </form>
+                  )}
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Inspection template + history (ESD / FOD / safety / audits) */}
       {hasInspections && (
         <div className="grid gap-4 lg:grid-cols-2">
           {canManage && (

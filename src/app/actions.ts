@@ -9052,6 +9052,50 @@ export async function actionRecordHumidity(formData: FormData): Promise<void> {
   redirect(`/quality/programs/esd`);
 }
 
+// ─── Internal audits ────────────────────────────────────────────
+
+export async function actionSaveAudit(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("quality.programs.manage");
+  const { saveAudit } = await import("@/lib/services/audits");
+  const key = (formData.get("programKey") as string) || "audits";
+  try {
+    const results = JSON.parse((formData.get("results") as string) || "[]");
+    await saveAudit({
+      programId: (formData.get("programId") as string) || "",
+      itemId: ((formData.get("itemId") as string) || "").trim() || undefined,
+      results,
+      notes: ((formData.get("notes") as string) || "").trim() || undefined,
+      userId: user?.id,
+    });
+    await flashToast("Audit saved");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not save audit", "error");
+  }
+  revalidatePath(`/quality/programs/${key}`);
+  redirect(`/quality/programs/${key}`);
+}
+
+export async function actionUpdateAuditFinding(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("quality.programs.manage");
+  const { updateAuditFinding } = await import("@/lib/services/audits");
+  try {
+    await updateAuditFinding({
+      findingId: (formData.get("findingId") as string) || "",
+      status: ((formData.get("status") as string) || "").trim() || undefined,
+      correctiveAction: formData.has("correctiveAction") ? ((formData.get("correctiveAction") as string) || "") : undefined,
+      reinspectBy: ((formData.get("reinspectBy") as string) || "").trim() || undefined,
+      userId: user?.id,
+    });
+    await flashToast("Finding updated");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not update finding", "error");
+  }
+  revalidatePath(`/quality/programs/audits`);
+  redirect(`/quality/programs/audits`);
+}
+
 // ─── MRB ↔ Quality program links & incidents ────────────────────
 
 export async function actionLinkCalToolToMrb(formData: FormData): Promise<void> {

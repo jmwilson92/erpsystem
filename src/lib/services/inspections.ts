@@ -10,7 +10,7 @@ import { getProgramByKey } from "@/lib/services/quality-programs";
  */
 
 /** Programs that use the customizable inspection template + walk workflow. */
-export const INSPECTION_PROGRAMS = ["esd", "fod", "safety"] as const;
+export const INSPECTION_PROGRAMS = ["esd", "fod", "safety", "audits"] as const;
 
 export function supportsInspections(key: string): boolean {
   return (INSPECTION_PROGRAMS as readonly string[]).includes(key);

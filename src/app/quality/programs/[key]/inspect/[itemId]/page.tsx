@@ -6,7 +6,8 @@ import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { InspectionRunner } from "@/components/quality/inspection-runner";
-import { actionPerformInspection } from "@/app/actions";
+import { AuditRunner } from "@/components/quality/audit-runner";
+import { actionPerformInspection, actionSaveAudit } from "@/app/actions";
 import { getProgramByKey } from "@/lib/services/quality-programs";
 import { parseTemplate, supportsInspections } from "@/lib/services/inspections";
 
@@ -46,11 +47,19 @@ export default async function PerformInspectionPage({
           <CardTitle className="text-base">{program.eventNoun}</CardTitle>
         </CardHeader>
         <CardContent>
-          <InspectionRunner
-            action={actionPerformInspection}
-            hiddenFields={{ programId: program.id, programKey: key, itemId: item.id }}
-            steps={steps}
-          />
+          {key === "audits" ? (
+            <AuditRunner
+              action={actionSaveAudit}
+              hiddenFields={{ programId: program.id, programKey: key, itemId: item.id }}
+              steps={steps}
+            />
+          ) : (
+            <InspectionRunner
+              action={actionPerformInspection}
+              hiddenFields={{ programId: program.id, programKey: key, itemId: item.id }}
+              steps={steps}
+            />
+          )}
         </CardContent>
       </Card>
     </div>
