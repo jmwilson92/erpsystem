@@ -133,7 +133,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/mrb?view=cars", label: "CAR", icon: FileWarning, keywords: ["corrective action", "8d", "root cause"] },
       { href: "/rma", label: "RMA", icon: RotateCcw, keywords: ["return", "warranty", "repair", "customer return"] },
       { href: "/trace/serials", label: "Serial trace", icon: ScanBarcode, keywords: ["as-built", "genealogy", "serial number", "sn tree"] },
-      { href: "/quality/programs", label: "Quality Programs", icon: Shield, keywords: ["qms", "program", "compliance", "as9100", "calibration", "gage", "tool control", "hazmat", "sds", "esd", "fod", "safety", "ehs", "training", "certification", "internal audit", "as9101", "counterfeit", "as5553", "as6174"] },
+      { href: "/quality/programs", label: "Quality Programs", icon: Shield, keywords: ["qms", "program", "compliance", "as9100", "calibration", "gage", "tool control", "toolbox", "hazmat", "sds", "esd", "humidity", "fod", "safety", "ehs", "internal audit", "as9101", "ncr", "ofi", "counterfeit", "as5553", "as6174", "policy"] },
     ],
   },
   {

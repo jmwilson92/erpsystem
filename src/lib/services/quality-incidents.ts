@@ -32,6 +32,17 @@ export function defaultIncidentSteps(programKey: string): { step: string; done: 
       { step: "Close incident once corrective action verified", done: false },
     ];
   }
+  if (programKey === "counterfeit") {
+    return [
+      { step: "Quarantine the suspect part / lot immediately", done: false },
+      { step: "Impound and preserve evidence (packaging, markings, C of C)", done: false },
+      { step: "Verify authenticity (supplier, test, GIDEP/manufacturer)", done: false },
+      { step: "Report to GIDEP / customer / authorities if confirmed", done: false },
+      { step: "Disposition (return, scrap-witness, retain as evidence)", done: false },
+      { step: "Supplier corrective action & ASL review", done: false },
+      { step: "Close incident once dispositioned", done: false },
+    ];
+  }
   return [
     { step: "Contain and quarantine affected product/lot", done: false },
     { step: "Investigate root cause", done: false },
@@ -86,13 +97,13 @@ export async function setCalToolDisposition(params: {
 }
 
 /**
- * Auto-trigger an ESD or FOD incident from an MRB case. Creates an OPEN
- * incident event in that program pre-loaded with the disposition process, and
- * links it back on the case. Idempotent per program.
+ * Auto-trigger an ESD, FOD, or counterfeit incident from an MRB case. Creates
+ * an OPEN incident event in that program pre-loaded with the disposition
+ * process, and links it back on the case. Idempotent per program.
  */
 export async function triggerIncidentFromMrb(params: {
   mrbCaseId: string;
-  programKey: "esd" | "fod";
+  programKey: "esd" | "fod" | "counterfeit";
   userId?: string;
 }) {
   const mrb = await prisma.mrbCase.findUnique({
@@ -100,7 +111,8 @@ export async function triggerIncidentFromMrb(params: {
     include: { ncr: { select: { number: true, title: true, description: true } } },
   });
   if (!mrb) throw new Error("MRB case not found");
-  const existing = params.programKey === "esd" ? mrb.esdEventId : mrb.fodEventId;
+  const existing =
+    params.programKey === "esd" ? mrb.esdEventId : params.programKey === "fod" ? mrb.fodEventId : mrb.counterfeitEventId;
   if (existing) return existing;
 
   const program = await getProgramByKey(params.programKey);
@@ -117,12 +129,92 @@ export async function triggerIncidentFromMrb(params: {
       performedById: params.userId || null,
     },
   });
-  await prisma.mrbCase.update({
-    where: { id: mrb.id },
-    data: params.programKey === "esd" ? { esdEventId: event.id } : { fodEventId: event.id },
-  });
+  const linkData =
+    params.programKey === "esd"
+      ? { esdEventId: event.id }
+      : params.programKey === "fod"
+        ? { fodEventId: event.id }
+        : { counterfeitEventId: event.id, suspectCounterfeit: true };
+  await prisma.mrbCase.update({ where: { id: mrb.id }, data: linkData });
   await logAudit({ entityType: "QualityEvent", entityId: event.id, action: "INCIDENT_FROM_MRB", userId: params.userId, metadata: { programKey: params.programKey, mrb: mrb.number } });
   return event.id;
+}
+
+/**
+ * Log a standalone counterfeit / suspect-part incident (customizable, with an
+ * attached photo/file), optionally initiating an MRB case from it.
+ */
+export async function logCounterfeitIncident(params: {
+  description: string;
+  documentUrl?: string;
+  documentName?: string;
+  sendToMrb?: boolean;
+  userId?: string;
+}) {
+  const program = await getProgramByKey("counterfeit");
+  if (!program) throw new Error("Counterfeit program not found");
+  const description = params.description?.trim();
+  if (!description) throw new Error("Describe the suspect part / counterfeit concern");
+
+  const event = await prisma.qualityEvent.create({
+    data: {
+      programId: program.id,
+      type: "INCIDENT",
+      result: "OPEN",
+      notes: description,
+      steps: JSON.stringify(defaultIncidentSteps("counterfeit")),
+      documentUrl: params.documentUrl?.trim() || null,
+      documentName: params.documentName?.trim() || null,
+      performedById: params.userId || null,
+    },
+  });
+
+  let mrbNumber: string | null = null;
+  if (params.sendToMrb) {
+    const mrb = await sendCounterfeitToMrb({ eventId: event.id, userId: params.userId });
+    mrbNumber = mrb.number;
+  }
+  await logAudit({ entityType: "QualityEvent", entityId: event.id, action: "COUNTERFEIT_LOGGED", userId: params.userId, metadata: { sentToMrb: !!params.sendToMrb } });
+  return { eventId: event.id, mrbNumber };
+}
+
+/** Initiate an MRB case (with NCR) from a counterfeit incident. */
+export async function sendCounterfeitToMrb(params: { eventId: string; userId?: string }) {
+  const event = await prisma.qualityEvent.findUnique({ where: { id: params.eventId } });
+  if (!event) throw new Error("Incident not found");
+  if (event.sourceMrbId) {
+    const existing = await prisma.mrbCase.findUnique({ where: { id: event.sourceMrbId } });
+    if (existing) return existing;
+  }
+
+  const ncrCount = await prisma.nonConformance.count();
+  const ncr = await prisma.nonConformance.create({
+    data: {
+      number: `NCR-${String(ncrCount + 1).padStart(5, "0")}`,
+      title: "Suspect counterfeit part",
+      description: event.notes || "Suspect counterfeit / unapproved part flagged from the Counterfeit program.",
+      status: "MRB",
+      severity: "MAJOR",
+      source: "SUPPLIER",
+      quantity: 1,
+      createdById: params.userId || null,
+    },
+  });
+  const mrbCount = await prisma.mrbCase.count();
+  const mrb = await prisma.mrbCase.create({
+    data: {
+      number: `MRB-${String(mrbCount + 1).padStart(5, "0")}`,
+      ncrId: ncr.id,
+      status: "OPEN",
+      chairId: params.userId || null,
+      notes: "Suspect counterfeit — quarantine, verify authenticity, and disposition.",
+      suspectCounterfeit: true,
+      counterfeitEventId: event.id,
+    },
+  });
+  await prisma.qualityEvent.update({ where: { id: event.id }, data: { sourceMrbId: mrb.id } });
+  await logAudit({ entityType: "MrbCase", entityId: mrb.id, action: "MRB_FROM_COUNTERFEIT", userId: params.userId, metadata: { number: mrb.number } });
+  return mrb;
 }
 
 export async function updateIncidentSteps(params: { eventId: string; steps: { step: string; done: boolean }[]; userId?: string }) {

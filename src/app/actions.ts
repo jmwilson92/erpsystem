@@ -9052,6 +9052,48 @@ export async function actionRecordHumidity(formData: FormData): Promise<void> {
   redirect(`/quality/programs/esd`);
 }
 
+// ─── Program policies (CM controlled) & counterfeit ─────────────
+
+export async function actionSaveProgramPolicy(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("quality.programs.manage");
+  const { saveProgramPolicy } = await import("@/lib/services/program-policy");
+  const key = (formData.get("programKey") as string) || "";
+  try {
+    await saveProgramPolicy({
+      programId: (formData.get("programId") as string) || "",
+      fileUrl: (formData.get("documentUrl") as string) || "",
+      fileName: ((formData.get("documentName") as string) || "policy").trim(),
+      userId: user?.id,
+    });
+    await flashToast("Policy saved to Config Management");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not save policy", "error");
+  }
+  revalidatePath(`/quality/programs/${key}`);
+  redirect(`/quality/programs/${key}`);
+}
+
+export async function actionLogCounterfeitIncident(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("quality.programs.manage");
+  const { logCounterfeitIncident } = await import("@/lib/services/quality-incidents");
+  try {
+    const { mrbNumber } = await logCounterfeitIncident({
+      description: (formData.get("description") as string) || "",
+      documentUrl: ((formData.get("documentUrl") as string) || "").trim() || undefined,
+      documentName: ((formData.get("documentName") as string) || "").trim() || undefined,
+      sendToMrb: formData.get("sendToMrb") === "on",
+      userId: user?.id,
+    });
+    await flashToast(mrbNumber ? `Incident logged — ${mrbNumber} initiated in MRB` : "Counterfeit incident logged");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not log incident", "error");
+  }
+  revalidatePath(`/quality/programs/counterfeit`);
+  redirect(`/quality/programs/counterfeit`);
+}
+
 // ─── Internal audits ────────────────────────────────────────────
 
 export async function actionSaveAudit(formData: FormData): Promise<void> {
@@ -9138,7 +9180,7 @@ export async function actionTriggerIncidentFromMrb(formData: FormData): Promise<
   const { requirePermission } = await import("@/lib/auth");
   const user = await requirePermission("mrb.disposition");
   const { triggerIncidentFromMrb } = await import("@/lib/services/quality-incidents");
-  const programKey = ((formData.get("programKey") as string) || "esd") as "esd" | "fod";
+  const programKey = ((formData.get("programKey") as string) || "esd") as "esd" | "fod" | "counterfeit";
   try {
     await triggerIncidentFromMrb({
       mrbCaseId: (formData.get("mrbCaseId") as string) || "",

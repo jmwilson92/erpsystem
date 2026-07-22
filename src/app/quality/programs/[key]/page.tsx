@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Paperclip, Tag, FileWarning, ClipboardCheck, Droplets } from "lucide-react";
+import { Paperclip, Tag, FileWarning, ClipboardCheck, Droplets, FileText, ShieldAlert } from "lucide-react";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { getCurrentUser, userHasPermission } from "@/lib/auth";
@@ -18,8 +18,11 @@ import {
   actionSaveInspectionTemplate,
   actionRecordHumidity,
   actionUpdateAuditFinding,
+  actionSaveProgramPolicy,
+  actionLogCounterfeitIncident,
 } from "@/app/actions";
 import { listAuditFindings } from "@/lib/services/audits";
+import { getProgramPolicy } from "@/lib/services/program-policy";
 import {
   getProgramByKey,
   refreshProgramStatuses,
@@ -129,6 +132,9 @@ export default async function QualityProgramPage({
   // Internal audit findings (corrective actions + OFIs).
   const auditFindings = program.key === "audits" ? await listAuditFindings(program.id) : [];
 
+  // CM-controlled program policy (all programs).
+  const policy = await getProgramPolicy(program.id);
+
   const overdue = items.filter((i) => statusFor(i.nextDueAt, i.status) === "OVERDUE").length;
   const dueSoon = items.filter((i) => statusFor(i.nextDueAt, i.status) === "DUE_SOON").length;
   const recurring = program.defaultIntervalDays > 0;
@@ -178,6 +184,78 @@ export default async function QualityProgramPage({
                 </Link>
               );
             })}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* CM-controlled program policy */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <FileText className="h-4 w-4 text-teal-400" /> Program policy
+          </CardTitle>
+          <p className="text-xs text-slate-500">
+            The {program.name} policy is a Config-Management–controlled document — it revises through the
+            same CM process as work instructions and test procedures.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {policy ? (
+            <div className="flex flex-wrap items-center gap-3 text-sm">
+              <Link href="/cm" className="font-mono text-teal-400 hover:underline">
+                {policy.number} Rev {policy.revision}
+              </Link>
+              <StatusBadge status={policy.status} className="text-[9px]" />
+              {policy.fileUrl && (
+                <a href={policy.fileUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sky-400 hover:underline">
+                  <Paperclip className="h-3 w-3" /> {policy.fileName || "policy"}
+                </a>
+              )}
+              <Link href="/cm" className="text-xs text-slate-500 hover:text-teal-300">Manage in CM →</Link>
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500">No policy on file yet.</p>
+          )}
+          {canManage && (
+            <form action={actionSaveProgramPolicy} className="flex flex-wrap items-end gap-2 border-t border-slate-800 pt-2">
+              <input type="hidden" name="programId" value={program.id} />
+              <input type="hidden" name="programKey" value={program.key} />
+              <div className="flex min-w-0 flex-1 flex-col gap-1">
+                <label className={fieldLabelClass}>{policy ? "Replace policy document" : "Attach policy document"}</label>
+                <QualityFileField label={policy ? "Replace policy…" : "Attach policy…"} />
+              </div>
+              <Button type="submit" size="sm" className="h-9">{policy ? "Save revision" : "Create policy in CM"}</Button>
+            </form>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Counterfeit incident logging (customizable + files) */}
+      {program.key === "counterfeit" && canManage && (
+        <Card className="border-rose-500/20">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ShieldAlert className="h-4 w-4 text-rose-400" /> Log a suspect-counterfeit incident
+            </CardTitle>
+            <p className="text-xs text-slate-500">
+              Independently log a suspect part — attach photos/evidence and optionally initiate an MRB case.
+              A disposition process is created automatically.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <form action={actionLogCounterfeitIncident} className="space-y-2">
+              <Textarea name="description" placeholder="What raised the concern (markings, source, test result)…" rows={2} required />
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="min-w-0 flex-1">
+                  <QualityFileField label="Attach evidence / photo" />
+                </div>
+                <label className="flex items-center gap-2 text-xs text-slate-300">
+                  <input type="checkbox" name="sendToMrb" />
+                  Also initiate an MRB case
+                </label>
+                <Button type="submit" size="sm" className="h-9">Log incident</Button>
+              </div>
+            </form>
           </CardContent>
         </Card>
       )}

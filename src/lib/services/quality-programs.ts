@@ -21,8 +21,6 @@ export const PROGRAM_DEFS = [
     description: "Foreign object debris/damage zones, walks, and incident logging." },
   { key: "safety", name: "Safety / EHS", itemNoun: "Safety asset / area", eventNoun: "Inspection", defaultIntervalDays: 30, icon: "ShieldAlert", sortOrder: 6,
     description: "Extinguishers, eyewash, PPE, inspections, and safety incidents." },
-  { key: "training", name: "Training & Certs", itemNoun: "Required training", eventNoun: "Completion", defaultIntervalDays: 365, icon: "GraduationCap", sortOrder: 7,
-    description: "Personnel training and certifications with expiry tracking." },
   { key: "audits", name: "Internal Audits", itemNoun: "Audit area / clause", eventNoun: "Audit", defaultIntervalDays: 365, icon: "ClipboardList", sortOrder: 8,
     description: "Internal QMS audit schedule (AS9101) and findings." },
   { key: "counterfeit", name: "Counterfeit Parts", itemNoun: "Suspect part / lot", eventNoun: "Verification", defaultIntervalDays: 0, icon: "SearchCheck", sortOrder: 9,
@@ -42,9 +40,16 @@ export async function ensureQualityPrograms() {
         eventNoun: p.eventNoun,
         icon: p.icon,
         sortOrder: p.sortOrder,
+        isActive: true,
       },
     });
   }
+  // Training & certifications now live in the HR module — retire the old
+  // QMS program (kept in the DB, hidden from the hub).
+  await prisma.qualityProgram.updateMany({
+    where: { key: "training" },
+    data: { isActive: false },
+  });
 }
 
 const DAY = 86_400_000;

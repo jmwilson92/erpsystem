@@ -2541,6 +2541,9 @@ model MrbCase {
   /// Auto-triggered ESD / FOD incident events (QualityEvent ids)
   esdEventId      String?
   fodEventId      String?
+  /// Suspected counterfeit — tracked in the Counterfeit program
+  suspectCounterfeit Boolean @default(false)
+  counterfeitEventId String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   closedAt        DateTime?
@@ -4637,6 +4640,10 @@ model QualityProgram {
   /// Shared inspection template for every item in this program (ESD station
   /// checks, FOD walk points, safety inspections). JSON [{ label }].
   inspectionTemplate String?
+  /// CM-controlled program policy document (lives in Config Management, linked
+  /// here so it's clickable from the module).
+  policyCmDocId String?
+  policyNumber  String?
 
   items       QualityItem[]
   events      QualityEvent[]

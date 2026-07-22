@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Ruler, Zap, ScanEye } from "lucide-react";
+import { Ruler, Zap, ScanEye, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   actionLinkCalToolToMrb,
@@ -27,6 +27,8 @@ export function MrbQualityLinks({
     calToolDisposition: string | null;
     esdEventId: string | null;
     fodEventId: string | null;
+    suspectCounterfeit: boolean;
+    counterfeitEventId: string | null;
   };
   calTools: { id: string; identifier: string; name: string }[];
   canManage: boolean;
@@ -121,6 +123,26 @@ export function MrbQualityLinks({
               <input type="hidden" name="programKey" value="fod" />
               <Button type="submit" size="sm" variant="outline" className="h-7 text-[11px]">
                 Caused by FOD → open incident
+              </Button>
+            </form>
+          )
+        )}
+      </div>
+
+      {/* Suspect counterfeit */}
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <ShieldAlert className="h-4 w-4 text-slate-500" />
+        {mrb.counterfeitEventId ? (
+          <Link href={`/quality/programs/incident/${mrb.counterfeitEventId}`} className="text-rose-300 hover:underline">
+            Suspect counterfeit — tracked in Counterfeit program →
+          </Link>
+        ) : (
+          canManage && (
+            <form action={actionTriggerIncidentFromMrb}>
+              <input type="hidden" name="mrbCaseId" value={mrb.id} />
+              <input type="hidden" name="programKey" value="counterfeit" />
+              <Button type="submit" size="sm" variant="outline" className="h-7 text-[11px] text-rose-300">
+                Suspect counterfeit → log &amp; track
               </Button>
             </form>
           )
