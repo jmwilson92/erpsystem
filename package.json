@@ -28,6 +28,7 @@
     "test:e2e:report": "playwright show-report",
     "verify": "tsx scripts/verify/run-all.ts",
     "verify:svc": "tsx scripts/verify/run-all.ts --skip-http",
+    "verify:keys": "node scripts/verify-integrations.mjs",
     "verify:http": "tsx scripts/verify/chunk-j-http.ts",
     "verify:money": "tsx scripts/verify/chunk-c2-money-path.ts",
     "verify:serials": "tsx scripts/verify/chunk-serials-rma.ts",
