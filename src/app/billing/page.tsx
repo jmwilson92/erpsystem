@@ -10,7 +10,7 @@ import {
   TRIAL_DAYS,
 } from "@/lib/services/subscription";
 import {
-  actionActivatePlan,
+  actionStartCheckout,
   actionStartTrial,
   actionCancelSubscription,
 } from "@/app/actions";
@@ -30,6 +30,7 @@ export default async function BillingPage({
 }) {
   const sp = await searchParams;
   const expired = sp.expired === "1";
+  const checkout = sp.checkout as string | undefined;
   const user = await getCurrentUser();
   const canManage = await userHasPermission(user?.id, "admin.permissions");
   const sub = await getSubscriptionState();
@@ -40,6 +41,23 @@ export default async function BillingPage({
         title="Plan & billing"
         description="Your ForgeRP subscription for this instance."
       />
+
+      {checkout === "success" && (
+        <Card className="border-emerald-500/40 bg-emerald-500/10">
+          <CardContent className="p-4 text-sm text-emerald-200">
+            Payment received — your plan is being activated. It updates here once
+            Stripe confirms the subscription.
+          </CardContent>
+        </Card>
+      )}
+      {checkout === "cancel" && (
+        <Card className="border-slate-700">
+          <CardContent className="p-4 text-sm text-slate-300">
+            Checkout canceled — no charge was made. You can pick a plan whenever
+            you&apos;re ready.
+          </CardContent>
+        </Card>
+      )}
 
       {expired && !sub.hasAccess && (
         <Card className="border-rose-500/50 bg-rose-500/10">
@@ -161,7 +179,7 @@ export default async function BillingPage({
                   )}
                 </ul>
                 {canManage && !current && (
-                  <form action={actionActivatePlan} className="space-y-2">
+                  <form action={actionStartCheckout} className="space-y-2">
                     <input type="hidden" name="plan" value={plan.key} />
                     <Input
                       name="billingEmail"

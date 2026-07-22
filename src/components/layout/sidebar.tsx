@@ -69,6 +69,7 @@ export function Sidebar({
 
   return (
     <aside
+      data-tour="sidebar"
       className={cn(
         "flex h-screen flex-col border-r border-slate-800/80 bg-slate-950/95 transition-all duration-200",
         collapsed ? "w-[68px]" : "w-60"

@@ -1,6 +1,7 @@
 "use client";
 
-import { Bell, Search, Command, Moon, Sun, LogOut, User as UserIcon } from "lucide-react";
+import { Bell, Search, Command, Moon, Sun, LogOut, User as UserIcon, HelpCircle } from "lucide-react";
+import { startTourEvent } from "@/components/guides/guided-tour";
 import { Button } from "@/components/ui/button";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -83,6 +84,7 @@ export function Header({
   return (
     <header className="flex h-14 items-center justify-between border-b border-border bg-card/60 px-4 backdrop-blur-md">
       <button
+        data-tour="global-search"
         onClick={onOpenCommand}
         className="flex h-9 w-full max-w-md items-center gap-2 rounded-lg border border-border bg-muted/50 px-3 text-sm text-muted-foreground transition-colors hover:border-slate-600 hover:text-foreground"
       >
@@ -102,6 +104,18 @@ export function Header({
           type="button"
           variant="ghost"
           size="icon"
+          onClick={() => router.push("/guides")}
+          onDoubleClick={() => window.dispatchEvent(startTourEvent("getting-started"))}
+          title="Guides & interactive tours"
+          aria-label="Guides"
+          data-tour="help"
+        >
+          <HelpCircle className="h-4 w-4" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
           onClick={toggle}
           title={theme === "dark" ? "Switch to Day Mode" : "Switch to Night Mode"}
           aria-label="Toggle day/night mode"
@@ -113,7 +127,7 @@ export function Header({
           )}
         </Button>
 
-        <div className="relative" ref={bellRef}>
+        <div className="relative" ref={bellRef} data-tour="notifications">
           <Button
             variant="ghost"
             size="icon"
@@ -159,7 +173,7 @@ export function Header({
           )}
         </div>
 
-        <div className="relative" ref={userRef}>
+        <div className="relative" ref={userRef} data-tour="account-menu">
           <button
             onClick={() => setUserOpen((o) => !o)}
             className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-slate-700 to-slate-800 text-xs font-semibold text-teal-300 ring-2 ring-border transition hover:ring-teal-500/50"

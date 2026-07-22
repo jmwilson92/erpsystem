@@ -20,6 +20,7 @@ const PUBLIC_PREFIXES = [
   "/_next",
   "/favicon",
   "/api/health",
+  "/api/stripe", // Stripe webhooks are signature-verified, not cookie-authed
 ];
 
 /** Pass the current path to server components (root layout) via a header so

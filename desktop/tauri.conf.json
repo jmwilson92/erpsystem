@@ -1,0 +1,36 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "ForgeRP",
+  "version": "0.1.0",
+  "identifier": "com.forgerp.desktop",
+  "build": {
+    "//": "Thin-client model: point at a self-hosted server. For the bundled/offline build, start a Next standalone sidecar and use devUrl http://127.0.0.1:3000 with a beforeDevCommand that launches it. See docs/SELF-HOST-AND-DESKTOP.md.",
+    "frontendDist": "../.next",
+    "devUrl": "http://localhost:3000"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "ForgeRP",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 1024,
+        "minHeight": 700,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

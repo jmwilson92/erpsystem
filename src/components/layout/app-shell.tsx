@@ -7,6 +7,7 @@ import { Header } from "./header";
 import { CommandPalette } from "./command-palette";
 import { ThemeProvider, useTheme } from "./theme-provider";
 import { ActionLoadingProvider } from "./action-loading";
+import { GuidedTour } from "@/components/guides/guided-tour";
 import { Toaster } from "sonner";
 
 export type DemoUser = {
@@ -79,6 +80,7 @@ function ShellInner({
         </main>
       </div>
       <CommandPalette open={cmdOpen} onOpenChange={setCmdOpen} disabledModules={disabledModules} />
+      <GuidedTour />
       <Toaster
         theme={theme === "light" ? "light" : "dark"}
         position="bottom-right"

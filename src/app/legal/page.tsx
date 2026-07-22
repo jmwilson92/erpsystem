@@ -1,80 +1,47 @@
-import { prisma } from "@/lib/db";
 import Link from "next/link";
+import { LEGAL_DOCS, LEGAL_COMPANY, LAST_UPDATED } from "@/lib/legal-content";
+import { FileText, ArrowRight } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
-/** Beta terms + privacy in plain language — linked from the login page. */
-export default async function LegalPage() {
-  const company = await prisma.companySettings.findUnique({
-    where: { id: "default" },
-  });
-  const name = company?.name || "ForgeRP";
-
+export default function LegalHubPage() {
   return (
-    <div className="mx-auto max-w-2xl space-y-8 px-6 py-12 text-sm leading-6 text-slate-300">
+    <div className="mx-auto max-w-3xl space-y-8 px-6 py-12 text-slate-300">
       <div>
         <h1 className="text-2xl font-bold text-slate-50">
-          {name} — Beta Terms &amp; Privacy
+          {LEGAL_COMPANY} — Legal &amp; Compliance
         </h1>
-        <p className="mt-1 text-xs text-slate-500">
-          Plain-language summary for the beta program.
+        <p className="mt-1 text-sm text-slate-500">
+          The agreements and policies governing the hosted service. Last updated{" "}
+          {LAST_UPDATED}.
         </p>
       </div>
 
-      <section className="space-y-2">
-        <h2 className="text-base font-semibold text-slate-100">Beta terms</h2>
-        <ul className="list-disc space-y-1 pl-5">
-          <li>
-            This is <strong>beta software</strong>, provided as-is. Features
-            may change, and defects are possible — keep independent records of
-            anything business-critical.
-          </li>
-          <li>
-            Your account is for you; don&apos;t share credentials. Admins can
-            deactivate accounts and control role permissions.
-          </li>
-          <li>
-            No warranty and no liability for indirect or consequential damages
-            to the extent permitted by law. Use in regulated or
-            safety-critical processes is your responsibility to validate.
-          </li>
-          <li>We may suspend the service for maintenance or security.</li>
-        </ul>
-      </section>
+      <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 text-xs text-amber-200/90">
+        <strong className="font-semibold">Note:</strong> these documents are
+        tailored templates provided for convenience. Have a licensed attorney
+        review them before you rely on them — especially the Data Processing
+        Addendum and export-control terms if you handle regulated data.
+      </div>
 
-      <section className="space-y-2">
-        <h2 className="text-base font-semibold text-slate-100">Privacy</h2>
-        <ul className="list-disc space-y-1 pl-5">
-          <li>
-            We store what you put in: business records (orders, parts, work
-            orders) and account details (name, e-mail, role). Passwords are
-            stored only as salted hashes.
-          </li>
-          <li>
-            Actions are audit-logged (who did what, when) — that&apos;s an ERP
-            feature, and your admins can see it.
-          </li>
-          <li>
-            Data lives in this instance&apos;s database and its backups. We
-            don&apos;t sell it or share it with third parties, other than the
-            infrastructure it runs on (hosting, and e-mail delivery when
-            configured).
-          </li>
-          <li>
-            Want your account or data removed? Ask your admin or contact
-            support; we&apos;ll handle deletion requests within 30 days.
-          </li>
-        </ul>
-      </section>
-
-      <section className="space-y-2">
-        <h2 className="text-base font-semibold text-slate-100">Support</h2>
-        <p>
-          Found a bug or need help? Contact your instance admin, or the beta
-          support contact listed in your onboarding note. Include the page you
-          were on and any reference code from the error screen.
-        </p>
-      </section>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {LEGAL_DOCS.map((doc) => (
+          <Link
+            key={doc.slug}
+            href={`/legal/${doc.slug}`}
+            className="group flex items-start justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/50 p-4 hover:border-teal-500/50"
+          >
+            <div className="flex gap-3">
+              <FileText className="mt-0.5 h-5 w-5 shrink-0 text-teal-400" />
+              <div>
+                <p className="font-medium text-slate-100">{doc.title}</p>
+                <p className="mt-0.5 text-xs text-slate-400">{doc.summary}</p>
+              </div>
+            </div>
+            <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-slate-600 group-hover:text-teal-400" />
+          </Link>
+        ))}
+      </div>
 
       <p className="border-t border-slate-800 pt-4 text-xs text-slate-600">
         <Link href="/login" className="text-teal-500 hover:underline">

@@ -8652,6 +8652,41 @@ export async function actionActivatePlan(formData: FormData): Promise<void> {
   redirect("/billing");
 }
 
+export async function actionStartCheckout(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("admin.permissions");
+  const { stripeEnabled, createCheckoutSession } = await import("@/lib/services/stripe");
+  const plan = ((formData.get("plan") as string) || "").trim();
+  const billingEmail = ((formData.get("billingEmail") as string) || "").trim();
+
+  // No Stripe configured → fall back to in-app activation (beta behaviour).
+  if (!stripeEnabled()) {
+    return actionActivatePlan(formData);
+  }
+  let url: string | null = null;
+  try {
+    const { headers } = await import("next/headers");
+    const h = await headers();
+    const appUrl =
+      process.env.APP_URL ||
+      (h.get("x-forwarded-proto") && h.get("host")
+        ? `${h.get("x-forwarded-proto")}://${h.get("host")}`
+        : "http://localhost:3000");
+    url = await createCheckoutSession({
+      plan,
+      customerEmail: billingEmail || user?.email || undefined,
+      appUrl,
+    });
+  } catch (err) {
+    await flashToast(
+      err instanceof Error ? err.message : "Could not start checkout",
+      "error"
+    );
+    redirect("/billing");
+  }
+  redirect(url!);
+}
+
 export async function actionStartTrial(): Promise<void> {
   const { requirePermission } = await import("@/lib/auth");
   const user = await requirePermission("admin.permissions");
