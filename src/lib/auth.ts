@@ -204,6 +204,9 @@ const ACTION_PERMISSIONS: { code: string; name: string; module: string }[] = [
   { code: "hr.review.manage", name: "Write performance reviews", module: "hr" },
   { code: "hr.goal.manage", name: "Manage employee goals", module: "hr" },
   { code: "hr.docs.manage", name: "Manage employee documents", module: "hr" },
+  { code: "hr.recruiting.manage", name: "Manage recruiting / candidates", module: "hr" },
+  { code: "hr.onboarding.manage", name: "Manage new-hire onboarding", module: "hr" },
+  { code: "hr.background.manage", name: "Manage background checks", module: "hr" },
   // Admin
   { code: "admin.permissions", name: "Assign permissions", module: "admin" },
   { code: "admin.users.manage", name: "Manage users / org chart", module: "admin" },
@@ -444,7 +447,7 @@ export async function userHasPermission(
       "test.record",
       "serials.manage",
     ],
-    HR: ["hr.admin", "hr.pto.request", "hr.pto.decide", "hr.time.decide", "hr.expense.decide", "hr.review.manage", "hr.goal.manage", "hr.docs.manage", "admin.users.manage"],
+    HR: ["hr.admin", "hr.pto.request", "hr.pto.decide", "hr.time.decide", "hr.expense.decide", "hr.review.manage", "hr.goal.manage", "hr.docs.manage", "hr.recruiting.manage", "hr.onboarding.manage", "hr.background.manage", "admin.users.manage"],
     ADMIN: PERMISSIONS.map((p) => p.code),
   };
   if (roleDefaults[user.role]?.includes(permissionCode)) return true;

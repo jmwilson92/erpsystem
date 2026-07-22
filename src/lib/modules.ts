@@ -58,10 +58,16 @@ export const MODULES: ModuleDef[] = [
       "/receiving",
       "/suppliers",
       "/inventory",
-      "/government-property",
       "/assets",
       "/virtual-assets",
     ],
+  },
+  {
+    key: "government",
+    label: "Government Property (GFP)",
+    description:
+      "Government-furnished property tracking, consumption approvals, DFARS 245 custody. Off by default — ITAR/export-controlled hosting is a self-host/Enterprise upgrade.",
+    prefixes: ["/government-property"],
   },
   {
     key: "quality",
@@ -94,8 +100,8 @@ export const MODULES: ModuleDef[] = [
   {
     key: "hr",
     label: "HR & Workforce",
-    description: "People, time off, reviews, goals, training",
-    prefixes: ["/hr"],
+    description: "People, time off, reviews, goals, recruiting, onboarding",
+    prefixes: ["/hr", "/recruiting"],
   },
   {
     key: "pmo",

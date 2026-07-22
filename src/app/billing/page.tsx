@@ -153,10 +153,10 @@ export default async function BillingPage({
                     <Check className="h-3.5 w-3.5 text-teal-400" />
                     Full ERP suite
                   </li>
-                  {plan.key !== "STARTER" && (
+                  {(plan.key === "BUSINESS" || plan.key === "ENTERPRISE") && (
                     <li className="flex items-center gap-1.5">
                       <Check className="h-3.5 w-3.5 text-teal-400" />
-                      Custom modules
+                      Custom modules{plan.key === "ENTERPRISE" ? " + self-host + SSO" : ""}
                     </li>
                   )}
                 </ul>

@@ -147,6 +147,8 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/accounting/banking", label: "Bank Connections", icon: CreditCard, keywords: ["plaid", "bank", "connect account", "feed", "transactions", "reconcile", "link"] },
       { href: "/accounting/payroll", label: "Payroll", icon: Users2, keywords: ["pay run", "net pay", "withholding", "w-4", "paystub", "wages"] },
       { href: "/hr", label: "HR / Workforce", icon: Users2, keywords: ["time", "pto", "expenses", "reviews"] },
+      { href: "/recruiting", label: "Recruiting", icon: Users2, keywords: ["ats", "hiring", "candidate", "requisition", "applicant", "job", "pipeline", "recruiter"] },
+      { href: "/hr/onboarding", label: "Onboarding", icon: ClipboardCheck, keywords: ["new hire", "i-9", "w-4", "background check", "documents", "identification", "orientation"] },
     ],
   },
   {

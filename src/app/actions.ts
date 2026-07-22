@@ -8672,6 +8672,254 @@ export async function actionCancelSubscription(): Promise<void> {
   redirect("/billing");
 }
 
+// ─── Recruiting / Onboarding / Background checks ────────────────
+
+export async function actionCreateRequisition(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("hr.recruiting.manage");
+  const { createRequisition } = await import("@/lib/services/recruiting");
+  let created: { id: string } | null = null;
+  try {
+    created = await createRequisition({
+      title: (formData.get("title") as string) || "",
+      department: ((formData.get("department") as string) || "").trim() || undefined,
+      location: ((formData.get("location") as string) || "").trim() || undefined,
+      employmentType: (formData.get("employmentType") as string) || undefined,
+      openings: Number(formData.get("openings")) || 1,
+      description: ((formData.get("description") as string) || "").trim() || undefined,
+      payRangeMin: Number(formData.get("payRangeMin")) || undefined,
+      payRangeMax: Number(formData.get("payRangeMax")) || undefined,
+      hiringManagerId: ((formData.get("hiringManagerId") as string) || "").trim() || undefined,
+      recruiterId: ((formData.get("recruiterId") as string) || "").trim() || undefined,
+      userId: user?.id,
+    });
+    await flashToast("Requisition opened");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not create requisition", "error");
+  }
+  revalidatePath("/recruiting");
+  redirect(created ? `/recruiting/${created.id}` : "/recruiting");
+}
+
+export async function actionUpdateRequisitionStatus(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("hr.recruiting.manage");
+  const { updateRequisitionStatus } = await import("@/lib/services/recruiting");
+  const requisitionId = (formData.get("requisitionId") as string) || "";
+  try {
+    await updateRequisitionStatus({
+      requisitionId,
+      status: (formData.get("status") as string) || "OPEN",
+      userId: user?.id,
+    });
+    await flashToast("Requisition updated");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not update", "error");
+  }
+  revalidatePath(`/recruiting/${requisitionId}`);
+  redirect(`/recruiting/${requisitionId}`);
+}
+
+export async function actionAddCandidate(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("hr.recruiting.manage");
+  const { addCandidate } = await import("@/lib/services/recruiting");
+  const requisitionId = ((formData.get("requisitionId") as string) || "").trim() || undefined;
+  try {
+    await addCandidate({
+      requisitionId,
+      name: (formData.get("name") as string) || "",
+      email: ((formData.get("email") as string) || "").trim() || undefined,
+      phone: ((formData.get("phone") as string) || "").trim() || undefined,
+      source: ((formData.get("source") as string) || "").trim() || undefined,
+      resumeUrl: ((formData.get("resumeUrl") as string) || "").trim() || undefined,
+      resumeName: ((formData.get("resumeName") as string) || "").trim() || undefined,
+      recruiterId: ((formData.get("recruiterId") as string) || "").trim() || undefined,
+      notes: ((formData.get("notes") as string) || "").trim() || undefined,
+      userId: user?.id,
+    });
+    await flashToast("Candidate added");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not add candidate", "error");
+  }
+  revalidatePath(requisitionId ? `/recruiting/${requisitionId}` : "/recruiting");
+  redirect(requisitionId ? `/recruiting/${requisitionId}` : "/recruiting");
+}
+
+export async function actionMoveCandidateStage(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("hr.recruiting.manage");
+  const { moveCandidateStage } = await import("@/lib/services/recruiting");
+  const candidateId = (formData.get("candidateId") as string) || "";
+  const back = ((formData.get("returnTo") as string) || "").trim();
+  let onboardingId: string | null = null;
+  try {
+    const res = await moveCandidateStage({
+      candidateId,
+      stage: (formData.get("stage") as string) || "APPLIED",
+      rejectedReason: ((formData.get("rejectedReason") as string) || "").trim() || undefined,
+      userId: user?.id,
+    });
+    onboardingId = res.onboardingId;
+    await flashToast(
+      onboardingId ? "Candidate hired — onboarding started" : "Candidate moved"
+    );
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not move candidate", "error");
+  }
+  revalidatePath("/recruiting");
+  // Hired → jump to the new onboarding record; else back where we came from.
+  if (onboardingId) redirect(`/hr/onboarding/${onboardingId}`);
+  redirect(back || `/recruiting/candidates/${candidateId}`);
+}
+
+export async function actionRecordBackgroundCheck(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("hr.background.manage");
+  const { recordBackgroundCheck } = await import("@/lib/services/recruiting");
+  const candidateId = ((formData.get("candidateId") as string) || "").trim() || undefined;
+  const onboardingId = ((formData.get("onboardingId") as string) || "").trim() || undefined;
+  try {
+    await recordBackgroundCheck({
+      candidateId,
+      onboardingId,
+      checkType: (formData.get("checkType") as string) || undefined,
+      provider: ((formData.get("provider") as string) || "").trim() || undefined,
+      status: (formData.get("status") as string) || undefined,
+      result: ((formData.get("result") as string) || "").trim() || undefined,
+      documentUrl: ((formData.get("documentUrl") as string) || "").trim() || undefined,
+      documentName: ((formData.get("documentName") as string) || "").trim() || undefined,
+      notes: ((formData.get("notes") as string) || "").trim() || undefined,
+      userId: user?.id,
+    });
+    await flashToast("Background check recorded");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not record check", "error");
+  }
+  const back = onboardingId ? `/hr/onboarding/${onboardingId}` : `/recruiting/candidates/${candidateId}`;
+  revalidatePath(back);
+  redirect(back);
+}
+
+export async function actionUpdateBackgroundCheck(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("hr.background.manage");
+  const { updateBackgroundCheck } = await import("@/lib/services/recruiting");
+  const back = (formData.get("returnTo") as string) || "/recruiting";
+  try {
+    await updateBackgroundCheck({
+      id: (formData.get("id") as string) || "",
+      status: ((formData.get("status") as string) || "").trim() || undefined,
+      result: ((formData.get("result") as string) || "").trim() || undefined,
+      documentUrl: ((formData.get("documentUrl") as string) || "").trim() || undefined,
+      documentName: ((formData.get("documentName") as string) || "").trim() || undefined,
+      notes: ((formData.get("notes") as string) || "").trim() || undefined,
+      userId: user?.id,
+    });
+    await flashToast("Background check updated");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not update check", "error");
+  }
+  revalidatePath(back);
+  redirect(back);
+}
+
+export async function actionCreateOnboarding(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("hr.onboarding.manage");
+  const { createOnboarding } = await import("@/lib/services/recruiting");
+  const startRaw = ((formData.get("startDate") as string) || "").trim();
+  let created: { id: string } | null = null;
+  try {
+    created = await createOnboarding({
+      legalName: (formData.get("legalName") as string) || "",
+      preferredName: ((formData.get("preferredName") as string) || "").trim() || undefined,
+      personalEmail: ((formData.get("personalEmail") as string) || "").trim() || undefined,
+      phone: ((formData.get("phone") as string) || "").trim() || undefined,
+      jobTitle: ((formData.get("jobTitle") as string) || "").trim() || undefined,
+      department: ((formData.get("department") as string) || "").trim() || undefined,
+      managerId: ((formData.get("managerId") as string) || "").trim() || undefined,
+      employmentType: (formData.get("employmentType") as string) || undefined,
+      startDate: startRaw ? new Date(startRaw) : undefined,
+      userId: user?.id,
+    });
+    await flashToast("Onboarding started");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not start onboarding", "error");
+  }
+  revalidatePath("/hr/onboarding");
+  redirect(created ? `/hr/onboarding/${created.id}` : "/hr/onboarding");
+}
+
+export async function actionUpdateOnboarding(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  await requirePermission("hr.onboarding.manage");
+  const { updateOnboarding } = await import("@/lib/services/recruiting");
+  const onboardingId = (formData.get("onboardingId") as string) || "";
+  const dobRaw = ((formData.get("dateOfBirth") as string) || "").trim();
+  const startRaw = ((formData.get("startDate") as string) || "").trim();
+  try {
+    await updateOnboarding({
+      onboardingId,
+      data: {
+        legalName: ((formData.get("legalName") as string) || "").trim() || undefined,
+        preferredName: ((formData.get("preferredName") as string) || "").trim() || null,
+        personalEmail: ((formData.get("personalEmail") as string) || "").trim() || null,
+        phone: ((formData.get("phone") as string) || "").trim() || null,
+        address: ((formData.get("address") as string) || "").trim() || null,
+        dateOfBirth: dobRaw ? new Date(dobRaw) : null,
+        emergencyContactName: ((formData.get("emergencyContactName") as string) || "").trim() || null,
+        emergencyContactPhone: ((formData.get("emergencyContactPhone") as string) || "").trim() || null,
+        jobTitle: ((formData.get("jobTitle") as string) || "").trim() || null,
+        department: ((formData.get("department") as string) || "").trim() || null,
+        startDate: startRaw ? new Date(startRaw) : null,
+        notes: ((formData.get("notes") as string) || "").trim() || null,
+      },
+    });
+    await flashToast("Onboarding details saved");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not save", "error");
+  }
+  revalidatePath(`/hr/onboarding/${onboardingId}`);
+  redirect(`/hr/onboarding/${onboardingId}`);
+}
+
+export async function actionSetOnboardingChecklistItem(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("hr.onboarding.manage");
+  const { setChecklistItem } = await import("@/lib/services/recruiting");
+  const onboardingId = (formData.get("onboardingId") as string) || "";
+  try {
+    await setChecklistItem({
+      onboardingId,
+      key: (formData.get("key") as string) || "",
+      done: (formData.get("done") as string) === "true",
+      docUrl: ((formData.get("docUrl") as string) || "").trim() || undefined,
+      docName: ((formData.get("docName") as string) || "").trim() || undefined,
+      userId: user?.id,
+    });
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not update item", "error");
+  }
+  revalidatePath(`/hr/onboarding/${onboardingId}`);
+  redirect(`/hr/onboarding/${onboardingId}`);
+}
+
+export async function actionCompleteOnboarding(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("hr.onboarding.manage");
+  const { completeOnboarding } = await import("@/lib/services/recruiting");
+  const onboardingId = (formData.get("onboardingId") as string) || "";
+  try {
+    await completeOnboarding({ onboardingId, userId: user?.id });
+    await flashToast("Onboarding complete 🎉");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not complete", "error");
+  }
+  revalidatePath(`/hr/onboarding/${onboardingId}`);
+  redirect(`/hr/onboarding/${onboardingId}`);
+}
+
 export async function actionClockOutForBreak(): Promise<{ closed: number }> {
   const user = await getCurrentUser();
   if (!user) return { closed: 0 };

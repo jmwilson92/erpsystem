@@ -110,6 +110,11 @@ model User {
   workCenterStaff     WorkCenterStaff[]
   prsAssignedAsBuyer  PurchaseRequest[] @relation("PrAssignedBuyer")
   prsAssignedBy       PurchaseRequest[] @relation("PrAssignedBy")
+  reqsHiring          JobRequisition[]  @relation("ReqHiringManager")
+  reqsRecruiting      JobRequisition[]  @relation("ReqRecruiter")
+  candidatesRecruiting Candidate[]      @relation("CandidateRecruiter")
+  onboardingsAsUser   EmployeeOnboarding[] @relation("OnboardingUser")
+  onboardingsManaging EmployeeOnboarding[] @relation("OnboardingManager")
 }
 
 model AuditLog {
@@ -4473,6 +4478,130 @@ model CompanySettings {
   stripeSubscriptionId String?
   updatedById    String?
   updatedAt      DateTime @updatedAt
+}
+
+// ═══════════════════════════════════════════════════════════════
+// RECRUITING (ATS) + ONBOARDING + BACKGROUND CHECKS
+// ═══════════════════════════════════════════════════════════════
+
+/// A job opening recruiters work to fill.
+model JobRequisition {
+  id             String  @id @default(cuid())
+  number         String  @unique
+  title          String
+  department     String?
+  location       String?
+  /// FULL_TIME | PART_TIME | CONTRACT | TEMP | INTERN
+  employmentType String  @default("FULL_TIME")
+  /// DRAFT | OPEN | ON_HOLD | FILLED | CLOSED | CANCELLED
+  status         String  @default("OPEN")
+  openings       Int     @default(1)
+  description    String?
+  payRangeMin    Float?
+  payRangeMax    Float?
+  hiringManagerId String?
+  hiringManager   User?  @relation("ReqHiringManager", fields: [hiringManagerId], references: [id], onDelete: SetNull)
+  recruiterId    String?
+  recruiter      User?   @relation("ReqRecruiter", fields: [recruiterId], references: [id], onDelete: SetNull)
+  createdById    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  candidates     Candidate[]
+
+  @@index([status])
+}
+
+/// An applicant moving through the hiring pipeline.
+model Candidate {
+  id            String  @id @default(cuid())
+  requisitionId String?
+  requisition   JobRequisition? @relation(fields: [requisitionId], references: [id], onDelete: SetNull)
+  name          String
+  email         String?
+  phone         String?
+  source        String?
+  /// APPLIED | SCREENING | INTERVIEW | OFFER | HIRED | REJECTED | WITHDRAWN
+  stage         String  @default("APPLIED")
+  rating        Int?
+  resumeUrl     String?
+  resumeName    String?
+  notes         String?
+  rejectedReason String?
+  recruiterId   String?
+  recruiter     User?   @relation("CandidateRecruiter", fields: [recruiterId], references: [id], onDelete: SetNull)
+  appliedAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  backgroundChecks BackgroundCheck[]
+  onboarding    EmployeeOnboarding?
+
+  @@index([stage])
+  @@index([requisitionId])
+}
+
+/// A background / pre-employment screening on a candidate or new hire.
+model BackgroundCheck {
+  id            String  @id @default(cuid())
+  candidateId   String?
+  candidate     Candidate? @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  onboardingId  String?
+  onboarding    EmployeeOnboarding? @relation(fields: [onboardingId], references: [id], onDelete: Cascade)
+  /// STANDARD | CRIMINAL | EMPLOYMENT | EDUCATION | DRUG | MVR | CREDIT | IDENTITY
+  checkType     String  @default("STANDARD")
+  provider      String?
+  /// NOT_STARTED | INITIATED | IN_PROGRESS | CLEAR | FLAGGED | CANCELLED
+  status        String  @default("NOT_STARTED")
+  result        String?
+  requestedAt   DateTime?
+  completedAt   DateTime?
+  documentUrl   String?
+  documentName  String?
+  notes         String?
+  requestedById String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([status])
+  @@index([candidateId])
+  @@index([onboardingId])
+}
+
+/// New-hire onboarding: personal info, IDs/documents, and a task checklist.
+model EmployeeOnboarding {
+  id            String  @id @default(cuid())
+  number        String  @unique
+  candidateId   String? @unique
+  candidate     Candidate? @relation(fields: [candidateId], references: [id], onDelete: SetNull)
+  /// Provisioned user account (once created)
+  userId        String?
+  user          User?   @relation("OnboardingUser", fields: [userId], references: [id], onDelete: SetNull)
+  legalName     String
+  preferredName String?
+  personalEmail String?
+  phone         String?
+  address       String?
+  dateOfBirth   DateTime?
+  emergencyContactName  String?
+  emergencyContactPhone String?
+  startDate     DateTime?
+  jobTitle      String?
+  department    String?
+  managerId     String?
+  manager       User?   @relation("OnboardingManager", fields: [managerId], references: [id], onDelete: SetNull)
+  employmentType String @default("FULL_TIME")
+  /// PENDING | IN_PROGRESS | COMPLETE | CANCELLED
+  status        String  @default("PENDING")
+  /// JSON [{key,label,category,done,docUrl,docName,completedAt}] — docs + tasks
+  checklist     String?
+  notes         String?
+  createdById   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  backgroundChecks BackgroundCheck[]
+
+  @@index([status])
 }
 
 /// Accounting system configuration (single row, id="default").

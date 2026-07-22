@@ -50,6 +50,7 @@ async function main() {
     "Customer",
     "AssetCheckout", "Asset",
     "BankTransaction", "BankAccount", "EmailMessage", "AuthSession", "UserInvite",
+    "BackgroundCheck", "EmployeeOnboarding", "Candidate", "JobRequisition",
     "CycleCountLine", "CycleCount", "PermissionRequest", "ScheduledReport", "RecurringJournal", "JournalLine", "JournalEntry", "Account",
     "PurchaseRequestLine", "PurchaseRequest",
     "SupplierScorecardHistory", "SupplierCertification", "AslPolicy", "Supplier",
@@ -252,6 +253,9 @@ async function main() {
       name: "Your Company",
       tagline: "Manufacturing",
       setupCompleted: false,
+      // Government Property (GFP) off by default — ITAR/export-controlled
+      // hosting is a self-host / Enterprise upgrade.
+      disabledModules: JSON.stringify(["government"]),
       // Fresh instance starts on a 30-day free trial
       plan: "TRIAL",
       subscriptionStatus: "TRIALING",

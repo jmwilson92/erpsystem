@@ -42,6 +42,7 @@ async function main() {
     "Customer",
     "AssetCheckout", "Asset",
     "BankTransaction", "BankAccount", "EmailMessage", "AuthSession", "UserInvite",
+    "BackgroundCheck", "EmployeeOnboarding", "Candidate", "JobRequisition",
     "CycleCountLine", "CycleCount", "PermissionRequest", "ScheduledReport", "RecurringJournal", "JournalLine", "JournalEntry", "Account",
     "PurchaseRequestLine", "PurchaseRequest",
     "SupplierScorecardHistory", "SupplierCertification", "AslPolicy", "Supplier",
@@ -3365,8 +3366,11 @@ async function main() {
         "Finance", "Human Resources", "Operations", "Executive",
         "Configuration Management",
       ]),
-      // Demo instance runs as a live Pro account (never trial-gated)
-      plan: "PRO",
+      // Government Property module is off by default until ITAR-compliant
+      // hosting ships (self-host / Enterprise upgrade).
+      disabledModules: JSON.stringify(["government"]),
+      // Demo instance runs as a live Business account (never trial-gated)
+      plan: "BUSINESS",
       subscriptionStatus: "ACTIVE",
       currentPeriodEnd: new Date(Date.now() + 365 * 86_400_000),
       // Kitting stages picked kits at this location (matches STAGE-01 above)
