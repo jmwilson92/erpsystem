@@ -86,6 +86,8 @@ export async function createQualityItem(params: {
   attributes?: Record<string, unknown>;
   documentUrl?: string;
   documentName?: string;
+  toolboxId?: string;
+  needsCalibration?: boolean;
   notes?: string;
   userId?: string;
 }) {
@@ -109,6 +111,8 @@ export async function createQualityItem(params: {
       attributes: params.attributes ? JSON.stringify(params.attributes) : null,
       documentUrl: params.documentUrl?.trim() || null,
       documentName: params.documentName?.trim() || null,
+      toolboxId: params.toolboxId || null,
+      needsCalibration: params.needsCalibration ?? false,
       notes: params.notes?.trim() || null,
       createdById: params.userId || null,
     },

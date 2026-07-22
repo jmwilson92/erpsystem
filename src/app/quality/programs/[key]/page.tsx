@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Paperclip } from "lucide-react";
+import { Paperclip, Tag } from "lucide-react";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { getCurrentUser, userHasPermission } from "@/lib/auth";
@@ -58,7 +58,7 @@ export default async function QualityProgramPage({
   const user = await getCurrentUser();
   const canManage = await userHasPermission(user?.id, "quality.programs.manage");
 
-  const [items, events, people] = await Promise.all([
+  const [ownItems, events, people] = await Promise.all([
     prisma.qualityItem.findMany({
       where: { programId: program.id },
       include: { owner: { select: { name: true } } },
@@ -79,6 +79,18 @@ export default async function QualityProgramPage({
       select: { id: true, name: true },
     }),
   ]);
+
+  // Calibration pulls in tools flagged "needs calibration" from Tool Control,
+  // so a controlled tool that also requires calibration shows on both lists.
+  let items = ownItems;
+  if (program.key === "calibration") {
+    const calTools = await prisma.qualityItem.findMany({
+      where: { program: { key: "tools" }, needsCalibration: true },
+      include: { owner: { select: { name: true } } },
+      orderBy: [{ status: "asc" }, { nextDueAt: "asc" }],
+    });
+    items = [...ownItems, ...calTools];
+  }
 
   const overdue = items.filter((i) => statusFor(i.nextDueAt, i.status) === "OVERDUE").length;
   const dueSoon = items.filter((i) => statusFor(i.nextDueAt, i.status) === "DUE_SOON").length;
@@ -186,7 +198,18 @@ export default async function QualityProgramPage({
                     st === "OVERDUE" ? "bg-rose-500/5" : st === "DUE_SOON" ? "bg-amber-500/5" : ""
                   }`}
                 >
-                  <td className="px-3 py-2 font-mono text-xs text-teal-400">{it.identifier}</td>
+                  <td className="px-3 py-2 font-mono text-xs text-teal-400">
+                    {it.identifier}
+                    {program.key === "calibration" && (
+                      <Link
+                        href={`/quality/programs/tools/${it.id}/label`}
+                        className="mt-0.5 flex items-center gap-1 text-[10px] text-slate-500 hover:text-teal-300"
+                        title="Print label / download DXF"
+                      >
+                        <Tag className="h-3 w-3" /> label
+                      </Link>
+                    )}
+                  </td>
                   <td className="px-3 py-2">
                     {it.name}
                     {it.notes && <p className="text-[11px] text-slate-500">{it.notes}</p>}

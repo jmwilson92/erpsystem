@@ -4661,9 +4661,82 @@ model QualityItem {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  /// Tool Control: which toolbox this tool belongs to (tools program only).
+  toolboxId    String?
+  toolbox      Toolbox? @relation("ToolboxTools", fields: [toolboxId], references: [id], onDelete: SetNull)
+  /// Toggle on a tool to also track it on the Calibration register. When true,
+  /// the item's interval/next-due drive its calibration cadence.
+  needsCalibration Boolean @default(false)
+
   events       QualityEvent[]
+  toolReports  ToolReport[] @relation("ToolReports")
 
   @@index([programId])
+  @@index([status])
+  @@index([toolboxId])
+}
+
+/// A physical toolbox that holds controlled tools (Tool Control program).
+model Toolbox {
+  id          String   @id @default(cuid())
+  identifier  String   @unique
+  name        String
+  location    String?
+  ownerId     String?
+  notes       String?
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tools       QualityItem[]       @relation("ToolboxTools")
+  inspections ToolboxInspection[]
+}
+
+/// A completed tool check/inventory of a toolbox — saved to history for auditors.
+model ToolboxInspection {
+  id            String   @id @default(cuid())
+  toolboxId     String
+  toolbox       Toolbox  @relation(fields: [toolboxId], references: [id], onDelete: Cascade)
+  performedById String?
+  performedAt   DateTime @default(now())
+  /// JSON snapshot: [{ toolId, identifier, name, present, ok, note }]
+  results       String
+  toolCount     Int      @default(0)
+  okCount       Int      @default(0)
+  notes         String?
+  createdAt     DateTime @default(now())
+
+  @@index([toolboxId])
+}
+
+/// A missing / broken / worn tool report started from a specific tool.
+model ToolReport {
+  id                  String   @id @default(cuid())
+  number              String   @unique
+  itemId              String?
+  item                QualityItem? @relation("ToolReports", fields: [itemId], references: [id], onDelete: SetNull)
+  toolboxId           String?
+  /// MISSING | BROKEN | WORN
+  kind                String
+  /// OPEN | IN_PROGRESS | RESOLVED | CLOSED
+  status              String   @default("OPEN")
+  description         String?
+  /// BROKEN: JSON checklist of pieces to recover [{ piece, gathered }]
+  pieces              String?
+  /// false once a piece is declared unrecoverable → spawns a FOD incident
+  piecesRecovered     Boolean  @default(true)
+  /// User-defined next-step process [{ step, done }]
+  steps               String?
+  replacementPrId     String?
+  replacementPrNumber String?
+  /// FOD incident (QualityEvent) spawned for a missing tool / unrecoverable piece
+  fodEventId          String?
+  reportedById        String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  resolvedAt          DateTime?
+
+  @@index([itemId])
   @@index([status])
 }
 
