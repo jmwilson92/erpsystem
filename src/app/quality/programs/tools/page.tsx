@@ -104,7 +104,7 @@ export default async function ToolControlPage() {
 
       {/* Add toolbox + add tool */}
       {canManage && (
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid gap-4 lg:grid-cols-2" data-tour="tools-add">
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-base">Add toolbox</CardTitle>

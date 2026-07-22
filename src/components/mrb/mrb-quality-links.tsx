@@ -34,7 +34,7 @@ export function MrbQualityLinks({
   canManage: boolean;
 }) {
   return (
-    <div className="space-y-3 rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+    <div className="space-y-3 rounded-lg border border-slate-800 bg-slate-950/40 p-3" data-tour="mrb-quality-links">
       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Quality program links</p>
 
       {/* Calibration tool */}

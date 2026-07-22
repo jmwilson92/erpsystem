@@ -208,7 +208,7 @@ export default async function QualityProgramPage({
       )}
 
       {/* CM-controlled program policy */}
-      <Card>
+      <Card data-tour="qms-policy">
         <CardHeader className="pb-2">
           <CardTitle className="flex items-center gap-2 text-base">
             <FileText className="h-4 w-4 text-teal-400" /> Program policy
@@ -306,7 +306,7 @@ export default async function QualityProgramPage({
       )}
 
       {canManage && (
-        <Card>
+        <Card data-tour="qms-add">
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Add {program.itemNoun.toLowerCase()}</CardTitle>
           </CardHeader>
@@ -399,7 +399,7 @@ export default async function QualityProgramPage({
       )}
 
       {/* Register */}
-      <div className="overflow-hidden rounded-xl border border-slate-800">
+      <div className="overflow-hidden rounded-xl border border-slate-800" data-tour="qms-register">
         <table className="w-full text-sm">
           <thead className="bg-slate-900/80 text-xs uppercase text-slate-500">
             <tr>
