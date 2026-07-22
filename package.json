@@ -29,6 +29,7 @@
     "verify": "tsx scripts/verify/run-all.ts",
     "verify:svc": "tsx scripts/verify/run-all.ts --skip-http",
     "verify:keys": "node scripts/verify-integrations.mjs",
+    "stripe:setup-plans": "node scripts/stripe-setup-plans.mjs",
     "verify:http": "tsx scripts/verify/chunk-j-http.ts",
     "verify:money": "tsx scripts/verify/chunk-c2-money-path.ts",
     "verify:serials": "tsx scripts/verify/chunk-serials-rma.ts",
