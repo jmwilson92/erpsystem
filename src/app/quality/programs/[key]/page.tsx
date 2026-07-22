@@ -18,11 +18,12 @@ import {
   actionSaveInspectionTemplate,
   actionRecordHumidity,
   actionUpdateAuditFinding,
-  actionSaveProgramPolicy,
+  actionSubmitProgramPolicy,
+  actionLinkProgramPolicy,
   actionLogCounterfeitIncident,
 } from "@/app/actions";
 import { listAuditFindings } from "@/lib/services/audits";
-import { getProgramPolicy } from "@/lib/services/program-policy";
+import { getProgramPolicy, listPolicyCandidates } from "@/lib/services/program-policy";
 import {
   getProgramByKey,
   refreshProgramStatuses,
@@ -73,6 +74,23 @@ export default async function QualityProgramPage({
 
   const user = await getCurrentUser();
   const canManage = await userHasPermission(user?.id, "quality.programs.manage");
+
+  // Per-program add-form shaping:
+  //  • HAZMAT is assigned to a workcenter/area and tracks a shelf-life date
+  //  • FOD zones have no location field
+  //  • Internal audits pick the program they audit (ID is a dropdown) and drop
+  //    the free-text name/location
+  const locationMode: "workcenter" | "none" | "text" =
+    key === "hazmat" ? "workcenter" : key === "fod" || key === "audits" ? "none" : "text";
+  const showExpiration = key === "hazmat";
+  const auditProgramPick = key === "audits";
+  const workcenters =
+    locationMode === "workcenter"
+      ? await prisma.workCenter.findMany({ orderBy: { code: "asc" }, select: { code: true, name: true } })
+      : [];
+  const auditPrograms = auditProgramPick
+    ? await prisma.qualityProgram.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" }, select: { key: true, name: true } })
+    : [];
 
   const [ownItems, events, people] = await Promise.all([
     prisma.qualityItem.findMany({
@@ -134,6 +152,7 @@ export default async function QualityProgramPage({
 
   // CM-controlled program policy (all programs).
   const policy = await getProgramPolicy(program.id);
+  const policyCandidates = canManage ? await listPolicyCandidates() : [];
 
   const overdue = items.filter((i) => statusFor(i.nextDueAt, i.status) === "OVERDUE").length;
   const dueSoon = items.filter((i) => statusFor(i.nextDueAt, i.status) === "DUE_SOON").length;
@@ -200,7 +219,7 @@ export default async function QualityProgramPage({
           </p>
         </CardHeader>
         <CardContent className="space-y-2">
-          {policy ? (
+          {policy?.kind === "doc" ? (
             <div className="flex flex-wrap items-center gap-3 text-sm">
               <Link href="/cm" className="font-mono text-teal-400 hover:underline">
                 {policy.number} Rev {policy.revision}
@@ -213,19 +232,45 @@ export default async function QualityProgramPage({
               )}
               <Link href="/cm" className="text-xs text-slate-500 hover:text-teal-300">Manage in CM →</Link>
             </div>
+          ) : policy?.kind === "ecr" ? (
+            <div className="flex flex-wrap items-center gap-3 text-sm">
+              <Link href="/cm" className="font-mono text-amber-300 hover:underline">
+                {policy.number}
+              </Link>
+              <StatusBadge status={policy.status} className="text-[9px]" />
+              <span className="text-xs text-slate-500">In the CM change process — release it in Config Management to publish.</span>
+            </div>
           ) : (
-            <p className="text-sm text-slate-500">No policy on file yet.</p>
+            <p className="text-sm text-slate-500">No policy yet.</p>
           )}
-          {canManage && (
-            <form action={actionSaveProgramPolicy} className="flex flex-wrap items-end gap-2 border-t border-slate-800 pt-2">
-              <input type="hidden" name="programId" value={program.id} />
-              <input type="hidden" name="programKey" value={program.key} />
-              <div className="flex min-w-0 flex-1 flex-col gap-1">
-                <label className={fieldLabelClass}>{policy ? "Replace policy document" : "Attach policy document"}</label>
-                <QualityFileField label={policy ? "Replace policy…" : "Attach policy…"} />
-              </div>
-              <Button type="submit" size="sm" className="h-9">{policy ? "Save revision" : "Create policy in CM"}</Button>
-            </form>
+          {canManage && policy?.kind !== "ecr" && (
+            <div className="space-y-2 border-t border-slate-800 pt-2">
+              <form action={actionSubmitProgramPolicy} className="flex flex-wrap items-end gap-2">
+                <input type="hidden" name="programId" value={program.id} />
+                <input type="hidden" name="programKey" value={program.key} />
+                <div className="flex min-w-0 flex-1 flex-col gap-1">
+                  <label className={fieldLabelClass}>{policy ? "Submit a revision" : "New policy document"}</label>
+                  <QualityFileField label="Attach policy…" />
+                </div>
+                <Button type="submit" size="sm" className="h-9">Submit to CM</Button>
+              </form>
+              {policyCandidates.length > 0 && (
+                <form action={actionLinkProgramPolicy} className="flex flex-wrap items-end gap-2">
+                  <input type="hidden" name="programId" value={program.id} />
+                  <input type="hidden" name="programKey" value={program.key} />
+                  <div className="flex min-w-0 flex-1 flex-col gap-1">
+                    <label className={fieldLabelClass}>…or link an existing CM document</label>
+                    <select name="cmDocId" className={selectClass} defaultValue="">
+                      <option value="">Existing policy / procedure…</option>
+                      {policyCandidates.map((d) => (
+                        <option key={d.id} value={d.id}>{d.number} Rev {d.revision} — {d.title}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <Button type="submit" size="sm" variant="outline" className="h-9">Link</Button>
+                </form>
+              )}
+            </div>
           )}
         </CardContent>
       </Card>
@@ -269,18 +314,45 @@ export default async function QualityProgramPage({
             <form action={actionCreateQualityItem} className="grid items-end gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <input type="hidden" name="programId" value={program.id} />
               <input type="hidden" name="programKey" value={program.key} />
-              <div className="flex flex-col gap-1">
-                <label className={fieldLabelClass}>ID / tag *</label>
-                <Input name="identifier" placeholder="e.g. CAL-0142" className="h-9" />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className={fieldLabelClass}>Name / description</label>
-                <Input name="name" placeholder="What it is" className="h-9" />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className={fieldLabelClass}>Location</label>
-                <Input name="location" placeholder="Where it lives" className="h-9" />
-              </div>
+              {auditProgramPick ? (
+                <div className="flex flex-col gap-1">
+                  <label className={fieldLabelClass}>Audit against *</label>
+                  <select name="identifier" className={selectClass} defaultValue="">
+                    <option value="">Program / clause…</option>
+                    {auditPrograms.map((p) => (
+                      <option key={p.key} value={p.name}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-1">
+                  <label className={fieldLabelClass}>ID / tag *</label>
+                  <Input name="identifier" placeholder="e.g. CAL-0142" className="h-9" />
+                </div>
+              )}
+              {!auditProgramPick && (
+                <div className="flex flex-col gap-1">
+                  <label className={fieldLabelClass}>Name / description</label>
+                  <Input name="name" placeholder="What it is" className="h-9" />
+                </div>
+              )}
+              {locationMode === "workcenter" && (
+                <div className="flex flex-col gap-1">
+                  <label className={fieldLabelClass}>Workcenter / area</label>
+                  <select name="location" className={selectClass} defaultValue="">
+                    <option value="">Workcenter…</option>
+                    {workcenters.map((w) => (
+                      <option key={w.code} value={`${w.code} — ${w.name}`}>{w.code} — {w.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {locationMode === "text" && (
+                <div className="flex flex-col gap-1">
+                  <label className={fieldLabelClass}>Location</label>
+                  <Input name="location" placeholder="Where it lives" className="h-9" />
+                </div>
+              )}
               <div className="flex flex-col gap-1">
                 <label className={fieldLabelClass}>Owner</label>
                 <select name="ownerId" className={selectClass} defaultValue="">
@@ -300,9 +372,17 @@ export default async function QualityProgramPage({
                 />
               </div>
               <div className="flex flex-col gap-1">
-                <label className={fieldLabelClass}>{recurring ? "Next due" : "Due date (optional)"}</label>
+                <label className={fieldLabelClass}>
+                  {showExpiration ? "SDS review due" : recurring ? "Next due" : "Due date (optional)"}
+                </label>
                 <Input name="nextDueAt" type="date" className="h-9" />
               </div>
+              {showExpiration && (
+                <div className="flex flex-col gap-1">
+                  <label className={fieldLabelClass}>Material expires</label>
+                  <Input name="expiresAt" type="date" className="h-9" />
+                </div>
+              )}
               <div className="flex flex-col gap-1 sm:col-span-2 lg:col-span-1">
                 <label className={fieldLabelClass}>{docLabelFor(program.key)}</label>
                 <QualityFileField label={docLabelFor(program.key)} />
@@ -328,7 +408,8 @@ export default async function QualityProgramPage({
               <th className="px-3 py-2 text-left">Location</th>
               <th className="px-3 py-2 text-left">Owner</th>
               <th className="px-3 py-2 text-left">Status</th>
-              <th className="px-3 py-2 text-left">Next due</th>
+              <th className="px-3 py-2 text-left">{showExpiration ? "SDS review" : "Next due"}</th>
+              {showExpiration && <th className="px-3 py-2 text-left">Expires</th>}
               <th className="px-3 py-2 text-left">Last {program.eventNoun.toLowerCase()}</th>
               {canManage && <th className="px-3 py-2 text-right">Log {program.eventNoun.toLowerCase()}</th>}
             </tr>
@@ -392,6 +473,18 @@ export default async function QualityProgramPage({
                   <td className={`px-3 py-2 ${st === "OVERDUE" ? "text-rose-300" : st === "DUE_SOON" ? "text-amber-300" : "text-slate-400"}`}>
                     {it.nextDueAt ? formatDate(it.nextDueAt) : "—"}
                   </td>
+                  {showExpiration && (() => {
+                    const exp = it.expiresAt;
+                    const now = Date.now();
+                    const expired = exp && exp.getTime() < now;
+                    const expiringSoon = exp && !expired && exp.getTime() < now + 30 * 86_400_000;
+                    return (
+                      <td className={`px-3 py-2 ${expired ? "text-rose-300" : expiringSoon ? "text-amber-300" : "text-slate-400"}`}>
+                        {exp ? formatDate(exp) : "—"}
+                        {expired && <span className="ml-1 text-[9px] font-semibold uppercase">expired</span>}
+                      </td>
+                    );
+                  })()}
                   <td className="px-3 py-2 text-xs text-slate-500">
                     {it.lastActionAt ? formatDate(it.lastActionAt) : "—"}
                   </td>

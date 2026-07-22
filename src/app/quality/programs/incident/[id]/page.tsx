@@ -84,7 +84,7 @@ export default async function IncidentPage({ params }: { params: Promise<{ id: s
             readOnly={!canManage || closed}
           />
           {canManage && (
-            <form action={actionSetIncidentResult} className="flex items-center gap-2 border-t border-slate-800 pt-3">
+            <form action={actionSetIncidentResult} className="flex flex-wrap items-center gap-2 border-t border-slate-800 pt-3">
               <input type="hidden" name="eventId" value={event.id} />
               {closed ? (
                 <>
@@ -94,10 +94,12 @@ export default async function IncidentPage({ params }: { params: Promise<{ id: s
               ) : (
                 <>
                   <input type="hidden" name="result" value="CLOSED" />
-                  <Button type="submit" size="sm" disabled={!allDone} title={allDone ? undefined : "Complete all steps first"}>
-                    Close incident
-                  </Button>
-                  {!allDone && <span className="text-xs text-slate-500">Complete all steps to close.</span>}
+                  <Button type="submit" size="sm">Close incident</Button>
+                  <span className={`text-xs ${allDone ? "text-emerald-400" : "text-slate-500"}`}>
+                    {steps.length > 0
+                      ? `${steps.filter((s) => s.checked).length}/${steps.length} steps done${allDone ? " — ready to close" : ""}`
+                      : "no steps"}
+                  </span>
                 </>
               )}
             </form>

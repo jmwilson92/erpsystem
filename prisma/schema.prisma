@@ -4644,6 +4644,10 @@ model QualityProgram {
   /// here so it's clickable from the module).
   policyCmDocId String?
   policyNumber  String?
+  /// While the policy is still in the CM submission/review process (an ECR),
+  /// track the change request until it's released as a document.
+  policyEcrId     String?
+  policyEcrNumber String?
 
   items       QualityItem[]
   events      QualityEvent[]
@@ -4723,6 +4727,9 @@ model QualityItem {
   intervalDays Int?
   lastActionAt DateTime?
   nextDueAt    DateTime?
+  /// Material/shelf-life expiration (HAZMAT chemicals) — tracked separately
+  /// from the recurring SDS-review due date.
+  expiresAt    DateTime?
   /// JSON program-specific fields (hazard class, cal range, cert #, …)
   attributes   String?
   /// Primary attached document for this record — a calibration certificate,

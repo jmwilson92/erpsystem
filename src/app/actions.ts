@@ -8743,6 +8743,9 @@ export async function actionCreateQualityItem(formData: FormData): Promise<void>
       ownerId: ((formData.get("ownerId") as string) || "").trim() || undefined,
       intervalDays: intervalRaw ? Number(intervalRaw) : undefined,
       nextDueAt: dueRaw ? new Date(dueRaw) : undefined,
+      expiresAt: ((formData.get("expiresAt") as string) || "").trim()
+        ? new Date(formData.get("expiresAt") as string)
+        : undefined,
       documentUrl: ((formData.get("documentUrl") as string) || "").trim() || undefined,
       documentName: ((formData.get("documentName") as string) || "").trim() || undefined,
       notes: ((formData.get("notes") as string) || "").trim() || undefined,
@@ -8807,11 +8810,14 @@ export async function actionCreateToolbox(formData: FormData): Promise<void> {
   const { requirePermission } = await import("@/lib/auth");
   const user = await requirePermission("quality.programs.manage");
   const { createToolbox } = await import("@/lib/services/tool-control");
+  const location = ((formData.get("location") as string) || "").trim();
   try {
     await createToolbox({
       identifier: (formData.get("identifier") as string) || "",
-      name: (formData.get("name") as string) || "",
-      location: ((formData.get("location") as string) || "").trim() || undefined,
+      // The toolbox is named by its location (workcenter/area); fall back to
+      // the ID if none was chosen.
+      name: location || (formData.get("identifier") as string) || "",
+      location: location || undefined,
       ownerId: ((formData.get("ownerId") as string) || "").trim() || undefined,
       notes: ((formData.get("notes") as string) || "").trim() || undefined,
       userId: user?.id,
@@ -8850,6 +8856,24 @@ export async function actionCreateTool(formData: FormData): Promise<void> {
     await flashToast("Tool added");
   } catch (err) {
     await flashToast(err instanceof Error ? err.message : "Could not add tool", "error");
+  }
+  revalidatePath(`/quality/programs/tools`);
+  redirect(`/quality/programs/tools`);
+}
+
+export async function actionAssignToolToToolbox(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("quality.programs.manage");
+  const { assignToolToToolbox } = await import("@/lib/services/tool-control");
+  try {
+    await assignToolToToolbox({
+      toolId: (formData.get("toolId") as string) || "",
+      toolboxId: ((formData.get("toolboxId") as string) || "").trim() || null,
+      userId: user?.id,
+    });
+    await flashToast("Tool moved");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not move tool", "error");
   }
   revalidatePath(`/quality/programs/tools`);
   redirect(`/quality/programs/tools`);
@@ -9054,21 +9078,40 @@ export async function actionRecordHumidity(formData: FormData): Promise<void> {
 
 // ─── Program policies (CM controlled) & counterfeit ─────────────
 
-export async function actionSaveProgramPolicy(formData: FormData): Promise<void> {
+export async function actionSubmitProgramPolicy(formData: FormData): Promise<void> {
   const { requirePermission } = await import("@/lib/auth");
   const user = await requirePermission("quality.programs.manage");
-  const { saveProgramPolicy } = await import("@/lib/services/program-policy");
+  const { submitProgramPolicyToCm } = await import("@/lib/services/program-policy");
   const key = (formData.get("programKey") as string) || "";
   try {
-    await saveProgramPolicy({
+    const cr = await submitProgramPolicyToCm({
       programId: (formData.get("programId") as string) || "",
       fileUrl: (formData.get("documentUrl") as string) || "",
       fileName: ((formData.get("documentName") as string) || "policy").trim(),
       userId: user?.id,
     });
-    await flashToast("Policy saved to Config Management");
+    await flashToast(`Policy submitted to CM — ${cr.number}`);
   } catch (err) {
-    await flashToast(err instanceof Error ? err.message : "Could not save policy", "error");
+    await flashToast(err instanceof Error ? err.message : "Could not submit policy", "error");
+  }
+  revalidatePath(`/quality/programs/${key}`);
+  redirect(`/quality/programs/${key}`);
+}
+
+export async function actionLinkProgramPolicy(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("quality.programs.manage");
+  const { linkExistingPolicy } = await import("@/lib/services/program-policy");
+  const key = (formData.get("programKey") as string) || "";
+  try {
+    await linkExistingPolicy({
+      programId: (formData.get("programId") as string) || "",
+      cmDocId: (formData.get("cmDocId") as string) || "",
+      userId: user?.id,
+    });
+    await flashToast("Policy linked from CM");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not link policy", "error");
   }
   revalidatePath(`/quality/programs/${key}`);
   redirect(`/quality/programs/${key}`);
@@ -9173,6 +9216,7 @@ export async function actionSetCalToolDisposition(formData: FormData): Promise<v
     await flashToast(err instanceof Error ? err.message : "Could not set disposition", "error");
   }
   revalidatePath(`/mrb`);
+  revalidatePath(`/quality/programs/calibration`);
   redirect(`/mrb`);
 }
 
@@ -9192,6 +9236,7 @@ export async function actionTriggerIncidentFromMrb(formData: FormData): Promise<
     await flashToast(err instanceof Error ? err.message : "Could not open incident", "error");
   }
   revalidatePath(`/mrb`);
+  revalidatePath(`/quality/programs/${programKey}`);
   redirect(`/mrb`);
 }
 

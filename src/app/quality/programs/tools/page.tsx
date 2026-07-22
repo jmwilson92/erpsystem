@@ -14,6 +14,7 @@ import {
   actionCreateTool,
   actionSaveToolboxInspection,
   actionCreateToolReport,
+  actionAssignToolToToolbox,
 } from "@/app/actions";
 import { ensureQualityPrograms, refreshProgramStatuses, statusFor } from "@/lib/services/quality-programs";
 import { listToolboxes, parseJson } from "@/lib/services/tool-control";
@@ -35,7 +36,7 @@ export default async function ToolControlPage() {
   const user = await getCurrentUser();
   const canManage = await userHasPermission(user?.id, "quality.programs.manage");
 
-  const [toolboxes, looseTools, people, openReports] = await Promise.all([
+  const [toolboxes, looseTools, people, openReports, workcenters] = await Promise.all([
     listToolboxes(),
     program
       ? prisma.qualityItem.findMany({
@@ -50,6 +51,7 @@ export default async function ToolControlPage() {
       orderBy: { createdAt: "desc" },
       include: { item: { select: { identifier: true, name: true } } },
     }),
+    prisma.workCenter.findMany({ orderBy: { code: "asc" }, select: { code: true, name: true } }),
   ]);
 
   const totalTools = toolboxes.reduce((s, b) => s + b.tools.length, 0) + looseTools.length;
@@ -114,14 +116,15 @@ export default async function ToolControlPage() {
                   <Input name="identifier" placeholder="e.g. TB-01" className="h-9" />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className={fieldLabelClass}>Name</label>
-                  <Input name="name" placeholder="Cell 3 mechanic box" className="h-9" />
+                  <label className={fieldLabelClass}>Location (workcenter)</label>
+                  <select name="location" className={selectClass} defaultValue="">
+                    <option value="">Workcenter…</option>
+                    {workcenters.map((w) => (
+                      <option key={w.code} value={`${w.code} — ${w.name}`}>{w.code} — {w.name}</option>
+                    ))}
+                  </select>
                 </div>
-                <div className="flex flex-col gap-1">
-                  <label className={fieldLabelClass}>Location</label>
-                  <Input name="location" placeholder="Where it lives" className="h-9" />
-                </div>
-                <div className="flex flex-col gap-1">
+                <div className="flex flex-col gap-1 sm:col-span-2">
                   <label className={fieldLabelClass}>Owner</label>
                   <select name="ownerId" className={selectClass} defaultValue="">
                     <option value="">Owner…</option>
@@ -149,7 +152,7 @@ export default async function ToolControlPage() {
                   <label className={fieldLabelClass}>Name / description</label>
                   <Input name="name" placeholder="Torque wrench 3/8" className="h-9" />
                 </div>
-                <div className="flex flex-col gap-1">
+                <div className="flex flex-col gap-1 sm:col-span-2">
                   <label className={fieldLabelClass}>Toolbox</label>
                   <select name="toolboxId" className={selectClass} defaultValue="">
                     <option value="">— loose / unassigned —</option>
@@ -157,10 +160,6 @@ export default async function ToolControlPage() {
                       <option key={b.id} value={b.id}>{b.identifier} — {b.name}</option>
                     ))}
                   </select>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className={fieldLabelClass}>Location</label>
-                  <Input name="location" placeholder="Where it lives" className="h-9" />
                 </div>
                 <label className="flex items-center gap-2 rounded-md border border-slate-700 bg-slate-950 px-2.5 py-2 text-xs text-slate-300 sm:col-span-2">
                   <input type="checkbox" name="needsCalibration" />
@@ -275,7 +274,12 @@ export default async function ToolControlPage() {
             <table className="w-full text-sm">
               <tbody>
                 {looseTools.map((t) => (
-                  <ToolRow key={t.id} tool={t} canManage={canManage} />
+                  <ToolRow
+                    key={t.id}
+                    tool={t}
+                    canManage={canManage}
+                    assignToolboxes={toolboxes.map((b) => ({ id: b.id, identifier: b.identifier, name: b.name }))}
+                  />
                 ))}
               </tbody>
             </table>
@@ -289,6 +293,7 @@ export default async function ToolControlPage() {
 function ToolRow({
   tool,
   canManage,
+  assignToolboxes,
 }: {
   tool: {
     id: string;
@@ -300,6 +305,8 @@ function ToolRow({
     toolReports: { id: string; kind: string; number: string }[];
   };
   canManage: boolean;
+  /** When provided (loose tools), show a control to move the tool into a box. */
+  assignToolboxes?: { id: string; identifier: string; name: string }[];
 }) {
   const st = statusFor(tool.nextDueAt, tool.status);
   const openReport = tool.toolReports[0];
@@ -319,7 +326,23 @@ function ToolRow({
       </td>
       <td className="py-1.5 pr-2"><StatusBadge status={st} className="text-[9px]" /></td>
       <td className="py-1.5 pr-2 text-right">
-        <div className="flex items-center justify-end gap-1.5">
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
+          {canManage && assignToolboxes && assignToolboxes.length > 0 && (
+            <form action={actionAssignToolToToolbox} className="flex items-center gap-1">
+              <input type="hidden" name="toolId" value={tool.id} />
+              <select
+                name="toolboxId"
+                defaultValue=""
+                className="h-7 rounded border border-slate-700 bg-slate-950 px-1 text-[11px] text-slate-200"
+              >
+                <option value="">Add to toolbox…</option>
+                {assignToolboxes.map((b) => (
+                  <option key={b.id} value={b.id}>{b.identifier} — {b.name}</option>
+                ))}
+              </select>
+              <Button type="submit" size="sm" variant="outline" className="h-7 text-[11px]">Move</Button>
+            </form>
+          )}
           <Link
             href={`/quality/programs/tools/${tool.id}/label`}
             className="inline-flex items-center gap-1 rounded border border-slate-700 px-1.5 py-1 text-[11px] text-slate-300 hover:border-teal-500/40"

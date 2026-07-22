@@ -38,6 +38,18 @@ export async function createToolbox(params: {
   return box;
 }
 
+/** Move a tool into a toolbox (or set it loose when toolboxId is null). */
+export async function assignToolToToolbox(params: { toolId: string; toolboxId: string | null; userId?: string }) {
+  const tool = await prisma.qualityItem.findUnique({ where: { id: params.toolId } });
+  if (!tool) throw new Error("Tool not found");
+  if (params.toolboxId) {
+    const box = await prisma.toolbox.findUnique({ where: { id: params.toolboxId } });
+    if (!box) throw new Error("Toolbox not found");
+  }
+  await prisma.qualityItem.update({ where: { id: params.toolId }, data: { toolboxId: params.toolboxId } });
+  await logAudit({ entityType: "QualityItem", entityId: params.toolId, action: "TOOLBOX_ASSIGNED", userId: params.userId, metadata: { toolboxId: params.toolboxId } });
+}
+
 /** All toolboxes with their tools + latest inspection, for the Tool Control page. */
 export async function listToolboxes() {
   const boxes = await prisma.toolbox.findMany({
