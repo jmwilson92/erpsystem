@@ -49,7 +49,7 @@ export default async function PmoPage() {
       />
 
       {/* Programs */}
-      <section className="space-y-3">
+      <section className="space-y-3" data-tour="pmo-programs">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
             Programs / portfolios

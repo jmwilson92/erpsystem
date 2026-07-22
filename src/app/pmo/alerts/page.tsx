@@ -36,7 +36,7 @@ export default async function PmAlertsPage() {
         }
       />
 
-      <section className="space-y-3">
+      <section className="space-y-3" data-tour="pm-alerts">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
           Unread ({unread.length})
         </h2>

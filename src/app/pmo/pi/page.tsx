@@ -57,7 +57,7 @@ export default async function PmoPiPlanningPage() {
         }
       />
 
-      <Card className="border-slate-800">
+      <Card className="border-slate-800" data-tour="pi-board">
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Create planning quarter</CardTitle>
         </CardHeader>

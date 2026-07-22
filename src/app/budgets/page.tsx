@@ -67,7 +67,7 @@ export default async function BudgetsPage() {
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" data-tour="budgets-stats">
         <StatCard
           title="Enacted budgets"
           value={enacted.length}
