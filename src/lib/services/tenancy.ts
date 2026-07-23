@@ -40,9 +40,11 @@ export async function provisionSchema(schema: string): Promise<void> {
   const client = await pool.connect();
   try {
     await client.query(`CREATE SCHEMA IF NOT EXISTS "${schema}"`);
-    await client.query(`SET search_path TO "${schema}"`);
-    // The template is unqualified DDL, so it lands in the search_path schema.
-    await client.query(TENANT_TEMPLATE_SQL);
+    // Keep SET search_path in the SAME query as the DDL: on a transaction pooler
+    // (Supabase 6543) each client.query() may land on a different backend, so a
+    // standalone SET wouldn't carry over. One query = one transaction = one
+    // backend, so the unqualified template DDL lands in this schema.
+    await client.query(`SET search_path TO "${schema}";\n${TENANT_TEMPLATE_SQL}`);
   } finally {
     client.release();
     await pool.end();
@@ -179,9 +181,10 @@ export async function cloneSchema(source: string, dest: string): Promise<void> {
   const client = await pool.connect();
   try {
     await client.query(`CREATE SCHEMA "${dest}"`);
-    // 1. Tables + indexes (no FKs yet) into the new schema.
-    await client.query(`SET search_path TO "${dest}"`);
-    await client.query(TENANT_TABLES_SQL);
+    // 1. Tables + indexes (no FKs yet) into the new schema. SET search_path is
+    //    folded into the same query as the DDL so it survives a transaction
+    //    pooler (see provisionSchema for why).
+    await client.query(`SET search_path TO "${dest}";\n${TENANT_TABLES_SQL}`);
     // 2. Copy every table's rows from the source (FK order irrelevant — no FKs
     //    exist yet). Batched into one multi-statement query so it's a single
     //    round trip (matters on a remote DB), fully qualified so search_path is
@@ -200,8 +203,7 @@ export async function cloneSchema(source: string, dest: string): Promise<void> {
       await client.query(copySql);
     }
     // 3. Now add the foreign keys (data is already consistent).
-    await client.query(`SET search_path TO "${dest}"`);
-    await client.query(TENANT_FKS_SQL);
+    await client.query(`SET search_path TO "${dest}";\n${TENANT_FKS_SQL}`);
   } finally {
     client.release();
     await pool.end();

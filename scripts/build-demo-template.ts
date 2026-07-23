@@ -18,8 +18,7 @@ async function main() {
   const c = await pool.connect();
   await c.query(`DROP SCHEMA IF EXISTS "${SCHEMA}" CASCADE`);
   await c.query(`CREATE SCHEMA "${SCHEMA}"`);
-  await c.query(`SET search_path TO "${SCHEMA}"`);
-  await c.query(TENANT_TEMPLATE_SQL);
+  await c.query(`SET search_path TO "${SCHEMA}";\n${TENANT_TEMPLATE_SQL}`);
   c.release();
   await pool.end();
   console.log(`✓ provisioned ${SCHEMA} — seeding demo data...`);
