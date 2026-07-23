@@ -5053,3 +5053,35 @@ model WorkCenterStaff {
   @@unique([workCenterId, userId])
   @@index([userId])
 }
+
+// ═══════════════════════════════════════════════════════════════
+// MULTI-TENANCY CONTROL PLANE (public schema only)
+// ═══════════════════════════════════════════════════════════════
+
+/// Registry of tenants. Lives in the `public` schema (the control plane); each
+/// tenant's application data lives in its own Postgres schema named here.
+/// Demo tenants are throwaway and swept after inactivity.
+model Tenant {
+  id                   String   @id @default(cuid())
+  /// URL-safe id; for demos this is also the routing cookie value.
+  slug                 String   @unique
+  /// Postgres schema holding this tenant's tables (e.g. tenant_ab12, demo_ab12).
+  schemaName           String   @unique
+  name                 String?
+  isDemo               Boolean  @default(false)
+  /// PROVISIONING | ACTIVE | SUSPENDED | DESTROYED
+  status               String   @default("PROVISIONING")
+  /// STARTER | GROWTH | BUSINESS | ENTERPRISE
+  plan                 String?
+  trialEndsAt          DateTime?
+  billingEmail         String?
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  /// Bumped on activity; demo TTL sweep destroys idle demos past the cutoff.
+  lastActiveAt         DateTime @default(now())
+
+  @@index([isDemo, lastActiveAt])
+  @@index([status])
+}

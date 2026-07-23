@@ -1,5 +1,16 @@
+import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { demoModeEnabled } from "@/lib/auth-core";
+
+/**
+ * A Prisma-ish client. Every function here defaults to the request-scoped
+ * `prisma` proxy (which resolves public or the request's demo schema), but the
+ * Stripe webhook — which runs with no request cookie — passes an explicit
+ * schema-scoped client so a customer's subscription state lands in THEIR schema,
+ * never in public. Typed loosely because a scoped client and the proxy share the
+ * delegate surface we use but not the full nominal PrismaClient type.
+ */
+type Db = Pick<PrismaClient, "companySettings" | "auditLog">;
 
 /**
  * Instance-per-customer subscription state. Each ForgeRP instance carries its
@@ -75,8 +86,10 @@ function daysBetween(from: Date, to: Date): number {
   return Math.max(0, Math.ceil((to.getTime() - from.getTime()) / 86_400_000));
 }
 
-export async function getSubscriptionState(): Promise<SubscriptionState> {
-  const s = await prisma.companySettings.upsert({
+export async function getSubscriptionState(
+  db: Db = prisma
+): Promise<SubscriptionState> {
+  const s = await db.companySettings.upsert({
     where: { id: "default" },
     create: { id: "default" },
     update: {},
@@ -128,9 +141,9 @@ export async function getSubscriptionState(): Promise<SubscriptionState> {
 }
 
 /** Begin (or restart) the free trial — sets a fresh trial window. */
-export async function startTrial(userId?: string) {
+export async function startTrial(userId?: string, db: Db = prisma) {
   const trialEndsAt = new Date(Date.now() + TRIAL_DAYS * 86_400_000);
-  return prisma.companySettings.upsert({
+  return db.companySettings.upsert({
     where: { id: "default" },
     create: {
       id: "default",
@@ -151,23 +164,26 @@ export async function startTrial(userId?: string) {
  * Activate a paid plan. During the in-app beta this flips status directly;
  * once Stripe is wired, the webhook calls this after a successful checkout.
  */
-export async function activatePlan(params: {
-  plan: string;
-  seats?: number | null;
-  billingEmail?: string | null;
-  currentPeriodEnd?: Date | null;
-  provider?: string | null;
-  stripeCustomerId?: string | null;
-  stripeSubscriptionId?: string | null;
-  userId?: string;
-}) {
+export async function activatePlan(
+  params: {
+    plan: string;
+    seats?: number | null;
+    billingEmail?: string | null;
+    currentPeriodEnd?: Date | null;
+    provider?: string | null;
+    stripeCustomerId?: string | null;
+    stripeSubscriptionId?: string | null;
+    userId?: string;
+  },
+  db: Db = prisma
+) {
   const known = PLANS.find((p) => p.key === params.plan);
   if (!known) throw new Error(`Unknown plan: ${params.plan}`);
   const periodEnd =
     params.currentPeriodEnd ??
     new Date(Date.now() + 365 * 86_400_000); // annual by default
 
-  const sub = await prisma.companySettings.update({
+  const sub = await db.companySettings.update({
     where: { id: "default" },
     data: {
       plan: params.plan,
@@ -182,7 +198,7 @@ export async function activatePlan(params: {
     },
   });
 
-  await prisma.auditLog.create({
+  await db.auditLog.create({
     data: {
       entityType: "Subscription",
       entityId: "default",
@@ -194,8 +210,8 @@ export async function activatePlan(params: {
   return sub;
 }
 
-export async function cancelSubscription(userId?: string) {
-  return prisma.companySettings.update({
+export async function cancelSubscription(userId?: string, db: Db = prisma) {
+  return db.companySettings.update({
     where: { id: "default" },
     data: { subscriptionStatus: "CANCELLED", updatedById: userId },
   });

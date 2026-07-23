@@ -7342,13 +7342,18 @@ export async function actionImportData(
 
 export async function actionStartTestDrive(): Promise<void> {
   const { cookies } = await import("next/headers");
-  const { randomUUID } = await import("crypto");
-  const { SANDBOX_COOKIE, materializeSandbox } = await import("@/lib/db");
-  const id = randomUUID().toLowerCase();
-  await materializeSandbox(id);
+  const { DEMO_COOKIE } = await import("@/lib/db");
+  const { provisionDemo } = await import("@/lib/services/tenancy");
+  // Clone a fresh throwaway tenant schema from the seeded demo template, then
+  // route this visitor to it via the demo cookie.
+  const tenant = await provisionDemo();
   const jar = await cookies();
-  jar.set(SANDBOX_COOKIE, id, { path: "/", httpOnly: true, sameSite: "lax" });
-  // Fresh sandbox, fresh identity — start as the admin persona
+  jar.set(DEMO_COOKIE, tenant.schemaName, {
+    path: "/",
+    httpOnly: true,
+    sameSite: "lax",
+    maxAge: 60 * 60 * 4, // 4h hard cap; idle sweep reaps sooner
+  });
   jar.delete("forge-demo-user");
   revalidatePath("/", "layout");
   redirect("/");
@@ -7356,12 +7361,17 @@ export async function actionStartTestDrive(): Promise<void> {
 
 export async function actionEndTestDrive(): Promise<void> {
   const { cookies } = await import("next/headers");
-  const { SANDBOX_COOKIE, destroySandbox } = await import("@/lib/db");
+  const { DEMO_COOKIE } = await import("@/lib/db");
+  const { destroyTenant } = await import("@/lib/services/tenancy");
   const jar = await cookies();
-  const id = jar.get(SANDBOX_COOKIE)?.value;
-  if (id) destroySandbox(id);
-  jar.delete(SANDBOX_COOKIE);
+  const schema = jar.get(DEMO_COOKIE)?.value;
+  // Clear the cookie first so subsequent requests route to public even if the
+  // drop lags, then destroy the throwaway schema.
+  jar.delete(DEMO_COOKIE);
   jar.delete("forge-demo-user");
+  if (schema && schema !== "demo_template" && /^demo_[a-z0-9]{6,40}$/.test(schema)) {
+    await destroyTenant(schema).catch(() => undefined);
+  }
   revalidatePath("/", "layout");
   redirect("/demo?ended=1");
 }

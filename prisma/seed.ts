@@ -5,10 +5,16 @@ import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 
-const adapter = new PrismaPg({
-  connectionString: process.env.DIRECT_URL || process.env.DATABASE_URL,
-});
+// SEED_SCHEMA lets this seed target a tenant schema (e.g. a demo template)
+// instead of public. Prisma qualifies model queries to it; the raw wipe below
+// is also schema-scoped so it can never truncate public by accident.
+const seedSchema = process.env.SEED_SCHEMA?.trim() || null;
+const adapter = new PrismaPg(
+  { connectionString: process.env.DIRECT_URL || process.env.DATABASE_URL },
+  seedSchema ? { schema: seedSchema } : undefined
+);
 const prisma = new PrismaClient({ adapter });
+const TARGET_SCHEMA = seedSchema ?? "public";
 
 function daysAgo(n: number) {
   const d = new Date();
@@ -74,12 +80,12 @@ async function main() {
   // exist so a renamed/absent model never aborts the whole reset.
   const existing = (
     await prisma.$queryRawUnsafe<{ tablename: string }[]>(
-      `SELECT tablename FROM pg_tables WHERE schemaname = 'public'`
+      `SELECT tablename FROM pg_tables WHERE schemaname = '${TARGET_SCHEMA}'`
     )
   ).map((r) => r.tablename);
   const toWipe = tables.filter((t) => existing.includes(t));
   if (toWipe.length > 0) {
-    const list = toWipe.map((t) => `"${t}"`).join(", ");
+    const list = toWipe.map((t) => `"${TARGET_SCHEMA}"."${t}"`).join(", ");
     await prisma.$executeRawUnsafe(
       `TRUNCATE TABLE ${list} RESTART IDENTITY CASCADE`
     );

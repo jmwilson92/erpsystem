@@ -11,7 +11,7 @@ import { CookieBanner } from "@/components/marketing/cookie-banner";
 import { getSubscriptionState } from "@/lib/services/subscription";
 import { getCurrentUser, listUsers } from "@/lib/auth";
 import { demoModeEnabled } from "@/lib/auth-core";
-import { prisma, SANDBOX_COOKIE } from "@/lib/db";
+import { prisma, DEMO_COOKIE } from "@/lib/db";
 import { getNotificationSummary } from "@/lib/services/notifications";
 import { readFlashToast } from "@/lib/flash";
 import { moduleKeyForPath } from "@/lib/modules";
@@ -52,7 +52,7 @@ export default async function RootLayout({
     ? await getNotificationSummary(currentUser)
     : { total: 0, items: [], badges: {} };
   const jar = await cookies();
-  const inSandbox = Boolean(jar.get(SANDBOX_COOKIE)?.value);
+  const inSandbox = Boolean(jar.get(DEMO_COOKIE)?.value);
   const flash = await readFlashToast();
 
   // Per-module enable/disable: block a disabled module's routes server-side
@@ -144,7 +144,11 @@ export default async function RootLayout({
     "/module-off",
     "/api",
   ];
+  // Demo visitors are never billed or gated.
+  const isDemoRequest =
+    !!jar.get("forge-demo")?.value && !jar.get("forge-session")?.value;
   if (
+    !isDemoRequest &&
     subscription.enforced &&
     !subscription.hasAccess &&
     pathname &&

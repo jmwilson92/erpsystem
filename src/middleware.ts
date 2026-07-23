@@ -44,7 +44,12 @@ export function middleware(req: NextRequest) {
   if (isPublicPath(pathname)) {
     return withPathname(req);
   }
-  if (req.cookies.get("forge-session")?.value) {
+  // A real session, or an anonymous demo visitor with a demo schema cookie,
+  // may proceed. (Identity is still resolved + validated server-side.)
+  if (
+    req.cookies.get("forge-session")?.value ||
+    req.cookies.get("forge-demo")?.value
+  ) {
     return withPathname(req);
   }
   const url = req.nextUrl.clone();
