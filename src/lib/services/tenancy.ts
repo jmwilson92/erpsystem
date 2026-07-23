@@ -20,12 +20,28 @@ export const DEMO_TEMPLATE_SCHEMA = "demo_template";
  * scoped to the schema (see clientForSchema).
  */
 
-/** DDL runs over the direct (session) connection, never a transaction pooler. */
+/**
+ * Connection used for schema DDL (provision/clone/drop).
+ *
+ * Prefer DIRECT_URL (a real session connection is ideal for DDL) — but Supabase's
+ * direct host `db.<ref>.supabase.co` is IPv6-only and unreachable from serverless
+ * (getaddrinfo ENOTFOUND on Vercel). When DIRECT_URL is that direct host, fall
+ * back to DATABASE_URL (the pooler the app already reaches); the DDL is written
+ * to survive a transaction pooler (SET search_path folded into each DDL query).
+ * From a Codespace/local, DIRECT_URL is a reachable session pooler and is used.
+ */
+function ddlConnectionString(): string | undefined {
+  const direct = process.env.DIRECT_URL;
+  const isUnreachableDirectHost =
+    !!direct && /(?:@|\/\/)db\.[a-z0-9-]+\.supabase\.co[:/]/.test(direct);
+  if (isUnreachableDirectHost) {
+    return process.env.DATABASE_URL || direct;
+  }
+  return direct || process.env.DATABASE_URL;
+}
+
 function ddlPool(): Pool {
-  return new Pool({
-    connectionString: process.env.DIRECT_URL || process.env.DATABASE_URL,
-    max: 1,
-  });
+  return new Pool({ connectionString: ddlConnectionString(), max: 1 });
 }
 
 function randToken(): string {
