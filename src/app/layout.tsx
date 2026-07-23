@@ -219,7 +219,12 @@ export default async function RootLayout({
         >
           {inSandbox && <SandboxBanner />}
           {subscription.isTrialing && subscription.trialDaysLeft != null && (
-            <TrialBanner daysLeft={subscription.trialDaysLeft} />
+            <TrialBanner
+              daysLeft={subscription.trialDaysLeft}
+              plan={subscription.plan}
+              provider={subscription.billingProvider}
+              endsAt={subscription.trialEndsAt?.toISOString() ?? null}
+            />
           )}
           {flash && (
             <FlashToast message={flash.m} kind={flash.k} stamp={flash.t} />
