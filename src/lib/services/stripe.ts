@@ -80,6 +80,70 @@ export async function createCheckoutSession(params: {
   return session.url as string;
 }
 
+/**
+ * Whether the launch promo (50% off first year) is currently active. Gated to a
+ * window that opens on LAUNCH_DATE and runs LAUNCH_PROMO_DAYS (default 60) days.
+ * If LAUNCH_DATE is unset, the auto-coupon is off (customers can still enter a
+ * promo code manually — allow_promotion_codes stays on).
+ */
+export function launchPromoActive(now: Date = new Date()): boolean {
+  const raw = process.env.LAUNCH_DATE;
+  if (!raw) return false;
+  const start = new Date(raw);
+  if (Number.isNaN(start.getTime())) return false;
+  const days = Number(process.env.LAUNCH_PROMO_DAYS) || 60;
+  const end = new Date(start.getTime() + days * 86_400_000);
+  return now >= start && now <= end;
+}
+
+/**
+ * Create a subscription Checkout Session for a new self-serve signup: card
+ * required up front, a 45-day free trial (no charge until day 45), and — inside
+ * the launch window — the 50%-off-first-year coupon applied automatically.
+ * Returns the hosted checkout URL. `metadata.provision = tenant` tells the
+ * webhook this completed checkout should provision a brand-new customer tenant.
+ */
+export async function createTrialCheckoutSession(params: {
+  plan: string;
+  trialDays: number;
+  customerEmail?: string;
+  companyName?: string;
+  appUrl: string;
+}): Promise<string> {
+  const price = priceIdForPlan(params.plan);
+  if (!price) {
+    throw new Error(
+      `No Stripe price configured for ${params.plan}. Set STRIPE_PRICE_${params.plan}.`
+    );
+  }
+  const coupon = process.env.STRIPE_COUPON_LAUNCH;
+  const applyCoupon = coupon && launchPromoActive();
+
+  const body: Record<string, string | undefined> = {
+    mode: "subscription",
+    "line_items[0][price]": price,
+    "line_items[0][quantity]": "1",
+    success_url: `${params.appUrl}/signup/complete?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${params.appUrl}/signup?checkout=cancel&plan=${params.plan}`,
+    customer_email: params.customerEmail,
+    // Require a card even though the trial is free, so day-45 billing is seamless.
+    payment_method_collection: "always",
+    "subscription_data[trial_period_days]": String(params.trialDays),
+    "subscription_data[metadata][plan]": params.plan,
+    "subscription_data[metadata][provision]": "tenant",
+    "metadata[plan]": params.plan,
+    "metadata[provision]": "tenant",
+    "metadata[companyName]": params.companyName,
+    allow_promotion_codes: applyCoupon ? undefined : "true",
+  };
+  // Stripe rejects allow_promotion_codes + discounts together; when we auto-apply
+  // the launch coupon we drop the manual promo-code box.
+  if (applyCoupon) body["discounts[0][coupon]"] = coupon;
+
+  const session = await stripePost("/checkout/sessions", form(body));
+  return session.url as string;
+}
+
 /** Verify a Stripe webhook signature (Stripe-Signature header). */
 export function verifyWebhook(payload: string, sigHeader: string | null): unknown {
   const secret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -109,37 +173,81 @@ export function verifyWebhook(payload: string, sigHeader: string | null): unknow
   return JSON.parse(payload);
 }
 
-/** Map a verified webhook event onto the local subscription state. */
+function meta(obj: Record<string, unknown>): Record<string, string> {
+  return (obj.metadata as Record<string, string> | undefined) ?? {};
+}
+
+/**
+ * Map a verified webhook event onto tenant subscription state.
+ *
+ * Multi-tenant safety: a self-serve signup (metadata.provision === "tenant")
+ * provisions a NEW customer tenant and writes its state into that tenant's own
+ * schema. It must NEVER call the schema-scoped activatePlan against the request
+ * proxy — with no request cookie that resolves to `public` (the live dogfood
+ * instance), which a stranger's checkout would otherwise overwrite. Every write
+ * below is either provisioning or scoped through the resolved tenant's client.
+ */
 export async function handleWebhookEvent(event: {
   type: string;
   data: { object: Record<string, unknown> };
 }) {
-  const { activatePlan, cancelSubscription } = await import("./subscription");
   const obj = event.data.object;
+  const { clientForSchema } = await import("@/lib/db");
+  const { provisionCustomerTenant, tenantByStripe } = await import("./tenancy");
+  const { activatePlan, cancelSubscription } = await import("./subscription");
 
+  const customerId = (obj.customer as string) || null;
+  const subscriptionId =
+    (obj.subscription as string) || (obj.id as string) || null;
+
+  if (event.type === "checkout.session.completed") {
+    const m = meta(obj);
+    if (m.provision !== "tenant") return; // not a self-serve signup — ignore
+    const email =
+      (obj.customer_email as string) ||
+      ((obj.customer_details as Record<string, string> | undefined)?.email) ||
+      "";
+    if (!email) throw new Error("checkout.session.completed missing customer email");
+    await provisionCustomerTenant({
+      plan: m.plan || "STARTER",
+      billingEmail: email,
+      companyName: m.companyName || null,
+      trialDays: 45,
+      stripeCustomerId: customerId,
+      stripeSubscriptionId: subscriptionId,
+    });
+    return;
+  }
+
+  // Subscription lifecycle: resolve the owning tenant and write ONLY its schema.
   if (
-    event.type === "checkout.session.completed" ||
-    event.type === "customer.subscription.updated"
+    event.type === "customer.subscription.updated" ||
+    event.type === "customer.subscription.deleted" ||
+    event.type === "invoice.payment_succeeded"
   ) {
-    const plan =
-      ((obj.metadata as Record<string, string> | undefined)?.plan as string) ||
-      "BUSINESS";
+    const tenant = await tenantByStripe({ subscriptionId, customerId });
+    if (!tenant) return; // unknown subscription (e.g. the dogfood instance) — skip
+    const db = clientForSchema(tenant.schemaName);
+
+    if (event.type === "customer.subscription.deleted") {
+      await cancelSubscription(undefined, db);
+      return;
+    }
+    // updated / payment succeeded → mark active with the current period end.
     const periodEndUnix =
       (obj.current_period_end as number | undefined) ??
-      (obj.expires_at as number | undefined);
-    await activatePlan({
-      plan,
-      provider: "stripe",
-      currentPeriodEnd: periodEndUnix ? new Date(periodEndUnix * 1000) : null,
-      stripeCustomerId: (obj.customer as string) || null,
-      stripeSubscriptionId:
-        (obj.subscription as string) || (obj.id as string) || null,
-      billingEmail:
-        (obj.customer_email as string) ||
-        ((obj.customer_details as Record<string, string> | undefined)?.email as string) ||
-        null,
-    });
-  } else if (event.type === "customer.subscription.deleted") {
-    await cancelSubscription();
+      (obj.lines as { data?: { period?: { end?: number } }[] } | undefined)
+        ?.data?.[0]?.period?.end;
+    await activatePlan(
+      {
+        plan: tenant.plan || meta(obj).plan || "STARTER",
+        provider: "stripe",
+        currentPeriodEnd: periodEndUnix ? new Date(periodEndUnix * 1000) : null,
+        stripeCustomerId: customerId,
+        stripeSubscriptionId: subscriptionId,
+        billingEmail: tenant.billingEmail,
+      },
+      db
+    );
   }
 }

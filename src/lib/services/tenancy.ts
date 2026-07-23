@@ -241,5 +241,121 @@ export async function provisionDemo() {
   });
 }
 
+// ─── Real customer tenants (Stripe signup) ──────────────────────
+
+/**
+ * Provision a paying customer's tenant after a successful Stripe checkout:
+ * create the schema, seed just the essentials (a CompanySettings row + an admin
+ * user), record billing on the registry, and stamp the tenant's own schema with
+ * its trialing subscription state. Idempotent by Stripe subscription id, so a
+ * retried webhook returns the existing tenant instead of provisioning twice.
+ *
+ * Note: the customer's self-serve login routing (session → their schema) is a
+ * separate onboarding step; this establishes the tenant + billing record.
+ */
+export async function provisionCustomerTenant(params: {
+  plan: string;
+  billingEmail: string;
+  companyName?: string | null;
+  trialDays: number;
+  stripeCustomerId?: string | null;
+  stripeSubscriptionId?: string | null;
+}) {
+  const cp = controlPlaneClient();
+
+  // Idempotency: a retried webhook must not create a second schema.
+  if (params.stripeSubscriptionId) {
+    const existing = await cp.tenant.findFirst({
+      where: { stripeSubscriptionId: params.stripeSubscriptionId },
+    });
+    if (existing) return existing;
+  }
+
+  const trialEndsAt = new Date(Date.now() + params.trialDays * 86_400_000);
+  const schemaName = `tenant_${randToken()}`;
+  const tenant = await cp.tenant.create({
+    data: {
+      slug: schemaName,
+      schemaName,
+      name: params.companyName ?? null,
+      isDemo: false,
+      status: "PROVISIONING",
+      plan: params.plan,
+      billingEmail: params.billingEmail,
+      trialEndsAt,
+      stripeCustomerId: params.stripeCustomerId ?? null,
+      stripeSubscriptionId: params.stripeSubscriptionId ?? null,
+    },
+  });
+
+  try {
+    await provisionSchema(schemaName);
+    const db = clientForSchema(schemaName);
+    // Essentials: a settings row carrying the trialing subscription state, and a
+    // first admin user (no password yet — set during onboarding).
+    await db.companySettings.upsert({
+      where: { id: "default" },
+      create: {
+        id: "default",
+        name: params.companyName ?? "My Company",
+        plan: params.plan,
+        subscriptionStatus: "TRIALING",
+        trialEndsAt,
+        seats: null,
+        billingEmail: params.billingEmail,
+        billingProvider: "stripe",
+        stripeCustomerId: params.stripeCustomerId ?? undefined,
+        stripeSubscriptionId: params.stripeSubscriptionId ?? undefined,
+      },
+      update: {
+        plan: params.plan,
+        subscriptionStatus: "TRIALING",
+        trialEndsAt,
+        billingProvider: "stripe",
+        billingEmail: params.billingEmail,
+        stripeCustomerId: params.stripeCustomerId ?? undefined,
+        stripeSubscriptionId: params.stripeSubscriptionId ?? undefined,
+      },
+    });
+    await db.user.create({
+      data: {
+        email: params.billingEmail,
+        name: params.billingEmail.split("@")[0] || "Admin",
+        role: "ADMIN",
+        isActive: true,
+      },
+    });
+  } catch (err) {
+    await cp.tenant
+      .update({ where: { id: tenant.id }, data: { status: "DESTROYED" } })
+      .catch(() => undefined);
+    await dropSchema(schemaName).catch(() => undefined);
+    throw err;
+  }
+
+  return cp.tenant.update({
+    where: { id: tenant.id },
+    data: { status: "ACTIVE" },
+  });
+}
+
+/** Resolve a tenant by its Stripe subscription or customer id (for webhooks). */
+export async function tenantByStripe(ids: {
+  subscriptionId?: string | null;
+  customerId?: string | null;
+}) {
+  const cp = controlPlaneClient();
+  if (ids.subscriptionId) {
+    const t = await cp.tenant.findFirst({
+      where: { stripeSubscriptionId: ids.subscriptionId },
+    });
+    if (t) return t;
+  }
+  if (ids.customerId) {
+    return cp.tenant.findFirst({ where: { stripeCustomerId: ids.customerId } });
+  }
+  return null;
+}
+
 // Keep TENANT_TEMPLATE_SQL referenced (used by provisionSchema for real tenants).
 void TENANT_TEMPLATE_SQL;
