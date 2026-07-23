@@ -7004,13 +7004,18 @@ export async function actionUpdateGoalProgress(
 
 export async function actionSwitchDemoUser(formData: FormData): Promise<void> {
   const { demoModeEnabled } = await import("@/lib/auth-core");
-  if (!demoModeEnabled()) {
-    throw new Error("Demo persona switcher is disabled (DEMO_MODE=0)");
-  }
   const { cookies } = await import("next/headers");
   const { DEMO_USER_COOKIE } = await import("@/lib/auth");
-  const userId = ((formData.get("userId") as string) || "").trim();
   const jar = await cookies();
+  // Allowed in the evaluation build (DEMO_MODE on) — or for an anonymous demo
+  // visitor, whose persona lookups resolve inside their own throwaway schema
+  // (the proxy routes them there), so switching roles is sandbox-scoped.
+  const isDemoVisitor =
+    !!jar.get("forge-demo")?.value && !jar.get("forge-session")?.value;
+  if (!demoModeEnabled() && !isDemoVisitor) {
+    throw new Error("Demo persona switcher is disabled (DEMO_MODE=0)");
+  }
+  const userId = ((formData.get("userId") as string) || "").trim();
   if (userId) {
     jar.set(DEMO_USER_COOKIE, userId, {
       path: "/",
