@@ -82,7 +82,12 @@ export function Header({
   const items = notifications?.items ?? [];
 
   return (
-    <header className="flex h-14 items-center justify-between border-b border-border bg-card/60 px-4 backdrop-blur-md">
+    // relative z-40: backdrop-blur creates a stacking context, and without an
+    // explicit z-index the whole header (and its z-50 dropdowns — notifications,
+    // breaks, account) could paint BEHIND page elements that carry their own
+    // z-index (sticky table headers, kanban lanes). z-40 keeps the header above
+    // all page content while staying below dialogs/overlays (z-50+).
+    <header className="relative z-40 flex h-14 items-center justify-between border-b border-border bg-card/60 px-4 backdrop-blur-md">
       <button
         data-tour="global-search"
         onClick={onOpenCommand}
