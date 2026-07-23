@@ -1,5 +1,5 @@
 import { Pool } from "pg";
-import { prisma, clientForSchema, isValidSchemaName } from "@/lib/db";
+import { controlPlaneClient, clientForSchema, isValidSchemaName } from "@/lib/db";
 import {
   TENANT_TEMPLATE_SQL,
   TENANT_TABLES_SQL,
@@ -74,7 +74,7 @@ export async function createTenant(params: {
   const isDemo = !!params.isDemo;
   const schemaName = `${isDemo ? "demo" : "tenant"}_${randToken()}`;
 
-  const tenant = await prisma.tenant.create({
+  const tenant = await controlPlaneClient().tenant.create({
     data: {
       slug: schemaName,
       schemaName,
@@ -90,12 +90,12 @@ export async function createTenant(params: {
   try {
     await provisionSchema(schemaName);
   } catch (err) {
-    await prisma.tenant.update({ where: { id: tenant.id }, data: { status: "DESTROYED" } });
+    await controlPlaneClient().tenant.update({ where: { id: tenant.id }, data: { status: "DESTROYED" } });
     await dropSchema(schemaName).catch(() => undefined);
     throw err;
   }
 
-  return prisma.tenant.update({
+  return controlPlaneClient().tenant.update({
     where: { id: tenant.id },
     data: { status: "ACTIVE" },
   });
@@ -104,13 +104,13 @@ export async function createTenant(params: {
 /** Look a tenant up by its schema (the routing key). */
 export async function getTenantBySchema(schema: string) {
   if (!isValidSchemaName(schema)) return null;
-  return prisma.tenant.findUnique({ where: { schemaName: schema } });
+  return controlPlaneClient().tenant.findUnique({ where: { schemaName: schema } });
 }
 
 /** Bump a demo's activity timestamp so the idle sweep doesn't reap it mid-use. */
 export async function touchTenant(schema: string): Promise<void> {
   if (!isValidSchemaName(schema)) return;
-  await prisma.tenant
+  await controlPlaneClient().tenant
     .updateMany({ where: { schemaName: schema }, data: { lastActiveAt: new Date() } })
     .catch(() => undefined);
 }
@@ -118,7 +118,7 @@ export async function touchTenant(schema: string): Promise<void> {
 /** Destroy a tenant: drop its schema and mark the registry row destroyed. */
 export async function destroyTenant(schema: string): Promise<void> {
   await dropSchema(schema);
-  await prisma.tenant
+  await controlPlaneClient().tenant
     .updateMany({ where: { schemaName: schema }, data: { status: "DESTROYED" } })
     .catch(() => undefined);
 }
@@ -126,7 +126,7 @@ export async function destroyTenant(schema: string): Promise<void> {
 /** Reap demo tenants idle longer than maxIdleMinutes. Returns how many were destroyed. */
 export async function sweepIdleDemos(maxIdleMinutes = 60): Promise<number> {
   const cutoff = new Date(Date.now() - maxIdleMinutes * 60_000);
-  const stale = await prisma.tenant.findMany({
+  const stale = await controlPlaneClient().tenant.findMany({
     where: { isDemo: true, status: "ACTIVE", lastActiveAt: { lt: cutoff } },
     select: { schemaName: true },
     take: 50,
@@ -217,20 +217,25 @@ export async function provisionDemo() {
       `Demo template schema "${DEMO_TEMPLATE_SCHEMA}" is missing — run scripts/build-demo-template.mjs`
     );
   }
+  // Opportunistic cleanup: each new demo reaps any idle ones, so stale schemas
+  // get collected from organic traffic even if scheduled cron runs infrequently.
+  const maxIdle = Number(process.env.DEMO_IDLE_MINUTES) || 60;
+  void sweepIdleDemos(maxIdle).catch(() => undefined);
+
   const schemaName = `demo_${randToken()}`;
-  const tenant = await prisma.tenant.create({
+  const tenant = await controlPlaneClient().tenant.create({
     data: { slug: schemaName, schemaName, isDemo: true, status: "PROVISIONING" },
   });
   try {
     await cloneSchema(DEMO_TEMPLATE_SCHEMA, schemaName);
   } catch (err) {
-    await prisma.tenant
+    await controlPlaneClient().tenant
       .update({ where: { id: tenant.id }, data: { status: "DESTROYED" } })
       .catch(() => undefined);
     await dropSchema(schemaName).catch(() => undefined);
     throw err;
   }
-  return prisma.tenant.update({
+  return controlPlaneClient().tenant.update({
     where: { id: tenant.id },
     data: { status: "ACTIVE" },
   });

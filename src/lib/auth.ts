@@ -25,6 +25,33 @@ export async function getCurrentUser(roleHint?: string) {
     /* outside request scope */
   }
 
+  // 1b. Anonymous demo visitor: signed in as the demo schema's admin. `prisma`
+  // already routes to that schema (see currentDemoSchema in db.ts), so a plain
+  // user lookup resolves against the demo's own seeded users — never public.
+  try {
+    const jar = await cookies();
+    const demoSchema = jar.get("forge-demo")?.value;
+    const isValidDemo =
+      !!demoSchema &&
+      demoSchema !== "demo_template" &&
+      /^demo_[a-z0-9]{6,40}$/.test(demoSchema) &&
+      !jar.get("forge-session")?.value;
+    if (isValidDemo) {
+      // Keep the demo alive: bump its activity stamp so the idle sweep doesn't
+      // reap it out from under an active visitor. Fire-and-forget, control-plane
+      // scoped (the Tenant registry lives in public, not the demo schema).
+      void import("./services/tenancy")
+        .then((m) => m.touchTenant(demoSchema))
+        .catch(() => undefined);
+      const admin =
+        (await prisma.user.findFirst({ where: { role: "ADMIN", isActive: true } })) ??
+        (await prisma.user.findFirst({ where: { isActive: true } }));
+      if (admin) return admin;
+    }
+  } catch {
+    /* outside request scope */
+  }
+
   // 2. Demo fallback (evaluation / test-drive) — off when DEMO_MODE=0
   if (process.env.DEMO_MODE === "0") return null;
 

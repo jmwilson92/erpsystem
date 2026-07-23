@@ -4,7 +4,7 @@ import {
   actionStartTestDrive,
   actionEndTestDrive,
 } from "@/app/actions";
-import { SANDBOX_COOKIE } from "@/lib/db";
+import { DEMO_COOKIE } from "@/lib/db";
 import {
   Factory,
   FlaskConical,
@@ -60,7 +60,7 @@ export default async function DemoLandingPage({
   const sp = searchParams ? await searchParams : {};
   const ended = sp.ended === "1";
   const jar = await cookies();
-  const inSandbox = Boolean(jar.get(SANDBOX_COOKIE)?.value);
+  const inSandbox = Boolean(jar.get(DEMO_COOKIE)?.value);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
