@@ -58,3 +58,10 @@ prisma/dev.db-wal
 prisma/dev.db-shm
 prisma/sandboxes/
 backups/
+
+# E2E generated fixtures + local harness (env-specific, regenerate per machine)
+e2e/crawl-urls.json
+e2e/tenant-fixture.json
+playwright.local.config.ts
+/playwright-report/
+/test-results/
