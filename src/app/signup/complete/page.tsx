@@ -96,24 +96,44 @@ export default async function SignupCompletePage({
                 </span>
               </Link>
 
-              <a
-                href="mailto:hello@forge-rp.live?subject=ForgeRP%20desktop%20installer"
-                className="group flex flex-col rounded-2xl border border-slate-800 bg-slate-950/40 p-6 transition-colors hover:border-teal-500/40"
-              >
-                <MonitorDown className="h-6 w-6 text-slate-400" />
-                <h2 className="mt-3 font-semibold text-slate-100">
-                  Run it on your own machine
-                </h2>
-                <p className="mt-1.5 flex-1 text-sm text-slate-400">
-                  Prefer the downloadable version? Your data stays entirely on
-                  your hardware — request the installer and we&apos;ll get it to
-                  you with setup instructions.
-                </p>
-                <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-slate-300">
-                  Request the installer{" "}
-                  <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-                </span>
-              </a>
+              {(() => {
+                const installer = process.env.DESKTOP_DOWNLOAD_URL;
+                const cardClass =
+                  "group flex flex-col rounded-2xl border border-slate-800 bg-slate-950/40 p-6 transition-colors hover:border-teal-500/40";
+                const body = (
+                  <>
+                    <MonitorDown className="h-6 w-6 text-slate-400" />
+                    <h2 className="mt-3 font-semibold text-slate-100">
+                      Run it on your own machine
+                    </h2>
+                    <p className="mt-1.5 flex-1 text-sm text-slate-400">
+                      Prefer the downloadable version? Your data stays entirely on
+                      your hardware.
+                      {installer
+                        ? " The installer download starts as soon as you click."
+                        : " The desktop installer is on the way — request it and we’ll send it with setup steps."}
+                    </p>
+                    <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-slate-300">
+                      {installer ? "Download the desktop app" : "Request the installer"}{" "}
+                      <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+                    </span>
+                  </>
+                );
+                // When the installer URL is configured, clicking auto-starts the
+                // download; until then, fall back to requesting it.
+                return installer ? (
+                  <a href={installer} download className={cardClass}>
+                    {body}
+                  </a>
+                ) : (
+                  <a
+                    href="mailto:hello@forge-rp.live?subject=ForgeRP%20desktop%20installer"
+                    className={cardClass}
+                  >
+                    {body}
+                  </a>
+                );
+              })()}
             </div>
           ) : failed ? (
             <div className="mx-auto mt-8 flex max-w-lg items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3.5 text-sm text-amber-200">
