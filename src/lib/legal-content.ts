@@ -3,8 +3,8 @@
  */
 
 export const LEGAL_COMPANY = "ForgeRP";
-export const LEGAL_ENTITY = "[Your Legal Entity, LLC]";
-export const LEGAL_JURISDICTION = "[State], United States";
+export const LEGAL_ENTITY = "ForgeRP, LLC";
+export const LEGAL_JURISDICTION = "California, United States";
 export const LEGAL_CONTACT = "legal@forge-rp.live";
 export const PRIVACY_CONTACT = "privacy@forge-rp.live";
 export const LAST_UPDATED = "2026-07-23";
