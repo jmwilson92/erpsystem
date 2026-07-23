@@ -17,6 +17,8 @@ import {
   Landmark,
 } from "lucide-react";
 import { PLANS } from "@/lib/services/subscription";
+import { SiteHeader } from "./site-header";
+import { SiteFooter } from "./site-footer";
 
 const FEATURES = [
   {
@@ -76,33 +78,7 @@ export function LandingPage() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
-      {/* Nav */}
-      <header className="sticky top-0 z-40 border-b border-slate-800/70 bg-slate-950/80 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3.5">
-          <Link href="/" className="flex items-center gap-2 font-semibold tracking-tight">
-            <span className="grid h-7 w-7 place-items-center rounded-lg bg-teal-500 text-slate-950">
-              <Factory className="h-4 w-4" />
-            </span>
-            ForgeRP
-          </Link>
-          <nav className="hidden items-center gap-6 text-sm text-slate-300 sm:flex">
-            <a href="#features" className="hover:text-white">Features</a>
-            <a href="#pricing" className="hover:text-white">Pricing</a>
-            <Link href="/demo" className="hover:text-white">Live demo</Link>
-          </nav>
-          <div className="flex items-center gap-2">
-            <Link href="/login" className="rounded-lg px-3 py-1.5 text-sm text-slate-300 hover:text-white">
-              Sign in
-            </Link>
-            <Link
-              href="/signup"
-              className="rounded-lg bg-teal-500 px-3.5 py-1.5 text-sm font-medium text-slate-950 hover:bg-teal-400"
-            >
-              Start free
-            </Link>
-          </div>
-        </div>
-      </header>
+      <SiteHeader />
 
       {/* Hero */}
       <section className="relative overflow-hidden">
@@ -195,14 +171,16 @@ export function LandingPage() {
             {paid.map((p) => (
               <div
                 key={p.key}
-                className={`flex flex-col rounded-2xl border p-6 ${
+                className={`relative flex flex-col rounded-2xl border p-6 ${
                   p.key === "GROWTH"
                     ? "border-teal-500/60 bg-teal-500/[0.06] ring-1 ring-teal-500/30"
                     : "border-slate-800 bg-slate-950/40"
                 }`}
               >
                 {p.key === "GROWTH" && (
-                  <span className="mb-3 w-fit rounded-full bg-teal-500 px-2 py-0.5 text-[10px] font-semibold uppercase text-slate-950">
+                  // Absolutely positioned in the corner so it doesn't push this
+                  // card's content down — every plan's CTA stays aligned.
+                  <span className="absolute right-4 top-4 rounded-full bg-teal-500 px-2 py-0.5 text-[10px] font-semibold uppercase text-slate-950">
                     Most popular
                   </span>
                 )}
@@ -214,8 +192,8 @@ export function LandingPage() {
                 <p className="mt-1 text-xs text-slate-500">Up to {p.seats} users</p>
                 <p className="mt-3 text-sm text-slate-400">{p.blurb}</p>
                 <Link
-                  href="/signup"
-                  className={`mt-6 inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2.5 text-sm font-semibold ${
+                  href={`/signup?plan=${p.key.toLowerCase()}`}
+                  className={`mt-auto inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2.5 text-sm font-semibold ${
                     p.key === "GROWTH"
                       ? "bg-teal-500 text-slate-950 hover:bg-teal-400"
                       : "border border-slate-700 text-slate-100 hover:border-teal-500/50"
@@ -268,24 +246,7 @@ export function LandingPage() {
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="border-t border-slate-800/70">
-        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-6 py-8 text-sm text-slate-500 sm:flex-row">
-          <div className="flex items-center gap-2">
-            <Factory className="h-4 w-4 text-teal-400" />
-            <span>© {new Date().getFullYear()} ForgeRP</span>
-          </div>
-          <nav className="flex flex-wrap items-center gap-x-5 gap-y-2">
-            <Link href="/legal/terms-of-service" className="hover:text-slate-300">Terms</Link>
-            <Link href="/legal/privacy-policy" className="hover:text-slate-300">Privacy</Link>
-            <Link href="/legal/cookie-policy" className="hover:text-slate-300">Cookies</Link>
-            <Link href="/legal/refund-policy" className="hover:text-slate-300">Refunds</Link>
-            <Link href="/legal" className="hover:text-slate-300">All legal</Link>
-            <Link href="/demo" className="hover:text-slate-300">Demo</Link>
-            <Link href="/login" className="hover:text-slate-300">Sign in</Link>
-          </nav>
-        </div>
-      </footer>
+      <SiteFooter />
     </div>
   );
 }

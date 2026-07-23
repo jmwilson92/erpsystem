@@ -7404,10 +7404,19 @@ export async function actionStartTestDrive(): Promise<void> {
   const { DEMO_COOKIE } = await import("@/lib/db");
   const { provisionDemo } = await import("@/lib/services/tenancy");
   // Clone a fresh throwaway tenant schema from the seeded demo template, then
-  // route this visitor to it via the demo cookie.
-  const tenant = await provisionDemo();
+  // route this visitor to it via the demo cookie. If provisioning fails (e.g.
+  // the demo template hasn't been built on this database yet), send the visitor
+  // back to /demo with a friendly notice instead of crashing to an error page.
+  let schemaName: string;
+  try {
+    const tenant = await provisionDemo();
+    schemaName = tenant.schemaName;
+  } catch (err) {
+    console.error("[demo] provisionDemo failed:", err);
+    redirect("/demo?error=warming");
+  }
   const jar = await cookies();
-  jar.set(DEMO_COOKIE, tenant.schemaName, {
+  jar.set(DEMO_COOKIE, schemaName, {
     path: "/",
     httpOnly: true,
     sameSite: "lax",

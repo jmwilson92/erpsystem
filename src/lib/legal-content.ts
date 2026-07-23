@@ -1,17 +1,13 @@
 /**
- * Legal document content for the hosted service. These are solid, tailored
- * starting templates — NOT a substitute for review by a licensed attorney,
- * especially the DPA, export-control (ITAR/EAR) terms, and anything touching
- * regulated customer data. Replace bracketed placeholders and the contact/
- * jurisdiction details before going live.
+ * Legal document content for the hosted service.
  */
 
 export const LEGAL_COMPANY = "ForgeRP";
 export const LEGAL_ENTITY = "[Your Legal Entity, LLC]";
 export const LEGAL_JURISDICTION = "[State], United States";
-export const LEGAL_CONTACT = "legal@forgerp.example";
-export const PRIVACY_CONTACT = "privacy@forgerp.example";
-export const LAST_UPDATED = "2026-07-22";
+export const LEGAL_CONTACT = "legal@forge-rp.live";
+export const PRIVACY_CONTACT = "privacy@forge-rp.live";
+export const LAST_UPDATED = "2026-07-23";
 
 export type LegalSection = { heading: string; paragraphs: string[] };
 export type LegalDoc = {
@@ -43,14 +39,14 @@ export const LEGAL_DOCS: LegalDoc[] = [
       {
         heading: "3. Trials and beta",
         paragraphs: [
-          "Free trials run for the stated period (currently 30 days) with the features described at signup. Beta or early-access features are provided on an as-is basis and may change or be withdrawn. Keep independent records of anything business-critical.",
+          "Free trials run for the stated period (currently 45 days) with the features described at signup. Beta or early-access features are provided on an as-is basis and may change or be withdrawn. Keep independent records of anything business-critical.",
         ],
       },
       {
         heading: "4. Fees, billing, and refunds",
         paragraphs: [
           "Paid plans are billed annually in advance based on your selected tier and organization size. Unless you cancel before the trial ends, the payment method on file is charged for the first annual term when the trial concludes.",
-          "You may request a full refund of the initial annual charge within 30 days of that charge. Renewals are not pro-rated or refundable except where required by law. Fees are exclusive of taxes, which you are responsible for.",
+          "You may request a full refund of the initial annual charge within 15 days of that charge. Renewals are not pro-rated or refundable except where required by law. Fees are exclusive of taxes, which you are responsible for.",
         ],
       },
       {
@@ -215,17 +211,18 @@ export const LEGAL_DOCS: LegalDoc[] = [
       {
         heading: "Current subprocessors",
         paragraphs: [
-          "Hosting/infrastructure: [your cloud provider] — application and database hosting (United States).",
+          "Hosting/application: Vercel — application hosting and delivery (United States).",
+          "Database hosting: Supabase — managed PostgreSQL storing your instance's data (United States).",
           "Payment processing: Stripe — subscription billing and card processing. Card data is handled by Stripe; we do not store full card numbers.",
-          "Email delivery: [your email/SMTP provider] — transactional and notification email.",
+          "Email delivery: Resend — transactional and notification email (account, invite, and password messages).",
           "Bank connectivity (optional, if you enable it): Plaid — read-only bank transaction feeds you connect.",
-          "Text-to-speech (optional, if you enable guided-tour voice): the TTS provider you configure (e.g., xAI/Grok or OpenAI).",
+          "AI voice / assistance (optional, if you enable guided-tour voice or AI features): xAI (Grok) — processes the prompts and text you submit to those features.",
         ],
       },
       {
         heading: "Self-hosted deployments",
         paragraphs: [
-          "If you run a self-hosted or desktop deployment, data stays in your environment and these subprocessors do not apply except for any integrations you choose to enable.",
+          "If you run a self-hosted or desktop deployment, your business data stays in your environment and the hosting, database, email, and payment subprocessors above do not apply. Two optional integrations still reach external providers if you enable them: Plaid (for bank-connection feeds) and xAI/Grok (for AI voice or assistance features). Leave those disabled and no third party processes your data.",
         ],
       },
     ],
@@ -253,8 +250,8 @@ export const LEGAL_DOCS: LegalDoc[] = [
       {
         heading: "Trials and the first charge",
         paragraphs: [
-          "The 30-day trial is free and requires no payment to start using. When the trial ends, the annual plan you selected is charged to your payment method.",
-          "You may request a full refund of that initial annual charge within 30 days of the charge — contact billing and we'll process it. After 30 days, the annual term is non-refundable except where required by law.",
+          "The 45-day trial is free and requires no payment to start using. When the trial ends, the annual plan you selected is charged to your payment method.",
+          "You may request a full refund of that initial annual charge within 15 days of the charge — contact billing and we'll process it. After 15 days, the annual term is non-refundable except where required by law.",
         ],
       },
       {

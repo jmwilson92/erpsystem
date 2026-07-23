@@ -5,6 +5,7 @@ import {
   actionEndTestDrive,
 } from "@/app/actions";
 import { DEMO_COOKIE } from "@/lib/db";
+import { MarketingShell } from "@/components/marketing/marketing-shell";
 import {
   Factory,
   FlaskConical,
@@ -59,11 +60,12 @@ export default async function DemoLandingPage({
 }) {
   const sp = searchParams ? await searchParams : {};
   const ended = sp.ended === "1";
+  const warming = sp.error === "warming";
   const jar = await cookies();
   const inSandbox = Boolean(jar.get(DEMO_COOKIE)?.value);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <MarketingShell>
       <div className="relative overflow-hidden">
         <div
           className="pointer-events-none absolute inset-0"
@@ -95,6 +97,12 @@ export default async function DemoLandingPage({
             <div className="mx-auto mt-6 max-w-md rounded-xl border border-teal-500/30 bg-teal-500/10 px-4 py-3 text-sm text-teal-200">
               Thanks for taking the test drive! Your sandbox is gone — start a
               fresh one anytime.
+            </div>
+          )}
+          {warming && (
+            <div className="mx-auto mt-6 max-w-md rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+              The demo is warming up and isn&apos;t quite ready yet. Please try
+              again in a few minutes.
             </div>
           )}
 
@@ -182,15 +190,15 @@ export default async function DemoLandingPage({
           </div>
           <p className="mt-6 text-sm text-slate-400">
             Like what you see?{" "}
-            <a
-              href="mailto:jerame.wilson@gmail.com?subject=ForgeRP%20subscription"
+            <Link
+              href="/signup"
               className="font-semibold text-teal-400 hover:underline"
             >
-              Get in touch to subscribe →
-            </a>
+              Start your free trial →
+            </Link>
           </p>
         </div>
       </div>
-    </div>
+    </MarketingShell>
   );
 }
