@@ -7,6 +7,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { SandboxBanner } from "@/components/layout/sandbox-banner";
 import { TrialBanner } from "@/components/layout/trial-banner";
 import { FlashToast } from "@/components/layout/flash-toast";
+import { CookieBanner } from "@/components/marketing/cookie-banner";
 import { getSubscriptionState } from "@/lib/services/subscription";
 import { getCurrentUser, listUsers } from "@/lib/auth";
 import { demoModeEnabled } from "@/lib/auth-core";
@@ -103,6 +104,7 @@ export default async function RootLayout({
           suppressHydrationWarning
         >
           {children}
+          <CookieBanner />
         </body>
       </html>
     );
@@ -201,6 +203,7 @@ export default async function RootLayout({
           )}
           {children}
         </AppShell>
+        <CookieBanner />
       </body>
     </html>
   );
