@@ -145,6 +145,15 @@ async function currentClient(): Promise<PrismaClient> {
   return schema ? clientForSchema(schema) : getDefaultClient();
 }
 
+/**
+ * The schema name the current request is routed to ("public" for the dogfood
+ * instance, or a tenant/demo schema). Lets control-plane bookkeeping (e.g. the
+ * invite lookup) record which schema a per-request write landed in.
+ */
+export async function currentRequestSchema(): Promise<string> {
+  return (await resolveSchema()) ?? "public";
+}
+
 type AnyFn = (...args: unknown[]) => unknown;
 
 /**

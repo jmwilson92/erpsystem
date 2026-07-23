@@ -4,6 +4,8 @@ import { getCurrentUser, ROLES } from "@/lib/auth";
 import { getPayrollPolicy, parseHolidays } from "@/lib/services/timesheets";
 import { getReviewPolicy, parseReviewQuestions } from "@/lib/services/review-cycles";
 import { PageHeader } from "@/components/shared/page-header";
+import { HolidayPicker } from "@/components/accounting/holiday-picker";
+import { PeopleImport } from "@/components/setup/people-import";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -249,15 +251,10 @@ export default async function SetupWizardPage({
                   <Input name="sickHoursPerYear" type="number" step={1} defaultValue={payroll.sickHoursPerYear} />
                 </label>
               </div>
-              <label className="text-xs text-slate-500">
-                Company holidays (one per line: YYYY-MM-DD Name)
-                <textarea
-                  name="holidays"
-                  rows={6}
-                  defaultValue={holidayText}
-                  className="mt-1 w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 font-mono text-xs text-slate-200"
-                />
-              </label>
+              <div className="text-xs text-slate-500">
+                <p className="mb-1.5">Company holidays</p>
+                <HolidayPicker initialText={holidayText} />
+              </div>
               <div className="flex gap-2">
                 <Button type="submit" size="sm">
                   Save pay & time policy
@@ -322,18 +319,23 @@ export default async function SetupWizardPage({
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Add your people</CardTitle>
             <p className="text-xs text-slate-500">
-              Managers drive approvals (PTO, timecards, reviews). Add leaders
-              first, then their reports. Fine-grained access lives in Roles &
-              Permissions. Have a spreadsheet already?{" "}
-              <Link
-                href="/admin/import"
-                className="text-teal-400 hover:underline"
-              >
-                Bulk-import people, items, customers, and suppliers →
+              The fastest way is a spreadsheet — download the template, fill it
+              in, and upload to add everyone at once. Or add people one at a time
+              below. Managers drive approvals (PTO, timecards, reviews), so
+              include a manager for each report. Fine-grained access lives in
+              Roles &amp; Permissions. Need items, customers, or suppliers too?{" "}
+              <Link href="/admin/import" className="text-teal-400 hover:underline">
+                Full data import →
               </Link>
             </p>
           </CardHeader>
           <CardContent className="space-y-4">
+            <PeopleImport />
+            <div className="flex items-center gap-3 text-[11px] uppercase tracking-wide text-slate-600">
+              <span className="h-px flex-1 bg-slate-800" />
+              or add one at a time
+              <span className="h-px flex-1 bg-slate-800" />
+            </div>
             <form
               action={actionWizardAddPerson}
               className="grid gap-2 rounded-lg border border-slate-800 p-3 sm:grid-cols-2"
