@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { CheckCircle2, Factory } from "lucide-react";
+import { MarketingShell } from "@/components/marketing/marketing-shell";
 import { TRIAL_DAYS } from "@/lib/services/subscription";
 
 export const dynamic = "force-dynamic";
@@ -12,8 +13,9 @@ export const dynamic = "force-dynamic";
  */
 export default function SignupCompletePage() {
   return (
-    <div className="grid min-h-screen place-items-center bg-slate-950 px-6 text-slate-100">
-      <div className="w-full max-w-lg text-center">
+    <MarketingShell>
+      <div className="grid place-items-center px-6 py-20">
+        <div className="w-full max-w-lg text-center">
         <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-teal-500/15 text-teal-400">
           <CheckCircle2 className="h-8 w-8" />
         </div>
@@ -42,7 +44,8 @@ export default function SignupCompletePage() {
           A receipt is on its way from Stripe. Need a refund? You have 15 days after the
           first charge.
         </p>
+        </div>
       </div>
-    </div>
+    </MarketingShell>
   );
 }

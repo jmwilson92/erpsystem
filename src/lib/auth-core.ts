@@ -18,7 +18,13 @@ import {
   timingSafeEqual,
   createHash,
 } from "node:crypto";
-import { prisma, clientForSchema, controlPlaneClient, TENANT_COOKIE } from "./db";
+import {
+  prisma,
+  clientForSchema,
+  controlPlaneClient,
+  currentRequestSchema,
+  TENANT_COOKIE,
+} from "./db";
 import type { PrismaClient } from "@prisma/client";
 import { cookies } from "next/headers";
 import { logAudit } from "./audit";
@@ -364,7 +370,19 @@ export async function createInvite(params: {
   const token = randomBytes(24).toString("hex");
   const kind = params.kind || "INVITE";
 
-  await prisma.userInvite.create({
+  // Which schema owns this invite? An admin inviting from inside a tenant is
+  // already routed there; a logged-out password reset resolves the tenant from
+  // the login directory by email. Otherwise it's a public/dogfood invite.
+  let schemaName = await currentRequestSchema();
+  if (schemaName === "public") {
+    const dir = await controlPlaneClient()
+      .tenantLogin.findUnique({ where: { email } })
+      .catch(() => null);
+    if (dir) schemaName = dir.schemaName;
+  }
+  const db = dbForSchema(schemaName);
+
+  await db.userInvite.create({
     data: {
       tokenHash: sha256(token),
       email,
@@ -376,11 +394,17 @@ export async function createInvite(params: {
     },
   });
 
+  // Record which schema this invite lives in so the logged-out accept flow can
+  // find it (the invitee has no tenant cookie).
+  await controlPlaneClient()
+    .inviteLookup.create({ data: { tokenHash: sha256(token), schemaName } })
+    .catch(() => undefined);
+
   const link = `${params.baseUrl || ""}/invite/${token}`;
   // Send through the email center (demo transport logs it; SMTP delivers)
   try {
     const { sendEmail } = await import("./services/email");
-    const company = await prisma.companySettings.findUnique({
+    const company = await db.companySettings.findUnique({
       where: { id: "default" },
     });
     await sendEmail({
@@ -417,31 +441,55 @@ export async function createInvite(params: {
   return { token, link };
 }
 
+/** Which schema holds this invite token (from the control-plane lookup). */
+async function inviteSchema(token: string): Promise<string> {
+  const lookup = await controlPlaneClient()
+    .inviteLookup.findUnique({ where: { tokenHash: sha256(token) } })
+    .catch(() => null);
+  return lookup?.schemaName || "public";
+}
+
+/** A client bound to the schema that holds this invite (public or a tenant). */
+function dbForSchema(schema: string) {
+  return schema === "public" ? controlPlaneClient() : clientForSchema(schema);
+}
+
 export async function getInviteByToken(token: string) {
-  const invite = await prisma.userInvite.findUnique({
-    where: { tokenHash: sha256(token) },
-  });
+  const schema = await inviteSchema(token);
+  const invite = await dbForSchema(schema)
+    .userInvite.findUnique({ where: { tokenHash: sha256(token) } })
+    .catch(() => null);
   if (!invite || invite.acceptedAt || invite.expiresAt < new Date()) {
     return null;
   }
   return invite;
 }
 
-/** Accept an invite / reset: set the password, activate, log them in. */
+/**
+ * Accept an invite / reset: set the password, activate, and log them in — all
+ * inside the schema that owns the invite. For a tenant invite this creates the
+ * user in the tenant's schema, registers their login in the directory, and pins
+ * their session to that tenant, so a teammate an admin invites can actually sign
+ * in to that instance.
+ */
 export async function acceptInvite(params: {
   token: string;
   password: string;
   name?: string;
 }) {
-  const invite = await getInviteByToken(params.token);
-  if (!invite) throw new Error("Invite link is invalid or has expired");
+  const schema = await inviteSchema(params.token);
+  const db = dbForSchema(schema);
+  const invite = await db.userInvite.findUnique({
+    where: { tokenHash: sha256(params.token) },
+  });
+  if (!invite || invite.acceptedAt || invite.expiresAt < new Date()) {
+    throw new Error("Invite link is invalid or has expired");
+  }
   assertPasswordStrength(params.password);
 
-  const existing = await prisma.user.findFirst({
-    where: { email: invite.email },
-  });
+  const existing = await db.user.findFirst({ where: { email: invite.email } });
   const user = existing
-    ? await prisma.user.update({
+    ? await db.user.update({
         where: { id: existing.id },
         data: {
           passwordHash: hashPassword(params.password),
@@ -451,7 +499,7 @@ export async function acceptInvite(params: {
           ...(params.name?.trim() ? { name: params.name.trim() } : {}),
         },
       })
-    : await prisma.user.create({
+    : await db.user.create({
         data: {
           email: invite.email,
           name: params.name?.trim() || invite.name || invite.email.split("@")[0],
@@ -460,11 +508,25 @@ export async function acceptInvite(params: {
         },
       });
 
-  await prisma.userInvite.update({
+  await db.userInvite.update({
     where: { id: invite.id },
     data: { acceptedAt: new Date() },
   });
-  await createSession(user.id);
+  await controlPlaneClient()
+    .inviteLookup.deleteMany({ where: { tokenHash: sha256(params.token) } })
+    .catch(() => undefined);
+
+  if (schema === "public") {
+    await createSession(user.id);
+  } else {
+    // Register the teammate's login and sign them into their tenant.
+    const tenant = await controlPlaneClient()
+      .tenant.findUnique({ where: { schemaName: schema } })
+      .catch(() => null);
+    const { registerTenantLogin } = await import("./services/tenancy");
+    await registerTenantLogin(invite.email, schema, tenant?.id || "");
+    await createTenantSession(user.id, schema);
+  }
   await logAudit({
     entityType: "User",
     entityId: user.id,

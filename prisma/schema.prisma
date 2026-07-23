@@ -5105,3 +5105,14 @@ model TenantLogin {
 
   @@index([schemaName])
 }
+
+/// Control-plane index (public schema only): maps an invite/reset token to the
+/// tenant schema whose UserInvite table holds it. A logged-out invitee clicking
+/// an invite link has no tenant cookie, so this is how the accept flow finds the
+/// right schema. Tokens are stored only as hashes.
+model InviteLookup {
+  id         String   @id @default(cuid())
+  tokenHash  String   @unique
+  schemaName String
+  createdAt  DateTime @default(now())
+}

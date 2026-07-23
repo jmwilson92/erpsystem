@@ -98,7 +98,10 @@ export default async function RootLayout({
   // visitors, and the signup flow. Signed-in users on "/" fall through to the
   // dashboard below.
   const isBareMarketing =
-    pathname.startsWith("/signup") || (pathname === "/" && !currentUser);
+    pathname.startsWith("/signup") ||
+    pathname.startsWith("/demo") ||
+    pathname.startsWith("/legal") ||
+    (pathname === "/" && !currentUser);
   if (isBareMarketing) {
     return (
       <html lang="en" className="dark" suppressHydrationWarning>

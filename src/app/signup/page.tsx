@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { Factory, Check, ArrowLeft } from "lucide-react";
+import { Check } from "lucide-react";
+import { MarketingShell } from "@/components/marketing/marketing-shell";
 import { PLANS, TRIAL_DAYS } from "@/lib/services/subscription";
 import { launchPromoActive, stripeEnabled } from "@/lib/services/stripe";
 import { actionStartTrial } from "./actions";
@@ -34,22 +35,8 @@ export default async function SignupPage({
   const defaultPlan = selected && selected.key !== "ENTERPRISE" ? selected.key : "STARTER";
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
-      <header className="border-b border-slate-800/70">
-        <div className="mx-auto flex max-w-4xl items-center justify-between px-6 py-3.5">
-          <Link href="/" className="flex items-center gap-2 font-semibold">
-            <span className="grid h-7 w-7 place-items-center rounded-lg bg-teal-500 text-slate-950">
-              <Factory className="h-4 w-4" />
-            </span>
-            ForgeRP
-          </Link>
-          <Link href="/" className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-white">
-            <ArrowLeft className="h-4 w-4" /> Back
-          </Link>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-2xl px-6 py-16">
+    <MarketingShell>
+      <div className="mx-auto max-w-2xl px-6 py-16">
         <h1 className="text-3xl font-bold tracking-tight">Start your free trial</h1>
         <p className="mt-3 text-slate-400">
           {selected
@@ -173,7 +160,7 @@ export default async function SignupPage({
           <Link href="/legal/privacy-policy" className="text-slate-400 hover:underline">Privacy Policy</Link>.
           Free for {TRIAL_DAYS} days.
         </p>
-      </main>
-    </div>
+      </div>
+    </MarketingShell>
   );
 }
