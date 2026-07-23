@@ -27,11 +27,14 @@ const globalForPrisma = globalThis as unknown as {
 function createClient() {
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) {
-    throw new Error(
-      "DATABASE_URL is not set — ForgeRP needs a PostgreSQL connection string"
+    // Don't hard-fail here: `next build` imports this module with no database
+    // configured. The pg pool connects lazily, so a genuine misconfiguration
+    // surfaces as a clear connection error on the first query at runtime.
+    console.warn(
+      "[db] DATABASE_URL is not set — ForgeRP needs a PostgreSQL connection string at runtime"
     );
   }
-  const adapter = new PrismaPg({ connectionString });
+  const adapter = new PrismaPg({ connectionString: connectionString ?? "" });
   return new PrismaClient({ adapter });
 }
 

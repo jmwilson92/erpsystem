@@ -11,7 +11,9 @@
 services:
   forgerp:
     environment:
-      DATABASE_URL: "file:/data/forgerp.db"
+      # DATABASE_URL / DIRECT_URL are inherited from docker-compose.yml (the
+      # bundled Postgres service). Set POSTGRES_PASSWORD in .env for production,
+      # and rely on Postgres backups (pg_dump / volume snapshot) for durability.
       # Login required, no persona switcher
       DEMO_MODE: "0"
       ALLOW_DEMO_IN_PRODUCTION: "0"
