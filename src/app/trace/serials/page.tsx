@@ -34,7 +34,7 @@ export default async function SerialsListPage({
           Search
         </Button>
       </form>
-      <Card className="border-slate-800">
+      <Card className="border-slate-800" data-tour="serial-list">
         <CardContent className="p-0">
           <table className="w-full text-sm">
             <thead className="bg-slate-900/80 text-xs uppercase text-slate-500">

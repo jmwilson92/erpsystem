@@ -174,7 +174,7 @@ export default async function ItemsPage({
         </div>
       </form>
 
-      <div className="overflow-x-auto rounded-xl border border-slate-800">
+      <div className="overflow-x-auto rounded-xl border border-slate-800" data-tour="items-table">
         <table className="w-full min-w-[900px] text-sm">
           <thead className="bg-slate-900/90 text-[10px] uppercase tracking-wide text-slate-500">
             <tr>

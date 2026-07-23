@@ -6,7 +6,10 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  // PostgreSQL (Supabase in production). In Prisma 7 the connection URL lives
+  // in prisma.config.ts (for the CLI/Migrate) and in the driver adapter in
+  // src/lib/db.ts (for the app runtime) — not here.
+  provider = "postgresql"
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -2533,6 +2536,17 @@ model MrbCase {
   boardDate       DateTime?
   chairId         String?
   notes           String?
+  /// Calibration tool / gage suspected in this nonconformance (QualityItem id)
+  calToolId          String?
+  calToolIdentifier  String?
+  /// PENDING | PULL_FOR_RECAL | NO_ACTION — decision on the linked tool
+  calToolDisposition String?
+  /// Auto-triggered ESD / FOD incident events (QualityEvent ids)
+  esdEventId      String?
+  fodEventId      String?
+  /// Suspected counterfeit — tracked in the Counterfeit program
+  suspectCounterfeit Boolean @default(false)
+  counterfeitEventId String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   closedAt        DateTime?
@@ -4626,9 +4640,77 @@ model QualityProgram {
   icon        String?
   isActive    Boolean @default(true)
   sortOrder   Int     @default(0)
+  /// Shared inspection template for every item in this program (ESD station
+  /// checks, FOD walk points, safety inspections). JSON [{ label }].
+  inspectionTemplate String?
+  /// CM-controlled program policy document (lives in Config Management, linked
+  /// here so it's clickable from the module).
+  policyCmDocId String?
+  policyNumber  String?
+  /// While the policy is still in the CM submission/review process (an ECR),
+  /// track the change request until it's released as a document.
+  policyEcrId     String?
+  policyEcrNumber String?
 
   items       QualityItem[]
   events      QualityEvent[]
+}
+
+/// A completed inspection against a station / zone / area using the program's
+/// template. Saved to history for auditors, viewable later.
+model QualityInspection {
+  id            String   @id @default(cuid())
+  programId     String
+  itemId        String?
+  /// JSON [{ label, ok, note, photoUrl, photoName }]
+  results       String
+  passed        Boolean  @default(true)
+  performedById String?
+  performedAt   DateTime @default(now())
+  notes         String?
+  createdAt     DateTime @default(now())
+
+  @@index([programId])
+  @@index([itemId])
+}
+
+/// A finding raised during an internal audit: an NCR (needs a corrective
+/// action + reinspection) or an OFI (logged, action optional).
+model AuditFinding {
+  id               String   @id @default(cuid())
+  inspectionId     String?
+  programId        String
+  itemId           String?
+  /// NCR | OFI
+  type             String
+  description      String
+  correctiveAction String?
+  reinspectBy      DateTime?
+  /// OPEN | IN_PROGRESS | REINSPECT | CLOSED
+  status           String   @default("OPEN")
+  createdById      String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  closedAt         DateTime?
+
+  @@index([programId])
+  @@index([status])
+}
+
+/// Relative-humidity reading for an area / workcenter, fed by the ESD humidity
+/// device API (or entered by hand) and tracked in the ESD program.
+model HumidityReading {
+  id               String   @id @default(cuid())
+  location         String
+  workcenterId     String?
+  relativeHumidity Float
+  temperatureC     Float?
+  source           String   @default("MANUAL") // MANUAL | DEVICE
+  deviceId         String?
+  recordedAt       DateTime @default(now())
+
+  @@index([location])
+  @@index([recordedAt])
 }
 
 /// A tracked record in a program: a gage, tool, chemical, ESD station, FOD
@@ -4648,16 +4730,98 @@ model QualityItem {
   intervalDays Int?
   lastActionAt DateTime?
   nextDueAt    DateTime?
+  /// Material/shelf-life expiration (HAZMAT chemicals) — tracked separately
+  /// from the recurring SDS-review due date.
+  expiresAt    DateTime?
   /// JSON program-specific fields (hazard class, cal range, cert #, …)
   attributes   String?
+  /// Primary attached document for this record — a calibration certificate,
+  /// an SDS for a hazardous material, a safety data sheet, etc. Stored as a
+  /// data URL (same convention as WI photos / employee docs), so it renders
+  /// as a clickable item without any external file store.
+  documentUrl  String?
+  documentName String?
   notes        String?
   createdById  String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  /// Tool Control: which toolbox this tool belongs to (tools program only).
+  toolboxId    String?
+  toolbox      Toolbox? @relation("ToolboxTools", fields: [toolboxId], references: [id], onDelete: SetNull)
+  /// Toggle on a tool to also track it on the Calibration register. When true,
+  /// the item's interval/next-due drive its calibration cadence.
+  needsCalibration Boolean @default(false)
+
   events       QualityEvent[]
+  toolReports  ToolReport[] @relation("ToolReports")
 
   @@index([programId])
+  @@index([status])
+  @@index([toolboxId])
+}
+
+/// A physical toolbox that holds controlled tools (Tool Control program).
+model Toolbox {
+  id          String   @id @default(cuid())
+  identifier  String   @unique
+  name        String
+  location    String?
+  ownerId     String?
+  notes       String?
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tools       QualityItem[]       @relation("ToolboxTools")
+  inspections ToolboxInspection[]
+}
+
+/// A completed tool check/inventory of a toolbox — saved to history for auditors.
+model ToolboxInspection {
+  id            String   @id @default(cuid())
+  toolboxId     String
+  toolbox       Toolbox  @relation(fields: [toolboxId], references: [id], onDelete: Cascade)
+  performedById String?
+  performedAt   DateTime @default(now())
+  /// JSON snapshot: [{ toolId, identifier, name, present, ok, note }]
+  results       String
+  toolCount     Int      @default(0)
+  okCount       Int      @default(0)
+  notes         String?
+  createdAt     DateTime @default(now())
+
+  @@index([toolboxId])
+}
+
+/// A missing / broken / worn tool report started from a specific tool.
+model ToolReport {
+  id                  String   @id @default(cuid())
+  number              String   @unique
+  itemId              String?
+  item                QualityItem? @relation("ToolReports", fields: [itemId], references: [id], onDelete: SetNull)
+  toolboxId           String?
+  /// MISSING | BROKEN | WORN
+  kind                String
+  /// OPEN | IN_PROGRESS | RESOLVED | CLOSED
+  status              String   @default("OPEN")
+  description         String?
+  /// BROKEN: JSON checklist of pieces to recover [{ piece, gathered }]
+  pieces              String?
+  /// false once a piece is declared unrecoverable → spawns a FOD incident
+  piecesRecovered     Boolean  @default(true)
+  /// User-defined next-step process [{ step, done }]
+  steps               String?
+  replacementPrId     String?
+  replacementPrNumber String?
+  /// FOD incident (QualityEvent) spawned for a missing tool / unrecoverable piece
+  fodEventId          String?
+  reportedById        String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  resolvedAt          DateTime?
+
+  @@index([itemId])
   @@index([status])
 }
 
@@ -4679,6 +4843,11 @@ model QualityEvent {
   notes         String?
   documentUrl   String?
   documentName  String?
+  /// Incident disposition steps (JSON [{ step, done }]) for ESD / FOD /
+  /// counterfeit incidents that run a user-defined process.
+  steps         String?
+  /// Set when this incident was auto-triggered from an MRB case.
+  sourceMrbId   String?
   createdAt     DateTime @default(now())
 
   @@index([programId])

@@ -36,7 +36,7 @@ export default async function QuotesPage() {
               </Button>
             </Link>
             <Link href="/sales/quotes/new">
-              <Button size="sm">
+              <Button size="sm" data-tour="quote-new">
                 <Plus className="h-4 w-4" />
                 New quote
               </Button>

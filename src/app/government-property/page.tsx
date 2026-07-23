@@ -209,7 +209,7 @@ export default async function GovPropertyPage({
       {/* ─── Line-item inventory style ─────────────────────── */}
       {tab === "items" && (
         <div className="space-y-3">
-          <div className="overflow-x-auto rounded-xl border border-slate-800">
+          <div className="overflow-x-auto rounded-xl border border-slate-800" data-tour="gfp-table">
             <table className="w-full min-w-[960px] text-left text-sm">
               <thead className="border-b border-slate-800 bg-slate-950/80 text-[10px] uppercase tracking-wide text-slate-500">
                 <tr>

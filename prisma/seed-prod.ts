@@ -19,12 +19,13 @@
  * Idempotent: wipes the same tables as the demo seed first, so it is safe
  * to re-run and safe to point at a database that had the demo seed loaded.
  */
+import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
-import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
-import path from "path";
+import { PrismaPg } from "@prisma/adapter-pg";
 
-const dbPath = path.join(process.cwd(), "prisma", "dev.db");
-const adapter = new PrismaBetterSqlite3({ url: `file:${dbPath}` });
+const adapter = new PrismaPg({
+  connectionString: process.env.DIRECT_URL || process.env.DATABASE_URL,
+});
 const prisma = new PrismaClient({ adapter });
 
 async function main() {
@@ -75,15 +76,20 @@ async function main() {
     "Approval", "ApprovalPolicyStep", "ApprovalPolicy",
     "AuditLog", "WorkCenter", "ValueStreamMetric", "User",
   ];
-  await prisma.$executeRawUnsafe("PRAGMA foreign_keys = OFF");
-  for (const t of tables) {
-    try {
-      await prisma.$executeRawUnsafe(`DELETE FROM "${t}"`);
-    } catch {
-      /* table may not exist yet */
-    }
+  // Postgres wipe (TRUNCATE ... CASCADE): order-independent, resets sequences,
+  // and only touches tables that exist.
+  const existing = (
+    await prisma.$queryRawUnsafe<{ tablename: string }[]>(
+      `SELECT tablename FROM pg_tables WHERE schemaname = 'public'`
+    )
+  ).map((r) => r.tablename);
+  const toWipe = tables.filter((t) => existing.includes(t));
+  if (toWipe.length > 0) {
+    const list = toWipe.map((t) => `"${t}"`).join(", ");
+    await prisma.$executeRawUnsafe(
+      `TRUNCATE TABLE ${list} RESTART IDENTITY CASCADE`
+    );
   }
-  await prisma.$executeRawUnsafe("PRAGMA foreign_keys = ON");
 
   // ── Permission catalog + assignable groups (no user links) ─────
   // ADMIN implicitly holds every permission and each role carries sane

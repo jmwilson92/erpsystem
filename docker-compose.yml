@@ -1,14 +1,14 @@
-# ForgeRP self-host stack.
+# ForgeRP self-host stack (PostgreSQL).
 #
 # Evaluation (demo data + persona switcher):
 #   docker compose up -d --build
 #   → http://localhost:3000
 #
-# Production / plant pilot (login required, empty books):
+# Production / plant pilot (login required, empty books, HTTPS):
 #   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 #
-# Optional Postgres service (app still needs provider/adapter switch):
-#   docker compose --profile postgres up -d
+# Persistence lives in the bundled Postgres service (forgeerp_pgdata volume);
+# uploaded files are stored as data URLs in the database.
 
 services:
   forgerp:
@@ -16,8 +16,13 @@ services:
     container_name: forgerp
     ports:
       - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
-      DATABASE_URL: "file:/data/forgerp.db"
+      # App runtime (pooled) + schema push (direct) — same host in Docker.
+      DATABASE_URL: "postgresql://forgeerp:${POSTGRES_PASSWORD:-forgeerp}@postgres:5432/forgeerp?schema=public"
+      DIRECT_URL: "postgresql://forgeerp:${POSTGRES_PASSWORD:-forgeerp}@postgres:5432/forgeerp?schema=public"
       # Evaluation defaults — docker-compose.prod.yml turns these off
       SEED_ON_FIRST_BOOT: ${SEED_ON_FIRST_BOOT:-1}
       # next start always sets NODE_ENV=production; allow open demo on this stack
@@ -32,8 +37,6 @@ services:
       # Invite / reset email (optional). Blank = links shown in audit log.
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-}
-    volumes:
-      - forgerp-data:/data
     restart: unless-stopped
     healthcheck:
       test:
@@ -49,13 +52,13 @@ services:
       start_period: 90s
 
   postgres:
-    profiles: ["postgres"]
     image: postgres:16-alpine
     container_name: forgeerp-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: forgeerp
-      POSTGRES_PASSWORD: forgeerp
+      # Override in .env for anything internet-facing.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-forgeerp}
       POSTGRES_DB: forgeerp
     ports:
       - "5432:5432"
@@ -68,5 +71,4 @@ services:
       retries: 10
 
 volumes:
-  forgerp-data:
   forgeerp_pgdata:

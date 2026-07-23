@@ -141,7 +141,7 @@ export default async function MyTimesheetPage() {
         )}
       </div>
 
-      <Card>
+      <Card data-tour="timecard">
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Timecard</CardTitle>
           <p className="text-xs text-slate-500">

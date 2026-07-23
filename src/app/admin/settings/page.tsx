@@ -70,7 +70,7 @@ export default async function AdminSettingsPage() {
       )}
 
       {/* Company identity */}
-      <Card>
+      <Card data-tour="settings-company">
         <CardHeader className="pb-2">
           <CardTitle className="flex items-center gap-2 text-base">
             <Building2 className="h-4 w-4 text-teal-400" />

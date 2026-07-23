@@ -8743,6 +8743,11 @@ export async function actionCreateQualityItem(formData: FormData): Promise<void>
       ownerId: ((formData.get("ownerId") as string) || "").trim() || undefined,
       intervalDays: intervalRaw ? Number(intervalRaw) : undefined,
       nextDueAt: dueRaw ? new Date(dueRaw) : undefined,
+      expiresAt: ((formData.get("expiresAt") as string) || "").trim()
+        ? new Date(formData.get("expiresAt") as string)
+        : undefined,
+      documentUrl: ((formData.get("documentUrl") as string) || "").trim() || undefined,
+      documentName: ((formData.get("documentName") as string) || "").trim() || undefined,
       notes: ((formData.get("notes") as string) || "").trim() || undefined,
       userId: user?.id,
     });
@@ -8768,6 +8773,7 @@ export async function actionRecordQualityEvent(formData: FormData): Promise<void
       result: ((formData.get("result") as string) || "").trim() || undefined,
       notes: ((formData.get("notes") as string) || "").trim() || undefined,
       documentUrl: ((formData.get("documentUrl") as string) || "").trim() || undefined,
+      documentName: ((formData.get("documentName") as string) || "").trim() || undefined,
       performedAt: atRaw ? new Date(atRaw) : undefined,
       userId: user?.id,
     });
@@ -8796,6 +8802,477 @@ export async function actionSetQualityItemStatus(formData: FormData): Promise<vo
   }
   revalidatePath(`/quality/programs/${key}`);
   redirect(`/quality/programs/${key}`);
+}
+
+// ─── Tool Control ───────────────────────────────────────────────
+
+export async function actionCreateToolbox(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("quality.programs.manage");
+  const { createToolbox } = await import("@/lib/services/tool-control");
+  const location = ((formData.get("location") as string) || "").trim();
+  try {
+    await createToolbox({
+      identifier: (formData.get("identifier") as string) || "",
+      // The toolbox is named by its location (workcenter/area); fall back to
+      // the ID if none was chosen.
+      name: location || (formData.get("identifier") as string) || "",
+      location: location || undefined,
+      ownerId: ((formData.get("ownerId") as string) || "").trim() || undefined,
+      notes: ((formData.get("notes") as string) || "").trim() || undefined,
+      userId: user?.id,
+    });
+    await flashToast("Toolbox added");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not add toolbox", "error");
+  }
+  revalidatePath(`/quality/programs/tools`);
+  redirect(`/quality/programs/tools`);
+}
+
+export async function actionCreateTool(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("quality.programs.manage");
+  const { createQualityItem, getProgramByKey } = await import("@/lib/services/quality-programs");
+  const program = await getProgramByKey("tools");
+  const intervalRaw = ((formData.get("intervalDays") as string) || "").trim();
+  const dueRaw = ((formData.get("nextDueAt") as string) || "").trim();
+  try {
+    if (!program) throw new Error("Tool Control program not found");
+    await createQualityItem({
+      programId: program.id,
+      identifier: (formData.get("identifier") as string) || "",
+      name: (formData.get("name") as string) || "",
+      location: ((formData.get("location") as string) || "").trim() || undefined,
+      toolboxId: ((formData.get("toolboxId") as string) || "").trim() || undefined,
+      needsCalibration: formData.get("needsCalibration") === "on",
+      intervalDays: intervalRaw ? Number(intervalRaw) : undefined,
+      nextDueAt: dueRaw ? new Date(dueRaw) : undefined,
+      documentUrl: ((formData.get("documentUrl") as string) || "").trim() || undefined,
+      documentName: ((formData.get("documentName") as string) || "").trim() || undefined,
+      notes: ((formData.get("notes") as string) || "").trim() || undefined,
+      userId: user?.id,
+    });
+    await flashToast("Tool added");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not add tool", "error");
+  }
+  revalidatePath(`/quality/programs/tools`);
+  redirect(`/quality/programs/tools`);
+}
+
+export async function actionAssignToolToToolbox(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("quality.programs.manage");
+  const { assignToolToToolbox } = await import("@/lib/services/tool-control");
+  try {
+    await assignToolToToolbox({
+      toolId: (formData.get("toolId") as string) || "",
+      toolboxId: ((formData.get("toolboxId") as string) || "").trim() || null,
+      userId: user?.id,
+    });
+    await flashToast("Tool moved");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not move tool", "error");
+  }
+  revalidatePath(`/quality/programs/tools`);
+  redirect(`/quality/programs/tools`);
+}
+
+export async function actionSaveToolboxInspection(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("quality.programs.manage");
+  const { saveToolboxInspection } = await import("@/lib/services/tool-control");
+  const toolboxId = (formData.get("toolboxId") as string) || "";
+  try {
+    const results = JSON.parse((formData.get("results") as string) || "[]");
+    await saveToolboxInspection({
+      toolboxId,
+      results,
+      notes: ((formData.get("notes") as string) || "").trim() || undefined,
+      userId: user?.id,
+    });
+    await flashToast("Inspection saved to toolbox history");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not save inspection", "error");
+  }
+  revalidatePath(`/quality/programs/tools`);
+  redirect(`/quality/programs/tools`);
+}
+
+export async function actionCreateToolReport(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("quality.programs.manage");
+  const { createToolReport } = await import("@/lib/services/tool-control");
+  const kind = ((formData.get("kind") as string) || "BROKEN") as "MISSING" | "BROKEN" | "WORN";
+  let reportId = "";
+  try {
+    const report = await createToolReport({
+      itemId: (formData.get("itemId") as string) || "",
+      kind,
+      description: ((formData.get("description") as string) || "").trim() || undefined,
+      userId: user?.id,
+    });
+    reportId = report.id;
+    await flashToast(`${kind[0] + kind.slice(1).toLowerCase()} tool report ${report.number} opened`);
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not open report", "error");
+    revalidatePath(`/quality/programs/tools`);
+    redirect(`/quality/programs/tools`);
+  }
+  redirect(`/quality/programs/tools/report/${reportId}`);
+}
+
+export async function actionUpdateToolReportPieces(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("quality.programs.manage");
+  const { updateToolReportPieces } = await import("@/lib/services/tool-control");
+  const reportId = (formData.get("reportId") as string) || "";
+  try {
+    const pieces = JSON.parse((formData.get("pieces") as string) || "[]");
+    await updateToolReportPieces({ reportId, pieces, userId: user?.id });
+    await flashToast("Pieces updated");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not update pieces", "error");
+  }
+  revalidatePath(`/quality/programs/tools/report/${reportId}`);
+  redirect(`/quality/programs/tools/report/${reportId}`);
+}
+
+export async function actionDeclarePieceUnrecoverable(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("quality.programs.manage");
+  const { declarePieceUnrecoverable } = await import("@/lib/services/tool-control");
+  const reportId = (formData.get("reportId") as string) || "";
+  try {
+    await declarePieceUnrecoverable({ reportId, userId: user?.id });
+    await flashToast("Unrecoverable piece — FOD incident opened");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not escalate", "error");
+  }
+  revalidatePath(`/quality/programs/tools/report/${reportId}`);
+  redirect(`/quality/programs/tools/report/${reportId}`);
+}
+
+export async function actionPlaceReplacementPr(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("quality.programs.manage");
+  const { placeReplacementPr } = await import("@/lib/services/tool-control");
+  const reportId = (formData.get("reportId") as string) || "";
+  const costRaw = ((formData.get("estimatedCost") as string) || "").trim();
+  try {
+    const pr = await placeReplacementPr({
+      reportId,
+      estimatedCost: costRaw ? Number(costRaw) : undefined,
+      userId: user?.id,
+    });
+    await flashToast(`Replacement PR ${pr.number} created`);
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not place PR", "error");
+  }
+  revalidatePath(`/quality/programs/tools/report/${reportId}`);
+  redirect(`/quality/programs/tools/report/${reportId}`);
+}
+
+export async function actionUpdateToolReportSteps(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("quality.programs.manage");
+  const { updateToolReportSteps } = await import("@/lib/services/tool-control");
+  const reportId = (formData.get("reportId") as string) || "";
+  try {
+    const steps = JSON.parse((formData.get("steps") as string) || "[]");
+    await updateToolReportSteps({ reportId, steps, userId: user?.id });
+    await flashToast("Steps updated");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not update steps", "error");
+  }
+  revalidatePath(`/quality/programs/tools/report/${reportId}`);
+  redirect(`/quality/programs/tools/report/${reportId}`);
+}
+
+export async function actionSetToolReportStatus(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("quality.programs.manage");
+  const { setToolReportStatus } = await import("@/lib/services/tool-control");
+  const reportId = (formData.get("reportId") as string) || "";
+  try {
+    await setToolReportStatus({
+      reportId,
+      status: (formData.get("status") as string) || "OPEN",
+      userId: user?.id,
+    });
+    await flashToast("Report updated");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not update report", "error");
+  }
+  revalidatePath(`/quality/programs/tools/report/${reportId}`);
+  redirect(`/quality/programs/tools/report/${reportId}`);
+}
+
+// ─── Program inspections (ESD stations / FOD walks / safety) ────
+
+export async function actionSaveInspectionTemplate(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("quality.programs.manage");
+  const { setInspectionTemplate } = await import("@/lib/services/inspections");
+  const key = (formData.get("programKey") as string) || "";
+  try {
+    const raw = JSON.parse((formData.get("steps") as string) || "[]") as { label?: string; step?: string }[];
+    const steps = raw.map((s) => ({ label: String(s.label ?? s.step ?? "").trim() })).filter((s) => s.label);
+    await setInspectionTemplate({
+      programId: (formData.get("programId") as string) || "",
+      steps,
+      userId: user?.id,
+    });
+    await flashToast("Inspection template saved");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not save template", "error");
+  }
+  revalidatePath(`/quality/programs/${key}`);
+  redirect(`/quality/programs/${key}`);
+}
+
+export async function actionPerformInspection(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("quality.programs.manage");
+  const { saveInspection } = await import("@/lib/services/inspections");
+  const key = (formData.get("programKey") as string) || "";
+  try {
+    const results = JSON.parse((formData.get("results") as string) || "[]");
+    await saveInspection({
+      programId: (formData.get("programId") as string) || "",
+      itemId: ((formData.get("itemId") as string) || "").trim() || undefined,
+      results,
+      notes: ((formData.get("notes") as string) || "").trim() || undefined,
+      userId: user?.id,
+    });
+    await flashToast("Inspection saved to history");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not save inspection", "error");
+  }
+  revalidatePath(`/quality/programs/${key}`);
+  redirect(`/quality/programs/${key}`);
+}
+
+export async function actionRecordHumidity(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("quality.programs.manage");
+  const { recordHumidity } = await import("@/lib/services/inspections");
+  void user;
+  try {
+    await recordHumidity({
+      location: (formData.get("location") as string) || "",
+      relativeHumidity: Number((formData.get("relativeHumidity") as string) || ""),
+      temperatureC: ((formData.get("temperatureC") as string) || "").trim()
+        ? Number(formData.get("temperatureC") as string)
+        : undefined,
+      source: "MANUAL",
+    });
+    await flashToast("Humidity reading recorded");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not record reading", "error");
+  }
+  revalidatePath(`/quality/programs/esd`);
+  redirect(`/quality/programs/esd`);
+}
+
+// ─── Program policies (CM controlled) & counterfeit ─────────────
+
+export async function actionSubmitProgramPolicy(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("quality.programs.manage");
+  const { submitProgramPolicyToCm } = await import("@/lib/services/program-policy");
+  const key = (formData.get("programKey") as string) || "";
+  try {
+    const cr = await submitProgramPolicyToCm({
+      programId: (formData.get("programId") as string) || "",
+      fileUrl: (formData.get("documentUrl") as string) || "",
+      fileName: ((formData.get("documentName") as string) || "policy").trim(),
+      userId: user?.id,
+    });
+    await flashToast(`Policy submitted to CM — ${cr.number}`);
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not submit policy", "error");
+  }
+  revalidatePath(`/quality/programs/${key}`);
+  redirect(`/quality/programs/${key}`);
+}
+
+export async function actionLinkProgramPolicy(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("quality.programs.manage");
+  const { linkExistingPolicy } = await import("@/lib/services/program-policy");
+  const key = (formData.get("programKey") as string) || "";
+  try {
+    await linkExistingPolicy({
+      programId: (formData.get("programId") as string) || "",
+      cmDocId: (formData.get("cmDocId") as string) || "",
+      userId: user?.id,
+    });
+    await flashToast("Policy linked from CM");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not link policy", "error");
+  }
+  revalidatePath(`/quality/programs/${key}`);
+  redirect(`/quality/programs/${key}`);
+}
+
+export async function actionLogCounterfeitIncident(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("quality.programs.manage");
+  const { logCounterfeitIncident } = await import("@/lib/services/quality-incidents");
+  try {
+    const { mrbNumber } = await logCounterfeitIncident({
+      description: (formData.get("description") as string) || "",
+      documentUrl: ((formData.get("documentUrl") as string) || "").trim() || undefined,
+      documentName: ((formData.get("documentName") as string) || "").trim() || undefined,
+      sendToMrb: formData.get("sendToMrb") === "on",
+      userId: user?.id,
+    });
+    await flashToast(mrbNumber ? `Incident logged — ${mrbNumber} initiated in MRB` : "Counterfeit incident logged");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not log incident", "error");
+  }
+  revalidatePath(`/quality/programs/counterfeit`);
+  redirect(`/quality/programs/counterfeit`);
+}
+
+// ─── Internal audits ────────────────────────────────────────────
+
+export async function actionSaveAudit(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("quality.programs.manage");
+  const { saveAudit } = await import("@/lib/services/audits");
+  const key = (formData.get("programKey") as string) || "audits";
+  try {
+    const results = JSON.parse((formData.get("results") as string) || "[]");
+    await saveAudit({
+      programId: (formData.get("programId") as string) || "",
+      itemId: ((formData.get("itemId") as string) || "").trim() || undefined,
+      results,
+      notes: ((formData.get("notes") as string) || "").trim() || undefined,
+      userId: user?.id,
+    });
+    await flashToast("Audit saved");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not save audit", "error");
+  }
+  revalidatePath(`/quality/programs/${key}`);
+  redirect(`/quality/programs/${key}`);
+}
+
+export async function actionUpdateAuditFinding(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("quality.programs.manage");
+  const { updateAuditFinding } = await import("@/lib/services/audits");
+  try {
+    await updateAuditFinding({
+      findingId: (formData.get("findingId") as string) || "",
+      status: ((formData.get("status") as string) || "").trim() || undefined,
+      correctiveAction: formData.has("correctiveAction") ? ((formData.get("correctiveAction") as string) || "") : undefined,
+      reinspectBy: ((formData.get("reinspectBy") as string) || "").trim() || undefined,
+      userId: user?.id,
+    });
+    await flashToast("Finding updated");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not update finding", "error");
+  }
+  revalidatePath(`/quality/programs/audits`);
+  redirect(`/quality/programs/audits`);
+}
+
+// ─── MRB ↔ Quality program links & incidents ────────────────────
+
+export async function actionLinkCalToolToMrb(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("mrb.disposition");
+  const { linkCalToolToMrb } = await import("@/lib/services/quality-incidents");
+  try {
+    await linkCalToolToMrb({
+      mrbCaseId: (formData.get("mrbCaseId") as string) || "",
+      toolId: ((formData.get("toolId") as string) || "").trim() || null,
+      userId: user?.id,
+    });
+    await flashToast("Calibration tool linked");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not link tool", "error");
+  }
+  revalidatePath(`/mrb`);
+  redirect(`/mrb`);
+}
+
+export async function actionSetCalToolDisposition(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("mrb.disposition");
+  const { setCalToolDisposition } = await import("@/lib/services/quality-incidents");
+  try {
+    await setCalToolDisposition({
+      mrbCaseId: (formData.get("mrbCaseId") as string) || "",
+      disposition: ((formData.get("disposition") as string) || "NO_ACTION") as "PULL_FOR_RECAL" | "NO_ACTION",
+      userId: user?.id,
+    });
+    await flashToast("Tool disposition set");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not set disposition", "error");
+  }
+  revalidatePath(`/mrb`);
+  revalidatePath(`/quality/programs/calibration`);
+  redirect(`/mrb`);
+}
+
+export async function actionTriggerIncidentFromMrb(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("mrb.disposition");
+  const { triggerIncidentFromMrb } = await import("@/lib/services/quality-incidents");
+  const programKey = ((formData.get("programKey") as string) || "esd") as "esd" | "fod" | "counterfeit";
+  try {
+    await triggerIncidentFromMrb({
+      mrbCaseId: (formData.get("mrbCaseId") as string) || "",
+      programKey,
+      userId: user?.id,
+    });
+    await flashToast(`${programKey.toUpperCase()} incident opened`);
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not open incident", "error");
+  }
+  revalidatePath(`/mrb`);
+  revalidatePath(`/quality/programs/${programKey}`);
+  redirect(`/mrb`);
+}
+
+export async function actionUpdateIncidentSteps(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("quality.programs.manage");
+  const { updateIncidentSteps } = await import("@/lib/services/quality-incidents");
+  const eventId = (formData.get("eventId") as string) || "";
+  try {
+    const steps = JSON.parse((formData.get("steps") as string) || "[]");
+    await updateIncidentSteps({ eventId, steps, userId: user?.id });
+    await flashToast("Steps updated");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not update steps", "error");
+  }
+  revalidatePath(`/quality/programs/incident/${eventId}`);
+  redirect(`/quality/programs/incident/${eventId}`);
+}
+
+export async function actionSetIncidentResult(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("quality.programs.manage");
+  const { setIncidentResult } = await import("@/lib/services/quality-incidents");
+  const eventId = (formData.get("eventId") as string) || "";
+  try {
+    await setIncidentResult({
+      eventId,
+      result: (formData.get("result") as string) || "OPEN",
+      userId: user?.id,
+    });
+    await flashToast("Incident updated");
+  } catch (err) {
+    await flashToast(err instanceof Error ? err.message : "Could not update incident", "error");
+  }
+  revalidatePath(`/quality/programs/incident/${eventId}`);
+  redirect(`/quality/programs/incident/${eventId}`);
 }
 
 // ─── Recruiting / Onboarding / Background checks ────────────────

@@ -10,23 +10,25 @@ WORKDIR /app
 # ─── deps + build ───
 FROM base AS build
 COPY package.json package-lock.json ./
-RUN npm ci
+# --omit=optional skips the SQLite native module (better-sqlite3) — ForgeRP
+# runs on PostgreSQL via the pure-JS pg driver.
+RUN npm ci --omit=optional
 COPY . .
 RUN npx prisma generate && npm run build
 
 # ─── runtime ───
 FROM base AS runtime
 ENV NODE_ENV=production
-# SQLite lives on the /data volume so upgrades keep your books
-ENV DATABASE_URL="file:/data/forgerp.db"
+# DATABASE_URL / DIRECT_URL are provided by the environment (docker-compose
+# points them at the bundled Postgres service, or set them to a managed
+# Postgres like Supabase). No local database file — persistence lives in
+# Postgres, and uploads are stored as data URLs in the DB.
 COPY --from=build /app /app
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh \
-    && mkdir -p /data \
     && useradd -m forgerp \
-    && chown -R forgerp:forgerp /app /data
+    && chown -R forgerp:forgerp /app
 USER forgerp
-VOLUME /data
 EXPOSE 3000
 ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["npm", "start"]

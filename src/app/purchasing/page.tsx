@@ -287,7 +287,7 @@ export default async function PurchasingPage({
       </div>
 
       {/* Tab switch (preserves filters) */}
-      <div className="flex gap-1 rounded-lg border border-slate-800 bg-slate-950/60 p-1 w-fit">
+      <div className="flex gap-1 rounded-lg border border-slate-800 bg-slate-950/60 p-1 w-fit" data-tour="pr-po-tabs">
         <Link
           href={`/purchasing?${new URLSearchParams({
             ...Object.fromEntries(
