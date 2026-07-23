@@ -5,6 +5,7 @@ import {
   actionLogin,
   actionBootstrapInstance,
   actionAcceptInvite,
+  actionClaimTenant,
   actionRequestPasswordReset,
   actionChangePassword,
 } from "@/app/actions";
@@ -121,6 +122,28 @@ export function BootstrapForm() {
       <Feedback state={state} />
       <Button type="submit" disabled={pending} className="w-full">
         {pending ? "Setting up…" : "Claim this instance"}
+      </Button>
+    </form>
+  );
+}
+
+export function ClaimTenantForm({ token }: { token: string }) {
+  const [state, formAction, pending] = useActionState(actionClaimTenant, null);
+  return (
+    <form action={formAction} className="space-y-3">
+      <input type="hidden" name="token" value={token} />
+      <Input name="name" placeholder="Your name (optional)" autoComplete="name" />
+      <Input
+        name="password"
+        type="password"
+        required
+        minLength={8}
+        placeholder="Choose a password (min 8 chars)"
+        autoComplete="new-password"
+      />
+      <Feedback state={state} />
+      <Button type="submit" disabled={pending} className="w-full">
+        {pending ? "Setting up…" : "Set password & enter ForgeRP"}
       </Button>
     </form>
   );

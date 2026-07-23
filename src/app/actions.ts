@@ -1581,6 +1581,65 @@ export async function actionAcceptInvite(
   redirect("/");
 }
 
+export async function actionClaimTenant(
+  _prev: AuthFormState,
+  formData: FormData
+): Promise<AuthFormState> {
+  const { claimTenant } = await import("@/lib/auth-core");
+  try {
+    await claimTenant({
+      token: (formData.get("token") as string) || "",
+      password: (formData.get("password") as string) || "",
+      name: ((formData.get("name") as string) || "").trim() || undefined,
+    });
+  } catch (e) {
+    return {
+      ok: false,
+      message: e instanceof Error ? e.message : "Could not set up your workspace",
+    };
+  }
+  redirect("/");
+}
+
+export type OnboardLinkState = { ok: boolean; message: string; url?: string };
+
+/**
+ * Owner-only (dogfood/public ADMIN): mint a fresh onboarding link for a tenant.
+ * Guarded so a customer's own ADMIN — routed to their tenant schema — can never
+ * reach the platform registry.
+ */
+export async function actionReissueOnboarding(
+  _prev: OnboardLinkState | null,
+  formData: FormData
+): Promise<OnboardLinkState> {
+  const { cookies, headers } = await import("next/headers");
+  const jar = await cookies();
+  if (jar.get("forge-tenant")?.value) {
+    return { ok: false, message: "Not available for tenant accounts." };
+  }
+  const { getCurrentUser } = await import("@/lib/auth");
+  const user = await getCurrentUser();
+  if (!user || user.role !== "ADMIN") {
+    return { ok: false, message: "Admins only." };
+  }
+  const tenantId = (formData.get("tenantId") as string) || "";
+  if (!tenantId) return { ok: false, message: "Missing tenant." };
+  try {
+    const { issueOnboardingLink } = await import("@/lib/services/tenancy");
+    const h = await headers();
+    const appUrl =
+      process.env.APP_URL ||
+      `${h.get("x-forwarded-proto") || "https"}://${h.get("host")}`;
+    const { url } = await issueOnboardingLink(tenantId, appUrl);
+    return { ok: true, message: "Fresh link ready — copy it below.", url };
+  } catch (e) {
+    return {
+      ok: false,
+      message: e instanceof Error ? e.message : "Could not create link",
+    };
+  }
+}
+
 export async function actionInviteUser(formData: FormData): Promise<void> {
   const user = await getCurrentUser();
   if (!user || user.role !== "ADMIN") {

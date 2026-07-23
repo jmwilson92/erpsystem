@@ -5077,6 +5077,10 @@ model Tenant {
   billingEmail         String?
   stripeCustomerId     String?
   stripeSubscriptionId String?
+  /// One-time onboarding token (hash) for the customer to claim their instance
+  /// and set the first admin password. Rotated by the owner's re-issue action.
+  setupTokenHash       String?
+  setupTokenExpiresAt  DateTime?
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
   /// Bumped on activity; demo TTL sweep destroys idle demos past the cutoff.
@@ -5084,4 +5088,20 @@ model Tenant {
 
   @@index([isDemo, lastActiveAt])
   @@index([status])
+  @@index([setupTokenHash])
+}
+
+/// Control-plane directory (public schema only): maps a customer's login email
+/// to the Postgres schema holding their tenant. Lets a returning customer log in
+/// with just email + password — we resolve their workspace, then verify the
+/// password against that schema's own user record. An email absent here is a
+/// public/dogfood user and uses the default (public) login path.
+model TenantLogin {
+  id         String   @id @default(cuid())
+  email      String   @unique
+  schemaName String
+  tenantId   String
+  createdAt  DateTime @default(now())
+
+  @@index([schemaName])
 }

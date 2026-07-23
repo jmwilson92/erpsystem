@@ -39,15 +39,25 @@ export default async function RootLayout({
 }>) {
   // Persona switcher only when DEMO_MODE is on (evaluation / test-drive)
   const showDemoSwitcher = demoModeEnabled();
-  const [demoUsers, currentUser, company] = await Promise.all([
+  const [demoUsers, currentUser, companyRaw] = await Promise.all([
     showDemoSwitcher ? listUsers() : Promise.resolve([]),
     getCurrentUser(),
-    prisma.companySettings.upsert({
-      where: { id: "default" },
-      create: { id: "default" },
-      update: {},
-    }),
+    // Tolerate a bad/forged forge-tenant cookie pointing at a nonexistent
+    // schema: the query throws, we fall back to defaults, and the request
+    // resolves as logged-out (redirect to /login or the marketing page) rather
+    // than 500-ing before the auth gate runs.
+    prisma.companySettings
+      .upsert({ where: { id: "default" }, create: { id: "default" }, update: {} })
+      .catch(() => null),
   ]);
+  const company =
+    companyRaw ??
+    ({
+      name: "ForgeRP",
+      tagline: null,
+      disabledModules: null,
+      breaksConfig: null,
+    } as unknown as NonNullable<typeof companyRaw>);
   const notifications = currentUser
     ? await getNotificationSummary(currentUser)
     : { total: 0, items: [], badges: {} };
@@ -117,8 +127,8 @@ export default async function RootLayout({
     process.env.DEMO_MODE === "0" &&
     !currentUser &&
     pathname &&
-    !["/login", "/invite", "/module-off", "/demo", "/legal"].some((p) =>
-      pathname.startsWith(p)
+    !["/login", "/invite", "/onboard", "/module-off", "/demo", "/legal"].some(
+      (p) => pathname.startsWith(p)
     )
   ) {
     redirect("/login");
@@ -139,6 +149,7 @@ export default async function RootLayout({
     "/billing",
     "/login",
     "/invite",
+    "/onboard", // new-customer claim flow — must not be gated by the dogfood plan
     "/legal",
     "/demo",
     "/module-off",

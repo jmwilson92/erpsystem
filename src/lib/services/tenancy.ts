@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import { randomBytes, createHash } from "node:crypto";
 import { controlPlaneClient, clientForSchema, isValidSchemaName } from "@/lib/db";
 import {
   TENANT_TEMPLATE_SQL,
@@ -333,10 +334,87 @@ export async function provisionCustomerTenant(params: {
     throw err;
   }
 
-  return cp.tenant.update({
+  const active = await cp.tenant.update({
     where: { id: tenant.id },
     data: { status: "ACTIVE" },
   });
+
+  // Onboarding: register the admin's login and mint a claim link. Emails are on
+  // hold (Phase 4), so log the URL for the owner to relay from the tenants page.
+  await registerTenantLogin(params.billingEmail, schemaName, tenant.id);
+  try {
+    const { url } = await issueOnboardingLink(tenant.id);
+    console.log(
+      `[onboarding] tenant ${schemaName} (${params.billingEmail}) — claim link: ${url}`
+    );
+  } catch {
+    /* the owner can re-issue from the tenants page */
+  }
+
+  return active;
+}
+
+// ─── Customer onboarding (claim + first password) ───────────────
+
+const SETUP_TOKEN_DAYS = 14;
+const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
+
+/** Register (or update) an email → tenant-schema login directory entry. */
+export async function registerTenantLogin(
+  email: string,
+  schemaName: string,
+  tenantId: string
+) {
+  const e = email.trim().toLowerCase();
+  await controlPlaneClient()
+    .tenantLogin.upsert({
+      where: { email: e },
+      create: { email: e, schemaName, tenantId },
+      update: { schemaName, tenantId },
+    })
+    .catch(() => undefined);
+}
+
+/**
+ * Issue a one-time onboarding token for a tenant and return the claim URL. The
+ * raw token is only returned here (we store just its hash), so surface it now.
+ */
+export async function issueOnboardingLink(
+  tenantId: string,
+  appUrl?: string
+): Promise<{ token: string; url: string }> {
+  const token = randomBytes(24).toString("hex");
+  await controlPlaneClient().tenant.update({
+    where: { id: tenantId },
+    data: {
+      setupTokenHash: sha256(token),
+      setupTokenExpiresAt: new Date(Date.now() + SETUP_TOKEN_DAYS * 86_400_000),
+    },
+  });
+  const base = appUrl || process.env.APP_URL || "";
+  return { token, url: `${base}/onboard/${token}` };
+}
+
+/** Resolve a tenant by a live (unexpired) onboarding token. */
+export async function tenantBySetupToken(token: string) {
+  if (!token || !/^[a-f0-9]{48}$/.test(token)) return null;
+  const t = await controlPlaneClient().tenant.findFirst({
+    where: { setupTokenHash: sha256(token) },
+  });
+  if (!t || !t.setupTokenExpiresAt || t.setupTokenExpiresAt < new Date()) {
+    return null;
+  }
+  return t;
+}
+
+/** Consume the onboarding token so a claim link can't be reused. */
+export async function clearSetupToken(tenantId: string) {
+  await controlPlaneClient()
+    .tenant.update({
+      where: { id: tenantId },
+      data: { setupTokenHash: null, setupTokenExpiresAt: null },
+    })
+    .catch(() => undefined);
 }
 
 /** Resolve a tenant by its Stripe subscription or customer id (for webhooks). */
