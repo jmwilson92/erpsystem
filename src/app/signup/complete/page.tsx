@@ -21,10 +21,11 @@ export default function SignupCompletePage() {
         </div>
         <h1 className="mt-6 text-3xl font-bold tracking-tight">You&apos;re in — trial started</h1>
         <p className="mt-3 text-slate-400">
-          Your card is on file but won&apos;t be charged for {TRIAL_DAYS} days. We&apos;re
-          setting up your ForgeRP workspace now — you&apos;ll get an email with your
-          login details shortly. Cancel anytime before the trial ends and you&apos;re
-          never billed.
+          Your card is on file but won&apos;t be charged for {TRIAL_DAYS} days. Your
+          ForgeRP workspace is being set up now — our team will send your
+          personal setup link to the email you signed up with, usually within a
+          few hours. Cancel anytime before the trial ends and you&apos;re never
+          billed.
         </p>
         <div className="mt-8 flex flex-wrap justify-center gap-3">
           <Link
