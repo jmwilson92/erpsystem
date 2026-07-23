@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from "next/server";
  */
 const PUBLIC_PREFIXES = [
   "/login",
+  "/signup",
   "/invite",
   "/demo",
   "/legal",
@@ -22,6 +23,11 @@ const PUBLIC_PREFIXES = [
   "/api/health",
   "/api/stripe", // Stripe webhooks are signature-verified, not cookie-authed
 ];
+
+/** The public marketing home is an exact match (can't prefix-match "/"). */
+function isPublicPath(pathname: string) {
+  return pathname === "/" || PUBLIC_PREFIXES.some((p) => pathname.startsWith(p));
+}
 
 /** Pass the current path to server components (root layout) via a header so
  *  the module guard can block disabled-module routes before they render. */
@@ -35,7 +41,7 @@ export function middleware(req: NextRequest) {
   if (process.env.DEMO_MODE !== "0") return withPathname(req);
 
   const { pathname } = req.nextUrl;
-  if (PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))) {
+  if (isPublicPath(pathname)) {
     return withPathname(req);
   }
   if (req.cookies.get("forge-session")?.value) {

@@ -26,6 +26,7 @@ import { DisciplinePulseCharts } from "@/components/dashboard/discipline-pulse";
 import { getDisciplinePulse } from "@/lib/services/dashboard-pulse";
 import { DashboardPersonalize } from "@/components/dashboard/dashboard-personalize";
 import { Sparkline } from "@/components/dashboard/sparkline";
+import { LandingPage } from "@/components/marketing/landing-page";
 
 export const dynamic = "force-dynamic";
 
@@ -38,7 +39,10 @@ const fmtMoney = (n: number) =>
 
 export default async function DashboardPage() {
   const user = await getCurrentUser();
-  if (!user) return null;
+  // Unauthenticated visitors get the public marketing landing page; signed-in
+  // users get their dashboard. (Under DEMO_MODE, getCurrentUser resolves a
+  // persona, so evaluators still see the app.)
+  if (!user) return <LandingPage />;
   const canSeeMoney = await userCanSeeFinancials(user.id);
   const setupDone = (
     await prisma.companySettings.findUnique({ where: { id: "default" } })

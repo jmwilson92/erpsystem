@@ -47,7 +47,7 @@ export const PLANS = [
   },
 ] as const;
 
-export const TRIAL_DAYS = 30;
+export const TRIAL_DAYS = 45;
 
 export type SubscriptionState = {
   plan: string;
