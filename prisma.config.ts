@@ -9,8 +9,10 @@ export default defineConfig({
     path: "prisma/migrations",
   },
   datasource: {
-    // Zero-config default: local SQLite, same as src/lib/db.ts and
-    // .env.example. Set DATABASE_URL (e.g. Postgres) to override.
-    url: process.env["DATABASE_URL"] ?? "file:./prisma/dev.db",
+    // CLI / Migrate connection (prisma db push, migrate). Use the DIRECT
+    // (non-pooled) URL for DDL — Supabase port 5432 — falling back to
+    // DATABASE_URL. The app runtime connects via the driver adapter in
+    // src/lib/db.ts using the pooled DATABASE_URL.
+    url: process.env["DIRECT_URL"] ?? process.env["DATABASE_URL"] ?? "",
   },
 });

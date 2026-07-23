@@ -43,7 +43,7 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@hookform/resolvers": "^5.4.0",
-    "@prisma/adapter-better-sqlite3": "^7.8.0",
+    "@prisma/adapter-pg": "^7.9.0",
     "@prisma/client": "^7.8.0",
     "@radix-ui/react-accordion": "^1.2.16",
     "@radix-ui/react-alert-dialog": "^1.1.19",
@@ -67,7 +67,6 @@
     "@radix-ui/react-tabs": "^1.1.17",
     "@radix-ui/react-tooltip": "^1.2.12",
     "@tanstack/react-table": "^8.21.3",
-    "better-sqlite3": "^12.11.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
@@ -78,6 +77,7 @@
     "jspdf": "^4.2.1",
     "lucide-react": "^1.23.0",
     "next": "15.5.20",
+    "pg": "^8.22.0",
     "qrcode": "^1.5.4",
     "react": "19.1.0",
     "react-dom": "19.1.0",
@@ -88,12 +88,17 @@
     "xlsx": "^0.18.5",
     "zod": "^4.4.3"
   },
+  "optionalDependencies": {
+    "@prisma/adapter-better-sqlite3": "^7.8.0",
+    "better-sqlite3": "^12.11.1"
+  },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
     "@playwright/test": "^1.61.1",
     "@tailwindcss/postcss": "^4",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20",
+    "@types/pg": "^8.20.0",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19",
     "@types/react-dom": "^19",

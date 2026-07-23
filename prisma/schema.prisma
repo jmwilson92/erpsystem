@@ -6,7 +6,10 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  // PostgreSQL (Supabase in production). In Prisma 7 the connection URL lives
+  // in prisma.config.ts (for the CLI/Migrate) and in the driver adapter in
+  // src/lib/db.ts (for the app runtime) — not here.
+  provider = "postgresql"
 }
 
 // ═══════════════════════════════════════════════════════════════

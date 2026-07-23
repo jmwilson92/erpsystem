@@ -4,73 +4,57 @@ Goal: run ForgeRP on **Vercel** with **Supabase Postgres for everything**, as a
 permanent instance ForgeRP uses as its own ERP (dogfooding). Login required, no
 demo data.
 
-> ⚠️ Read this first. ForgeRP ships hard-wired to **SQLite**: the Prisma
-> datasource is `sqlite`, `src/lib/db.ts` always builds a `better-sqlite3`
-> adapter, and the "test-drive" sandbox clones `.db` files on the local disk.
-> Vercel is serverless (ephemeral, read-only filesystem) so **switching
-> `DATABASE_URL` alone will NOT work** — Part 1 is required code changes. Do
-> them on a branch, verify locally against Supabase, then deploy.
+> ℹ️ Part 1 is **already done in this repo** — ForgeRP now runs on PostgreSQL.
+> It's kept here as a record of what changed and how to verify. If you're
+> starting from a fresh checkout, skip to Part 2.
 
 ---
 
-## Part 1 — Required code changes (the blockers)
+## Part 1 — Postgres conversion (DONE — here's what changed)
+
+ForgeRP originally shipped on SQLite (`better-sqlite3` adapter + a filesystem
+"test-drive" sandbox), which serverless can't do. The following are already in
+place on this branch:
 
 ### 1.1 Prisma datasource → Postgres
-`prisma/schema.prisma`:
+`prisma/schema.prisma` datasource is now just:
 ```prisma
 datasource db {
-  provider  = "postgresql"          // was: sqlite
-  url       = env("DATABASE_URL")   // pooled (runtime)
-  directUrl = env("DIRECT_URL")     // direct (migrations / db push)
+  provider = "postgresql"
 }
 ```
-- [ ] Change `provider` to `postgresql`
-- [ ] Add `url` and `directUrl` (the CLI needs these; the runtime uses the adapter)
+> In **Prisma 7** the connection URL is **not** allowed in the schema. It lives
+> in `prisma.config.ts` for the CLI/Migrate (using `DIRECT_URL`), and in the
+> driver adapter for the app runtime (using `DATABASE_URL`).
 
-### 1.2 `src/lib/db.ts` → Postgres client on serverless
-Today `createClientForFile()` / `currentClient()` always use
-`PrismaBetterSqlite3` + a file path. Make the client **Postgres-aware** and skip
-the filesystem sandbox when `DATABASE_URL` is Postgres.
-
-- [ ] Install the pg driver adapter (matches the existing adapter pattern):
-      `npm i @prisma/adapter-pg pg && npm i -D @types/pg`
-- [ ] In `db.ts`, detect Postgres and branch:
+`prisma.config.ts`:
 ```ts
-const isPg = (process.env.DATABASE_URL ?? "").startsWith("postgres");
-
-// Postgres: one pooled client, no filesystem, no sandbox.
-function createPgClient() {
-  const { PrismaPg } = require("@prisma/adapter-pg");
-  const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
-  return new PrismaClient({ adapter });
-}
+datasource: { url: process.env["DIRECT_URL"] ?? process.env["DATABASE_URL"] ?? "" }
 ```
-- [ ] `currentClient()` (and the `prisma` export): when `isPg`, return a single
-      cached `createPgClient()` — never call `createClientForFile`, `masterDbPath`,
-      `sandboxDir`, or any `fs`/`better-sqlite3` path.
-- [ ] Guard the sandbox entry points (`getSandboxClient`, sandbox sweep, the
-      `SANDBOX_COOKIE` handling) to no-op when `isPg` — the test-drive sandbox
-      cannot run on serverless. (Keeping it for SQLite/self-host is fine.)
 
-### 1.3 Keep the native SQLite deps from breaking the Vercel build
-`better-sqlite3` is a native module; Vercel's `npm install` will try to compile
-it. If that fails or you just want it out of the Postgres image:
-- [ ] Move `better-sqlite3` and `@prisma/adapter-better-sqlite3` to
-      `optionalDependencies` in `package.json` (the Postgres path never
-      `require`s them), **or** leave them and confirm the Vercel build succeeds.
+### 1.2 `src/lib/db.ts` → single pooled Postgres client
+Rewritten to use `@prisma/adapter-pg` with `DATABASE_URL`, cached on the global
+(serverless-safe), with the test-drive sandbox exports kept as no-ops/guards
+(no filesystem on serverless). Deps: `@prisma/adapter-pg` + `pg` are in
+`dependencies`; `better-sqlite3` + `@prisma/adapter-better-sqlite3` moved to
+`optionalDependencies` so a Vercel install never fails on the native build.
 
-### 1.4 Confirm nothing else writes to disk at runtime
-- File uploads are stored as **data URLs in the DB** (WI photos, certs, SDS,
-  policy files, inspection photos) — ✅ serverless-safe, no blob store needed.
-- [ ] Grep for stray `fs.write*` outside `db.ts`'s sandbox code:
-      `grep -rn "fs.write\|writeFileSync\|createWriteStream" src` — there should
-      be none in request paths.
+### 1.3 Seeds → Postgres
+`prisma/seed.ts` and `prisma/seed-prod.ts` now use `@prisma/adapter-pg`, load
+`.env` via `import "dotenv/config"` (a plain `tsx` script doesn't auto-load it),
+and wipe with `TRUNCATE ... RESTART IDENTITY CASCADE` (was SQLite `PRAGMA` +
+`DELETE`).
 
-### 1.5 Verify locally against Supabase before deploying
-- [ ] `.env` → `DATABASE_URL` = Supabase **pooled** URL, `DIRECT_URL` = **direct** URL
-- [ ] `npx prisma generate && npx prisma db push` (creates the schema in Supabase)
-- [ ] `npm run build && npm start` locally with `NODE_ENV=production DEMO_MODE=0`
-- [ ] Click through Dashboard, Purchasing, MRB, Quality Programs — confirm reads/writes hit Postgres
+### 1.4 No runtime disk writes
+File uploads are stored as **data URLs in the DB** (WI photos, certs, SDS,
+policy files, inspection photos) — ✅ serverless-safe, no blob store needed.
+
+### 1.5 How it was verified (repeat this against Supabase)
+- [ ] `.env` → `DATABASE_URL` = pooled URL, `DIRECT_URL` = direct URL
+- [ ] `npx prisma generate && npx prisma db push` — schema created, no type errors
+- [ ] `npm run db:seed` (or `db:seed:prod`) — seeds cleanly against Postgres
+- [ ] `npx tsc --noEmit && npm run build` — green (static pages query Postgres at build)
+- [ ] `DEMO_MODE=0 npx next start` — `/` 307-redirects to `/login` (auth + DB live)
 
 ---
 
