@@ -22,9 +22,13 @@ export const SANDBOX_COOKIE = "forge-sandbox";
 const globalForPrisma = globalThis as unknown as {
   prisma?: PrismaClient;
   prismaEpoch?: string;
+  schemaClients?: Map<string, PrismaClient>;
 };
 
-function createClient() {
+/** Postgres schema name: lowercase, starts with a letter, no injection surface. */
+const SCHEMA_RE = /^[a-z][a-z0-9_]{0,62}$/;
+
+function createClient(schema?: string) {
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) {
     // Don't hard-fail here: `next build` imports this module with no database
@@ -34,8 +38,36 @@ function createClient() {
       "[db] DATABASE_URL is not set — ForgeRP needs a PostgreSQL connection string at runtime"
     );
   }
-  const adapter = new PrismaPg({ connectionString: connectionString ?? "" });
+  // The `schema` option makes Prisma qualify every query to that schema, so one
+  // connection string serves every tenant. Omitted → the default (public).
+  const adapter = new PrismaPg(
+    { connectionString: connectionString ?? "" },
+    schema ? { schema } : undefined
+  );
   return new PrismaClient({ adapter });
+}
+
+/**
+ * A Prisma client scoped to a specific tenant schema. Cached per schema so we
+ * reuse one pool each. Used by tenant/demo request routing and by provisioning
+ * to read/write a freshly created schema. The default `prisma` export below is
+ * unaffected and keeps using `public`.
+ */
+export function clientForSchema(schema: string): PrismaClient {
+  if (!SCHEMA_RE.test(schema)) {
+    throw new Error(`Invalid tenant schema name: ${schema}`);
+  }
+  const map = (globalForPrisma.schemaClients ??= new Map());
+  let client = map.get(schema);
+  if (!client) {
+    client = createClient(schema);
+    map.set(schema, client);
+  }
+  return client;
+}
+
+export function isValidSchemaName(schema: string): boolean {
+  return SCHEMA_RE.test(schema);
 }
 
 function getClient() {
