@@ -1598,7 +1598,8 @@ export async function actionClaimTenant(
       message: e instanceof Error ? e.message : "Could not set up your workspace",
     };
   }
-  redirect("/");
+  // Land brand-new workspaces in the guided setup wizard, not a bare dashboard.
+  redirect("/setup");
 }
 
 export type OnboardLinkState = { ok: boolean; message: string; url?: string };

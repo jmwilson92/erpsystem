@@ -291,21 +291,39 @@ export async function provisionCustomerTenant(params: {
   }
 
   const trialEndsAt = new Date(Date.now() + params.trialDays * 86_400_000);
-  const schemaName = `tenant_${randToken()}`;
-  const tenant = await cp.tenant.create({
-    data: {
-      slug: schemaName,
-      schemaName,
-      name: params.companyName ?? null,
-      isDemo: false,
-      status: "PROVISIONING",
-      plan: params.plan,
-      billingEmail: params.billingEmail,
-      trialEndsAt,
-      stripeCustomerId: params.stripeCustomerId ?? null,
-      stripeSubscriptionId: params.stripeSubscriptionId ?? null,
-    },
-  });
+  // Deterministic schema name per subscription: the success page and the Stripe
+  // webhook can both try to provision the same checkout at once — deriving the
+  // name from the subscription id makes the unique constraint collapse that
+  // race into one tenant (the loser refetches the winner's row).
+  const schemaName = params.stripeSubscriptionId
+    ? `tenant_${sha256(params.stripeSubscriptionId).slice(0, 14)}`
+    : `tenant_${randToken()}`;
+  let tenant;
+  try {
+    tenant = await cp.tenant.create({
+      data: {
+        slug: schemaName,
+        schemaName,
+        name: params.companyName ?? null,
+        isDemo: false,
+        status: "PROVISIONING",
+        plan: params.plan,
+        billingEmail: params.billingEmail,
+        trialEndsAt,
+        stripeCustomerId: params.stripeCustomerId ?? null,
+        stripeSubscriptionId: params.stripeSubscriptionId ?? null,
+      },
+    });
+  } catch (err) {
+    // Unique violation → the concurrent provisioner won; return its tenant.
+    const existing = params.stripeSubscriptionId
+      ? await cp.tenant.findFirst({
+          where: { stripeSubscriptionId: params.stripeSubscriptionId },
+        })
+      : null;
+    if (existing) return existing;
+    throw err;
+  }
 
   try {
     await provisionSchema(schemaName);
