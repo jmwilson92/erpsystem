@@ -27,15 +27,17 @@ the one remaining piece — see **§6 Deferred**.
 
 ## 1. Push the `Tenant` table to Supabase (additive, safe)
 
-The new `Tenant` model is a brand-new table; `db push` only adds it and cannot
-drop or alter existing `public` tables.
+The `Tenant` and `TenantLogin` models are brand-new tables; `db push` only adds
+them (plus the new `setupTokenHash`/`setupTokenExpiresAt` columns on `Tenant`)
+and cannot drop or alter existing `public` tables.
 
 ```bash
 # with the live Supabase DATABASE_URL / DIRECT_URL in your env (.env.production)
 npx prisma db push
 ```
 
-Verify: `Tenant` exists in `public` and the dogfood tables are untouched.
+Verify: `Tenant` and `TenantLogin` exist in `public` and the dogfood tables are
+untouched.
 
 ## 2. Build the demo template on Supabase (new schema, safe)
 
@@ -106,22 +108,32 @@ Signature verification, replay protection (5-min tolerance), and idempotency
 
 ---
 
-## 6. Deferred (not in this release) — customer self-serve login
+## 6. Customer login & onboarding (Phase 3.5 — now built)
 
-Signup **provisions** the customer's tenant (schema + admin user + trialing
-billing state) and records it in the `Tenant` registry, but the customer-facing
-**login routing** (map a signed-in customer's session to their `tenant_*` schema)
-is intentionally not wired yet, because it touches the live auth path and needs
-its own testing. For the first launch customers, onboard them by:
-1. Watching for new `Tenant` rows (status `ACTIVE`, `isDemo=false`).
-2. Sending the customer their login + a password-set link.
+Customers can log into their own instance. How it works:
 
-The clean way to finish this: a `forge-tenant` cookie set at login (parallel to
-`forge-demo`) that the `prisma` proxy honors **only** when a real session is also
-present — the dogfood `public` admin never has that cookie, so `public` stays
-isolated. Track as **Phase 3.5**.
+- **Routing:** a `forge-tenant` cookie (set at login/onboarding) routes a
+  signed-in customer to their `tenant_*` schema. It's only a hint — sessions
+  live *inside* each schema's `AuthSession` table, so a forged cookie pointing
+  at another tenant just fails to find the session (→ logged out). The dogfood
+  `public` admin never has this cookie, so `public` stays isolated.
+- **Login:** a customer types email + password at `/login`. A control-plane
+  `TenantLogin` directory (email → schema) resolves their workspace; the
+  password is verified against that schema's own user. An email not in the
+  directory is a public/dogfood account (unchanged path).
+- **Onboarding:** each completed signup provisions the tenant, registers the
+  admin's login, and mints a one-time claim link `…/onboard/<token>` (valid 14
+  days). The customer sets their first password there and lands straight in
+  their instance.
 
-Trial reminder / onboarding **emails** (Resend) are **Phase 4 — on hold**.
+**Handing out the claim link (while trial emails are off):** the link is logged
+to the server console at provision time, and — better — the owner can mint a
+fresh one anytime from **`/admin/tenants`** (dogfood ADMIN only; a customer's
+own admin can't reach it). Send it to the customer to get them in.
+
+Still deferred: inviting *additional* users inside a tenant (the single admin
+works today; multi-user invites within a tenant register to the directory in a
+follow-up). Trial reminder **emails** (Resend) remain **Phase 4 — on hold**.
 
 ---
 

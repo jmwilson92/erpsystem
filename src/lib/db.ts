@@ -23,6 +23,15 @@ export const SANDBOX_COOKIE = "forge-sandbox";
 export const DEMO_COOKIE = "forge-demo";
 const DEMO_SCHEMA_RE = /^demo_[a-z0-9]{6,40}$/;
 
+/**
+ * Cookie holding a signed-in customer's tenant schema (set at login/onboarding).
+ * It's only a ROUTING HINT: a session is validated against the AuthSession table
+ * that lives *inside* the routed schema, so pointing this at another tenant's
+ * schema just fails to find the session (→ logged out), never grants access.
+ */
+export const TENANT_COOKIE = "forge-tenant";
+const TENANT_SCHEMA_RE = /^tenant_[a-z0-9]{6,40}$/;
+
 const globalForPrisma = globalThis as unknown as {
   prisma?: PrismaClient;
   prismaEpoch?: string;
@@ -103,17 +112,25 @@ function getDefaultClient() {
 }
 
 /**
- * The active demo schema for this request, or null. An anonymous visitor with a
- * valid demo cookie is routed to their throwaway schema; a real signed-in user
- * (session cookie present) always uses `public`, so a stray demo cookie can
- * never redirect a logged-in customer's queries. `demo_template` is never
- * routable (it's the pristine clone source).
+ * The non-public schema this request should be routed to, or null for public.
+ *
+ * Two independent cases, both fail-safe toward `public` (the dogfood instance):
+ *  - Signed in (forge-session present): route to the customer's tenant schema
+ *    named by forge-tenant. With no forge-tenant cookie → public (the dogfood
+ *    admin). A forged/mismatched forge-tenant only misroutes the session lookup,
+ *    which then fails to find the session in that schema → treated as logged out.
+ *  - Anonymous (no session): an optional forge-demo cookie routes to a throwaway
+ *    demo schema. `demo_template` is never routable (it's the clone source).
  */
-async function currentDemoSchema(): Promise<string | null> {
+async function resolveSchema(): Promise<string | null> {
   try {
     const { cookies } = await import("next/headers");
     const jar = await cookies();
-    if (jar.get("forge-session")?.value) return null; // real user → public
+    if (jar.get("forge-session")?.value) {
+      const tenant = jar.get(TENANT_COOKIE)?.value;
+      if (tenant && TENANT_SCHEMA_RE.test(tenant)) return tenant;
+      return null; // signed-in dogfood admin → public
+    }
     const demo = jar.get(DEMO_COOKIE)?.value;
     if (demo && demo !== "demo_template" && DEMO_SCHEMA_RE.test(demo)) return demo;
   } catch {
@@ -122,9 +139,9 @@ async function currentDemoSchema(): Promise<string | null> {
   return null;
 }
 
-/** Resolve the Prisma client for the current request (demo schema or public). */
+/** Resolve the Prisma client for the current request (tenant/demo schema or public). */
 async function currentClient(): Promise<PrismaClient> {
-  const schema = await currentDemoSchema();
+  const schema = await resolveSchema();
   return schema ? clientForSchema(schema) : getDefaultClient();
 }
 

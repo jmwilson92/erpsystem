@@ -16,6 +16,7 @@ const PUBLIC_PREFIXES = [
   "/login",
   "/signup",
   "/invite",
+  "/onboard",
   "/demo",
   "/legal",
   "/_next",

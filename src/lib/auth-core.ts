@@ -18,7 +18,8 @@ import {
   timingSafeEqual,
   createHash,
 } from "node:crypto";
-import { prisma } from "./db";
+import { prisma, clientForSchema, controlPlaneClient, TENANT_COOKIE } from "./db";
+import type { PrismaClient } from "@prisma/client";
 import { cookies } from "next/headers";
 import { logAudit } from "./audit";
 
@@ -102,25 +103,64 @@ const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 
 // ─── Sessions ───────────────────────────────────────────────────
 
-export async function createSession(userId: string, userAgent?: string) {
+type SessionDb = Pick<PrismaClient, "authSession">;
+
+/**
+ * Create a session row and set the session cookie. The AuthSession row is
+ * written through `db` — for a tenant login that's a schema-scoped client, so
+ * the session physically lives in the customer's schema and is only resolvable
+ * while routed there (this is what makes the forge-tenant routing cookie safe).
+ *
+ * `tenantCookie`: a schema name sets forge-tenant (customer login), `null`
+ * clears it (dogfood login), `undefined` leaves it untouched (in-context calls
+ * like a signed-in password change, which must keep the current routing).
+ */
+async function issueSession(
+  db: SessionDb,
+  userId: string,
+  opts: { tenantCookie?: string | null; userAgent?: string } = {}
+) {
   const token = randomBytes(32).toString("hex");
-  await prisma.authSession.create({
+  await db.authSession.create({
     data: {
       tokenHash: sha256(token),
       userId,
       expiresAt: new Date(Date.now() + SESSION_DAYS * 86_400_000),
-      userAgent: userAgent?.slice(0, 200) || null,
+      userAgent: opts.userAgent?.slice(0, 200) || null,
     },
   });
   const jar = await cookies();
-  jar.set(SESSION_COOKIE, token, {
+  const cookieOpts = {
     path: "/",
     httpOnly: true,
-    sameSite: "lax",
+    sameSite: "lax" as const,
     secure: process.env.NODE_ENV === "production",
     maxAge: SESSION_DAYS * 86_400,
-  });
+  };
+  jar.set(SESSION_COOKIE, token, cookieOpts);
+  if (typeof opts.tenantCookie === "string") {
+    jar.set(TENANT_COOKIE, opts.tenantCookie, cookieOpts);
+  } else if (opts.tenantCookie === null) {
+    jar.delete(TENANT_COOKIE);
+  }
   return token;
+}
+
+/** Create a session in the current (proxy-routed) schema; keeps existing routing. */
+export async function createSession(userId: string, userAgent?: string) {
+  return issueSession(prisma, userId, { userAgent });
+}
+
+/** Create a session inside a specific tenant schema and pin routing to it. */
+export async function createTenantSession(
+  userId: string,
+  schema: string,
+  userAgent?: string
+) {
+  return issueSession(clientForSchema(schema), userId, {
+    tenantCookie: schema,
+    userAgent,
+  });
 }
 
 /** Resolve the logged-in user from the session cookie (null if none). */
@@ -157,11 +197,14 @@ export async function destroySession() {
   const jar = await cookies();
   const token = jar.get(SESSION_COOKIE)?.value;
   if (token) {
+    // The proxy routes to the current schema, so the session row is deleted from
+    // wherever it lives (tenant or public).
     await prisma.authSession
       .deleteMany({ where: { tokenHash: sha256(token) } })
       .catch(() => null);
   }
   jar.delete(SESSION_COOKIE);
+  jar.delete(TENANT_COOKIE);
 }
 
 // ─── Login / bootstrap ──────────────────────────────────────────
@@ -174,19 +217,36 @@ export async function loginWithPassword(params: {
   const email = params.email.trim().toLowerCase();
   assertLoginNotRateLimited(email);
 
-  const user = await prisma.user.findFirst({
-    where: { email: { equals: email } },
-  });
   // Uniform error — never reveal which part was wrong
   const fail = () => {
     recordLoginFailure(email);
     throw new Error("Invalid e-mail or password");
   };
+
+  // Resolve the customer's workspace from the control-plane directory. An email
+  // that isn't a registered tenant login is a public/dogfood account.
+  const directory = await controlPlaneClient()
+    .tenantLogin.findUnique({ where: { email } })
+    .catch(() => null);
+  const schema = directory?.schemaName ?? null;
+  const db: Pick<PrismaClient, "user"> = schema
+    ? clientForSchema(schema)
+    : controlPlaneClient();
+
+  const user = await db.user.findFirst({ where: { email: { equals: email } } });
   if (!user || !user.isActive || !user.passwordHash) fail();
   if (!verifyPassword(params.password, user!.passwordHash!)) fail();
 
   clearLoginFailures(email);
-  await createSession(user!.id, params.userAgent);
+  if (schema) {
+    await createTenantSession(user!.id, schema, params.userAgent);
+  } else {
+    // Dogfood/public login — clear any stale tenant cookie so routing is public.
+    await issueSession(controlPlaneClient(), user!.id, {
+      tenantCookie: null,
+      userAgent: params.userAgent,
+    });
+  }
   await logAudit({
     entityType: "User",
     entityId: user!.id,
@@ -234,6 +294,52 @@ export async function bootstrapFirstAdmin(params: {
         },
       });
   await createSession(user.id);
+  await logAudit({
+    entityType: "User",
+    entityId: user.id,
+    action: "INSTANCE_CLAIMED",
+    userId: user.id,
+  });
+  return user;
+}
+
+// ─── Customer onboarding (claim a provisioned tenant) ───────────
+
+/**
+ * Claim a freshly provisioned tenant: validate the one-time setup token, set the
+ * admin's first password inside the tenant's own schema, consume the token, and
+ * log the customer straight in (session created in-schema, forge-tenant pinned).
+ */
+export async function claimTenant(params: {
+  token: string;
+  password: string;
+  name?: string;
+  userAgent?: string;
+}) {
+  const { tenantBySetupToken, clearSetupToken } = await import("./services/tenancy");
+  const tenant = await tenantBySetupToken(params.token);
+  if (!tenant) throw new Error("This setup link is invalid or has expired");
+  assertPasswordStrength(params.password);
+
+  const db = clientForSchema(tenant.schemaName);
+  const email = (tenant.billingEmail || "").trim().toLowerCase();
+  const existing = email
+    ? await db.user.findFirst({ where: { email } })
+    : await db.user.findFirst({ where: { role: "ADMIN" } });
+  if (!existing) throw new Error("No admin account found for this workspace");
+
+  const user = await db.user.update({
+    where: { id: existing.id },
+    data: {
+      passwordHash: hashPassword(params.password),
+      isActive: true,
+      role: "ADMIN",
+      ...(params.name?.trim() ? { name: params.name.trim() } : {}),
+    },
+  });
+
+  await clearSetupToken(tenant.id);
+  await createTenantSession(user.id, tenant.schemaName, params.userAgent);
   await logAudit({
     entityType: "User",
     entityId: user.id,

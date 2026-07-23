@@ -114,7 +114,8 @@ export function AppShell({
   // Auth screens render bare — no sidebar/header chrome
   if (
     pathname?.startsWith("/login") ||
-    pathname?.startsWith("/invite/")
+    pathname?.startsWith("/invite/") ||
+    pathname?.startsWith("/onboard/")
   ) {
     return <ThemeProvider>{children}</ThemeProvider>;
   }
