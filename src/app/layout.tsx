@@ -82,6 +82,32 @@ export default async function RootLayout({
     : [];
   const pathname = (await headers()).get("x-pathname") || "";
 
+  // Public marketing surfaces render without the app shell (no sidebar/header),
+  // and skip the auth + subscription gates: the home page for signed-out
+  // visitors, and the signup flow. Signed-in users on "/" fall through to the
+  // dashboard below.
+  const isBareMarketing =
+    pathname.startsWith("/signup") || (pathname === "/" && !currentUser);
+  if (isBareMarketing) {
+    return (
+      <html lang="en" className="dark" suppressHydrationWarning>
+        <head>
+          <script
+            dangerouslySetInnerHTML={{
+              __html: `try{var t=localStorage.getItem("forge-theme")||(matchMedia("(prefers-color-scheme: light)").matches?"light":"dark");var c=document.documentElement.classList;c.toggle("dark",t==="dark");c.toggle("light",t==="light");document.documentElement.style.colorScheme=t;}catch(e){}`,
+            }}
+          />
+        </head>
+        <body
+          className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+          suppressHydrationWarning
+        >
+          {children}
+        </body>
+      </html>
+    );
+  }
+
   // Production auth: middleware only checks that a session cookie EXISTS
   // (edge runtime, no DB). A forged/expired cookie passes it, so enforce
   // the resolved identity here before any page content renders.
