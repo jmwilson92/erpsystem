@@ -51,6 +51,57 @@ async function stripePost(path: string, body: string) {
   return json;
 }
 
+async function stripeGet(path: string) {
+  const res = await fetch(`${API}${path}`, {
+    headers: { Authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}` },
+  });
+  const json = await res.json();
+  if (!res.ok) {
+    throw new Error(json?.error?.message || "Stripe request failed");
+  }
+  return json;
+}
+
+export type CheckoutSessionInfo = {
+  complete: boolean;
+  customerId: string | null;
+  subscriptionId: string | null;
+  email: string;
+  plan: string;
+  companyName: string | null;
+  /** true when this checkout should provision a self-serve customer tenant */
+  provision: boolean;
+};
+
+/**
+ * Retrieve a Checkout Session by the id Stripe appends to the success URL.
+ * Server-side with the secret key, so the returned facts are authoritative —
+ * this is what lets the success page provision the workspace immediately
+ * instead of waiting on the webhook.
+ */
+export async function retrieveCheckoutSession(
+  sessionId: string
+): Promise<CheckoutSessionInfo | null> {
+  if (!/^cs_[a-zA-Z0-9_]+$/.test(sessionId)) return null;
+  const s = (await stripeGet(`/checkout/sessions/${sessionId}`)) as {
+    status?: string;
+    customer?: string | null;
+    subscription?: string | null;
+    customer_email?: string | null;
+    customer_details?: { email?: string | null } | null;
+    metadata?: Record<string, string> | null;
+  };
+  return {
+    complete: s.status === "complete",
+    customerId: s.customer || null,
+    subscriptionId: s.subscription || null,
+    email: s.customer_email || s.customer_details?.email || "",
+    plan: s.metadata?.plan || "STARTER",
+    companyName: s.metadata?.companyName || null,
+    provision: s.metadata?.provision === "tenant",
+  };
+}
+
 /** Create a subscription Checkout Session; returns the hosted checkout URL. */
 export async function createCheckoutSession(params: {
   plan: string;
