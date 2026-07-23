@@ -43,6 +43,14 @@ export async function getCurrentUser(roleHint?: string) {
       void import("./services/tenancy")
         .then((m) => m.touchTenant(demoSchema))
         .catch(() => undefined);
+      // Persona switcher: honor the selected persona (resolved inside the demo
+      // schema — the proxy routes there, so this can only ever pick one of the
+      // sandbox's own seeded users). Default: the demo admin.
+      const personaId = jar.get(DEMO_USER_COOKIE)?.value;
+      if (personaId) {
+        const persona = await prisma.user.findUnique({ where: { id: personaId } });
+        if (persona?.isActive) return persona;
+      }
       const admin =
         (await prisma.user.findFirst({ where: { role: "ADMIN", isActive: true } })) ??
         (await prisma.user.findFirst({ where: { isActive: true } }));

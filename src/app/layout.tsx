@@ -37,8 +37,14 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  // Persona switcher only when DEMO_MODE is on (evaluation / test-drive)
-  const showDemoSwitcher = demoModeEnabled();
+  const jar = await cookies();
+  // Persona switcher: on for the evaluation build (DEMO_MODE), and for
+  // anonymous demo visitors — their user list resolves inside their own
+  // throwaway schema (the proxy routes them there), so switching personas is
+  // sandbox-scoped and never touches real instances.
+  const isAnonymousDemo =
+    !!jar.get(DEMO_COOKIE)?.value && !jar.get("forge-session")?.value;
+  const showDemoSwitcher = demoModeEnabled() || isAnonymousDemo;
   const [demoUsers, currentUser, companyRaw] = await Promise.all([
     showDemoSwitcher ? listUsers() : Promise.resolve([]),
     getCurrentUser(),
@@ -61,7 +67,6 @@ export default async function RootLayout({
   const notifications = currentUser
     ? await getNotificationSummary(currentUser)
     : { total: 0, items: [], badges: {} };
-  const jar = await cookies();
   const inSandbox = Boolean(jar.get(DEMO_COOKIE)?.value);
   const flash = await readFlashToast();
 
