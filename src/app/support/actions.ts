@@ -38,13 +38,40 @@ function revalidateSupport(ticketId?: string, guestToken?: string | null) {
   if (guestToken) revalidatePath(`/support/t/${guestToken}`);
 }
 
-export async function actionCreateSupportTicket(formData: FormData) {
-  await requirePlatform();
-  const user = await getCurrentUser();
-  if (!user) {
-    // Guest path — name + email required
-    let token: string;
-    try {
+export type CreateSupportTicketResult =
+  | {
+      ok: true;
+      kind: "guest";
+      number: string;
+      token: string;
+      href: string;
+    }
+  | {
+      ok: true;
+      kind: "user";
+      number: string;
+      id: string;
+      href: string;
+    }
+  | { ok: false; error: string };
+
+/**
+ * Create a support ticket and return a result (no redirect).
+ * Used by the floating chat bubble so the landing page doesn't full-reload
+ * (which was closing the panel and flipping theme).
+ */
+export async function actionCreateSupportTicketResult(
+  formData: FormData
+): Promise<CreateSupportTicketResult> {
+  try {
+    if (!(await isPlatformSupportEnabled())) {
+      return {
+        ok: false,
+        error: "Support chat isn't available here. Email us or try again later.",
+      };
+    }
+    const user = await getCurrentUser();
+    if (!user) {
       const ticket = await createGuestSupportTicket({
         name: String(formData.get("name") || ""),
         email: String(formData.get("email") || ""),
@@ -54,23 +81,17 @@ export async function actionCreateSupportTicket(formData: FormData) {
         category: String(formData.get("category") || "GENERAL"),
         source: String(formData.get("source") || "LANDING"),
       });
-      token = ticket.guestToken!;
-      await flashToast(
-        `Ticket ${ticket.number} opened. Bookmark your chat link to follow up.`
-      );
-    } catch (e) {
-      await flashToast(
-        e instanceof Error ? e.message : "Could not open ticket",
-        "error"
-      );
-      redirect("/");
+      const token = ticket.guestToken!;
+      revalidateSupport(ticket.id, token);
+      return {
+        ok: true,
+        kind: "guest",
+        number: ticket.number,
+        token,
+        href: `/support/t/${token}`,
+      };
     }
-    revalidateSupport(undefined, token);
-    redirect(`/support/t/${token}`);
-  }
 
-  let ticketId: string;
-  try {
     const ticket = await createSupportTicket({
       userId: user.id,
       subject: String(formData.get("subject") || ""),
@@ -79,17 +100,32 @@ export async function actionCreateSupportTicket(formData: FormData) {
       category: String(formData.get("category") || "GENERAL"),
       source: "APP",
     });
-    ticketId = ticket.id;
-    await flashToast(`Ticket ${ticket.number} opened — we'll reply here.`);
+    revalidateSupport(ticket.id);
+    return {
+      ok: true,
+      kind: "user",
+      number: ticket.number,
+      id: ticket.id,
+      href: `/support/${ticket.id}`,
+    };
   } catch (e) {
-    await flashToast(
-      e instanceof Error ? e.message : "Could not open ticket",
-      "error"
-    );
-    redirect("/support?new=1");
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Could not open ticket",
+    };
   }
-  revalidateSupport(ticketId);
-  redirect(`/support/${ticketId}`);
+}
+
+/** Full-page form fallback (e.g. /support?new=1) — still redirects. */
+export async function actionCreateSupportTicket(formData: FormData) {
+  const result = await actionCreateSupportTicketResult(formData);
+  if (!result.ok) {
+    await flashToast(result.error, "error");
+    const user = await getCurrentUser();
+    redirect(user ? "/support?new=1" : "/?chat=error");
+  }
+  await flashToast(`Ticket ${result.number} opened — we'll reply here.`);
+  redirect(result.href);
 }
 
 export async function actionPostSupportMessage(formData: FormData) {

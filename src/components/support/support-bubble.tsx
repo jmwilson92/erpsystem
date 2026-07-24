@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import {
   LifeBuoy,
@@ -9,8 +9,10 @@ import {
   X,
   Send,
   ExternalLink,
+  CheckCircle2,
+  Loader2,
 } from "lucide-react";
-import { actionCreateSupportTicket } from "@/app/support/actions";
+import { actionCreateSupportTicketResult } from "@/app/support/actions";
 import {
   SUPPORT_CATEGORIES,
   SUPPORT_PRIORITIES,
@@ -19,14 +21,13 @@ import { cn } from "@/lib/utils";
 
 /**
  * Global floating help chat — platform (ForgeRP) only.
- * Shown on marketing pages (guest form) and dogfood app pages (signed-in).
- * Never mounted for customer tenants or demo sandboxes.
+ * Submits via server action result (no full-page redirect) so the landing
+ * page stays put and the bubble can show success/error in place.
  */
 export function SupportBubble({
   isAdmin = false,
   signedIn = false,
   badge = 0,
-  /** LANDING | MARKETING | APP — stored on the ticket for the staff queue */
   source = "APP",
 }: {
   isAdmin?: boolean;
@@ -35,6 +36,12 @@ export function SupportBubble({
   source?: "LANDING" | "MARKETING" | "APP";
 }) {
   const [open, setOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<{
+    number: string;
+    href: string;
+  } | null>(null);
+  const [pending, startTransition] = useTransition();
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
 
@@ -50,6 +57,8 @@ export function SupportBubble({
   useEffect(() => {
     if (!open) return;
     const onPointer = (e: MouseEvent) => {
+      // Ignore while submitting so a late mousedown can't kill the form
+      if (pending) return;
       if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
         setOpen(false);
       }
@@ -62,7 +71,31 @@ export function SupportBubble({
       window.clearTimeout(t);
       document.removeEventListener("mousedown", onPointer);
     };
-  }, [open]);
+  }, [open, pending]);
+
+  function handleOpen() {
+    setOpen(true);
+    setError(null);
+    // Keep success if they re-open so they can still copy the link
+  }
+
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setError(null);
+    const form = e.currentTarget;
+    const fd = new FormData(form);
+    startTransition(async () => {
+      const result = await actionCreateSupportTicketResult(fd);
+      if (!result.ok) {
+        setError(result.error);
+        setSuccess(null);
+        return;
+      }
+      setSuccess({ number: result.number, href: result.href });
+      setError(null);
+      form.reset();
+    });
+  }
 
   return (
     <div
@@ -102,105 +135,165 @@ export function SupportBubble({
           </div>
 
           <div className="space-y-3 p-4">
-            <form action={actionCreateSupportTicket} className="space-y-3">
-              <input type="hidden" name="source" value={source} />
-              {!signedIn && (
-                <>
+            {success ? (
+              <div className="space-y-3">
+                <div className="flex items-start gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-3">
+                  <CheckCircle2
+                    className="mt-0.5 h-5 w-5 shrink-0 text-emerald-400"
+                    aria-hidden
+                  />
+                  <div>
+                    <p className="text-sm font-semibold text-emerald-200">
+                      Ticket {success.number} opened
+                    </p>
+                    <p className="mt-1 text-xs leading-relaxed text-slate-400">
+                      Bookmark the conversation link so you can check replies
+                      later. We&rsquo;ll answer in that thread.
+                    </p>
+                  </div>
+                </div>
+                <Link
+                  href={success.href}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-teal-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-teal-400"
+                >
+                  Open conversation
+                  <ExternalLink className="h-4 w-4" aria-hidden />
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => setSuccess(null)}
+                  className="w-full text-center text-xs text-slate-500 hover:text-slate-300"
+                >
+                  Start another chat
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleSubmit} className="space-y-3">
+                <input type="hidden" name="source" value={source} />
+                {!signedIn && (
+                  <>
+                    <div>
+                      <label className="mb-1 block text-[11px] font-medium text-slate-400">
+                        Your name
+                      </label>
+                      <input
+                        name="name"
+                        required
+                        maxLength={120}
+                        placeholder="Jane Smith"
+                        className={fieldClass}
+                        disabled={pending}
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-[11px] font-medium text-slate-400">
+                        Work email
+                      </label>
+                      <input
+                        name="email"
+                        type="email"
+                        required
+                        maxLength={200}
+                        placeholder="you@company.com"
+                        className={fieldClass}
+                        disabled={pending}
+                      />
+                    </div>
+                  </>
+                )}
+                <div>
+                  <label className="mb-1 block text-[11px] font-medium text-slate-400">
+                    Subject
+                  </label>
+                  <input
+                    name="subject"
+                    required
+                    maxLength={200}
+                    placeholder="What's going on?"
+                    className={fieldClass}
+                    disabled={pending}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label className="mb-1 block text-[11px] font-medium text-slate-400">
-                      Your name
+                      Category
                     </label>
-                    <input
-                      name="name"
-                      required
-                      maxLength={120}
-                      placeholder="Jane Smith"
-                      className={fieldClass}
-                    />
+                    <select
+                      name="category"
+                      defaultValue="GENERAL"
+                      className={selectClass}
+                      disabled={pending}
+                    >
+                      {SUPPORT_CATEGORIES.map((c) => (
+                        <option key={c} value={c}>
+                          {c.replace(/_/g, " ")}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   <div>
                     <label className="mb-1 block text-[11px] font-medium text-slate-400">
-                      Work email
+                      Priority
                     </label>
-                    <input
-                      name="email"
-                      type="email"
-                      required
-                      maxLength={200}
-                      placeholder="you@company.com"
-                      className={fieldClass}
-                    />
+                    <select
+                      name="priority"
+                      defaultValue="MEDIUM"
+                      className={selectClass}
+                      disabled={pending}
+                    >
+                      {SUPPORT_PRIORITIES.map((p) => (
+                        <option key={p} value={p}>
+                          {p}
+                        </option>
+                      ))}
+                    </select>
                   </div>
-                </>
-              )}
-              <div>
-                <label className="mb-1 block text-[11px] font-medium text-slate-400">
-                  Subject
-                </label>
-                <input
-                  name="subject"
-                  required
-                  maxLength={200}
-                  placeholder="What's going on?"
-                  className={fieldClass}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="mb-1 block text-[11px] font-medium text-slate-400">
-                    Category
-                  </label>
-                  <select
-                    name="category"
-                    defaultValue="GENERAL"
-                    className={selectClass}
-                  >
-                    {SUPPORT_CATEGORIES.map((c) => (
-                      <option key={c} value={c}>
-                        {c.replace(/_/g, " ")}
-                      </option>
-                    ))}
-                  </select>
                 </div>
                 <div>
                   <label className="mb-1 block text-[11px] font-medium text-slate-400">
-                    Priority
+                    Message
                   </label>
-                  <select
-                    name="priority"
-                    defaultValue="MEDIUM"
-                    className={selectClass}
-                  >
-                    {SUPPORT_PRIORITIES.map((p) => (
-                      <option key={p} value={p}>
-                        {p}
-                      </option>
-                    ))}
-                  </select>
+                  <textarea
+                    name="body"
+                    required
+                    rows={4}
+                    placeholder="Describe the issue…"
+                    disabled={pending}
+                    className="w-full resize-none rounded-lg border border-slate-700 bg-slate-900/80 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/40 disabled:opacity-60"
+                  />
                 </div>
-              </div>
-              <div>
-                <label className="mb-1 block text-[11px] font-medium text-slate-400">
-                  Message
-                </label>
-                <textarea
-                  name="body"
-                  required
-                  rows={4}
-                  placeholder="Describe the issue…"
-                  className="w-full resize-none rounded-lg border border-slate-700 bg-slate-900/80 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/40"
-                />
-              </div>
-              <button
-                type="submit"
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-teal-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-teal-400"
-              >
-                <Send className="h-4 w-4" aria-hidden />
-                Start chat
-              </button>
-            </form>
 
-            {signedIn && (
+                {error && (
+                  <p
+                    role="alert"
+                    className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200"
+                  >
+                    {error}
+                  </p>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={pending}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-teal-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-teal-400 disabled:opacity-60"
+                >
+                  {pending ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                      Sending…
+                    </>
+                  ) : (
+                    <>
+                      <Send className="h-4 w-4" aria-hidden />
+                      Start chat
+                    </>
+                  )}
+                </button>
+              </form>
+            )}
+
+            {signedIn && !success && (
               <div className="flex flex-col gap-1.5 border-t border-slate-800 pt-3">
                 <Link
                   href="/support"
@@ -230,7 +323,7 @@ export function SupportBubble({
 
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => (open ? setOpen(false) : handleOpen())}
         aria-expanded={open}
         aria-label={open ? "Close help chat" : "Open help chat"}
         className={cn(
@@ -256,7 +349,7 @@ export function SupportBubble({
 }
 
 const fieldClass =
-  "flex h-9 w-full rounded-lg border border-slate-700 bg-slate-900/80 px-3 text-sm text-slate-100 placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/40";
+  "flex h-9 w-full rounded-lg border border-slate-700 bg-slate-900/80 px-3 text-sm text-slate-100 placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/40 disabled:opacity-60";
 
 const selectClass =
-  "flex h-9 w-full rounded-lg border border-slate-700 bg-slate-900/80 px-2 text-xs text-slate-100";
+  "flex h-9 w-full rounded-lg border border-slate-700 bg-slate-900/80 px-2 text-xs text-slate-100 disabled:opacity-60";
