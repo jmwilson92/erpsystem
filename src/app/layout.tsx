@@ -185,12 +185,12 @@ export default async function RootLayout({
     return (
       <html lang="en" className="dark" suppressHydrationWarning>
         <head>
-          {/* Marketing pages are designed dark-only. Do NOT apply the app's
-              light/day theme from localStorage — that was flipping the landing
-              page to a broken "night mode" look after form navigations. */}
+          {/* Same day/night preference as the app (forge-theme / system).
+              Marketing no longer hard-forces dark — that left the site
+              stuck in night mode after the chat-submit fix. */}
           <script
             dangerouslySetInnerHTML={{
-              __html: `try{var c=document.documentElement.classList;c.add("dark");c.remove("light");document.documentElement.style.colorScheme="dark";}catch(e){}`,
+              __html: `try{var t=localStorage.getItem("forge-theme")||(matchMedia("(prefers-color-scheme: light)").matches?"light":"dark");var c=document.documentElement.classList;c.toggle("dark",t==="dark");c.toggle("light",t==="light");document.documentElement.style.colorScheme=t;}catch(e){}`,
             }}
           />
         </head>
