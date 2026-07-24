@@ -15,6 +15,7 @@ import { prisma, DEMO_COOKIE } from "@/lib/db";
 import { getNotificationSummary } from "@/lib/services/notifications";
 import { readFlashToast } from "@/lib/flash";
 import { moduleKeyForPath } from "@/lib/modules";
+import { Analytics } from "@vercel/analytics/next"
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -123,6 +124,7 @@ export default async function RootLayout({
         >
           {children}
           <CookieBanner />
+          <Analytics />
         </body>
       </html>
     );
@@ -232,6 +234,7 @@ export default async function RootLayout({
           {children}
         </AppShell>
         <CookieBanner />
+        <Analytics />
       </body>
     </html>
   );
