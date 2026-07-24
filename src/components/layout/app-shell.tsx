@@ -8,6 +8,7 @@ import { CommandPalette } from "./command-palette";
 import { ThemeProvider, useTheme } from "./theme-provider";
 import { ActionLoadingProvider } from "./action-loading";
 import { GuidedTour } from "@/components/guides/guided-tour";
+import { SupportBubble } from "@/components/support/support-bubble";
 import { Toaster } from "sonner";
 
 export type DemoUser = {
@@ -81,12 +82,25 @@ function ShellInner({
       </div>
       <CommandPalette open={cmdOpen} onOpenChange={setCmdOpen} disabledModules={disabledModules} />
       <GuidedTour />
+      {/* Global help chat — every authenticated app page */}
+      {currentUser && (
+        <SupportBubble
+          isAdmin={currentUser.role === "ADMIN"}
+          badge={
+            (currentUser.role === "ADMIN"
+              ? notifications.badges["/admin/support"]
+              : notifications.badges["/support"]) || 0
+          }
+        />
+      )}
       <Toaster
         theme={theme === "light" ? "light" : "dark"}
         position="bottom-right"
         toastOptions={{
           className:
             "border-border bg-card text-card-foreground",
+          // Leave room for the floating help bubble
+          style: { marginBottom: "4.5rem" },
         }}
       />
     </div>
