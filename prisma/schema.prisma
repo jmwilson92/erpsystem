@@ -120,6 +120,10 @@ model User {
   onboardingsManaging EmployeeOnboarding[] @relation("OnboardingManager")
   qualityItemsOwned   QualityItem[]     @relation("QualityItemOwner")
   qualityEventsPerformed QualityEvent[] @relation("QualityEventPerformer")
+  supportTicketsRequested SupportTicket[]  @relation("SupportRequester")
+  supportTicketsAssigned  SupportTicket[]  @relation("SupportAssignee")
+  supportMessages         SupportMessage[] @relation("SupportMessageAuthor")
+  supportNotes            SupportNote[]    @relation("SupportNoteAuthor")
 }
 
 model AuditLog {
@@ -5052,6 +5056,76 @@ model WorkCenterStaff {
 
   @@unique([workCenterId, userId])
   @@index([userId])
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SUPPORT / HELP DESK (in-app chat tickets)
+// ═══════════════════════════════════════════════════════════════
+
+/// Help ticket opened by any signed-in user. Staff (ADMIN) answer in the
+/// admin support desk; the requester sees a public chat thread. Internal
+/// notes are staff-only.
+model SupportTicket {
+  id          String   @id @default(cuid())
+  /// SUP-00001 style sequence
+  number      String   @unique
+  subject     String
+  /// OPEN | IN_PROGRESS | WAITING_ON_USER | RESOLVED | CLOSED
+  status      String   @default("OPEN")
+  /// LOW | MEDIUM | HIGH | URGENT
+  priority    String   @default("MEDIUM")
+  /// GENERAL | BILLING | BUG | HOWTO | ACCOUNT | OTHER
+  category    String   @default("GENERAL")
+  requesterId String
+  requester   User     @relation("SupportRequester", fields: [requesterId], references: [id])
+  assigneeId  String?
+  assignee    User?    @relation("SupportAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  /// Last activity on the public thread (message or status change)
+  lastMessageAt DateTime @default(now())
+  /// True when the latest public message was from the requester (needs staff)
+  awaitingStaff Boolean @default(true)
+  resolvedAt  DateTime?
+  closedAt    DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  messages SupportMessage[]
+  notes    SupportNote[]
+
+  @@index([status])
+  @@index([requesterId])
+  @@index([assigneeId])
+  @@index([awaitingStaff, status])
+  @@index([lastMessageAt])
+  @@index([createdAt])
+}
+
+/// Public chat message on a ticket (visible to requester and staff).
+model SupportMessage {
+  id        String   @id @default(cuid())
+  ticketId  String
+  ticket    SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  authorId  String?
+  author    User?    @relation("SupportMessageAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  body      String
+  /// true when the author is staff (ADMIN) answering the ticket
+  isStaff   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([ticketId, createdAt])
+}
+
+/// Internal staff-only notes on a ticket (never shown to the requester).
+model SupportNote {
+  id        String   @id @default(cuid())
+  ticketId  String
+  ticket    SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  authorId  String?
+  author    User?    @relation("SupportNoteAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  body      String
+  createdAt DateTime @default(now())
+
+  @@index([ticketId, createdAt])
 }
 
 // ═══════════════════════════════════════════════════════════════

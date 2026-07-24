@@ -44,6 +44,8 @@ import {
   RotateCcw,
   ScanBarcode,
   Compass,
+  LifeBuoy,
+  MessagesSquare,
   type LucideIcon,
 } from "lucide-react";
 
@@ -75,6 +77,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/ai", label: "AI Assistant", icon: Bot, keywords: ["chat", "grok", "assistant"] },
       { href: "/approvals", label: "My Approvals", icon: ClipboardCheck, keywords: ["pending", "pto", "timesheet", "expense", "manager"] },
       { href: "/hr/timesheet", label: "My Timesheet", icon: Clock, keywords: ["time", "hours", "pay period", "charge"] },
+      { href: "/support", label: "Help & Support", icon: MessagesSquare, keywords: ["ticket", "chat", "helpdesk", "help", "support", "ask"] },
       { href: "/account", label: "My Account", icon: KeyRound, keywords: ["password", "login", "sign out", "sessions", "security"] },
     ],
   },
@@ -156,6 +159,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/admin/settings", label: "Company Settings", icon: SlidersHorizontal, keywords: ["settings", "config", "preferences", "company", "fiscal", "basis", "admin"] },
       { href: "/admin/permissions", label: "Roles & Permissions", icon: KeyRound, keywords: ["rbac", "access", "security"] },
+      { href: "/admin/support", label: "Support Desk", icon: LifeBuoy, keywords: ["ticket", "chat", "helpdesk", "support", "staff", "notes"] },
       { href: "/billing", label: "Plan & Billing", icon: CreditCard, keywords: ["subscription", "trial", "plan", "upgrade", "invoice", "stripe", "payment"] },
       { href: "/setup", label: "Setup Wizard", icon: Rocket, keywords: ["onboarding", "company", "getting started", "plug and play"] },
       { href: "/guides", label: "Guides & Tours", icon: Compass, keywords: ["help", "tour", "walkthrough", "interactive", "tutorial", "how to", "getting started", "narration", "voice"] },

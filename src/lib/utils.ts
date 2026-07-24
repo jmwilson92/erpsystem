@@ -157,6 +157,11 @@ export function statusColor(status: string): string {
     DISQUALIFIED: "bg-red-500/15 text-red-400 border-red-500/30",
     OBSOLETE: "bg-red-500/15 text-red-400 border-red-500/30",
     SCRAP: "bg-red-500/15 text-red-400 border-red-500/30",
+    // Support desk
+    WAITING_ON_USER: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+    RESOLVED: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
+    URGENT: "bg-red-500/15 text-red-400 border-red-500/30",
+    MEDIUM: "bg-sky-500/15 text-sky-400 border-sky-500/30",
     // Special
     QUARANTINE: "bg-orange-500/15 text-orange-400 border-orange-500/30",
     GOVERNMENT: "bg-violet-500/15 text-violet-400 border-violet-500/30",

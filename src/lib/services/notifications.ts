@@ -175,6 +175,35 @@ export async function getNotificationSummary(user: {
     }
   }
 
+  // Support helpdesk badges (fail soft — tables may not exist mid-migrate)
+  try {
+    const {
+      countOpenSupportForStaff,
+      countUnreadRepliesForUser,
+    } = await import("@/lib/services/support");
+    if (user.role === "ADMIN") {
+      const openSupport = await countOpenSupportForStaff();
+      if (openSupport > 0) {
+        items.push({
+          label: "Support tickets awaiting reply",
+          count: openSupport,
+          href: "/admin/support",
+        });
+      }
+    } else {
+      const replies = await countUnreadRepliesForUser(user.id);
+      if (replies > 0) {
+        items.push({
+          label: "Support replies waiting for you",
+          count: replies,
+          href: "/support",
+        });
+      }
+    }
+  } catch {
+    // advisory
+  }
+
   // Several items can point at the same href (e.g. general + purchasing
   // approvals both land on /approvals). Sum them so sidebar/dashboard
   // badges reflect the combined count instead of the last one written.

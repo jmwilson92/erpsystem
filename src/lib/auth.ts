@@ -155,6 +155,7 @@ const MODULE_VIEWS: [string, string][] = [
   ["accounting", "Accounting"],
   ["hr", "HR / Workforce"],
   ["approvals", "My Approvals"],
+  ["support", "Help & Support"],
   ["admin", "Administration"],
 ];
 
@@ -243,6 +244,9 @@ const ACTION_PERMISSIONS: { code: string; name: string; module: string }[] = [
   { code: "hr.recruiting.manage", name: "Manage recruiting / candidates", module: "hr" },
   { code: "hr.onboarding.manage", name: "Manage new-hire onboarding", module: "hr" },
   { code: "hr.background.manage", name: "Manage background checks", module: "hr" },
+  // Support
+  { code: "support.ticket.create", name: "Open support tickets", module: "support" },
+  { code: "support.ticket.manage", name: "Manage support desk (staff)", module: "support" },
   // Admin
   { code: "admin.permissions", name: "Assign permissions", module: "admin" },
   { code: "admin.users.manage", name: "Manage users / org chart", module: "admin" },
@@ -398,7 +402,13 @@ export async function userHasPermission(
   // need to encode deviations from it.
   if (permissionCode.endsWith(".view")) {
     const moduleKey = permissionCode.slice(0, -".view".length);
-    if (moduleKey === "hr" || moduleKey === "approvals") return true; // own profile / own queue
+    // Everyone can see their own HR, approvals, and helpdesk tickets.
+    if (
+      moduleKey === "hr" ||
+      moduleKey === "approvals" ||
+      moduleKey === "support"
+    )
+      return true;
     return canAccess(user.role, moduleKey);
   }
 
@@ -491,6 +501,8 @@ export async function userHasPermission(
 
   // Everyone may request their own PTO by default.
   if (permissionCode === "hr.pto.request") return true;
+  // Everyone may open a support chat / ticket.
+  if (permissionCode === "support.ticket.create") return true;
   return false;
 }
 
