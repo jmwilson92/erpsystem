@@ -5062,9 +5062,9 @@ model WorkCenterStaff {
 // SUPPORT / HELP DESK (in-app chat tickets)
 // ═══════════════════════════════════════════════════════════════
 
-/// Help ticket opened by any signed-in user. Staff (ADMIN) answer in the
-/// admin support desk; the requester sees a public chat thread. Internal
-/// notes are staff-only.
+/// Platform help ticket (ForgeRP dogfood / public only — never customer or
+/// demo schemas). Guests from the marketing site or signed-in dogfood users
+/// open chats; platform ADMINs answer. Internal notes are staff-only.
 model SupportTicket {
   id          String   @id @default(cuid())
   /// SUP-00001 style sequence
@@ -5076,8 +5076,16 @@ model SupportTicket {
   priority    String   @default("MEDIUM")
   /// GENERAL | BILLING | BUG | HOWTO | ACCOUNT | OTHER
   category    String   @default("GENERAL")
-  requesterId String
-  requester   User     @relation("SupportRequester", fields: [requesterId], references: [id])
+  /// LANDING | MARKETING | APP
+  source      String   @default("APP")
+  /// Signed-in dogfood user (null for public/guest tickets)
+  requesterId String?
+  requester   User?    @relation("SupportRequester", fields: [requesterId], references: [id], onDelete: SetNull)
+  /// Guest contact (landing-page chat without an account)
+  guestName   String?
+  guestEmail  String?
+  /// Secret token for guests to re-open their thread (/support/t/[token])
+  guestToken  String?  @unique
   assigneeId  String?
   assignee    User?    @relation("SupportAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   /// Last activity on the public thread (message or status change)
@@ -5098,6 +5106,7 @@ model SupportTicket {
   @@index([awaitingStaff, status])
   @@index([lastMessageAt])
   @@index([createdAt])
+  @@index([guestEmail])
 }
 
 /// Public chat message on a ticket (visible to requester and staff).

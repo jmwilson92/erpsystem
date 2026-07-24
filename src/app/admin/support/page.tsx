@@ -1,17 +1,30 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { listAllSupportTickets } from "@/lib/services/support";
+import { isPlatformSupportEnabled } from "@/lib/platform";
+import { TENANT_COOKIE, DEMO_COOKIE } from "@/lib/db";
 import { Inbox, MessagesSquare } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * Platform staff desk only — same hard gate as /admin/tenants.
+ * Customer ADMIN and demo personas never see this queue.
+ */
 export default async function AdminSupportQueuePage({
   searchParams,
 }: {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  if (!(await isPlatformSupportEnabled())) redirect("/");
+  // Belt-and-suspenders: refuse any tenant/demo cookie even if platform check drifts
+  const jar = await cookies();
+  if (jar.get(TENANT_COOKIE)?.value || jar.get(DEMO_COOKIE)?.value) redirect("/");
+
   const sp = searchParams ? await searchParams : {};
   const filterRaw = Array.isArray(sp.filter) ? sp.filter[0] : sp.filter;
   const filter = filterRaw || "needs_reply";
@@ -113,9 +126,14 @@ export default async function AdminSupportQueuePage({
                         </div>
                       </td>
                       <td className="py-3 pr-3">
-                        <div className="text-slate-200">{t.requester.name}</div>
+                        <div className="text-slate-200">
+                          {t.requester?.name || t.guestName || "Guest"}
+                        </div>
                         <div className="text-xs text-slate-500">
-                          {t.requester.email}
+                          {t.requester?.email || t.guestEmail || "—"}
+                          {t.source === "LANDING" || t.source === "MARKETING"
+                            ? " · web"
+                            : ""}
                         </div>
                       </td>
                       <td className="py-3 pr-3">

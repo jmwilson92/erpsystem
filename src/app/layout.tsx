@@ -23,6 +23,8 @@ import {
   SITE_NAME,
   SITE_TAGLINE,
 } from "@/lib/site";
+import { isPlatformSupportEnabled } from "@/lib/platform";
+import { SupportBubble } from "@/components/support/support-bubble";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -158,6 +160,9 @@ export default async function RootLayout({
     : [];
   const pathname = (await headers()).get("x-pathname") || "";
 
+  // Platform support (ForgeRP dogfood + public marketing) — never customer/demo.
+  const platformSupport = await isPlatformSupportEnabled();
+
   // Public marketing surfaces render without the app shell (no sidebar/header),
   // and skip the auth + subscription gates: the home page for signed-out
   // visitors, and the signup flow. Signed-in users on "/" fall through to the
@@ -166,8 +171,18 @@ export default async function RootLayout({
     pathname.startsWith("/signup") ||
     pathname.startsWith("/demo") ||
     pathname.startsWith("/legal") ||
+    pathname.startsWith("/support/t/") ||
     (pathname === "/" && !currentUser);
   if (isBareMarketing) {
+    // Guest help chat on marketing pages only when we're on the platform host
+    // (not a demo cookie session that somehow hit a public path).
+    const showMarketingChat =
+      platformSupport &&
+      (pathname === "/" ||
+        pathname.startsWith("/signup") ||
+        pathname.startsWith("/legal") ||
+        pathname.startsWith("/demo") ||
+        pathname.startsWith("/support/t/"));
     return (
       <html lang="en" className="dark" suppressHydrationWarning>
         <head>
@@ -182,6 +197,12 @@ export default async function RootLayout({
           suppressHydrationWarning
         >
           {children}
+          {showMarketingChat && (
+            <SupportBubble
+              signedIn={false}
+              source={pathname === "/" ? "LANDING" : "MARKETING"}
+            />
+          )}
           <CookieBanner />
           <Analytics />
         </body>
@@ -267,6 +288,7 @@ export default async function RootLayout({
           breaks={breaks}
           notifications={notifications}
           demoUsers={shellUsers}
+          platformSupport={platformSupport}
           currentUser={
             currentUser
               ? {

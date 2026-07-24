@@ -36,6 +36,7 @@ function ShellInner({
   company,
   disabledModules,
   breaks,
+  platformSupport = false,
 }: {
   children: React.ReactNode;
   demoUsers: DemoUser[];
@@ -44,6 +45,8 @@ function ShellInner({
   company: ShellCompany;
   disabledModules: string[];
   breaks: ShellBreak[];
+  /** ForgeRP dogfood only — never customer tenant or demo */
+  platformSupport?: boolean;
 }) {
   const [cmdOpen, setCmdOpen] = useState(false);
   const { theme } = useTheme();
@@ -67,6 +70,7 @@ function ShellInner({
           badges={notifications.badges}
           company={company}
           disabledModules={disabledModules}
+          platformSupport={platformSupport}
         />
       </Suspense>
       <div className="flex min-w-0 flex-1 flex-col">
@@ -80,12 +84,19 @@ function ShellInner({
           <div className="mx-auto max-w-[1600px] p-4 md:p-6">{children}</div>
         </main>
       </div>
-      <CommandPalette open={cmdOpen} onOpenChange={setCmdOpen} disabledModules={disabledModules} />
+      <CommandPalette
+        open={cmdOpen}
+        onOpenChange={setCmdOpen}
+        disabledModules={disabledModules}
+        platformSupport={platformSupport}
+      />
       <GuidedTour />
-      {/* Global help chat — every authenticated app page */}
-      {currentUser && (
+      {/* Platform (dogfood) help chat only — never customer/demo ERP */}
+      {platformSupport && currentUser && (
         <SupportBubble
+          signedIn
           isAdmin={currentUser.role === "ADMIN"}
+          source="APP"
           badge={
             (currentUser.role === "ADMIN"
               ? notifications.badges["/admin/support"]
@@ -115,6 +126,7 @@ export function AppShell({
   company,
   disabledModules = [],
   breaks = [],
+  platformSupport = false,
 }: {
   children: React.ReactNode;
   demoUsers: DemoUser[];
@@ -123,6 +135,7 @@ export function AppShell({
   company: ShellCompany;
   disabledModules?: string[];
   breaks?: ShellBreak[];
+  platformSupport?: boolean;
 }) {
   const pathname = usePathname();
   // Auth screens render bare — no sidebar/header chrome
@@ -143,6 +156,7 @@ export function AppShell({
           company={company}
           disabledModules={disabledModules}
           breaks={breaks}
+          platformSupport={platformSupport}
         >
           {children}
         </ShellInner>

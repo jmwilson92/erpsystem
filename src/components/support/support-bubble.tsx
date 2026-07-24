@@ -18,22 +18,26 @@ import {
 import { cn } from "@/lib/utils";
 
 /**
- * Global floating help chat launcher — shown on every app shell page so
- * users never have to dig for support. Opens a panel to start a ticket
- * chat or jump to existing tickets / the staff desk.
+ * Global floating help chat — platform (ForgeRP) only.
+ * Shown on marketing pages (guest form) and dogfood app pages (signed-in).
+ * Never mounted for customer tenants or demo sandboxes.
  */
 export function SupportBubble({
   isAdmin = false,
+  signedIn = false,
   badge = 0,
+  /** LANDING | MARKETING | APP — stored on the ticket for the staff queue */
+  source = "APP",
 }: {
   isAdmin?: boolean;
+  signedIn?: boolean;
   badge?: number;
+  source?: "LANDING" | "MARKETING" | "APP";
 }) {
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
 
-  // Close on Escape
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -43,7 +47,6 @@ export function SupportBubble({
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
 
-  // Click outside to close
   useEffect(() => {
     if (!open) return;
     const onPointer = (e: MouseEvent) => {
@@ -51,7 +54,6 @@ export function SupportBubble({
         setOpen(false);
       }
     };
-    // Delay so the opening click doesn't immediately close
     const t = window.setTimeout(
       () => document.addEventListener("mousedown", onPointer),
       0
@@ -81,10 +83,12 @@ export function SupportBubble({
                 className="flex items-center gap-2 text-sm font-semibold text-slate-50"
               >
                 <MessageCircle className="h-4 w-4 text-teal-400" aria-hidden />
-                Help chat
+                Chat with ForgeRP
               </h2>
               <p className="mt-0.5 text-[11px] text-slate-400">
-                Opens a support ticket. Staff reply in the thread.
+                {signedIn
+                  ? "Opens a ticket for the ForgeRP team."
+                  : "Ask a question — we'll reply in this thread."}
               </p>
             </div>
             <button
@@ -99,6 +103,36 @@ export function SupportBubble({
 
           <div className="space-y-3 p-4">
             <form action={actionCreateSupportTicket} className="space-y-3">
+              <input type="hidden" name="source" value={source} />
+              {!signedIn && (
+                <>
+                  <div>
+                    <label className="mb-1 block text-[11px] font-medium text-slate-400">
+                      Your name
+                    </label>
+                    <input
+                      name="name"
+                      required
+                      maxLength={120}
+                      placeholder="Jane Smith"
+                      className={fieldClass}
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[11px] font-medium text-slate-400">
+                      Work email
+                    </label>
+                    <input
+                      name="email"
+                      type="email"
+                      required
+                      maxLength={200}
+                      placeholder="you@company.com"
+                      className={fieldClass}
+                    />
+                  </div>
+                </>
+              )}
               <div>
                 <label className="mb-1 block text-[11px] font-medium text-slate-400">
                   Subject
@@ -108,7 +142,7 @@ export function SupportBubble({
                   required
                   maxLength={200}
                   placeholder="What's going on?"
-                  className="flex h-9 w-full rounded-lg border border-slate-700 bg-slate-900/80 px-3 text-sm text-slate-100 placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/40"
+                  className={fieldClass}
                 />
               </div>
               <div className="grid grid-cols-2 gap-2">
@@ -119,7 +153,7 @@ export function SupportBubble({
                   <select
                     name="category"
                     defaultValue="GENERAL"
-                    className="flex h-9 w-full rounded-lg border border-slate-700 bg-slate-900/80 px-2 text-xs text-slate-100"
+                    className={selectClass}
                   >
                     {SUPPORT_CATEGORIES.map((c) => (
                       <option key={c} value={c}>
@@ -135,7 +169,7 @@ export function SupportBubble({
                   <select
                     name="priority"
                     defaultValue="MEDIUM"
-                    className="flex h-9 w-full rounded-lg border border-slate-700 bg-slate-900/80 px-2 text-xs text-slate-100"
+                    className={selectClass}
                   >
                     {SUPPORT_PRIORITIES.map((p) => (
                       <option key={p} value={p}>
@@ -166,28 +200,30 @@ export function SupportBubble({
               </button>
             </form>
 
-            <div className="flex flex-col gap-1.5 border-t border-slate-800 pt-3">
-              <Link
-                href="/support"
-                onClick={() => setOpen(false)}
-                className="inline-flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-slate-300 hover:bg-slate-900 hover:text-white"
-              >
-                <MessagesSquare className="h-3.5 w-3.5 text-teal-400" />
-                View my tickets
-                <ExternalLink className="ml-auto h-3 w-3 opacity-50" />
-              </Link>
-              {isAdmin && (
+            {signedIn && (
+              <div className="flex flex-col gap-1.5 border-t border-slate-800 pt-3">
                 <Link
-                  href="/admin/support"
+                  href="/support"
                   onClick={() => setOpen(false)}
                   className="inline-flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-slate-300 hover:bg-slate-900 hover:text-white"
                 >
-                  <LifeBuoy className="h-3.5 w-3.5 text-violet-400" />
-                  Staff support desk
+                  <MessagesSquare className="h-3.5 w-3.5 text-teal-400" />
+                  View my tickets
                   <ExternalLink className="ml-auto h-3 w-3 opacity-50" />
                 </Link>
-              )}
-            </div>
+                {isAdmin && (
+                  <Link
+                    href="/admin/support"
+                    onClick={() => setOpen(false)}
+                    className="inline-flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-slate-300 hover:bg-slate-900 hover:text-white"
+                  >
+                    <LifeBuoy className="h-3.5 w-3.5 text-violet-400" />
+                    Staff support desk
+                    <ExternalLink className="ml-auto h-3 w-3 opacity-50" />
+                  </Link>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -196,7 +232,6 @@ export function SupportBubble({
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        aria-controls={open ? titleId : undefined}
         aria-label={open ? "Close help chat" : "Open help chat"}
         className={cn(
           "pointer-events-auto relative flex h-14 w-14 items-center justify-center rounded-full shadow-lg shadow-teal-950/40 transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950",
@@ -219,3 +254,9 @@ export function SupportBubble({
     </div>
   );
 }
+
+const fieldClass =
+  "flex h-9 w-full rounded-lg border border-slate-700 bg-slate-900/80 px-3 text-sm text-slate-100 placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/40";
+
+const selectClass =
+  "flex h-9 w-full rounded-lg border border-slate-700 bg-slate-900/80 px-2 text-xs text-slate-100";

@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
-import { getCurrentUser, listUsers } from "@/lib/auth";
+import { notFound, redirect } from "next/navigation";
+import { cookies } from "next/headers";
+import { getCurrentUser } from "@/lib/auth";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,10 +12,13 @@ import {
 } from "@/components/support/chat-thread";
 import {
   getSupportTicket,
+  listPlatformAdmins,
   SUPPORT_CATEGORIES,
   SUPPORT_PRIORITIES,
   SUPPORT_STATUSES,
 } from "@/lib/services/support";
+import { isPlatformSupportEnabled } from "@/lib/platform";
+import { TENANT_COOKIE, DEMO_COOKIE } from "@/lib/db";
 import {
   actionAddSupportNote,
   actionPostSupportMessage,
@@ -35,22 +39,31 @@ export default async function AdminSupportTicketPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  if (!(await isPlatformSupportEnabled())) redirect("/");
+  const jar = await cookies();
+  if (jar.get(TENANT_COOKIE)?.value || jar.get(DEMO_COOKIE)?.value) redirect("/");
+
   const user = await getCurrentUser();
   const { id } = await params;
-  const [ticket, staffUsers] = await Promise.all([
+  const [ticket, admins] = await Promise.all([
     getSupportTicket(id),
-    listUsers(),
+    listPlatformAdmins(),
   ]);
   if (!ticket) notFound();
 
-  const admins = staffUsers.filter((u) => u.role === "ADMIN");
   const closed = ticket.status === "CLOSED";
+  const contactName =
+    ticket.requester?.name || ticket.guestName || "Guest";
+  const contactEmail =
+    ticket.requester?.email || ticket.guestEmail || "—";
 
   return (
     <div className="space-y-6">
       <PageHeader
         title={ticket.subject}
-        description={`${ticket.number} · ${ticket.requester.name} (${ticket.requester.email})`}
+        description={`${ticket.number} · ${contactName} (${contactEmail})${
+          ticket.source ? ` · via ${ticket.source}` : ""
+        }`}
         actions={
           <Link href="/admin/support">
             <Button variant="ghost" size="sm">
@@ -176,9 +189,26 @@ export default async function AdminSupportTicketPage({
 
               <dl className="mt-4 space-y-1.5 border-t border-slate-800 pt-4 text-xs text-slate-500">
                 <div className="flex justify-between gap-2">
-                  <dt>Requester role</dt>
-                  <dd className="text-slate-300">{ticket.requester.role}</dd>
+                  <dt>Requester</dt>
+                  <dd className="text-right text-slate-300">
+                    {ticket.requester
+                      ? ticket.requester.role
+                      : "Guest (marketing)"}
+                  </dd>
                 </div>
+                {ticket.guestToken && (
+                  <div className="flex justify-between gap-2">
+                    <dt>Guest link</dt>
+                    <dd className="max-w-[10rem] truncate text-right">
+                      <Link
+                        href={`/support/t/${ticket.guestToken}`}
+                        className="text-teal-400 hover:underline"
+                      >
+                        Open thread
+                      </Link>
+                    </dd>
+                  </div>
+                )}
                 <div className="flex justify-between gap-2">
                   <dt>Opened</dt>
                   <dd className="text-slate-300">

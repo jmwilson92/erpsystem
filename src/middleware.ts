@@ -19,6 +19,8 @@ const PUBLIC_PREFIXES = [
   "/onboard",
   "/demo",
   "/legal",
+  // Guest support chat thread (secret token in path)
+  "/support/t",
   "/_next",
   "/favicon",
   "/api/health",

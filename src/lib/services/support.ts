@@ -1,9 +1,12 @@
 /**
- * In-app support helpdesk: users open chat tickets, staff (ADMIN) answer
- * and leave private notes. Tickets live in the tenant schema like all
- * other app data.
+ * Platform support helpdesk (ForgeRP dogfood / marketing only).
+ *
+ * All tickets live in the public schema via controlPlaneClient — never in
+ * customer tenant or demo schemas. Call isPlatformSupportEnabled() before
+ * any UI or mutation so customer/demo instances never touch this module.
  */
-import { prisma } from "@/lib/db";
+import { randomBytes } from "node:crypto";
+import { controlPlaneClient } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import {
   SUPPORT_CATEGORIES,
@@ -23,15 +26,24 @@ export {
   type SupportStatus,
 } from "@/lib/support-constants";
 
+/** Always public schema — platform support is never tenant-scoped. */
+const db = () => controlPlaneClient();
+
 const OPEN_STATUSES = ["OPEN", "IN_PROGRESS", "WAITING_ON_USER"] as const;
 
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
 async function nextTicketNumber() {
-  const count = await prisma.supportTicket.count();
+  const count = await db().supportTicket.count();
   return `SUP-${String(count + 1).padStart(5, "0")}`;
 }
 
 function isStaffRole(role: string) {
   return role === "ADMIN";
+}
+
+function newGuestToken() {
+  return randomBytes(24).toString("hex");
 }
 
 // ─── Create / list ──────────────────────────────────────────────
@@ -42,6 +54,7 @@ export async function createSupportTicket(params: {
   body: string;
   priority?: string;
   category?: string;
+  source?: string;
 }) {
   const subject = params.subject.trim();
   const body = params.body.trim();
@@ -62,12 +75,13 @@ export async function createSupportTicket(params: {
   const number = await nextTicketNumber();
   const now = new Date();
 
-  const ticket = await prisma.supportTicket.create({
+  const ticket = await db().supportTicket.create({
     data: {
       number,
       subject,
       priority,
       category,
+      source: params.source || "APP",
       requesterId: params.userId,
       status: "OPEN",
       awaitingStaff: true,
@@ -93,8 +107,79 @@ export async function createSupportTicket(params: {
   return ticket;
 }
 
+/** Public marketing / landing page chat — no account required. */
+export async function createGuestSupportTicket(params: {
+  name: string;
+  email: string;
+  subject: string;
+  body: string;
+  priority?: string;
+  category?: string;
+  source?: string;
+}) {
+  const name = params.name.trim();
+  const email = params.email.trim().toLowerCase();
+  const subject = params.subject.trim();
+  const body = params.body.trim();
+  if (!name) throw new Error("Name is required");
+  if (!EMAIL_RE.test(email)) throw new Error("A valid email is required");
+  if (!subject) throw new Error("Subject is required");
+  if (!body) throw new Error("Describe what you need help with");
+
+  const priority = SUPPORT_PRIORITIES.includes(
+    (params.priority || "") as SupportPriority
+  )
+    ? (params.priority as SupportPriority)
+    : "MEDIUM";
+  const category = SUPPORT_CATEGORIES.includes(
+    (params.category || "") as SupportCategory
+  )
+    ? (params.category as SupportCategory)
+    : "GENERAL";
+
+  const number = await nextTicketNumber();
+  const guestToken = newGuestToken();
+  const now = new Date();
+
+  const ticket = await db().supportTicket.create({
+    data: {
+      number,
+      subject,
+      priority,
+      category,
+      source: params.source || "LANDING",
+      guestName: name,
+      guestEmail: email,
+      guestToken,
+      status: "OPEN",
+      awaitingStaff: true,
+      lastMessageAt: now,
+      messages: {
+        create: {
+          body: `${body}\n\n— ${name} <${email}>`,
+          isStaff: false,
+        },
+      },
+    },
+  });
+
+  await logAudit({
+    entityType: "SupportTicket",
+    entityId: ticket.id,
+    action: "CREATED",
+    metadata: {
+      number: ticket.number,
+      guest: true,
+      email,
+      subject: ticket.subject,
+    },
+  });
+
+  return ticket;
+}
+
 export async function listMySupportTickets(userId: string) {
-  return prisma.supportTicket.findMany({
+  return db().supportTicket.findMany({
     where: { requesterId: userId },
     orderBy: { lastMessageAt: "desc" },
     include: {
@@ -124,7 +209,7 @@ export async function listAllSupportTickets(filters?: {
     where.status = where.status ?? { in: [...OPEN_STATUSES] };
   }
 
-  return prisma.supportTicket.findMany({
+  return db().supportTicket.findMany({
     where,
     orderBy: [{ awaitingStaff: "desc" }, { lastMessageAt: "desc" }],
     include: {
@@ -136,7 +221,7 @@ export async function listAllSupportTickets(filters?: {
 }
 
 export async function countOpenSupportForStaff() {
-  return prisma.supportTicket.count({
+  return db().supportTicket.count({
     where: {
       awaitingStaff: true,
       status: { in: [...OPEN_STATUSES] },
@@ -145,8 +230,7 @@ export async function countOpenSupportForStaff() {
 }
 
 export async function countUnreadRepliesForUser(userId: string) {
-  // Tickets where staff replied last and ticket is still open for the user
-  return prisma.supportTicket.count({
+  return db().supportTicket.count({
     where: {
       requesterId: userId,
       awaitingStaff: false,
@@ -158,7 +242,7 @@ export async function countUnreadRepliesForUser(userId: string) {
 // ─── Detail ─────────────────────────────────────────────────────
 
 export async function getSupportTicket(id: string) {
-  return prisma.supportTicket.findUnique({
+  return db().supportTicket.findUnique({
     where: { id },
     include: {
       requester: {
@@ -181,26 +265,45 @@ export async function getSupportTicket(id: string) {
   });
 }
 
-/** Requester may see own ticket; staff may see any. */
+export async function getSupportTicketByGuestToken(token: string) {
+  if (!token || token.length < 16) return null;
+  return db().supportTicket.findUnique({
+    where: { guestToken: token },
+    include: {
+      assignee: { select: { id: true, name: true } },
+      messages: {
+        orderBy: { createdAt: "asc" },
+        include: {
+          author: { select: { id: true, name: true, role: true } },
+        },
+      },
+    },
+  });
+}
+
+/** Requester may see own ticket; platform staff may see any. */
 export function canAccessTicket(
-  ticket: { requesterId: string },
+  ticket: { requesterId: string | null },
   user: { id: string; role: string }
 ) {
-  return ticket.requesterId === user.id || isStaffRole(user.role);
+  if (isStaffRole(user.role)) return true;
+  return !!ticket.requesterId && ticket.requesterId === user.id;
 }
 
 // ─── Messages / notes ───────────────────────────────────────────
 
 export async function postSupportMessage(params: {
   ticketId: string;
-  userId: string;
-  userRole: string;
+  userId?: string | null;
+  userRole?: string | null;
   body: string;
+  /** Guest thread reply via secret token */
+  guestToken?: string | null;
 }) {
   const body = params.body.trim();
   if (!body) throw new Error("Message cannot be empty");
 
-  const ticket = await prisma.supportTicket.findUnique({
+  const ticket = await db().supportTicket.findUnique({
     where: { id: params.ticketId },
   });
   if (!ticket) throw new Error("Ticket not found");
@@ -208,15 +311,19 @@ export async function postSupportMessage(params: {
     throw new Error("This ticket is closed — open a new one if you need help");
   }
 
-  const staff = isStaffRole(params.userRole);
-  if (!staff && ticket.requesterId !== params.userId) {
+  const staff = isStaffRole(params.userRole || "");
+  const isGuest =
+    !!params.guestToken &&
+    !!ticket.guestToken &&
+    params.guestToken === ticket.guestToken;
+
+  if (!staff && !isGuest && ticket.requesterId !== params.userId) {
     throw new Error("You can only message your own tickets");
   }
 
   const now = new Date();
   const isStaff = staff;
 
-  // Staff reply → waiting on user; user reply → needs staff
   const nextStatus =
     isStaff && ticket.status === "OPEN"
       ? "IN_PROGRESS"
@@ -226,25 +333,29 @@ export async function postSupportMessage(params: {
           ? "OPEN"
           : ticket.status;
 
-  const [message] = await prisma.$transaction([
-    prisma.supportMessage.create({
+  const displayBody =
+    isGuest && ticket.guestName
+      ? body
+      : body;
+
+  const [message] = await db().$transaction([
+    db().supportMessage.create({
       data: {
         ticketId: ticket.id,
-        authorId: params.userId,
-        body,
+        authorId: params.userId || null,
+        body: displayBody,
         isStaff,
       },
     }),
-    prisma.supportTicket.update({
+    db().supportTicket.update({
       where: { id: ticket.id },
       data: {
         lastMessageAt: now,
         awaitingStaff: !isStaff,
         status: nextStatus,
-        ...(isStaff && !ticket.assigneeId
+        ...(isStaff && !ticket.assigneeId && params.userId
           ? { assigneeId: params.userId }
           : {}),
-        resolvedAt: nextStatus === "RESOLVED" ? ticket.resolvedAt : null,
       },
     }),
   ]);
@@ -254,7 +365,7 @@ export async function postSupportMessage(params: {
     entityId: ticket.id,
     action: "MESSAGE",
     userId: params.userId,
-    metadata: { isStaff, number: ticket.number },
+    metadata: { isStaff, number: ticket.number, guest: isGuest },
   });
 
   return message;
@@ -272,12 +383,12 @@ export async function addSupportNote(params: {
   const body = params.body.trim();
   if (!body) throw new Error("Note cannot be empty");
 
-  const ticket = await prisma.supportTicket.findUnique({
+  const ticket = await db().supportTicket.findUnique({
     where: { id: params.ticketId },
   });
   if (!ticket) throw new Error("Ticket not found");
 
-  const note = await prisma.supportNote.create({
+  const note = await db().supportNote.create({
     data: {
       ticketId: ticket.id,
       authorId: params.userId,
@@ -309,7 +420,7 @@ export async function updateSupportTicket(params: {
     throw new Error("Only staff can update tickets");
   }
 
-  const ticket = await prisma.supportTicket.findUnique({
+  const ticket = await db().supportTicket.findUnique({
     where: { id: params.ticketId },
   });
   if (!ticket) throw new Error("Ticket not found");
@@ -361,7 +472,7 @@ export async function updateSupportTicket(params: {
     data.assigneeId = params.assigneeId || null;
   }
 
-  const updated = await prisma.supportTicket.update({
+  const updated = await db().supportTicket.update({
     where: { id: ticket.id },
     data,
   });
@@ -376,4 +487,13 @@ export async function updateSupportTicket(params: {
   });
 
   return updated;
+}
+
+/** Platform ADMIN users for assignee dropdown (public schema). */
+export async function listPlatformAdmins() {
+  return db().user.findMany({
+    where: { role: "ADMIN", isActive: true },
+    orderBy: { name: "asc" },
+    select: { id: true, name: true, email: true },
+  });
 }

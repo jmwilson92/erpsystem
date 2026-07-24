@@ -175,29 +175,32 @@ export async function getNotificationSummary(user: {
     }
   }
 
-  // Support helpdesk badges (fail soft — tables may not exist mid-migrate)
+  // Platform support badges only (dogfood) — never customer/demo instances
   try {
-    const {
-      countOpenSupportForStaff,
-      countUnreadRepliesForUser,
-    } = await import("@/lib/services/support");
-    if (user.role === "ADMIN") {
-      const openSupport = await countOpenSupportForStaff();
-      if (openSupport > 0) {
-        items.push({
-          label: "Support tickets awaiting reply",
-          count: openSupport,
-          href: "/admin/support",
-        });
-      }
-    } else {
-      const replies = await countUnreadRepliesForUser(user.id);
-      if (replies > 0) {
-        items.push({
-          label: "Support replies waiting for you",
-          count: replies,
-          href: "/support",
-        });
+    const { isPlatformSupportEnabled } = await import("@/lib/platform");
+    if (await isPlatformSupportEnabled()) {
+      const {
+        countOpenSupportForStaff,
+        countUnreadRepliesForUser,
+      } = await import("@/lib/services/support");
+      if (user.role === "ADMIN") {
+        const openSupport = await countOpenSupportForStaff();
+        if (openSupport > 0) {
+          items.push({
+            label: "Support tickets awaiting reply",
+            count: openSupport,
+            href: "/admin/support",
+          });
+        }
+      } else {
+        const replies = await countUnreadRepliesForUser(user.id);
+        if (replies > 0) {
+          items.push({
+            label: "Support replies waiting for you",
+            count: replies,
+            href: "/support",
+          });
+        }
       }
     }
   } catch {

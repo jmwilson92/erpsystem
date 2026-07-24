@@ -13,6 +13,7 @@ import {
   canAccessTicket,
   getSupportTicket,
 } from "@/lib/services/support";
+import { isPlatformSupportEnabled } from "@/lib/platform";
 import { actionPostSupportMessage } from "../actions";
 import { ArrowLeft, LifeBuoy, Send } from "lucide-react";
 
@@ -23,6 +24,8 @@ export default async function SupportTicketPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  if (!(await isPlatformSupportEnabled())) redirect("/");
+
   const user = await getCurrentUser();
   if (!user) redirect("/login?next=/support");
 

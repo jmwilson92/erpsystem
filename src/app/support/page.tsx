@@ -12,6 +12,7 @@ import {
   SUPPORT_CATEGORIES,
   SUPPORT_PRIORITIES,
 } from "@/lib/services/support";
+import { isPlatformSupportEnabled } from "@/lib/platform";
 import { actionCreateSupportTicket } from "./actions";
 import { LifeBuoy, MessageSquarePlus, MessagesSquare } from "lucide-react";
 
@@ -22,6 +23,9 @@ export default async function SupportPage({
 }: {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  // Customer tenants + demos never see platform support
+  if (!(await isPlatformSupportEnabled())) redirect("/");
+
   const user = await getCurrentUser();
   if (!user) redirect("/login?next=/support");
 
