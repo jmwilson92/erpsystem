@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import Link from "next/link";
 import {
@@ -19,6 +20,19 @@ import {
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "Live demo — manufacturing ERP test drive",
+  description:
+    "Try ForgeRP free in a sandboxed live demo. Explore shop floor, quality, purchasing, and accounting with sample manufacturing data — no credit card.",
+  alternates: { canonical: "/demo" },
+  openGraph: {
+    title: "ForgeRP live demo — manufacturing ERP test drive",
+    description:
+      "Spin up a free sandboxed instance and click through real manufacturing workflows.",
+    url: "/demo",
+  },
+};
 
 const FEATURES = [
   {

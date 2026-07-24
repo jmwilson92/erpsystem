@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { Check } from "lucide-react";
 import { MarketingShell } from "@/components/marketing/marketing-shell";
@@ -6,6 +7,21 @@ import { launchPromoActive, stripeEnabled } from "@/lib/services/stripe";
 import { actionStartTrial } from "./actions";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "Start your free trial",
+  description: `Start a ${TRIAL_DAYS}-day free trial of ForgeRP manufacturing ERP. Full product access, secure Stripe checkout, no charge until the trial ends.`,
+  alternates: { canonical: "/signup" },
+  openGraph: {
+    title: "Start your ForgeRP free trial",
+    description: `${TRIAL_DAYS}-day free trial of plug-and-play manufacturing ERP. Every module included.`,
+    url: "/signup",
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
+};
 
 function money(n: number) {
   return `$${n.toLocaleString()}`;

@@ -14,10 +14,22 @@ export function SiteHeader() {
         <Link href="/" aria-label="ForgeRP home">
           <ForgeLogo />
         </Link>
-        <nav className="hidden items-center gap-6 text-sm text-slate-300 sm:flex">
-          <Link href="/#features" className="hover:text-white">Features</Link>
-          <Link href="/#pricing" className="hover:text-white">Pricing</Link>
-          <Link href="/demo" className="hover:text-white">Live demo</Link>
+        <nav
+          className="hidden items-center gap-6 text-sm text-slate-300 sm:flex"
+          aria-label="Primary"
+        >
+          <Link href="/#features" className="hover:text-white">
+            Features
+          </Link>
+          <Link href="/#pricing" className="hover:text-white">
+            Pricing
+          </Link>
+          <Link href="/#faq" className="hover:text-white">
+            FAQ
+          </Link>
+          <Link href="/demo" className="hover:text-white">
+            Live demo
+          </Link>
         </nav>
         <div className="flex items-center gap-2">
           <Link href="/login" className="rounded-lg px-3 py-1.5 text-sm text-slate-300 hover:text-white">

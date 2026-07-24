@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { MarketingShell } from "@/components/marketing/marketing-shell";
@@ -7,6 +8,22 @@ export const dynamic = "force-dynamic";
 
 export function generateStaticParams() {
   return LEGAL_DOCS.map((d) => ({ slug: d.slug }));
+}
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}): Promise<Metadata> {
+  const { slug } = await params;
+  const doc = getLegalDoc(slug);
+  if (!doc) return { title: "Legal" };
+  return {
+    title: doc.title,
+    description: doc.summary,
+    alternates: { canonical: `/legal/${doc.slug}` },
+    robots: { index: true, follow: true },
+  };
 }
 
 export default async function LegalDocPage({

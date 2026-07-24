@@ -23,6 +23,13 @@ const PUBLIC_PREFIXES = [
   "/favicon",
   "/api/health",
   "/api/stripe", // Stripe webhooks are signature-verified, not cookie-authed
+  // SEO / social previews must stay crawlable without a session
+  "/robots.txt",
+  "/sitemap.xml",
+  "/opengraph-image",
+  "/twitter-image",
+  "/icon",
+  "/apple-icon",
 ];
 
 /** The public marketing home is an exact match (can't prefix-match "/"). */

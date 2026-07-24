@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { getSessionUser, needsBootstrap, demoModeEnabled } from "@/lib/auth-core";
@@ -5,6 +6,13 @@ import { LoginForm, BootstrapForm } from "@/components/auth/auth-forms";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "Sign in",
+  description: "Sign in to your ForgeRP manufacturing ERP instance.",
+  alternates: { canonical: "/login" },
+  robots: { index: false, follow: true },
+};
 
 export default async function LoginPage() {
   const sessionUser = await getSessionUser();

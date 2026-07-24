@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { prisma } from "@/lib/db";
 import { getCurrentUser, userCanSeeFinancials } from "@/lib/auth";
 import { getNotificationSummary } from "@/lib/services/notifications";
@@ -27,8 +28,33 @@ import { getDisciplinePulse } from "@/lib/services/dashboard-pulse";
 import { DashboardPersonalize } from "@/components/dashboard/dashboard-personalize";
 import { Sparkline } from "@/components/dashboard/sparkline";
 import { LandingPage } from "@/components/marketing/landing-page";
+import { SITE_DESCRIPTION, SITE_NAME, SITE_TAGLINE } from "@/lib/site";
 
 export const dynamic = "force-dynamic";
+
+/** Marketing SEO for crawlers / signed-out visitors; app users get a private title. */
+export async function generateMetadata(): Promise<Metadata> {
+  const user = await getCurrentUser();
+  if (user) {
+    return {
+      title: "Command center",
+      robots: { index: false, follow: false },
+    };
+  }
+  return {
+    title: {
+      absolute: `${SITE_NAME} — ${SITE_TAGLINE}`,
+    },
+    description: SITE_DESCRIPTION,
+    alternates: { canonical: "/" },
+    openGraph: {
+      title: `${SITE_NAME} — Manufacturing ERP for the whole shop`,
+      description: SITE_DESCRIPTION,
+      url: "/",
+      type: "website",
+    },
+  };
+}
 
 const fmtMoney = (n: number) =>
   n >= 1_000_000

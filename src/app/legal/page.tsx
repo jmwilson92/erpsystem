@@ -1,9 +1,17 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { LEGAL_DOCS, LEGAL_COMPANY, LAST_UPDATED } from "@/lib/legal-content";
 import { FileText, ArrowRight } from "lucide-react";
 import { MarketingShell } from "@/components/marketing/marketing-shell";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "Legal & compliance",
+  description: `${LEGAL_COMPANY} terms of service, privacy policy, refund policy, DPA, and other legal documents for the hosted manufacturing ERP.`,
+  alternates: { canonical: "/legal" },
+  robots: { index: true, follow: true },
+};
 
 export default function LegalHubPage() {
   return (

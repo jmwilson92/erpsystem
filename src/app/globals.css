@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* Smooth in-page jumps to landing anchors (features, pricing, FAQ). */
+html {
+  scroll-behavior: smooth;
+}
+
 /* ============================================================
    ForgeERP theme system
    ------------------------------------------------------------
