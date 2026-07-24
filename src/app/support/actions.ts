@@ -9,6 +9,8 @@ import {
   addSupportNote,
   createGuestSupportTicket,
   createSupportTicket,
+  getSupportTicket,
+  getSupportTicketByGuestToken,
   postSupportMessage,
   updateSupportTicket,
 } from "@/lib/services/support";
@@ -39,6 +41,7 @@ export type CreateSupportTicketResult =
       ok: true;
       kind: "guest";
       number: string;
+      id: string;
       token: string;
       href: string;
     }
@@ -49,6 +52,31 @@ export type CreateSupportTicketResult =
       id: string;
       href: string;
     }
+  | { ok: false; error: string };
+
+export type SupportThreadMessage = {
+  id: string;
+  body: string;
+  isStaff: boolean;
+  createdAt: string;
+  authorName: string;
+};
+
+export type SupportThreadResult =
+  | {
+      ok: true;
+      id: string;
+      number: string;
+      subject: string;
+      status: string;
+      closed: boolean;
+      guestToken: string | null;
+      messages: SupportThreadMessage[];
+    }
+  | { ok: false; error: string };
+
+export type PostMessageResult =
+  | { ok: true; messages: SupportThreadMessage[] }
   | { ok: false; error: string };
 
 /**
@@ -102,6 +130,7 @@ export async function actionCreateSupportTicketResult(
       ok: true,
       kind: "guest",
       number: ticket.number,
+      id: ticket.id,
       token,
       href: `/support/t/${token}`,
     };
@@ -109,6 +138,119 @@ export async function actionCreateSupportTicketResult(
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Could not open ticket",
+    };
+  }
+}
+
+function mapMessages(
+  messages: {
+    id: string;
+    body: string;
+    isStaff: boolean;
+    createdAt: Date;
+    author: { name: string } | null;
+  }[],
+  guestName?: string | null
+): SupportThreadMessage[] {
+  return messages.map((m) => ({
+    id: m.id,
+    body: m.body,
+    isStaff: m.isStaff,
+    createdAt: m.createdAt.toISOString(),
+    authorName: m.author?.name || (m.isStaff ? "ForgeRP" : guestName || "You"),
+  }));
+}
+
+/** Load a ticket thread for the floating bubble (no page navigation). */
+export async function actionFetchSupportThread(params: {
+  ticketId?: string | null;
+  guestToken?: string | null;
+}): Promise<SupportThreadResult> {
+  try {
+    const token = params.guestToken?.trim() || null;
+    const id = params.ticketId?.trim() || null;
+
+    if (token) {
+      const ticket = await getSupportTicketByGuestToken(token);
+      if (!ticket) return { ok: false, error: "Conversation not found" };
+      return {
+        ok: true,
+        id: ticket.id,
+        number: ticket.number,
+        subject: ticket.subject,
+        status: ticket.status,
+        closed: ticket.status === "CLOSED",
+        guestToken: ticket.guestToken,
+        messages: mapMessages(ticket.messages, ticket.guestName),
+      };
+    }
+
+    if (!id) return { ok: false, error: "Missing conversation id" };
+
+    const user = await getCurrentUser();
+    const platform = await isPlatformSupportEnabled();
+    const ticket = await getSupportTicket(id);
+    if (!ticket) return { ok: false, error: "Conversation not found" };
+
+    const isStaff = platform && user?.role === "ADMIN";
+    const isOwner = !!user && ticket.requesterId === user.id;
+    if (!isStaff && !isOwner) {
+      return { ok: false, error: "You don't have access to this conversation" };
+    }
+
+    return {
+      ok: true,
+      id: ticket.id,
+      number: ticket.number,
+      subject: ticket.subject,
+      status: ticket.status,
+      closed: ticket.status === "CLOSED",
+      guestToken: ticket.guestToken,
+      messages: mapMessages(
+        ticket.messages,
+        ticket.guestName || ticket.requester?.name
+      ),
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Could not load conversation",
+    };
+  }
+}
+
+/** Reply in-bubble (no redirect). */
+export async function actionPostSupportMessageResult(formData: FormData): Promise<PostMessageResult> {
+  try {
+    const user = await getCurrentUser();
+    const ticketId = String(formData.get("ticketId") || "");
+    const guestToken = String(formData.get("guestToken") || "") || null;
+    const fromAdmin = formData.get("fromAdmin") === "1";
+
+    if (fromAdmin) {
+      await requirePlatformAdmin();
+    } else if (!guestToken) {
+      if (!(await isPlatformSupportEnabled()) || !user) {
+        return { ok: false, error: "Sign in to reply here." };
+      }
+    }
+
+    await postSupportMessage({
+      ticketId,
+      userId: user?.id,
+      userRole: user?.role,
+      body: String(formData.get("body") || ""),
+      guestToken,
+    });
+    revalidateSupport(ticketId, guestToken);
+
+    const thread = await actionFetchSupportThread({ ticketId, guestToken });
+    if (!thread.ok) return { ok: false, error: thread.error };
+    return { ok: true, messages: thread.messages };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Could not send message",
     };
   }
 }
