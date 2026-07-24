@@ -11,6 +11,7 @@ import {
   ExternalLink,
   CheckCircle2,
   Loader2,
+  Sparkles,
 } from "lucide-react";
 import { actionCreateSupportTicketResult } from "@/app/support/actions";
 import {
@@ -19,23 +20,37 @@ import {
 } from "@/lib/support-constants";
 import { cn } from "@/lib/utils";
 
+const AUTO_OPEN_MS = 4000;
+const SESSION_KEY = "forge-support-auto-opened";
+
 /**
- * Global floating help chat — platform (ForgeRP) only.
- * Submits via server action result (no full-page redirect) so the landing
- * page stays put and the bubble can show success/error in place.
+ * Floating help chat — available on marketing, customer apps, and demos.
+ * Hidden only for ForgeRP platform staff (they use the admin support desk).
+ * Auto-opens once per session after 4s with a friendly prompt.
  */
 export function SupportBubble({
-  isAdmin = false,
-  signedIn = false,
+  /** Dogfood account: ticket links to their user record */
+  accountLinked = false,
+  /** Show link to staff desk (platform admin only — normally bubble is hidden for them) */
+  showStaffLink = false,
   badge = 0,
   source = "APP",
+  /** Prefill for guest path (customer users, demos) */
+  defaultName = "",
+  defaultEmail = "",
+  /** Auto-open after 4s (default true) */
+  autoOpen = true,
 }: {
-  isAdmin?: boolean;
-  signedIn?: boolean;
+  accountLinked?: boolean;
+  showStaffLink?: boolean;
   badge?: number;
-  source?: "LANDING" | "MARKETING" | "APP";
+  source?: "LANDING" | "MARKETING" | "APP" | "DEMO" | "TENANT";
+  defaultName?: string;
+  defaultEmail?: string;
+  autoOpen?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [autoPrompt, setAutoPrompt] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<{
     number: string;
@@ -44,6 +59,27 @@ export function SupportBubble({
   const [pending, startTransition] = useTransition();
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
+  const needContact = !accountLinked;
+
+  // Auto-open once per browser session after 4 seconds
+  useEffect(() => {
+    if (!autoOpen) return;
+    try {
+      if (sessionStorage.getItem(SESSION_KEY) === "1") return;
+    } catch {
+      // private mode — still auto-open once this mount
+    }
+    const t = window.setTimeout(() => {
+      setOpen(true);
+      setAutoPrompt(true);
+      try {
+        sessionStorage.setItem(SESSION_KEY, "1");
+      } catch {
+        // ignore
+      }
+    }, AUTO_OPEN_MS);
+    return () => window.clearTimeout(t);
+  }, [autoOpen]);
 
   useEffect(() => {
     if (!open) return;
@@ -57,7 +93,6 @@ export function SupportBubble({
   useEffect(() => {
     if (!open) return;
     const onPointer = (e: MouseEvent) => {
-      // Ignore while submitting so a late mousedown can't kill the form
       if (pending) return;
       if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
         setOpen(false);
@@ -76,12 +111,13 @@ export function SupportBubble({
   function handleOpen() {
     setOpen(true);
     setError(null);
-    // Keep success if they re-open so they can still copy the link
+    setAutoPrompt(false);
   }
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
+    setAutoPrompt(false);
     const form = e.currentTarget;
     const fd = new FormData(form);
     startTransition(async () => {
@@ -119,7 +155,7 @@ export function SupportBubble({
                 Chat with ForgeRP
               </h2>
               <p className="mt-0.5 text-[11px] text-slate-400">
-                {signedIn
+                {accountLinked
                   ? "Opens a ticket for the ForgeRP team."
                   : "Ask a question — we'll reply in this thread."}
               </p>
@@ -135,6 +171,18 @@ export function SupportBubble({
           </div>
 
           <div className="space-y-3 p-4">
+            {autoPrompt && !success && (
+              <div className="flex items-start gap-2 rounded-xl border border-teal-500/30 bg-teal-500/10 px-3 py-2.5">
+                <Sparkles
+                  className="mt-0.5 h-4 w-4 shrink-0 text-teal-300"
+                  aria-hidden
+                />
+                <p className="text-sm font-medium text-teal-100">
+                  Have a question? Ask away!
+                </p>
+              </div>
+            )}
+
             {success ? (
               <div className="space-y-3">
                 <div className="flex items-start gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-3">
@@ -170,7 +218,7 @@ export function SupportBubble({
             ) : (
               <form onSubmit={handleSubmit} className="space-y-3">
                 <input type="hidden" name="source" value={source} />
-                {!signedIn && (
+                {needContact && (
                   <>
                     <div>
                       <label className="mb-1 block text-[11px] font-medium text-slate-400">
@@ -180,6 +228,7 @@ export function SupportBubble({
                         name="name"
                         required
                         maxLength={120}
+                        defaultValue={defaultName}
                         placeholder="Jane Smith"
                         className={fieldClass}
                         disabled={pending}
@@ -194,6 +243,7 @@ export function SupportBubble({
                         type="email"
                         required
                         maxLength={200}
+                        defaultValue={defaultEmail}
                         placeholder="you@company.com"
                         className={fieldClass}
                         disabled={pending}
@@ -293,7 +343,7 @@ export function SupportBubble({
               </form>
             )}
 
-            {signedIn && !success && (
+            {accountLinked && !success && (
               <div className="flex flex-col gap-1.5 border-t border-slate-800 pt-3">
                 <Link
                   href="/support"
@@ -304,7 +354,7 @@ export function SupportBubble({
                   View my tickets
                   <ExternalLink className="ml-auto h-3 w-3 opacity-50" />
                 </Link>
-                {isAdmin && (
+                {showStaffLink && (
                   <Link
                     href="/admin/support"
                     onClick={() => setOpen(false)}

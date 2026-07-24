@@ -13,14 +13,10 @@ import {
   updateSupportTicket,
 } from "@/lib/services/support";
 
-async function requirePlatform() {
-  if (!(await isPlatformSupportEnabled())) {
-    throw new Error("Support is only available on the ForgeRP platform");
-  }
-}
-
 async function requirePlatformAdmin() {
-  await requirePlatform();
+  if (!(await isPlatformSupportEnabled())) {
+    throw new Error("Only ForgeRP platform staff can do that");
+  }
   const user = await getCurrentUser();
   if (!user || user.role !== "ADMIN") {
     throw new Error("Only platform staff can do that");
@@ -56,57 +52,58 @@ export type CreateSupportTicketResult =
   | { ok: false; error: string };
 
 /**
- * Create a support ticket and return a result (no redirect).
- * Used by the floating chat bubble so the landing page doesn't full-reload
- * (which was closing the panel and flipping theme).
+ * Open a support ticket for anyone (landing, customer ERP, demo).
+ * Tickets always land in the public platform desk for ForgeRP staff.
+ *
+ * - Dogfood (platform) signed-in users → ticket linked to their account
+ * - Guests / customer tenants / demos → guest ticket (name + email + secret link)
  */
 export async function actionCreateSupportTicketResult(
   formData: FormData
 ): Promise<CreateSupportTicketResult> {
   try {
-    if (!(await isPlatformSupportEnabled())) {
-      return {
-        ok: false,
-        error: "Support chat isn't available here. Email us or try again later.",
-      };
-    }
+    const platform = await isPlatformSupportEnabled();
     const user = await getCurrentUser();
-    if (!user) {
-      const ticket = await createGuestSupportTicket({
-        name: String(formData.get("name") || ""),
-        email: String(formData.get("email") || ""),
+    const source = String(formData.get("source") || "LANDING");
+
+    // Platform dogfood account → linked ticket (same public schema as the user)
+    if (platform && user) {
+      const ticket = await createSupportTicket({
+        userId: user.id,
         subject: String(formData.get("subject") || ""),
         body: String(formData.get("body") || ""),
         priority: String(formData.get("priority") || "MEDIUM"),
         category: String(formData.get("category") || "GENERAL"),
-        source: String(formData.get("source") || "LANDING"),
+        source: source || "APP",
       });
-      const token = ticket.guestToken!;
-      revalidateSupport(ticket.id, token);
+      revalidateSupport(ticket.id);
       return {
         ok: true,
-        kind: "guest",
+        kind: "user",
         number: ticket.number,
-        token,
-        href: `/support/t/${token}`,
+        id: ticket.id,
+        href: `/support/${ticket.id}`,
       };
     }
 
-    const ticket = await createSupportTicket({
-      userId: user.id,
+    // Everyone else (landing guests, customer instances, demos)
+    const ticket = await createGuestSupportTicket({
+      name: String(formData.get("name") || ""),
+      email: String(formData.get("email") || ""),
       subject: String(formData.get("subject") || ""),
       body: String(formData.get("body") || ""),
       priority: String(formData.get("priority") || "MEDIUM"),
       category: String(formData.get("category") || "GENERAL"),
-      source: "APP",
+      source: source || "LANDING",
     });
-    revalidateSupport(ticket.id);
+    const token = ticket.guestToken!;
+    revalidateSupport(ticket.id, token);
     return {
       ok: true,
-      kind: "user",
+      kind: "guest",
       number: ticket.number,
-      id: ticket.id,
-      href: `/support/${ticket.id}`,
+      token,
+      href: `/support/t/${token}`,
     };
   } catch (e) {
     return {
@@ -121,19 +118,31 @@ export async function actionCreateSupportTicket(formData: FormData) {
   const result = await actionCreateSupportTicketResult(formData);
   if (!result.ok) {
     await flashToast(result.error, "error");
+    const platform = await isPlatformSupportEnabled();
     const user = await getCurrentUser();
-    redirect(user ? "/support?new=1" : "/?chat=error");
+    redirect(platform && user ? "/support?new=1" : "/?chat=error");
   }
   await flashToast(`Ticket ${result.number} opened — we'll reply here.`);
   redirect(result.href);
 }
 
 export async function actionPostSupportMessage(formData: FormData) {
-  await requirePlatform();
   const user = await getCurrentUser();
   const ticketId = String(formData.get("ticketId") || "");
   const guestToken = String(formData.get("guestToken") || "") || null;
   const fromAdmin = formData.get("fromAdmin") === "1";
+
+  // Staff replies only from platform admin desk
+  if (fromAdmin) {
+    await requirePlatformAdmin();
+  } else if (!guestToken) {
+    // Account-linked replies only on platform dogfood
+    if (!(await isPlatformSupportEnabled()) || !user) {
+      await flashToast("Sign in on the platform to reply here.", "error");
+      redirect("/");
+    }
+  }
+
   try {
     await postSupportMessage({
       ticketId,

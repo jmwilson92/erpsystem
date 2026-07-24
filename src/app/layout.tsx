@@ -174,15 +174,14 @@ export default async function RootLayout({
     pathname.startsWith("/support/t/") ||
     (pathname === "/" && !currentUser);
   if (isBareMarketing) {
-    // Guest help chat on marketing pages only when we're on the platform host
-    // (not a demo cookie session that somehow hit a public path).
+    // Chat on every public marketing surface (landing, signup, legal, demo splash,
+    // guest ticket). Not shown on the staff desk (that's app shell + platform admin).
     const showMarketingChat =
-      platformSupport &&
-      (pathname === "/" ||
-        pathname.startsWith("/signup") ||
-        pathname.startsWith("/legal") ||
-        pathname.startsWith("/demo") ||
-        pathname.startsWith("/support/t/"));
+      pathname === "/" ||
+      pathname.startsWith("/signup") ||
+      pathname.startsWith("/legal") ||
+      pathname.startsWith("/demo") ||
+      pathname.startsWith("/support/t/");
     return (
       <html lang="en" className="dark" suppressHydrationWarning>
         <head>
@@ -202,8 +201,8 @@ export default async function RootLayout({
           {children}
           {showMarketingChat && (
             <SupportBubble
-              signedIn={false}
               source={pathname === "/" ? "LANDING" : "MARKETING"}
+              autoOpen
             />
           )}
           <CookieBanner />
@@ -299,6 +298,7 @@ export default async function RootLayout({
                   name: currentUser.name,
                   role: currentUser.role,
                   title: currentUser.title,
+                  email: currentUser.email,
                 }
               : null
           }

@@ -16,6 +16,7 @@ export type DemoUser = {
   name: string;
   role: string;
   title: string | null;
+  email?: string | null;
 };
 
 export type ShellCompany = { name: string; tagline: string };
@@ -52,9 +53,29 @@ function ShellInner({
   const { theme } = useTheme();
   const pathname = usePathname();
 
-  // Print documents and the public demo landing render without chrome.
-  if (pathname?.startsWith("/print") || pathname?.startsWith("/demo")) {
+  // Print documents render without chrome (and no chat bubble).
+  if (pathname?.startsWith("/print")) {
     return <>{children}</>;
+  }
+
+  // ForgeRP platform staff use the admin desk — hide the ask-bubble for them
+  // so they don't chat with themselves. Everyone else (customers, demos,
+  // marketing, dogfood non-admins) gets the bubble.
+  const isPlatformStaff =
+    platformSupport && currentUser?.role === "ADMIN";
+  const onStaffDesk = pathname?.startsWith("/admin/support");
+  const showHelpBubble = !isPlatformStaff && !onStaffDesk;
+
+  // Demo splash can render without sidebar chrome but still gets the bubble.
+  if (pathname?.startsWith("/demo")) {
+    return (
+      <>
+        {children}
+        {showHelpBubble && (
+          <SupportBubble source="DEMO" autoOpen defaultName="" defaultEmail="" />
+        )}
+      </>
+    );
   }
 
   return (
@@ -91,16 +112,17 @@ function ShellInner({
         platformSupport={platformSupport}
       />
       <GuidedTour />
-      {/* Platform (dogfood) help chat only — never customer/demo ERP */}
-      {platformSupport && currentUser && (
+      {showHelpBubble && (
         <SupportBubble
-          signedIn
-          isAdmin={currentUser.role === "ADMIN"}
-          source="APP"
+          accountLinked={platformSupport && !!currentUser}
+          source={platformSupport ? "APP" : "TENANT"}
+          defaultName={currentUser?.name || ""}
+          defaultEmail={currentUser?.email || ""}
+          autoOpen
           badge={
-            (currentUser.role === "ADMIN"
-              ? notifications.badges["/admin/support"]
-              : notifications.badges["/support"]) || 0
+            platformSupport
+              ? notifications.badges["/support"] || 0
+              : 0
           }
         />
       )}
@@ -138,13 +160,18 @@ export function AppShell({
   platformSupport?: boolean;
 }) {
   const pathname = usePathname();
-  // Auth screens render bare — no sidebar/header chrome
+  // Auth screens render bare — no sidebar/header chrome, but still offer chat
   if (
     pathname?.startsWith("/login") ||
     pathname?.startsWith("/invite/") ||
     pathname?.startsWith("/onboard/")
   ) {
-    return <ThemeProvider>{children}</ThemeProvider>;
+    return (
+      <ThemeProvider>
+        {children}
+        <SupportBubble source="MARKETING" autoOpen />
+      </ThemeProvider>
+    );
   }
   return (
     <ThemeProvider>
