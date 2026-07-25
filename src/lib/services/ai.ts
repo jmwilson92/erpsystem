@@ -224,52 +224,43 @@ export async function processAiConversation(
   const last = messages.filter((m) => m.role === "user").pop()?.content || "";
   if (!last.trim()) return "I didn't hear a question. Try again.";
 
-  if (process.env.XAI_API_KEY) {
+  if (process.env.XAI_API_KEY?.trim()) {
     try {
-      let ctx: unknown = {};
+      let ctx: unknown = { note: "context unavailable" };
       try {
         ctx = await getAiContextSummary();
       } catch (ctxErr) {
         console.warn("[ai] context summary failed, continuing without:", ctxErr);
       }
-      const key = process.env.XAI_API_KEY;
-      const model = process.env.XAI_MODEL || "grok-4.5";
-      const res = await fetch("https://api.x.ai/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${key}`,
-        },
-        body: JSON.stringify({
-          model,
-          temperature: 0.4,
-          messages: [
-            {
-              role: "system",
-              content: `You are a spoken manufacturing ERP assistant inside ForgeRP. Keep answers short enough to speak aloud (2–5 sentences when possible). Help users find modules and understand status. Live context: ${JSON.stringify(ctx)}`,
-            },
-            ...messages
-              .filter((m) => m.content?.trim())
-              .slice(-10)
-              .map((m) => ({ role: m.role, content: m.content })),
-          ],
-        }),
+      const { grokChat } = await import("@/lib/services/grok");
+      // Keep system prompt small so voice stays fast
+      const content = await grokChat({
+        temperature: 0.4,
+        system: `You are Carina, a spoken manufacturing ERP assistant inside ForgeRP. Keep answers to 2–4 short sentences for speech. Be warm and practical. Help with production, quality, purchasing, inventory, and navigation. Live snapshot: ${JSON.stringify(ctx).slice(0, 6000)}`,
+        user: last,
+        messages: [
+          {
+            role: "system",
+            content: `You are Carina, a spoken manufacturing ERP assistant inside ForgeRP. Keep answers to 2–4 short sentences for speech. Be warm and practical. Help with production, quality, purchasing, inventory, and navigation. Live snapshot: ${JSON.stringify(ctx).slice(0, 6000)}`,
+          },
+          ...messages
+            .filter((m) => m.content?.trim())
+            .slice(-8)
+            .map((m) => ({
+              role: m.role as "user" | "assistant",
+              content: m.content,
+            })),
+        ],
       });
-      if (!res.ok) {
-        const errBody = await res.text().catch(() => "");
-        console.error("[ai] Grok HTTP", res.status, errBody.slice(0, 300));
-        throw new Error(`Grok ${res.status}`);
-      }
-      const data = await res.json();
-      const content = data.choices?.[0]?.message?.content;
       if (content?.trim()) return content.trim();
     } catch (e) {
       console.error("Grok conversation failed:", e);
+      // fall through to local
     }
   }
   try {
     return await processAiQuery(last);
   } catch {
-    return "I'm having trouble answering right now. Try the AI Assistant text chat, or ask again in a moment.";
+    return "I'm having trouble answering right now. Try the text chat on the AI page, or ask again in a moment.";
   }
 }

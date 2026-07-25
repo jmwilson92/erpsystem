@@ -36,33 +36,41 @@ export async function POST(req: NextRequest) {
 
   const sliced = text.slice(0, 2000);
 
-  // 1) Native xAI TTS (best quality — Carina, Ara, Eve, …)
-  try {
-    const xai = await fetch("https://api.x.ai/v1/tts", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        text: sliced,
-        voice_id: voiceId,
-        language: "en",
-      }),
-    });
-    if (xai.ok) {
-      const buf = await xai.arrayBuffer();
-      return new Response(buf, {
+  // 1) Native xAI TTS — try a few body shapes / voice id casings
+  const ttsAttempts: Record<string, unknown>[] = [
+    { text: sliced, voice_id: voiceId, language: "en" },
+    { text: sliced, voice_id: "Carina", language: "en" },
+    { text: sliced, voice: voiceId, language: "en" },
+    { input: sliced, voice_id: voiceId },
+  ];
+  for (const payload of ttsAttempts) {
+    try {
+      const xai = await fetch("https://api.x.ai/v1/tts", {
+        method: "POST",
         headers: {
-          "Content-Type": xai.headers.get("Content-Type") || "audio/mpeg",
-          "Cache-Control": "no-store",
+          Authorization: `Bearer ${key}`,
+          "Content-Type": "application/json",
         },
+        body: JSON.stringify(payload),
       });
+      if (xai.ok) {
+        const buf = await xai.arrayBuffer();
+        return new Response(buf, {
+          headers: {
+            "Content-Type": xai.headers.get("Content-Type") || "audio/mpeg",
+            "Cache-Control": "no-store",
+          },
+        });
+      }
+      console.warn(
+        "[tts] xAI TTS attempt failed:",
+        xai.status,
+        (await xai.text()).slice(0, 200),
+        payload
+      );
+    } catch (e) {
+      console.warn("[tts] xAI TTS error:", e);
     }
-    // fall through to optional OpenAI-compatible endpoint
-    console.warn("[tts] xAI TTS failed:", xai.status, (await xai.text()).slice(0, 200));
-  } catch (e) {
-    console.warn("[tts] xAI TTS error:", e);
   }
 
   // 2) Optional OpenAI-compatible /audio/speech

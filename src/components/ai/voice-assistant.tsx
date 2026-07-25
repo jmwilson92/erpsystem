@@ -12,7 +12,9 @@ import {
   actionAiConversation,
   actionGetAssistantName,
   actionGrokStatus,
+  actionProbeGrok,
   actionSetAssistantName,
+  actionVoiceSmokeTest,
 } from "@/app/ai/actions";
 import { cn } from "@/lib/utils";
 
@@ -313,15 +315,27 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
 
       startTransition(async () => {
         try {
-          const reply = await actionAiConversation(historyRef.current);
-          const safe =
-            reply?.trim() ||
-            "I didn't catch that. Try asking about the production floor, quality, or purchasing.";
+          const result = await actionAiConversation(historyRef.current);
+          if (!result.ok) {
+            setError(result.error);
+            setLastReply(`Error: ${result.error}`);
+            setStatus("Error — try Hold to talk again");
+            await speak(
+              "Sorry, I could not reach Grok. Check that XAI_API_KEY is set on the server."
+            );
+            return;
+          }
+          const safe = result.text;
           historyRef.current = [
             ...historyRef.current,
             { role: "assistant", content: safe },
           ];
-          setLastReply(safe);
+          setLastReply(
+            result.source === "local"
+              ? `${safe}\n\n(local fallback — Grok key may be missing)`
+              : safe
+          );
+          setError(null);
           setStatus("Speaking…");
           await speak(safe);
           setStatus(
@@ -334,11 +348,8 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
         } catch (e) {
           const msg = e instanceof Error ? e.message : "Assistant failed";
           setError(msg);
-          setLastReply(
-            "Sorry — I had trouble reaching Grok. Check XAI_API_KEY, or try again."
-          );
+          setLastReply(`Error: ${msg}`);
           setStatus("Error — still listening");
-          // Still try to speak a short fallback
           try {
             await speak("Sorry, I had a problem. Please try again.");
           } catch {
@@ -351,6 +362,46 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
     },
     [keepAwake, speak, stopSpeaking]
   );
+
+  /** Bypass mic entirely — proves Grok + Carina TTS pipeline. */
+  function runSmokeTest() {
+    setError(null);
+    setStatus("Testing Grok + Carina…");
+    setLastHeard("(smoke test — no mic)");
+    startTransition(async () => {
+      try {
+        const probe = await actionProbeGrok();
+        if (!probe.ok) {
+          setError(probe.error || "Grok probe failed");
+          setLastReply(probe.error || "Grok probe failed");
+          setStatus("Grok failed");
+          setGrokOn(probe.configured);
+          return;
+        }
+        setGrokOn(true);
+        const result = await actionVoiceSmokeTest();
+        if (!result.ok) {
+          setError(result.error);
+          setLastReply(result.error);
+          setStatus("Smoke test failed");
+          return;
+        }
+        setLastReply(result.text);
+        setStatus("Speaking…");
+        await speak(result.text);
+        setStatus(
+          listeningRef.current
+            ? `Listening for “${nameRef.current}”…`
+            : "Smoke test OK"
+        );
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Smoke test failed";
+        setError(msg);
+        setLastReply(msg);
+        setStatus("Error");
+      }
+    });
+  }
 
   const startListening = useCallback(async () => {
     const Ctor = getSpeechRecognition();
@@ -584,6 +635,18 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
   if (compact) {
     return (
       <div className="pointer-events-none fixed bottom-5 left-5 z-40 flex flex-col items-start gap-2">
+        {(error || lastReply || status !== "Off") && (
+          <div className="pointer-events-auto max-w-[16rem] rounded-lg border border-slate-700 bg-slate-950/95 px-2.5 py-1.5 text-[10px] shadow-lg">
+            <p className="text-slate-400">{status}</p>
+            {error && <p className="mt-0.5 text-amber-300">{error}</p>}
+            {lastHeard && !error && (
+              <p className="mt-0.5 text-slate-500">You: {lastHeard.slice(0, 80)}</p>
+            )}
+            {lastReply && !error && (
+              <p className="mt-0.5 text-slate-300 line-clamp-3">{lastReply.slice(0, 140)}</p>
+            )}
+          </div>
+        )}
         {partial && listening && (
           <div className="pointer-events-none max-w-[14rem] rounded-lg border border-slate-700 bg-slate-950/90 px-2 py-1 text-[10px] text-slate-400">
             …{partial.slice(-80)}
@@ -697,6 +760,14 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
       </div>
 
       <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={runSmokeTest}
+          disabled={pending}
+          className="inline-flex h-9 items-center gap-2 rounded-lg border border-teal-500/40 bg-teal-500/10 px-3 text-sm font-medium text-teal-200 hover:bg-teal-500/20"
+        >
+          Test Grok + Carina
+        </button>
         <button
           type="button"
           onClick={() => (listening ? stopListening() : startListening())}
