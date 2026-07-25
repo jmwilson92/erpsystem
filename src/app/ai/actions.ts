@@ -50,15 +50,15 @@ export async function actionAiConversation(
 
 export async function actionGetAssistantName(): Promise<string> {
   const user = await getCurrentUser();
-  if (!user) return "Forge";
+  if (!user) return "Carina";
   try {
     const row = await prisma.user.findUnique({
       where: { id: user.id },
       select: { assistantName: true },
     });
-    return row?.assistantName?.trim() || "Forge";
+    return row?.assistantName?.trim() || "Carina";
   } catch {
-    return "Forge";
+    return "Carina";
   }
 }
 
