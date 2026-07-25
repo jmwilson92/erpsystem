@@ -163,6 +163,34 @@ export default async function RootLayout({
   // Platform support (ForgeRP dogfood + public marketing) — never customer/demo.
   const platformSupport = await isPlatformSupportEnabled();
 
+  // Platform staff support desk — standalone page, no ERP chrome, no chat bubble.
+  // Unlisted in nav; staff type /admin/support. Gating is in admin/support/layout.
+  const isStaffDesk = pathname.startsWith("/admin/support");
+  if (isStaffDesk) {
+    if (process.env.DEMO_MODE === "0" && !currentUser) {
+      redirect(`/login?next=${encodeURIComponent(pathname || "/admin/support")}`);
+    }
+    return (
+      <html lang="en" className="dark" suppressHydrationWarning>
+        <head>
+          <script
+            dangerouslySetInnerHTML={{
+              __html: `try{var t=localStorage.getItem("forge-theme")||(matchMedia("(prefers-color-scheme: light)").matches?"light":"dark");var c=document.documentElement.classList;c.toggle("dark",t==="dark");c.toggle("light",t==="light");document.documentElement.style.colorScheme=t;}catch(e){}`,
+            }}
+          />
+        </head>
+        <body
+          className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+          suppressHydrationWarning
+        >
+          {children}
+          <CookieBanner />
+          <Analytics />
+        </body>
+      </html>
+    );
+  }
+
   // Public marketing surfaces render without the app shell (no sidebar/header),
   // and skip the auth + subscription gates: the home page for signed-out
   // visitors, and the signup flow. Signed-in users on "/" fall through to the

@@ -58,13 +58,11 @@ function ShellInner({
     return <>{children}</>;
   }
 
-  // ForgeRP platform staff use the admin desk — hide the ask-bubble for them
-  // so they don't chat with themselves. Everyone else (customers, demos,
-  // marketing, dogfood non-admins) gets the bubble.
+  // Everyone gets the help bubble except platform staff (they answer tickets
+  // on the unlisted /admin/support desk, outside the ERP shell).
   const isPlatformStaff =
     platformSupport && currentUser?.role === "ADMIN";
-  const onStaffDesk = pathname?.startsWith("/admin/support");
-  const showHelpBubble = !isPlatformStaff && !onStaffDesk;
+  const showHelpBubble = !isPlatformStaff;
 
   // Demo splash can render without sidebar chrome but still gets the bubble.
   if (pathname?.startsWith("/demo")) {

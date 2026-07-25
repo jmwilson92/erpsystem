@@ -14,8 +14,6 @@ type SearchHit = {
   href: string;
 };
 
-const PLATFORM_ONLY_HREFS = new Set(["/support", "/admin/support"]);
-
 export function CommandPalette({
   open,
   onOpenChange,
@@ -27,6 +25,7 @@ export function CommandPalette({
   disabledModules?: string[];
   platformSupport?: boolean;
 }) {
+  void platformSupport;
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [hits, setHits] = useState<SearchHit[]>([]);
@@ -87,7 +86,6 @@ export function CommandPalette({
   const moduleGroups = NAV_GROUPS.map((g) => ({
     label: g.label,
     items: g.items.filter((p) => {
-      if (PLATFORM_ONLY_HREFS.has(p.href) && !platformSupport) return false;
       const key = moduleKeyForPath(p.href);
       if (key && disabledModules.includes(key)) return false;
       return (

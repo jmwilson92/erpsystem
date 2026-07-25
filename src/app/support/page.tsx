@@ -9,56 +9,54 @@ import { Textarea } from "@/components/ui/textarea";
 import { StatusBadge } from "@/components/shared/status-badge";
 import {
   listMySupportTickets,
+  listSupportTicketsByGuestEmail,
   SUPPORT_CATEGORIES,
   SUPPORT_PRIORITIES,
 } from "@/lib/services/support";
 import { isPlatformSupportEnabled } from "@/lib/platform";
 import { actionCreateSupportTicket } from "./actions";
-import { LifeBuoy, MessageSquarePlus, MessagesSquare } from "lucide-react";
+import { MessageSquarePlus, MessagesSquare } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * In-app Help & Support for anyone signed into the ERP (customers, demos,
+ * dogfood). Opens tickets on the platform staff desk. Does NOT expose the
+ * staff queue — that lives only at unlisted /admin/support.
+ */
 export default async function SupportPage({
   searchParams,
 }: {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  // Customer tenants + demos never see platform support
-  if (!(await isPlatformSupportEnabled())) redirect("/");
-
   const user = await getCurrentUser();
   if (!user) redirect("/login?next=/support");
 
+  const platform = await isPlatformSupportEnabled();
   const sp = searchParams ? await searchParams : {};
   const showNew =
     (Array.isArray(sp.new) ? sp.new[0] : sp.new) === "1" ||
     (Array.isArray(sp.new) ? sp.new[0] : sp.new) === "true";
 
-  const tickets = await listMySupportTickets(user.id);
-  const isAdmin = user.role === "ADMIN";
+  // Platform dogfood users: tickets linked to their user id.
+  // Customer/demo users: tickets matched by guest email (public control plane).
+  const tickets = platform
+    ? await listMySupportTickets(user.id)
+    : await listSupportTicketsByGuestEmail(user.email);
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Help & Support"
-        description="Chat with staff. Every conversation opens a help ticket you can track."
+        description="Message the ForgeRP support desk. We'll answer as soon as we can."
         actions={
-          <div className="flex flex-wrap gap-2">
-            {isAdmin && (
-              <Link href="/admin/support">
-                <Button variant="outline" size="sm">
-                  <LifeBuoy className="h-4 w-4" /> Staff desk
-                </Button>
-              </Link>
-            )}
-            {!showNew && (
-              <Link href="/support?new=1">
-                <Button size="sm">
-                  <MessageSquarePlus className="h-4 w-4" /> New chat
-                </Button>
-              </Link>
-            )}
-          </div>
+          !showNew ? (
+            <Link href="/support?new=1">
+              <Button size="sm">
+                <MessageSquarePlus className="h-4 w-4" /> New request
+              </Button>
+            </Link>
+          ) : undefined
         }
       />
 
@@ -67,15 +65,26 @@ export default async function SupportPage({
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-base">
               <MessageSquarePlus className="h-4 w-4 text-teal-400" />
-              Start a new chat
+              Contact support
             </CardTitle>
             <p className="text-xs text-slate-500">
-              Describe the issue — a help ticket is created automatically and
-              staff will reply in this thread.
+              Your message goes to the ForgeRP team. Use the chat bubble anytime
+              too — same desk.
             </p>
           </CardHeader>
           <CardContent>
             <form action={actionCreateSupportTicket} className="space-y-4">
+              <input
+                type="hidden"
+                name="source"
+                value={platform ? "APP" : "TENANT"}
+              />
+              {!platform && (
+                <>
+                  <input type="hidden" name="name" value={user.name} />
+                  <input type="hidden" name="email" value={user.email} />
+                </>
+              )}
               <div>
                 <label className="mb-1 block text-xs font-medium text-slate-400">
                   Subject
@@ -129,11 +138,11 @@ export default async function SupportPage({
                   name="body"
                   required
                   rows={5}
-                  placeholder="What happened? What did you expect? Include part numbers, WO numbers, or screenshots description if useful."
+                  placeholder="What happened? What did you expect?"
                 />
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button type="submit">Open ticket &amp; chat</Button>
+                <Button type="submit">Send to support</Button>
                 <Link href="/support">
                   <Button type="button" variant="ghost">
                     Cancel
@@ -149,66 +158,66 @@ export default async function SupportPage({
         <CardHeader className="pb-2">
           <CardTitle className="flex items-center gap-2 text-base">
             <MessagesSquare className="h-4 w-4 text-teal-400" />
-            Your tickets
+            Your requests
           </CardTitle>
         </CardHeader>
         <CardContent>
           {tickets.length === 0 ? (
             <div className="rounded-xl border border-dashed border-slate-800 py-12 text-center">
-              <p className="text-sm text-slate-400">No help tickets yet.</p>
+              <p className="text-sm text-slate-400">No support requests yet.</p>
               <Link
                 href="/support?new=1"
                 className="mt-3 inline-flex text-sm font-medium text-teal-400 hover:underline"
               >
-                Start your first chat →
+                Contact support →
               </Link>
             </div>
           ) : (
             <ul className="divide-y divide-slate-800/80">
-              {tickets.map((t) => (
-                <li key={t.id}>
-                  <Link
-                    href={`/support/${t.id}`}
-                    className="flex flex-wrap items-center justify-between gap-3 py-3 transition-colors hover:bg-slate-900/40"
-                  >
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-mono text-xs text-teal-400">
-                          {t.number}
-                        </span>
-                        <StatusBadge status={t.status} />
-                        <StatusBadge status={t.priority} />
-                        {!t.awaitingStaff &&
-                          ["OPEN", "IN_PROGRESS", "WAITING_ON_USER"].includes(
-                            t.status
-                          ) && (
-                            <span className="rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase text-sky-300">
-                              Staff replied
-                            </span>
-                          )}
+              {tickets.map((t) => {
+                const href =
+                  platform && t.requesterId === user.id
+                    ? `/support/${t.id}`
+                    : t.guestToken
+                      ? `/support/t/${t.guestToken}`
+                      : `/support?new=1`;
+                return (
+                  <li key={t.id}>
+                    <Link
+                      href={href}
+                      className="flex flex-wrap items-center justify-between gap-3 py-3 transition-colors hover:bg-slate-900/40"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono text-xs text-teal-400">
+                            {t.number}
+                          </span>
+                          <StatusBadge status={t.status} />
+                          <StatusBadge status={t.priority} />
+                        </div>
+                        <p className="mt-1 truncate text-sm font-medium text-slate-100">
+                          {t.subject}
+                        </p>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          {t._count.messages} message
+                          {t._count.messages === 1 ? "" : "s"}
+                          {t.assignee
+                            ? ` · Assigned to ${t.assignee.name}`
+                            : ""}{" "}
+                          · Updated{" "}
+                          {new Date(t.lastMessageAt).toLocaleString(undefined, {
+                            month: "short",
+                            day: "numeric",
+                            hour: "numeric",
+                            minute: "2-digit",
+                          })}
+                        </p>
                       </div>
-                      <p className="mt-1 truncate text-sm font-medium text-slate-100">
-                        {t.subject}
-                      </p>
-                      <p className="mt-0.5 text-xs text-slate-500">
-                        {t._count.messages} message
-                        {t._count.messages === 1 ? "" : "s"}
-                        {t.assignee
-                          ? ` · Assigned to ${t.assignee.name}`
-                          : ""}{" "}
-                        · Updated{" "}
-                        {new Date(t.lastMessageAt).toLocaleString(undefined, {
-                          month: "short",
-                          day: "numeric",
-                          hour: "numeric",
-                          minute: "2-digit",
-                        })}
-                      </p>
-                    </div>
-                    <span className="text-xs text-teal-400">Open chat →</span>
-                  </Link>
-                </li>
-              ))}
+                      <span className="text-xs text-teal-400">Open →</span>
+                    </Link>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </CardContent>

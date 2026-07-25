@@ -13,8 +13,6 @@ import { useRouter } from "next/navigation";
 
 const COLLAPSED_GROUPS_KEY = "forge-nav-collapsed-groups";
 
-const PLATFORM_ONLY_HREFS = new Set(["/support", "/admin/support"]);
-
 export function Sidebar({
   demoUsers = [],
   currentUser = null,
@@ -28,9 +26,10 @@ export function Sidebar({
   badges?: Record<string, number>;
   company?: { name: string; tagline: string };
   disabledModules?: string[];
-  /** Hide platform support links on customer/demo instances */
+  /** Reserved for future platform-only nav; staff desk is unlisted */
   platformSupport?: boolean;
 }) {
+  void platformSupport;
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -64,11 +63,11 @@ export function Sidebar({
   const activeHref = activeNavHref(pathname, searchParams);
 
   // Hide nav items whose module is turned off; drop groups left empty.
-  // Platform support (Help + staff desk) only on dogfood — never customer/demo.
+  // Help & Support stays for all instances (users → support desk tickets).
+  // Staff ticket queue is unlisted and never appears here.
   const visibleGroups = NAV_GROUPS.map((group) => ({
     ...group,
     items: group.items.filter((item) => {
-      if (PLATFORM_ONLY_HREFS.has(item.href) && !platformSupport) return false;
       const key = moduleKeyForPath(item.href);
       return !key || !disabledModules.includes(key);
     }),

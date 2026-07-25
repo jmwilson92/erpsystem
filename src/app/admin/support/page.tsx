@@ -9,6 +9,8 @@ import { isPlatformSupportEnabled } from "@/lib/platform";
 import { TENANT_COOKIE, DEMO_COOKIE } from "@/lib/db";
 import { Inbox, MessagesSquare } from "lucide-react";
 
+// Link is used in the queue table
+
 export const dynamic = "force-dynamic";
 
 /**
@@ -50,16 +52,8 @@ export default async function AdminSupportQueuePage({
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Support desk"
-        description="Staff-only helpdesk. Answer chats, leave internal notes, and close tickets."
-        actions={
-          <Link
-            href="/support"
-            className="text-sm text-teal-400 hover:underline"
-          >
-            User help view →
-          </Link>
-        }
+        title="Ticket queue"
+        description="Answer chats from the website and ERP. Internal notes stay staff-only. Customers never see this page."
       />
 
       <div className="flex flex-wrap gap-2">

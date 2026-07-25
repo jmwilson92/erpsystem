@@ -189,6 +189,20 @@ export async function listMySupportTickets(userId: string) {
   });
 }
 
+/** Tickets opened as guest (customer/demo users whose accounts live in other schemas). */
+export async function listSupportTicketsByGuestEmail(email: string) {
+  const e = email.trim().toLowerCase();
+  if (!e) return [];
+  return db().supportTicket.findMany({
+    where: { guestEmail: e },
+    orderBy: { lastMessageAt: "desc" },
+    include: {
+      assignee: { select: { id: true, name: true } },
+      _count: { select: { messages: true } },
+    },
+  });
+}
+
 export async function listAllSupportTickets(filters?: {
   status?: string;
   awaitingStaff?: boolean;
