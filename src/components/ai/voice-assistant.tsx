@@ -180,6 +180,24 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
     speakingRef.current = false;
   }, []);
 
+  /** Pause recognition while Carina talks so her voice doesn't self-interrupt. */
+  const pauseRecognition = useCallback(() => {
+    try {
+      recRef.current?.stop();
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const resumeRecognition = useCallback(() => {
+    if (!listeningRef.current || !recRef.current) return;
+    try {
+      recRef.current.start();
+    } catch {
+      // already running
+    }
+  }, []);
+
   const speak = useCallback(
     async (text: string) => {
       // Cancel previous without double-increment confusion
@@ -187,6 +205,8 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
       const gen = speakGenRef.current; // stopSpeaking already bumped
       setSpeaking(true);
       speakingRef.current = true;
+      // Mute mic while she talks — room noise / her own audio won't cut her off
+      pauseRecognition();
 
       const spoken = text
         .replace(/\*\*/g, "")
@@ -206,10 +226,16 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
             voiceId: DEFAULT_VOICE_ID,
           }),
         });
-        if (speakGenRef.current !== gen) return;
+        if (speakGenRef.current !== gen) {
+          resumeRecognition();
+          return;
+        }
         if (res.ok) {
           const buf = await res.arrayBuffer();
-          if (speakGenRef.current !== gen) return;
+          if (speakGenRef.current !== gen) {
+            resumeRecognition();
+            return;
+          }
           const blob = new Blob([buf], {
             type: res.headers.get("Content-Type") || "audio/mpeg",
           });
@@ -231,13 +257,17 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
             setSpeaking(false);
             speakingRef.current = false;
           }
+          resumeRecognition();
           return;
         }
       } catch {
         // browser fallback
       }
 
-      if (speakGenRef.current !== gen) return;
+      if (speakGenRef.current !== gen) {
+        resumeRecognition();
+        return;
+      }
       if (typeof window !== "undefined" && window.speechSynthesis) {
         window.speechSynthesis.cancel();
         await new Promise<void>((resolve) => {
@@ -258,8 +288,9 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
         setSpeaking(false);
         speakingRef.current = false;
       }
+      resumeRecognition();
     },
-    [stopSpeaking]
+    [pauseRecognition, resumeRecognition, stopSpeaking]
   );
 
   const handleUtterance = useCallback(
