@@ -1,16 +1,16 @@
 "use client";
 
 /**
- * Continuous voice assistant (Grok + Carina TTS).
+ * Always-on voice assistant (Grok + Carina TTS).
  *
- * Flow after Enable mic once:
- *   1. Always listen for the wake name (default: Carina)
- *   2. Hear name → collect the question → Grok answers → she speaks
- *   3. While speaking, only saying the wake name interrupts
- *   4. After she finishes, stay "in conversation" so follow-ups work
- *      without the wake word for ~25s
+ * Browser requires ONE user click to grant the mic. After that:
+ *   1. Continuously listens for the wake name (default: Carina)
+ *   2. On name (+ question) → Grok → she speaks with Carina TTS
+ *   3. While speaking, saying her name interrupts
+ *   4. After a reply, ~25s of follow-ups without re-saying the name
  *
- * Hold-to-talk remains as a backup. "Test Grok + Carina" is debug only.
+ * SpeechRecognition is recreated after every speak cycle — Chrome often
+ * kills the recognizer when Audio plays, which made her "intro then die".
  */
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { Bot, Mic, MicOff, Volume2, Radio } from "lucide-react";
@@ -27,10 +27,12 @@ import { cn } from "@/lib/utils";
 const NAME_KEY = "forge-assistant-name";
 const DEFAULT_NAME = "Carina";
 const DEFAULT_VOICE_ID = "carina";
-/** After a reply, accept follow-ups without the wake word */
 const CONVO_MS = 25_000;
-/** After last speech fragment, send the buffered question */
-const SILENCE_MS = 1400;
+const SILENCE_MS = 1100;
+/** Recreate recognizer if no events while we expect listening */
+const WATCHDOG_MS = 4_000;
+/** Ignore wake matches for this long after TTS starts (self-echo) */
+const SPEAK_GUARD_MS = 700;
 
 type Mode = "off" | "wake" | "command" | "thinking" | "speaking";
 
@@ -38,12 +40,14 @@ type SpeechRecognitionLike = {
   continuous: boolean;
   interimResults: boolean;
   lang: string;
+  maxAlternatives?: number;
   start: () => void;
   stop: () => void;
   abort: () => void;
   onresult: ((ev: SpeechRecognitionEventLike) => void) | null;
   onerror: ((ev: { error: string }) => void) | null;
   onend: (() => void) | null;
+  onstart: (() => void) | null;
 };
 
 type SpeechRecognitionEventLike = {
@@ -67,11 +71,24 @@ function escapeRe(s: string) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function normalize(s: string) {
+  return s
+    .toLowerCase()
+    .replace(/[^\w\s']/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function includesWake(text: string, wake: string) {
   const w = wake.trim().toLowerCase();
   if (w.length < 2) return false;
-  const t = text.toLowerCase();
+  const t = normalize(text);
   if (t.includes(w)) return true;
+  // Common STT mishears for Carina
+  if (w === "carina") {
+    if (/\b(karina|karen a|corina|kar ena|careena|karrina|car ina)\b/i.test(t))
+      return true;
+  }
   const first = w.split(/\s+/)[0];
   return first.length >= 3 && new RegExp(`\\b${escapeRe(first)}\\b`, "i").test(t);
 }
@@ -80,12 +97,38 @@ function stripWake(text: string, wake: string) {
   const w = wake.trim();
   if (!w) return text.trim();
   const first = w.split(/\s+/)[0];
-  return text
+  let out = text;
+  if (first.toLowerCase() === "carina") {
+    out = out.replace(
+      /\b(carina|karina|corina|careena|karrina)\b[,.!?]?/gi,
+      " "
+    );
+  }
+  out = out
     .replace(new RegExp(`\\b${escapeRe(w)}\\b[,.!?]?`, "ig"), " ")
     .replace(new RegExp(`\\b${escapeRe(first)}\\b[,.!?]?`, "ig"), " ")
-    .replace(/^(hey|ok|okay|hi|hello|yo)\s+/i, "")
+    .replace(/^(hey|ok|okay|hi|hello|yo|um|uh)\s+/i, "")
     .replace(/\s+/g, " ")
     .trim();
+  return out;
+}
+
+/** Transcript is likely the speakers playing our own TTS. */
+function isLikelyEcho(heard: string, spoken: string, wake: string) {
+  const h = normalize(heard);
+  const s = normalize(spoken);
+  if (!h || !s) return false;
+  if (s.includes(h) && h.length >= 6) return true;
+  const hWords = h.split(" ").filter((w) => w.length > 2);
+  if (hWords.length >= 3) {
+    const sSet = new Set(s.split(" "));
+    const hits = hWords.filter((w) => sSet.has(w)).length;
+    if (hits / hWords.length >= 0.65) return true;
+  }
+  // Long interim that shares many words with spoken (minus wake)
+  const after = normalize(stripWake(heard, wake));
+  if (after.length >= 8 && s.includes(after)) return true;
+  return false;
 }
 
 export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
@@ -93,7 +136,7 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
   const [nameDraft, setNameDraft] = useState(DEFAULT_NAME);
   const [listening, setListening] = useState(false);
   const [mode, setMode] = useState<Mode>("off");
-  const [status, setStatus] = useState("Off — enable mic once");
+  const [status, setStatus] = useState("Off — tap Enable once");
   const [partial, setPartial] = useState("");
   const [lastHeard, setLastHeard] = useState("");
   const [lastReply, setLastReply] = useState("");
@@ -101,23 +144,35 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [ptt, setPtt] = useState(false);
+  const [recAlive, setRecAlive] = useState(false);
 
   const recRef = useRef<SpeechRecognitionLike | null>(null);
   const historyRef = useRef<{ role: "user" | "assistant"; content: string }[]>(
     []
   );
   const nameRef = useRef(name);
-  const listeningRef = useRef(false);
+  const wantListenRef = useRef(false);
   const modeRef = useRef<Mode>("off");
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const speakGenRef = useRef(0);
+  const speakingTextRef = useRef("");
+  const speakStartedAtRef = useRef(0);
   const commandBufRef = useRef("");
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const convoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const watchdogRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastResultAtRef = useRef(0);
   const lastAskRef = useRef("");
   const lastAskAtRef = useRef(0);
   const pttBufRef = useRef("");
   const pttRef = useRef(false);
+  const startingRecRef = useRef(false);
+  // Stable handlers via refs so recognition always calls latest logic
+  const onSpeechFragmentRef = useRef<
+    (finalText: string, interimText: string) => void
+  >(() => {});
+  const askRef = useRef<(raw: string) => void>(() => {});
 
   const setModeBoth = useCallback((m: Mode) => {
     modeRef.current = m;
@@ -128,36 +183,33 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
     nameRef.current = name;
   }, [name]);
   useEffect(() => {
-    listeningRef.current = listening;
-  }, [listening]);
-  useEffect(() => {
     pttRef.current = ptt;
   }, [ptt]);
 
   useEffect(() => {
     void actionGrokStatus().then((s) => setGrokOn(s.configured));
     void actionGetAssistantName().then((n) => {
-      // Prefer Carina if user never customized
       const resolved =
         n && n !== "Forge" ? n : localStorage.getItem(NAME_KEY) || DEFAULT_NAME;
       setName(resolved);
       setNameDraft(resolved);
+      nameRef.current = resolved;
     });
   }, []);
 
-  const clearSilence = () => {
+  const clearSilence = useCallback(() => {
     if (silenceTimerRef.current) {
       clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
     }
-  };
+  }, []);
 
   const extendConvo = useCallback(() => {
     if (convoTimerRef.current) clearTimeout(convoTimerRef.current);
     convoTimerRef.current = setTimeout(() => {
       if (modeRef.current === "command" || modeRef.current === "wake") {
         setModeBoth("wake");
-        if (listeningRef.current) {
+        if (wantListenRef.current) {
           setStatus(`Listening for “${nameRef.current}”…`);
         }
       }
@@ -166,6 +218,7 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
 
   const stopSpeaking = useCallback(() => {
     speakGenRef.current += 1;
+    speakingTextRef.current = "";
     try {
       window.speechSynthesis?.cancel();
     } catch {
@@ -186,13 +239,155 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
     }
   }, []);
 
+  /** Tear down current SpeechRecognition instance completely. */
+  const killRecognition = useCallback(() => {
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+    const rec = recRef.current;
+    recRef.current = null;
+    if (rec) {
+      rec.onresult = null;
+      rec.onerror = null;
+      rec.onend = null;
+      rec.onstart = null;
+      try {
+        rec.abort();
+      } catch {
+        try {
+          rec.stop();
+        } catch {
+          // ignore
+        }
+      }
+    }
+    setRecAlive(false);
+  }, []);
+
+  /**
+   * Create + start a fresh recognizer. Safe to call often.
+   * Chrome dies after TTS audio; recreating is the reliable fix.
+   */
+  const bootRecognition = useCallback(() => {
+    if (!wantListenRef.current) return;
+    if (typeof window === "undefined") return;
+    const Ctor = getSpeechRecognition();
+    if (!Ctor) {
+      setError("Use Chrome or Edge on HTTPS for voice.");
+      return;
+    }
+    if (startingRecRef.current) return;
+    startingRecRef.current = true;
+
+    killRecognition();
+
+    const rec = new Ctor();
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.lang = "en-US";
+    if (typeof rec.maxAlternatives === "number") rec.maxAlternatives = 1;
+
+    rec.onstart = () => {
+      setRecAlive(true);
+      lastResultAtRef.current = Date.now();
+      startingRecRef.current = false;
+    };
+
+    rec.onresult = (ev) => {
+      lastResultAtRef.current = Date.now();
+      let newFinal = "";
+      let newInterim = "";
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        const r = ev.results[i];
+        const t = (r[0]?.transcript || "").trim();
+        if (!t) continue;
+        if (r.isFinal) newFinal += t + " ";
+        else newInterim += t + " ";
+      }
+      const finalText = newFinal.trim();
+      const interimText = newInterim.trim();
+
+      if (pttRef.current) {
+        if (finalText) {
+          pttBufRef.current = (pttBufRef.current + " " + finalText).trim();
+          setPartial(pttBufRef.current);
+        } else if (interimText) {
+          setPartial((pttBufRef.current + " " + interimText).trim());
+        }
+        return;
+      }
+
+      onSpeechFragmentRef.current(finalText, interimText);
+    };
+
+    rec.onerror = (ev) => {
+      startingRecRef.current = false;
+      if (ev.error === "not-allowed") {
+        setError("Microphone permission denied — allow mic in the address bar.");
+        wantListenRef.current = false;
+        setListening(false);
+        setModeBoth("off");
+        setStatus("Off — mic blocked");
+        killRecognition();
+        return;
+      }
+      // no-speech / aborted / network: restart if we still want listen
+      if (
+        wantListenRef.current &&
+        ev.error !== "aborted" &&
+        ev.error !== "not-allowed"
+      ) {
+        if (ev.error === "network") {
+          setError("Speech network glitch — retrying…");
+        }
+        restartTimerRef.current = setTimeout(() => {
+          if (wantListenRef.current) bootRecognition();
+        }, 350);
+      }
+    };
+
+    rec.onend = () => {
+      setRecAlive(false);
+      startingRecRef.current = false;
+      if (!wantListenRef.current) return;
+      if (recRef.current !== rec) return;
+      // Chrome ends often; always come back if user still wants listening
+      restartTimerRef.current = setTimeout(() => {
+        if (!wantListenRef.current) return;
+        try {
+          rec.start();
+        } catch {
+          bootRecognition();
+        }
+      }, 120);
+    };
+
+    recRef.current = rec;
+    try {
+      rec.start();
+    } catch {
+      startingRecRef.current = false;
+      restartTimerRef.current = setTimeout(() => {
+        if (wantListenRef.current) bootRecognition();
+      }, 400);
+    }
+  }, [killRecognition, setModeBoth]);
+
+  const scheduleBoot = useCallback(
+    (delayMs = 150) => {
+      if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = setTimeout(() => {
+        if (wantListenRef.current) bootRecognition();
+      }, delayMs);
+    },
+    [bootRecognition]
+  );
+
   const speak = useCallback(
     async (text: string) => {
       stopSpeaking();
       const gen = speakGenRef.current;
-      setModeBoth("speaking");
-      setStatus("Speaking… (say name to interrupt)");
-
       const spoken = text
         .replace(/\*\*/g, "")
         .replace(/`+/g, "")
@@ -202,15 +397,25 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
         .replace(/\n/g, " ")
         .trim();
 
+      speakingTextRef.current = spoken;
+      speakStartedAtRef.current = Date.now();
+      setModeBoth("speaking");
+      setStatus(`Speaking… say “${nameRef.current}” to interrupt`);
+
       const finish = () => {
         if (speakGenRef.current !== gen) return;
+        speakingTextRef.current = "";
         setModeBoth("command");
         extendConvo();
         setStatus(
-          listeningRef.current
+          wantListenRef.current
             ? `Listening… (say “${nameRef.current}” or just ask)`
             : "Off"
         );
+        // CRITICAL: recreate recognizer after TTS — Chrome often kills it
+        if (wantListenRef.current) {
+          scheduleBoot(200);
+        }
       };
 
       try {
@@ -243,11 +448,12 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
             };
             void audio.play().catch(() => resolve());
           });
+          if (speakGenRef.current !== gen) return;
           finish();
           return;
         }
       } catch {
-        // fallback
+        // fallback below
       }
 
       if (speakGenRef.current !== gen) return;
@@ -267,9 +473,10 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
           window.speechSynthesis.speak(u);
         });
       }
+      if (speakGenRef.current !== gen) return;
       finish();
     },
-    [extendConvo, setModeBoth, stopSpeaking]
+    [extendConvo, scheduleBoot, setModeBoth, stopSpeaking]
   );
 
   const ask = useCallback(
@@ -277,10 +484,9 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
       let text = raw.trim();
       if (!text) return;
 
-      // de-dupe
       const now = Date.now();
       const key = text.toLowerCase();
-      if (key === lastAskRef.current && now - lastAskAtRef.current < 2000) {
+      if (key === lastAskRef.current && now - lastAskAtRef.current < 2500) {
         return;
       }
       lastAskRef.current = key;
@@ -290,7 +496,6 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
       if (includesWake(text, wake)) {
         const after = stripWake(text, wake);
         if (after.length < 2) {
-          // Name alone while not speaking = "I'm here"
           setStatus(`Yes? I'm listening…`);
           setModeBoth("command");
           extendConvo();
@@ -303,7 +508,6 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
 
       if (text.length < 2) return;
 
-      // Interrupt current speech
       if (modeRef.current === "speaking") {
         stopSpeaking();
       }
@@ -329,7 +533,7 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
             setError(result.error);
             setLastReply(result.error);
             setModeBoth("command");
-            setStatus("Error — still listening for your name");
+            setStatus("Error — still listening");
             await speak(
               "Sorry, I could not reach Grok. Please try again in a moment."
             );
@@ -348,64 +552,79 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
           setLastReply(msg);
           setModeBoth("command");
           setStatus("Error — still listening");
+          if (wantListenRef.current) scheduleBoot(200);
         }
       });
     },
-    [extendConvo, setModeBoth, speak, stopSpeaking]
+    [clearSilence, extendConvo, scheduleBoot, setModeBoth, speak, stopSpeaking]
   );
 
-  /** Buffer speech after wake / in conversation; fire after silence. */
+  useEffect(() => {
+    askRef.current = ask;
+  }, [ask]);
+
+  const armSilenceSend = useCallback(() => {
+    clearSilence();
+    silenceTimerRef.current = setTimeout(() => {
+      const q = commandBufRef.current.trim();
+      commandBufRef.current = "";
+      setPartial("");
+      if (q.length > 2) askRef.current(q);
+    }, SILENCE_MS);
+  }, [clearSilence]);
+
   const onSpeechFragment = useCallback(
     (finalText: string, interimText: string) => {
       const wake = nameRef.current;
-      const mode = modeRef.current;
+      const modeNow = modeRef.current;
       const heard = (finalText || interimText).trim();
       if (!heard) return;
 
-      // ── SPEAKING: only wake name interrupts ──
-      if (mode === "speaking") {
+      // ── SPEAKING: only wake name interrupts (ignore speaker echo) ──
+      if (modeNow === "speaking") {
+        if (Date.now() - speakStartedAtRef.current < SPEAK_GUARD_MS) return;
         if (!includesWake(heard, wake)) return;
-        // Need a clear name token
-        if (!includesWake(finalText || interimText, wake)) return;
+        if (isLikelyEcho(heard, speakingTextRef.current, wake)) return;
+
+        // Prefer finals for interrupt; allow short pure-name interim
+        const after = stripWake(heard, wake);
+        const pureName = after.length < 2;
+        if (!finalText && !pureName) return;
+
         stopSpeaking();
-        const after = stripWake(finalText || interimText, wake);
         setModeBoth("command");
         extendConvo();
+        commandBufRef.current = "";
+        setPartial("");
+
         if (after.length > 2 && finalText) {
-          ask(finalText);
+          setStatus("Interrupted — thinking…");
+          askRef.current(finalText);
         } else {
           setStatus(`Yes? (you said ${wake}) — go ahead`);
-          commandBufRef.current = "";
+          if (wantListenRef.current) scheduleBoot(150);
         }
         return;
       }
 
-      if (mode === "thinking") return; // wait for answer
-      if (mode === "off") return;
+      if (modeNow === "thinking") return;
+      if (modeNow === "off") return;
 
-      // ── WAKE: look for name ──
-      if (mode === "wake") {
+      // ── WAKE: wait for name ──
+      if (modeNow === "wake") {
         if (!includesWake(heard, wake)) {
-          if (interimText) setPartial(interimText);
+          if (interimText) setPartial(interimText.slice(-80));
           return;
         }
-        // Woke up
         setModeBoth("command");
         extendConvo();
         const after = stripWake(finalText || interimText, wake);
         if (after.length > 2) {
           commandBufRef.current = after;
           setPartial(after);
-          setStatus("Listening to your question…");
-          clearSilence();
-          // If final already has the full question, send soon
-          if (finalText) {
-            silenceTimerRef.current = setTimeout(() => {
-              const q = commandBufRef.current.trim();
-              commandBufRef.current = "";
-              if (q.length > 2) ask(q);
-            }, SILENCE_MS);
-          }
+          setStatus("Got it — listening to your question…");
+          // Full question already final → send after short silence
+          if (finalText) armSilenceSend();
         } else {
           setStatus(`Yes? I'm ${wake} — ask me anything`);
           commandBufRef.current = "";
@@ -414,31 +633,30 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
         return;
       }
 
-      // ── COMMAND (conversation): buffer speech, send after pause ──
-      if (mode === "command") {
+      // ── COMMAND (in conversation): buffer, send after pause ──
+      if (modeNow === "command") {
         if (finalText) {
-          // If they say the name again mid-command, strip it
           const chunk = includesWake(finalText, wake)
             ? stripWake(finalText, wake) || finalText
             : finalText;
+          if (chunk.length < 1) return;
           commandBufRef.current = (commandBufRef.current + " " + chunk).trim();
           setPartial(commandBufRef.current);
-          clearSilence();
-          silenceTimerRef.current = setTimeout(() => {
-            const q = commandBufRef.current.trim();
-            commandBufRef.current = "";
-            setPartial("");
-            if (q.length > 2) ask(q);
-          }, SILENCE_MS);
+          setStatus("Hearing you…");
+          armSilenceSend();
         } else if (interimText) {
           setPartial(
-            (commandBufRef.current + " " + interimText).trim().slice(-120)
+            (commandBufRef.current + " " + interimText).trim().slice(-140)
           );
         }
       }
     },
-    [ask, extendConvo, setModeBoth, stopSpeaking]
+    [armSilenceSend, extendConvo, scheduleBoot, setModeBoth, stopSpeaking]
   );
+
+  useEffect(() => {
+    onSpeechFragmentRef.current = onSpeechFragment;
+  }, [onSpeechFragment]);
 
   const startListening = useCallback(async () => {
     const Ctor = getSpeechRecognition();
@@ -451,100 +669,52 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
         setError("Needs HTTPS.");
         return;
       }
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Permission + echo cancellation where supported
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
       stream.getTracks().forEach((t) => t.stop());
     } catch (e) {
       setError(
-        `Mic blocked: ${e instanceof Error ? e.message : String(e)}. Allow mic in the lock menu.`
+        `Mic blocked: ${e instanceof Error ? e.message : String(e)}. Allow mic in the lock icon.`
       );
       return;
     }
 
-    try {
-      recRef.current?.abort();
-    } catch {
-      // ignore
-    }
+    wantListenRef.current = true;
+    setListening(true);
+    setModeBoth("wake");
+    setStatus(`Listening for “${nameRef.current}”… say her name anytime`);
+    setError(null);
+    setPartial("");
+    commandBufRef.current = "";
+    lastResultAtRef.current = Date.now();
 
-    const rec = new Ctor();
-    rec.continuous = true;
-    rec.interimResults = true;
-    rec.lang = "en-US";
+    bootRecognition();
 
-    rec.onresult = (ev) => {
-      let newFinal = "";
-      let newInterim = "";
-      for (let i = ev.resultIndex; i < ev.results.length; i++) {
-        const r = ev.results[i];
-        const t = (r[0]?.transcript || "").trim();
-        if (!t) continue;
-        if (r.isFinal) newFinal += t + " ";
-        else newInterim += t + " ";
+    // Watchdog: if recognizer goes quiet while we expect listen, reboot it
+    if (watchdogRef.current) clearInterval(watchdogRef.current);
+    watchdogRef.current = setInterval(() => {
+      if (!wantListenRef.current) return;
+      // Don't thrash while thinking (no speech expected) unless rec is dead a long time
+      const quiet = Date.now() - lastResultAtRef.current;
+      if (!recRef.current || quiet > 12_000) {
+        bootRecognition();
       }
-      const finalText = newFinal.trim();
-      const interimText = newInterim.trim();
-
-      // Push-to-talk buffer
-      if (pttRef.current) {
-        if (finalText) {
-          pttBufRef.current = (pttBufRef.current + " " + finalText).trim();
-          setPartial(pttBufRef.current);
-        } else if (interimText) {
-          setPartial((pttBufRef.current + " " + interimText).trim());
-        }
-        return;
-      }
-
-      onSpeechFragment(finalText, interimText);
-    };
-
-    rec.onerror = (ev) => {
-      if (ev.error === "not-allowed") {
-        setError("Microphone permission denied.");
-        setListening(false);
-        listeningRef.current = false;
-        setModeBoth("off");
-      } else if (ev.error === "network") {
-        setError("Speech network error — check connection / try Chrome.");
-      } else if (ev.error !== "aborted" && ev.error !== "no-speech") {
-        setError(`Mic: ${ev.error}`);
-      }
-    };
-
-    rec.onend = () => {
-      if (recRef.current === rec && listeningRef.current) {
-        try {
-          rec.start();
-        } catch {
-          // ignore
-        }
-      }
-    };
-
-    recRef.current = rec;
-    try {
-      rec.start();
-      setListening(true);
-      listeningRef.current = true;
-      setModeBoth("wake");
-      setStatus(`Listening for “${nameRef.current}”…`);
-      setError(null);
-      setPartial("");
-      commandBufRef.current = "";
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not start mic");
-    }
-  }, [onSpeechFragment, setModeBoth]);
+    }, WATCHDOG_MS);
+  }, [bootRecognition, setModeBoth]);
 
   const stopListening = useCallback(() => {
-    listeningRef.current = false;
-    const rec = recRef.current;
-    recRef.current = null;
-    try {
-      rec?.abort();
-    } catch {
-      // ignore
+    wantListenRef.current = false;
+    if (watchdogRef.current) {
+      clearInterval(watchdogRef.current);
+      watchdogRef.current = null;
     }
+    killRecognition();
     stopSpeaking();
     clearSilence();
     if (convoTimerRef.current) clearTimeout(convoTimerRef.current);
@@ -554,10 +724,10 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
     pttRef.current = false;
     setStatus("Off");
     setPartial("");
-  }, [setModeBoth, stopSpeaking]);
+  }, [clearSilence, killRecognition, setModeBoth, stopSpeaking]);
 
   const pttDown = useCallback(async () => {
-    if (!listeningRef.current) await startListening();
+    if (!wantListenRef.current) await startListening();
     if (modeRef.current === "speaking") stopSpeaking();
     pttBufRef.current = "";
     setPtt(true);
@@ -584,17 +754,15 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
 
   useEffect(() => {
     return () => {
-      listeningRef.current = false;
-      try {
-        recRef.current?.abort();
-      } catch {
-        // ignore
-      }
+      wantListenRef.current = false;
+      if (watchdogRef.current) clearInterval(watchdogRef.current);
+      if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+      killRecognition();
       stopSpeaking();
       clearSilence();
       if (convoTimerRef.current) clearTimeout(convoTimerRef.current);
     };
-  }, [stopSpeaking]);
+  }, [clearSilence, killRecognition, stopSpeaking]);
 
   function saveName() {
     startTransition(async () => {
@@ -602,15 +770,18 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
       try {
         const saved = await actionSetAssistantName(clean);
         setName(saved);
+        nameRef.current = saved;
         localStorage.setItem(NAME_KEY, saved);
         setStatus(
-          listening ? `Listening for “${saved}”…` : `Named “${saved}”`
+          wantListenRef.current
+            ? `Listening for “${saved}”…`
+            : `Named “${saved}”`
         );
         setError(null);
       } catch {
         setName(clean);
-        localStorage.setItem(NAME_KEY, clean);
         nameRef.current = clean;
+        localStorage.setItem(NAME_KEY, clean);
         setStatus(`Named “${clean}” (saved in this browser)`);
       }
     });
@@ -619,7 +790,7 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
   function runSmokeTest() {
     setError(null);
     setStatus("Testing Grok + Carina…");
-    setLastHeard("(test button)");
+    setLastHeard("(diagnostic test)");
     startTransition(async () => {
       const probe = await actionProbeGrok();
       if (!probe.ok) {
@@ -638,9 +809,8 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
         return;
       }
       setLastReply(result.text);
-      // Enable continuous listening after a successful test so they don't
-      // have to hunt for buttons again
-      if (!listeningRef.current) {
+      // Ensure continuous listen is on so after the sample she keeps hearing you
+      if (!wantListenRef.current) {
         await startListening();
       }
       await speak(result.text);
@@ -655,9 +825,22 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
       <div className="pointer-events-none fixed bottom-5 left-5 z-40 flex flex-col items-start gap-2">
         {(error || lastReply || listening) && (
           <div className="pointer-events-auto max-w-[16rem] rounded-lg border border-slate-700 bg-slate-950/95 px-2.5 py-1.5 text-[10px] shadow-lg">
-            <p className="text-slate-400">{status}</p>
+            <p className="text-slate-400">
+              {status}
+              {listening && (
+                <span
+                  className={cn(
+                    "ml-1 inline-block h-1.5 w-1.5 rounded-full",
+                    recAlive ? "bg-teal-400" : "bg-amber-400 animate-pulse"
+                  )}
+                  title={recAlive ? "Mic engine live" : "Reconnecting mic…"}
+                />
+              )}
+            </p>
             {partial && (
-              <p className="mt-0.5 italic text-slate-500">…{partial.slice(-70)}</p>
+              <p className="mt-0.5 italic text-slate-500">
+                …{partial.slice(-70)}
+              </p>
             )}
             {error && <p className="mt-0.5 text-amber-300">{error}</p>}
             {lastHeard && !error && (
@@ -680,7 +863,7 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
         <div className="pointer-events-auto flex items-center gap-1.5">
           <button
             type="button"
-            onClick={() => (listening ? stopListening() : startListening())}
+            onClick={() => (listening ? stopListening() : void startListening())}
             className={cn(
               "flex h-12 items-center gap-2 rounded-full border px-3 shadow-lg",
               listening
@@ -693,12 +876,18 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
             )}
             title={
               listening
-                ? `Always listening for “${name}”`
-                : "Enable always-on voice (one click)"
+                ? `Always listening for “${name}” — click to stop`
+                : "Enable always-on voice (one click, then just say her name)"
             }
           >
-            {listening ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
-            <span className="text-xs font-medium">{name}</span>
+            {listening ? (
+              <Mic className="h-4 w-4" />
+            ) : (
+              <MicOff className="h-4 w-4" />
+            )}
+            <span className="text-xs font-medium">
+              {listening ? name : `Enable ${name}`}
+            </span>
             {pending && <LoaderDots />}
           </button>
           {listening && (
@@ -746,11 +935,14 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
           <Bot className="h-5 w-5" />
         </div>
         <div className="min-w-0 flex-1">
-          <h3 className="text-sm font-semibold text-slate-50">Voice assistant</h3>
+          <h3 className="text-sm font-semibold text-slate-50">
+            Voice assistant
+          </h3>
           <p className="mt-0.5 text-xs text-slate-400">
-            Enable mic <strong>once</strong>, then just say{" "}
-            <strong>“{name}, …”</strong> anytime. While she talks, say{" "}
-            <strong>“{name}”</strong> to interrupt. No extra buttons needed.
+            Tap <strong>Enable always-on mic</strong> once (browser requires
+            it). Then just say <strong>“{name}, …”</strong> anytime — no more
+            buttons. While she talks, say <strong>“{name}”</strong> to
+            interrupt.
             {grokOn ? " Grok connected." : " Needs XAI_API_KEY."}
           </p>
         </div>
@@ -758,7 +950,7 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
 
       <div>
         <label className="mb-1 block text-[11px] font-medium text-slate-400">
-          Her name (what you say to wake / interrupt)
+          Her name (wake / interrupt word)
         </label>
         <div className="flex gap-2">
           <input
@@ -782,16 +974,24 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
-          onClick={() => (listening ? stopListening() : startListening())}
+          onClick={() =>
+            listening ? stopListening() : void startListening()
+          }
           className={cn(
-            "inline-flex h-10 items-center gap-2 rounded-lg px-4 text-sm font-semibold",
+            "inline-flex h-11 items-center gap-2 rounded-lg px-5 text-sm font-semibold shadow-md",
             listening
-              ? "bg-teal-500 text-slate-950"
+              ? "bg-teal-500 text-slate-950 ring-2 ring-teal-300/50"
               : "bg-teal-600 text-white hover:bg-teal-500"
           )}
         >
-          {listening ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
-          {listening ? "Always listening" : "Enable always-on mic"}
+          {listening ? (
+            <Mic className="h-4 w-4" />
+          ) : (
+            <MicOff className="h-4 w-4" />
+          )}
+          {listening
+            ? `Always listening for “${name}”`
+            : `Enable always-on mic`}
         </button>
         {listening && (
           <button
@@ -816,7 +1016,7 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
               pttUp();
             }}
             className={cn(
-              "inline-flex h-10 select-none items-center gap-2 rounded-lg px-4 text-sm font-semibold",
+              "inline-flex h-11 select-none items-center gap-2 rounded-lg px-4 text-sm font-semibold",
               ptt
                 ? "bg-teal-400 text-slate-950 ring-2 ring-teal-300"
                 : "border border-slate-600 bg-slate-800 text-slate-100"
@@ -834,24 +1034,29 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
               setModeBoth("command");
               extendConvo();
               setStatus(`Interrupted — say “${name}” or ask`);
+              if (wantListenRef.current) scheduleBoot(150);
             }}
-            className="inline-flex h-10 items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 text-sm text-amber-200"
+            className="inline-flex h-11 items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 text-sm text-amber-200"
           >
             Stop talking
           </button>
         )}
-        <button
-          type="button"
-          onClick={runSmokeTest}
-          disabled={pending}
-          className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-700 px-3 text-xs text-slate-400 hover:text-slate-200"
-        >
-          Test Grok + Carina
-        </button>
       </div>
 
       <p className="text-xs text-slate-400">
         Status: <span className="text-slate-200">{status}</span>
+        {listening && (
+          <span
+            className={cn(
+              "ml-2 rounded px-1.5 py-0.5 text-[10px]",
+              recAlive
+                ? "bg-teal-500/20 text-teal-300"
+                : "bg-amber-500/20 text-amber-200"
+            )}
+          >
+            {recAlive ? "mic live" : "reconnecting…"}
+          </span>
+        )}
         {mode === "command" && (
           <span className="ml-2 rounded bg-teal-500/20 px-1.5 py-0.5 text-teal-300">
             In conversation
@@ -879,11 +1084,26 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
         </div>
       )}
       {error && <p className="text-xs text-amber-300">{error}</p>}
-      <p className="text-[11px] text-slate-600">
-        Example: “{name}, how is the production floor?” — then after she
-        answers you can just ask “what about quality?” for ~25 seconds without
-        repeating her name.
-      </p>
+
+      <details className="text-[11px] text-slate-600">
+        <summary className="cursor-pointer text-slate-500 hover:text-slate-400">
+          Advanced / diagnostics
+        </summary>
+        <div className="mt-2 space-y-2">
+          <p>
+            Example: “{name}, how is the production floor?” — then for ~25s you
+            can just ask follow-ups without her name.
+          </p>
+          <button
+            type="button"
+            onClick={runSmokeTest}
+            disabled={pending}
+            className="inline-flex h-8 items-center gap-2 rounded-lg border border-slate-700 px-3 text-xs text-slate-400 hover:text-slate-200"
+          >
+            Test Grok + Carina (diagnostic only)
+          </button>
+        </div>
+      </details>
     </div>
   );
 }

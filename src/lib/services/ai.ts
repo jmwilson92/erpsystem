@@ -233,16 +233,15 @@ export async function processAiConversation(
         console.warn("[ai] context summary failed, continuing without:", ctxErr);
       }
       const { grokChat } = await import("@/lib/services/grok");
-      // Keep system prompt small so voice stays fast
+      // Keep system prompt small so voice stays fast.
+      // Do not say "Carina" every turn — speakers pick it up and false-wake.
+      const system = `You are Carina, a spoken manufacturing ERP assistant inside ForgeRP. Keep answers to 2–4 short sentences for speech. Be warm and practical. Help with production, quality, purchasing, inventory, and navigation. Do not say your name unless the user asks who you are. Live snapshot: ${JSON.stringify(ctx).slice(0, 6000)}`;
       const content = await grokChat({
         temperature: 0.4,
-        system: `You are Carina, a spoken manufacturing ERP assistant inside ForgeRP. Keep answers to 2–4 short sentences for speech. Be warm and practical. Help with production, quality, purchasing, inventory, and navigation. Live snapshot: ${JSON.stringify(ctx).slice(0, 6000)}`,
+        system,
         user: last,
         messages: [
-          {
-            role: "system",
-            content: `You are Carina, a spoken manufacturing ERP assistant inside ForgeRP. Keep answers to 2–4 short sentences for speech. Be warm and practical. Help with production, quality, purchasing, inventory, and navigation. Live snapshot: ${JSON.stringify(ctx).slice(0, 6000)}`,
-          },
+          { role: "system", content: system },
           ...messages
             .filter((m) => m.content?.trim())
             .slice(-8)
