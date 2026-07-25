@@ -8,9 +8,26 @@ import { getTour, type Tour, type TourStep } from "@/lib/guides";
 
 const VOICE_KEY = "forge-guide-voice";
 
-/** Fire this to start a tour: window.dispatchEvent(startTourEvent("getting-started")) */
+/** Fire this to start a canned tour: window.dispatchEvent(startTourEvent("getting-started")) */
 export function startTourEvent(tourId: string) {
   return new CustomEvent("forge:start-tour", { detail: { tourId } });
+}
+
+/**
+ * Carina / voice assistant walkthrough.
+ *   window.dispatchEvent(startCarinaGuideEvent({ tourId: "work-order-lifecycle" }))
+ *   window.dispatchEvent(startCarinaGuideEvent({ steps: [...], autoAdvance: true }))
+ */
+export function startCarinaGuideEvent(detail: {
+  tourId?: string;
+  steps?: TourStep[];
+  title?: string;
+  /** Speak each step and auto-advance when narration ends (default true for Carina) */
+  autoAdvance?: boolean;
+  /** Force tour voice on (default true for Carina) */
+  voice?: boolean;
+}) {
+  return new CustomEvent("forge:carina-guide", { detail });
 }
 
 // Probe the server TTS route once; fall back to Web Speech if unconfigured.
@@ -24,40 +41,66 @@ function stopNarration() {
     /* ignore */
   }
   if (currentAudio) {
-    currentAudio.pause();
+    try {
+      currentAudio.onended = null;
+      currentAudio.onerror = null;
+      currentAudio.pause();
+      currentAudio.removeAttribute("src");
+    } catch {
+      /* ignore */
+    }
     currentAudio = null;
   }
 }
 
-async function narrate(text: string) {
+/** Speak text; resolves when audio ends (or fails). */
+function narrate(text: string): Promise<void> {
   stopNarration();
-  if (ttsAvailable !== false) {
-    try {
-      const res = await fetch("/api/tts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
-      });
-      if (res.ok && res.headers.get("content-type")?.includes("audio")) {
-        ttsAvailable = true;
-        const blob = await res.blob();
-        const audio = new Audio(URL.createObjectURL(blob));
-        currentAudio = audio;
-        await audio.play().catch(() => {});
-        return;
+  return new Promise(async (resolve) => {
+    const done = () => resolve();
+    if (ttsAvailable !== false) {
+      try {
+        const res = await fetch("/api/tts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text }),
+        });
+        if (res.ok) {
+          ttsAvailable = true;
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          const audio = new Audio(url);
+          currentAudio = audio;
+          audio.onended = () => {
+            URL.revokeObjectURL(url);
+            done();
+          };
+          audio.onerror = () => {
+            URL.revokeObjectURL(url);
+            done();
+          };
+          try {
+            await audio.play();
+          } catch {
+            done();
+          }
+          return;
+        }
+        ttsAvailable = false;
+      } catch {
+        ttsAvailable = false;
       }
-      ttsAvailable = false; // 501/unconfigured → don't probe again
-    } catch {
-      ttsAvailable = false;
     }
-  }
-  try {
-    const u = new SpeechSynthesisUtterance(text);
-    u.rate = 1.02;
-    window.speechSynthesis?.speak(u);
-  } catch {
-    /* speech unsupported — silent */
-  }
+    try {
+      const u = new SpeechSynthesisUtterance(text);
+      u.rate = 1.02;
+      u.onend = () => done();
+      u.onerror = () => done();
+      window.speechSynthesis?.speak(u);
+    } catch {
+      done();
+    }
+  });
 }
 
 type Rect = { top: number; left: number; width: number; height: number };
@@ -65,8 +108,10 @@ type Rect = { top: number; left: number; width: number; height: number };
 /**
  * Global guided-tour controller. Lives in the app shell so it survives
  * route changes. Spotlights DOM elements, shows a note box (what + why),
- * and narrates each step (Web Speech API now, Grok TTS via /api/tts when
- * configured).
+ * and narrates each step (Grok TTS via /api/tts when configured).
+ *
+ * Carina can start canned tours or ad-hoc step lists and auto-advance
+ * while she speaks so the UI tracks her explanation.
  */
 export function GuidedTour() {
   const router = useRouter();
@@ -75,8 +120,23 @@ export function GuidedTour() {
   const [stepIndex, setStepIndex] = useState(0);
   const [rect, setRect] = useState<Rect | null>(null);
   const [voiceOn, setVoiceOn] = useState(false);
+  const [autoAdvance, setAutoAdvance] = useState(false);
   const [mounted, setMounted] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const narrateGenRef = useRef(0);
+  const autoAdvanceRef = useRef(false);
+  const stepIndexRef = useRef(0);
+  const tourRef = useRef<Tour | null>(null);
+
+  useEffect(() => {
+    autoAdvanceRef.current = autoAdvance;
+  }, [autoAdvance]);
+  useEffect(() => {
+    stepIndexRef.current = stepIndex;
+  }, [stepIndex]);
+  useEffect(() => {
+    tourRef.current = tour;
+  }, [tour]);
 
   useEffect(() => {
     setMounted(true);
@@ -85,23 +145,76 @@ export function GuidedTour() {
     } catch {
       /* ignore */
     }
+
     const onStart = (e: Event) => {
       const id = (e as CustomEvent).detail?.tourId as string;
       const t = getTour(id);
       if (t) {
+        narrateGenRef.current += 1;
+        stopNarration();
         setTour(t);
+        setStepIndex(0);
+        setAutoAdvance(false);
+      }
+    };
+
+    const onCarina = (e: Event) => {
+      const d = (e as CustomEvent).detail as {
+        tourId?: string;
+        steps?: TourStep[];
+        title?: string;
+        autoAdvance?: boolean;
+        voice?: boolean;
+      };
+      narrateGenRef.current += 1;
+      stopNarration();
+
+      if (d.voice !== false) {
+        setVoiceOn(true);
+        try {
+          localStorage.setItem(VOICE_KEY, "1");
+        } catch {
+          /* ignore */
+        }
+      }
+      setAutoAdvance(d.autoAdvance !== false);
+
+      if (d.tourId) {
+        const t = getTour(d.tourId);
+        if (t) {
+          setTour(t);
+          setStepIndex(0);
+          return;
+        }
+      }
+      if (d.steps && d.steps.length > 0) {
+        setTour({
+          id: "carina-live",
+          title: d.title || "Carina is showing you",
+          description: "Live walkthrough from the voice assistant",
+          category: "Carina",
+          minutes: Math.max(1, Math.ceil(d.steps.length * 0.5)),
+          steps: d.steps,
+        });
         setStepIndex(0);
       }
     };
+
     window.addEventListener("forge:start-tour", onStart);
-    return () => window.removeEventListener("forge:start-tour", onStart);
+    window.addEventListener("forge:carina-guide", onCarina);
+    return () => {
+      window.removeEventListener("forge:start-tour", onStart);
+      window.removeEventListener("forge:carina-guide", onCarina);
+    };
   }, []);
 
   const step: TourStep | null = tour ? tour.steps[stepIndex] ?? null : null;
 
   const finish = useCallback(() => {
+    narrateGenRef.current += 1;
     setTour(null);
     setRect(null);
+    setAutoAdvance(false);
     if (pollRef.current) clearInterval(pollRef.current);
     stopNarration();
   }, []);
@@ -127,7 +240,12 @@ export function GuidedTour() {
       if (el) {
         el.scrollIntoView({ behavior: "smooth", block: "center" });
         const r = el.getBoundingClientRect();
-        setRect({ top: r.top, left: r.left, width: r.width, height: r.height });
+        setRect({
+          top: r.top,
+          left: r.left,
+          width: r.width,
+          height: r.height,
+        });
         return true;
       }
       return false;
@@ -137,7 +255,7 @@ export function GuidedTour() {
         tries += 1;
         if (locate() || tries > 25) {
           if (pollRef.current) clearInterval(pollRef.current);
-          if (tries > 25) setRect(null); // give up → centered card
+          if (tries > 25) setRect(null);
         }
       }, 100);
     }
@@ -153,7 +271,12 @@ export function GuidedTour() {
       const el = document.querySelector(step.selector!) as HTMLElement | null;
       if (el) {
         const r = el.getBoundingClientRect();
-        setRect({ top: r.top, left: r.left, width: r.width, height: r.height });
+        setRect({
+          top: r.top,
+          left: r.left,
+          width: r.width,
+          height: r.height,
+        });
       }
     };
     window.addEventListener("scroll", update, true);
@@ -164,13 +287,40 @@ export function GuidedTour() {
     };
   }, [step]);
 
-  // Narrate the step (server TTS if configured, else Web Speech).
+  // Narrate the step; optionally auto-advance when speech ends.
   useEffect(() => {
     if (!step || !voiceOn) return;
+    // Wait until we're on the right route so narration matches the screen
+    if (step.route && pathname !== step.route) return;
+
+    const gen = ++narrateGenRef.current;
     const text = [step.title, step.body, step.why].filter(Boolean).join(". ");
-    narrate(text);
-    return () => stopNarration();
-  }, [step, voiceOn, stepIndex]);
+
+    let cancelled = false;
+    void (async () => {
+      // Small pause so the spotlight can settle after navigation
+      await new Promise((r) => setTimeout(r, 350));
+      if (cancelled || narrateGenRef.current !== gen) return;
+      await narrate(text);
+      if (cancelled || narrateGenRef.current !== gen) return;
+      if (!autoAdvanceRef.current) return;
+      const t = tourRef.current;
+      if (!t) return;
+      const i = stepIndexRef.current;
+      if (i < t.steps.length - 1) {
+        setStepIndex(i + 1);
+      } else {
+        // Brief hold on last step, then close
+        await new Promise((r) => setTimeout(r, 1200));
+        if (narrateGenRef.current === gen) finish();
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      stopNarration();
+    };
+  }, [step, voiceOn, stepIndex, pathname, finish]);
 
   const toggleVoice = useCallback(() => {
     setVoiceOn((v) => {
@@ -180,7 +330,10 @@ export function GuidedTour() {
       } catch {
         /* ignore */
       }
-      if (!next) stopNarration();
+      if (!next) {
+        narrateGenRef.current += 1;
+        stopNarration();
+      }
       return next;
     });
   }, []);
@@ -190,7 +343,6 @@ export function GuidedTour() {
   const total = tour.steps.length;
   const isLast = stepIndex === total - 1;
 
-  // Note-box placement: beside the target, clamped to the viewport.
   const boxW = 340;
   const gap = 16;
   let boxStyle: React.CSSProperties = {};
@@ -223,16 +375,27 @@ export function GuidedTour() {
       <div className="mb-2 flex items-center justify-between">
         <span className="rounded-full bg-teal-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-teal-300">
           {tour.title}
+          {autoAdvance && (
+            <span className="ml-1 font-normal normal-case text-teal-400/80">
+              · auto
+            </span>
+          )}
         </span>
         <div className="flex items-center gap-1">
           <button
+            type="button"
             onClick={toggleVoice}
             title={voiceOn ? "Mute narration" : "Read aloud"}
             className="rounded-md p-1 text-slate-400 hover:text-teal-300"
           >
-            {voiceOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+            {voiceOn ? (
+              <Volume2 className="h-4 w-4" />
+            ) : (
+              <VolumeX className="h-4 w-4" />
+            )}
           </button>
           <button
+            type="button"
             onClick={finish}
             title="End tour"
             className="rounded-md p-1 text-slate-400 hover:text-rose-300"
@@ -264,7 +427,12 @@ export function GuidedTour() {
         </div>
         <div className="flex items-center gap-1.5">
           <button
-            onClick={() => setStepIndex((i) => Math.max(0, i - 1))}
+            type="button"
+            onClick={() => {
+              narrateGenRef.current += 1;
+              stopNarration();
+              setStepIndex((i) => Math.max(0, i - 1));
+            }}
             disabled={stepIndex === 0}
             className="flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-slate-300 disabled:opacity-40 hover:border-slate-500"
           >
@@ -272,6 +440,7 @@ export function GuidedTour() {
           </button>
           {isLast ? (
             <button
+              type="button"
               onClick={finish}
               className="flex items-center gap-1 rounded-lg bg-teal-500 px-3 py-1.5 text-xs font-medium text-slate-950 hover:bg-teal-400"
             >
@@ -279,7 +448,12 @@ export function GuidedTour() {
             </button>
           ) : (
             <button
-              onClick={() => setStepIndex((i) => Math.min(total - 1, i + 1))}
+              type="button"
+              onClick={() => {
+                narrateGenRef.current += 1;
+                stopNarration();
+                setStepIndex((i) => Math.min(total - 1, i + 1));
+              }}
               className="flex items-center gap-1 rounded-lg bg-teal-500 px-3 py-1.5 text-xs font-medium text-slate-950 hover:bg-teal-400"
             >
               Next <ArrowRight className="h-3.5 w-3.5" />
@@ -292,7 +466,6 @@ export function GuidedTour() {
 
   return createPortal(
     <div className="fixed inset-0 z-[300]">
-      {/* Dim + spotlight. The box-shadow trick cuts a hole over the target. */}
       {rect ? (
         <div
           className="pointer-events-none absolute rounded-xl ring-2 ring-teal-400/80 transition-all duration-300"

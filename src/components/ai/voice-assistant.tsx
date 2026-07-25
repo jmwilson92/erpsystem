@@ -24,6 +24,7 @@ import {
   actionVoiceSmokeTest,
   actionProbeGrok,
 } from "@/app/ai/actions";
+import { startCarinaGuideEvent } from "@/components/guides/guided-tour";
 import { cn } from "@/lib/utils";
 
 const NAME_KEY = "forge-assistant-name";
@@ -608,7 +609,34 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
           ];
           setLastReply(result.text);
           setError(null);
-          await speak(result.text);
+
+          const guide = result.guide;
+          const willTour = !!(guide?.tourId || (guide?.steps && guide.steps.length));
+
+          // Speak the short answer first; then open the on-screen walkthrough
+          // so Carina's TTS and the tour narration don't fight.
+          await speak(
+            willTour
+              ? result.text.replace(/\n+/g, " ").slice(0, 400)
+              : result.text
+          );
+
+          if (willTour && typeof window !== "undefined") {
+            setStatus("Opening walkthrough…");
+            window.dispatchEvent(
+              startCarinaGuideEvent({
+                tourId: guide?.tourId,
+                steps: guide?.steps,
+                autoAdvance: true,
+                voice: true,
+              })
+            );
+            setStatus(
+              wantListenRef.current
+                ? `Walkthrough running — say “${nameRef.current}” when done`
+                : "Walkthrough running"
+            );
+          }
         } catch (e) {
           const msg = e instanceof Error ? e.message : "Failed";
           setError(msg);
@@ -1045,9 +1073,10 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
           </h3>
           <p className="mt-0.5 text-xs text-slate-400">
             Tap <strong>Enable always-on mic</strong> once. Then say{" "}
-            <strong>“{name}, …”</strong> anytime — she should answer without
-            another button. While she talks, say <strong>“{name}”</strong> to
-            interrupt.
+            <strong>“{name}, …”</strong> anytime. Ask{" "}
+            <strong>“show me how to…”</strong> and she opens an on-screen
+            walkthrough with spotlights. ERP topics only. While she talks, say{" "}
+            <strong>“{name}”</strong> to interrupt.
             {grokOn ? " Grok connected." : " Needs XAI_API_KEY."}
           </p>
         </div>
@@ -1198,9 +1227,10 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
       {error && <p className="text-xs text-amber-300">{error}</p>}
 
       <p className="text-[11px] text-slate-600">
-        If “Hearing:” never updates when you talk, the browser isn&apos;t giving
-        speech results (use Chrome/Edge, HTTPS, mic allowed, tab focused).
-        Example: “{name}, how is the production floor?”
+        Examples: “{name}, how is the production floor?” · “{name}, show me how
+        to create a work order” · “{name}, walk me through MRB”. If “Hearing:”
+        never updates, use Chrome/Edge on HTTPS with the mic allowed and the tab
+        focused.
       </p>
 
       <details className="text-[11px] text-slate-600">

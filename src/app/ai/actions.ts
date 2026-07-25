@@ -6,11 +6,18 @@ import { prisma } from "@/lib/db";
 import {
   processAiConversation,
   processAiQuery,
+  type AiGuideAction,
 } from "@/lib/services/ai";
 import { grokConfigured, grokModel, probeGrok } from "@/lib/services/grok";
 
 export type AiConversationResult =
-  | { ok: true; text: string; source: "grok" | "local" }
+  | {
+      ok: true;
+      text: string;
+      source: "grok" | "local";
+      /** When set, client should start the interactive spotlight tour */
+      guide?: AiGuideAction;
+    }
   | { ok: false; error: string };
 
 export async function actionAiChat(query: string) {
@@ -30,14 +37,15 @@ export async function actionAiConversation(
       return { ok: false, error: "No message to send" };
     }
 
-    const text = await processAiConversation(clean);
-    if (!text?.trim()) {
+    const result = await processAiConversation(clean);
+    if (!result?.text?.trim()) {
       return { ok: false, error: "Empty reply from the model" };
     }
     return {
       ok: true,
-      text: text.trim(),
+      text: result.text.trim(),
       source: grokConfigured() ? "grok" : "local",
+      guide: result.guide,
     };
   } catch (e) {
     console.error("[actionAiConversation]", e);

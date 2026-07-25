@@ -810,3 +810,79 @@ export const TOURS: Tour[] = [
 export function getTour(id: string): Tour | undefined {
   return TOURS.find((t) => t.id === id);
 }
+
+/** Compact catalog for the AI assistant (ids + what each tour teaches). */
+export function listToursForAi(): {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+}[] {
+  return TOURS.map((t) => ({
+    id: t.id,
+    title: t.title,
+    description: t.description,
+    category: t.category,
+  }));
+}
+
+/**
+ * Best-effort tour pick from free text (local fallback when Grok is off,
+ * or when the model forgets to return a tourId).
+ */
+export function matchTourFromQuery(query: string): string | null {
+  const q = query.toLowerCase();
+  const rules: [RegExp, string][] = [
+    [/work\s*order|traveler|kit(ting)?|shop\s*floor|release.*(job|wo)/, "work-order-lifecycle"],
+    [/order\s*to\s*cash|sales\s*order|quote|ship(ping)?|customer\s*order/, "order-to-cash"],
+    [/mrp|forecast|material\s*requirement|planning|capacity/, "planning-mrp"],
+    [/radiator|value\s*stream|bottleneck|shop\s*visibility|floor\s*board/, "shop-visibility"],
+    [/bom|bill of material|requirement|work instruction|product definition|plm/, "product-definition"],
+    [/ecr|eco|change\s*control|configuration\s*management|\bcm\b/, "change-management"],
+    [/purchas|procure|po\b|receive|receiving|pr\b|buyer/, "procure-to-receive"],
+    [/inventory|cycle\s*count|item master|stock/, "items-inventory"],
+    [/supplier|asl|government\s*property|gfp/, "suppliers-property"],
+    [/mrb|ncr|non[-\s]?conformance|car\b|quality\s*escape|quarantine/, "quality-escape"],
+    [/rma|return|serial\s*trace|traceability/, "rma-trace"],
+    [/calibrat|tool\s*control|gage|gauge/, "qms-calibration-tools"],
+    [/audit|inspection|qms|iso|as9100/, "qms-inspections-audits"],
+    [/pmo|program|project|evm|wbs|pi\s*board/, "program-management"],
+    [/account|payroll|gl\b|invoice|billing|money|finance/, "accounting-money"],
+    [/hr\b|hire|onboard|timesheet|pto|recruit/, "hr-hire-to-onboard"],
+    [/setup|admin|import|settings|permission|tenant/, "admin-setup"],
+    [/plan|subscription|seat|trial/, "billing-plan"],
+    [/approv|timesheet|my\s*work|timecard/, "my-work"],
+    [/getting\s*started|tour|overview|show\s*me\s*(around|the\s*system)|how\s*do\s*i\s*use/, "getting-started"],
+  ];
+  for (const [re, id] of rules) {
+    if (re.test(q) && getTour(id)) return id;
+  }
+  return null;
+}
+
+/** Known module routes Carina may navigate to for ad-hoc spotlights. */
+export const AI_MODULE_ROUTES: { route: string; label: string; selectors: string[] }[] = [
+  { route: "/", label: "Dashboard / home", selectors: ['[data-tour="sidebar"]', '[data-tour="page-header"]'] },
+  { route: "/work-orders", label: "Work Orders", selectors: ['[data-tour="wo-create"]', '[data-tour="page-header"]'] },
+  { route: "/floor", label: "Production Floor", selectors: ['[data-tour="page-header"]'] },
+  { route: "/kitting", label: "Kitting", selectors: ['[data-tour="page-header"]'] },
+  { route: "/planning", label: "Planning / MRP", selectors: ['[data-tour="planning-capacity"]', '[data-tour="page-header"]'] },
+  { route: "/mrb", label: "MRB", selectors: ['[data-tour="page-header"]'] },
+  { route: "/purchasing", label: "Purchasing", selectors: ['[data-tour="pr-po-tabs"]', '[data-tour="page-header"]'] },
+  { route: "/receiving", label: "Receiving", selectors: ['[data-tour="page-header"]'] },
+  { route: "/inventory", label: "Inventory", selectors: ['[data-tour="page-header"]'] },
+  { route: "/sales", label: "Sales Orders", selectors: ['[data-tour="so-table"]', '[data-tour="page-header"]'] },
+  { route: "/sales/quotes", label: "Quotes", selectors: ['[data-tour="quote-new"]', '[data-tour="page-header"]'] },
+  { route: "/shipping", label: "Shipping", selectors: ['[data-tour="page-header"]'] },
+  { route: "/quality", label: "Quality", selectors: ['[data-tour="page-header"]'] },
+  { route: "/accounting", label: "Accounting", selectors: ['[data-tour="accounting-overview"]', '[data-tour="page-header"]'] },
+  { route: "/hr", label: "HR", selectors: ['[data-tour="hr-tabs"]', '[data-tour="page-header"]'] },
+  { route: "/approvals", label: "Approvals", selectors: ['[data-tour="approvals-stats"]', '[data-tour="page-header"]'] },
+  { route: "/bom", label: "BOMs", selectors: ['[data-tour="page-header"]'] },
+  { route: "/items", label: "Items", selectors: ['[data-tour="items-table"]', '[data-tour="page-header"]'] },
+  { route: "/suppliers", label: "Suppliers", selectors: ['[data-tour="suppliers-table"]', '[data-tour="page-header"]'] },
+  { route: "/value-stream", label: "Value Stream", selectors: ['[data-tour="vsm-stages"]', '[data-tour="page-header"]'] },
+  { route: "/radiators", label: "Info Radiators", selectors: ['[data-tour="radiator-kpis"]', '[data-tour="page-header"]'] },
+  { route: "/guides", label: "Guides hub", selectors: ['[data-tour="page-header"]'] },
+  { route: "/ai", label: "AI assistant", selectors: ['[data-tour="page-header"]'] },
+];

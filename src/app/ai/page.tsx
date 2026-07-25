@@ -13,10 +13,10 @@ const suggestions = [
   "How is the production floor looking?",
   "Summarize open MRB cases and next steps",
   "Which suppliers need attention?",
+  "Show me how to create a work order",
+  "Walk me through order to cash",
   "Show value stream bottlenecks",
   "Project EVM status",
-  "Suggest workforce development goals",
-  "Explain prototype BOM certification flow",
 ];
 
 export default function AiPage() {
@@ -46,7 +46,7 @@ export default function AiPage() {
     <div className="mx-auto max-w-3xl space-y-6">
       <PageHeader
         title="AI Assistant"
-        description="Grok-powered plant assistant — type here or use your custom voice wake word"
+        description="Grok-powered plant assistant — ERP only. Voice wake word, or say “show me how…” for live walkthroughs"
       />
 
       <VoiceAssistant />
