@@ -221,9 +221,17 @@ async function callGrok(query: string): Promise<string> {
 export async function processAiConversation(
   messages: { role: "user" | "assistant"; content: string }[]
 ): Promise<string> {
+  const last = messages.filter((m) => m.role === "user").pop()?.content || "";
+  if (!last.trim()) return "I didn't hear a question. Try again.";
+
   if (process.env.XAI_API_KEY) {
     try {
-      const ctx = await getAiContextSummary();
+      let ctx: unknown = {};
+      try {
+        ctx = await getAiContextSummary();
+      } catch (ctxErr) {
+        console.warn("[ai] context summary failed, continuing without:", ctxErr);
+      }
       const key = process.env.XAI_API_KEY;
       const model = process.env.XAI_MODEL || "grok-4.5";
       const res = await fetch("https://api.x.ai/v1/chat/completions", {
@@ -240,17 +248,28 @@ export async function processAiConversation(
               role: "system",
               content: `You are a spoken manufacturing ERP assistant inside ForgeRP. Keep answers short enough to speak aloud (2–5 sentences when possible). Help users find modules and understand status. Live context: ${JSON.stringify(ctx)}`,
             },
-            ...messages.map((m) => ({ role: m.role, content: m.content })),
+            ...messages
+              .filter((m) => m.content?.trim())
+              .slice(-10)
+              .map((m) => ({ role: m.role, content: m.content })),
           ],
         }),
       });
-      if (!res.ok) throw new Error(`Grok ${res.status}`);
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => "");
+        console.error("[ai] Grok HTTP", res.status, errBody.slice(0, 300));
+        throw new Error(`Grok ${res.status}`);
+      }
       const data = await res.json();
-      return data.choices?.[0]?.message?.content || "I didn't catch that.";
+      const content = data.choices?.[0]?.message?.content;
+      if (content?.trim()) return content.trim();
     } catch (e) {
       console.error("Grok conversation failed:", e);
     }
   }
-  const last = messages.filter((m) => m.role === "user").pop()?.content || "";
-  return processAiQuery(last);
+  try {
+    return await processAiQuery(last);
+  } catch {
+    return "I'm having trouble answering right now. Try the AI Assistant text chat, or ask again in a moment.";
+  }
 }
