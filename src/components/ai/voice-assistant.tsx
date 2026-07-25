@@ -180,24 +180,6 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
     speakingRef.current = false;
   }, []);
 
-  /** Pause recognition while Carina talks so her voice doesn't self-interrupt. */
-  const pauseRecognition = useCallback(() => {
-    try {
-      recRef.current?.stop();
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  const resumeRecognition = useCallback(() => {
-    if (!listeningRef.current || !recRef.current) return;
-    try {
-      recRef.current.start();
-    } catch {
-      // already running
-    }
-  }, []);
-
   const speak = useCallback(
     async (text: string) => {
       // Cancel previous without double-increment confusion
@@ -205,8 +187,8 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
       const gen = speakGenRef.current; // stopSpeaking already bumped
       setSpeaking(true);
       speakingRef.current = true;
-      // Mute mic while she talks — room noise / her own audio won't cut her off
-      pauseRecognition();
+      // Mic stays on so the user can interrupt by saying her wake name.
+      // Noise is ignored in onresult while speaking (wake word only).
 
       const spoken = text
         .replace(/\*\*/g, "")
@@ -226,16 +208,10 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
             voiceId: DEFAULT_VOICE_ID,
           }),
         });
-        if (speakGenRef.current !== gen) {
-          resumeRecognition();
-          return;
-        }
+        if (speakGenRef.current !== gen) return;
         if (res.ok) {
           const buf = await res.arrayBuffer();
-          if (speakGenRef.current !== gen) {
-            resumeRecognition();
-            return;
-          }
+          if (speakGenRef.current !== gen) return;
           const blob = new Blob([buf], {
             type: res.headers.get("Content-Type") || "audio/mpeg",
           });
@@ -257,17 +233,13 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
             setSpeaking(false);
             speakingRef.current = false;
           }
-          resumeRecognition();
           return;
         }
       } catch {
         // browser fallback
       }
 
-      if (speakGenRef.current !== gen) {
-        resumeRecognition();
-        return;
-      }
+      if (speakGenRef.current !== gen) return;
       if (typeof window !== "undefined" && window.speechSynthesis) {
         window.speechSynthesis.cancel();
         await new Promise<void>((resolve) => {
@@ -288,9 +260,8 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
         setSpeaking(false);
         speakingRef.current = false;
       }
-      resumeRecognition();
     },
-    [pauseRecognition, resumeRecognition, stopSpeaking]
+    [stopSpeaking]
   );
 
   const handleUtterance = useCallback(
@@ -495,10 +466,29 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
 
       const wake = nameRef.current;
 
-      // While Carina is speaking: ignore ALL mic input (noise / her own voice
-      // from speakers used to cut her off). User can press "Stop talking" or
-      // Hold Talk to interrupt intentionally.
+      // While she is speaking: ONLY the wake name can interrupt (not noise).
+      // Prefer final transcripts; allow strong interim if it clearly has the name.
       if (speakingRef.current) {
+        const candidate = finalText || interimText;
+        if (!candidate || !includesWake(candidate, wake)) return;
+        // Require the name as a clear token (avoids random noise false hits)
+        const wakeRe = new RegExp(
+          `\\b${escapeRe(wake.trim().split(/\s+/)[0] || wake)}\\b`,
+          "i"
+        );
+        if (!wakeRe.test(candidate)) return;
+        // Prefer finals; if only interim, need the full wake name present
+        if (!finalText && !includesWake(interimText, wake)) return;
+
+        stopSpeaking();
+        keepAwake();
+        setStatus("Interrupted — listening…");
+        const after = stripWake(finalText || interimText, wake);
+        if (after.length > 2 && finalText) {
+          handleUtterance(finalText);
+        } else {
+          setStatus(`Yes? (you said ${wake}) — ask anything…`);
+        }
         return;
       }
 
@@ -856,7 +846,7 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
         )}
         {speaking && (
           <span className="ml-2 rounded bg-amber-500/20 px-1.5 py-0.5 text-amber-200">
-            Speaking (mic paused)
+            Speaking — say “{name}” to interrupt
           </span>
         )}
         {ptt && (
