@@ -72,6 +72,8 @@ export type SupportThreadResult =
       status: string;
       closed: boolean;
       guestToken: string | null;
+      contactName: string;
+      contactEmail: string;
       messages: SupportThreadMessage[];
     }
   | { ok: false; error: string };
@@ -182,6 +184,8 @@ export async function actionFetchSupportThread(params: {
         status: ticket.status,
         closed: ticket.status === "CLOSED",
         guestToken: ticket.guestToken,
+        contactName: ticket.guestName || "You",
+        contactEmail: ticket.guestEmail || "",
         messages: mapMessages(ticket.messages, ticket.guestName),
       };
     }
@@ -207,6 +211,10 @@ export async function actionFetchSupportThread(params: {
       status: ticket.status,
       closed: ticket.status === "CLOSED",
       guestToken: ticket.guestToken,
+      contactName:
+        ticket.requester?.name || ticket.guestName || "Customer",
+      contactEmail:
+        ticket.requester?.email || ticket.guestEmail || "",
       messages: mapMessages(
         ticket.messages,
         ticket.guestName || ticket.requester?.name

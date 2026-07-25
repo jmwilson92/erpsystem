@@ -6,10 +6,8 @@ import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  ChatThread,
-  TicketMetaPills,
-} from "@/components/support/chat-thread";
+import { TicketMetaPills } from "@/components/support/chat-thread";
+import { StaffTicketChat } from "@/components/support/staff-ticket-chat";
 import {
   getSupportTicket,
   listPlatformAdmins,
@@ -21,13 +19,11 @@ import { isPlatformSupportEnabled } from "@/lib/platform";
 import { TENANT_COOKIE, DEMO_COOKIE } from "@/lib/db";
 import {
   actionAddSupportNote,
-  actionPostSupportMessage,
   actionUpdateSupportTicket,
 } from "@/app/support/actions";
 import {
   ArrowLeft,
   StickyNote,
-  Send,
   Settings2,
   NotebookPen,
 } from "lucide-react";
@@ -80,40 +76,23 @@ export default async function AdminSupportTicketPage({
       />
 
       <div className="grid gap-6 lg:grid-cols-3">
-        {/* Chat */}
+        {/* Live chat — who you're writing to + auto-refresh for replies */}
         <Card className="lg:col-span-2">
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Customer chat</CardTitle>
             <p className="text-xs text-slate-500">
-              Visible to the requester. Replies auto-assign you if unassigned.
+              Visible to the customer. Thread updates live when they reply.
             </p>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="max-h-[28rem] overflow-y-auto rounded-xl border border-slate-800/80 bg-slate-950/40 p-4">
-              <ChatThread
-                messages={ticket.messages}
-                currentUserId={user?.id || ""}
-              />
-            </div>
-            {closed ? (
-              <p className="text-sm text-slate-500">
-                Ticket is closed. Re-open from ticket settings if needed.
-              </p>
-            ) : (
-              <form action={actionPostSupportMessage} className="space-y-3">
-                <input type="hidden" name="ticketId" value={ticket.id} />
-                <input type="hidden" name="fromAdmin" value="1" />
-                <Textarea
-                  name="body"
-                  required
-                  rows={3}
-                  placeholder="Reply to the requester…"
-                />
-                <Button type="submit">
-                  <Send className="h-4 w-4" /> Send reply
-                </Button>
-              </form>
-            )}
+          <CardContent>
+            <StaffTicketChat
+              ticketId={ticket.id}
+              contactName={contactName}
+              contactEmail={contactEmail}
+              closed={closed}
+              currentUserId={user?.id || ""}
+              initialMessages={ticket.messages}
+            />
           </CardContent>
         </Card>
 

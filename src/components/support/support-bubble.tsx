@@ -35,7 +35,7 @@ import { cn } from "@/lib/utils";
 const AUTO_OPEN_MS = 4000;
 const SESSION_KEY = "forge-support-auto-opened";
 const THREAD_KEY = "forge-support-active-thread";
-const POLL_MS = 8000;
+const POLL_MS = 2500;
 
 type ActiveThread = {
   kind: "guest" | "user";
