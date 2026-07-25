@@ -147,14 +147,35 @@ export function VoiceAssistant({
     [listening]
   );
 
-  const startListening = useCallback(() => {
+  const startListening = useCallback(async () => {
     const Ctor = getSpeechRecognition();
     if (!Ctor) {
       setError(
-        "Voice recognition isn't supported in this browser. Try Chrome or Edge."
+        "Voice recognition isn't supported in this browser. Use Chrome or Edge on https://www.forge-rp.live (not a random preview URL)."
       );
       return;
     }
+
+    // Explicit mic prompt first — clearer than SpeechRecognition alone
+    try {
+      if (!window.isSecureContext) {
+        setError(
+          "Microphone needs HTTPS. Open https://www.forge-rp.live (secure site)."
+        );
+        return;
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // We only needed permission; SpeechRecognition opens its own stream
+      stream.getTracks().forEach((t) => t.stop());
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(
+        `Microphone blocked. In Chrome: click the lock icon left of the URL → Site settings → Microphone → Allow, then reload. (${msg})`
+      );
+      setListening(false);
+      return;
+    }
+
     try {
       recRef.current?.abort();
     } catch {
@@ -181,9 +202,8 @@ export function VoiceAssistant({
           setAwake(true);
           awakeRef.current = true;
           setStatus("Yes? Listening…");
-          // Strip wake word; if more was said, treat as the question
           const after = heard
-            .replace(new RegExp(wake, "ig"), "")
+            .replace(new RegExp(wake.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "ig"), "")
             .replace(/^[,.\s]+/, "")
             .trim();
           if (after.length > 2) {
@@ -192,19 +212,23 @@ export function VoiceAssistant({
         }
         return;
       }
-      // Awake: take final-ish utterances as the command
       if (heard.length > 2) {
         handleUtterance(heard);
       }
     };
     rec.onerror = (ev) => {
       if (ev.error === "not-allowed") {
-        setError("Microphone permission denied");
+        setError(
+          "Microphone permission denied. Lock icon next to URL → Microphone → Allow → reload."
+        );
         setListening(false);
+      } else if (ev.error === "aborted") {
+        // ignore intentional stop
+      } else if (ev.error !== "no-speech") {
+        setError(`Mic error: ${ev.error}`);
       }
     };
     rec.onend = () => {
-      // Auto-restart while enabled
       if (recRef.current === rec) {
         try {
           rec.start();

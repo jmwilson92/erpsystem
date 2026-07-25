@@ -7,8 +7,10 @@ const securityHeaders = [
   { key: "X-Frame-Options", value: "DENY" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   {
+    // microphone=(self) — voice assistant needs the mic on this origin.
+    // camera/geo stay off. payment stays off (Stripe uses its own flow).
     key: "Permissions-Policy",
-    value: "camera=(), microphone=(), geolocation=(), payment=()",
+    value: "camera=(), microphone=(self), geolocation=(), payment=()",
   },
   {
     key: "Strict-Transport-Security",
