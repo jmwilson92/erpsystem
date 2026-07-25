@@ -79,9 +79,6 @@ export function VoiceAssistant({
     nameRef.current = name;
   }, [name]);
   useEffect(() => {
-    voiceRef.current = voiceId;
-  }, [voiceId]);
-  useEffect(() => {
     awakeRef.current = awake;
   }, [awake]);
   useEffect(() => {
@@ -99,8 +96,6 @@ export function VoiceAssistant({
           setName(local);
           setNameDraft(local);
         }
-        const v = localStorage.getItem(VOICE_KEY);
-        if (v) setVoiceId(v);
       } catch {
         // ignore
       }
@@ -150,7 +145,7 @@ export function VoiceAssistant({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           text: spoken.slice(0, 1800),
-          voiceId: voiceRef.current,
+          voiceId: DEFAULT_VOICE_ID,
         }),
       });
       if (speakGenRef.current !== gen) return; // cancelled
@@ -439,15 +434,6 @@ export function VoiceAssistant({
     });
   }
 
-  function saveVoice(id: string) {
-    setVoiceId(id);
-    try {
-      localStorage.setItem(VOICE_KEY, id);
-    } catch {
-      // ignore
-    }
-  }
-
   if (compact) {
     return (
       <div className="pointer-events-none fixed bottom-5 left-5 z-40 flex flex-col items-start gap-2">
@@ -507,51 +493,33 @@ export function VoiceAssistant({
             Voice assistant
           </h3>
           <p className="mt-0.5 text-xs text-slate-400">
-            Natural Grok voice (default <strong>Carina</strong>). Say your wake
-            word anytime; talk over the reply to interrupt.
+            Natural Grok voice (Carina). Say your wake word anytime; talk over
+            the reply to interrupt.
             {grokOn ? " Grok connected." : " Set XAI_API_KEY for Grok + TTS."}
           </p>
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div>
-          <label className="mb-1 block text-[11px] font-medium text-slate-400">
-            Assistant name (wake word)
-          </label>
-          <div className="flex gap-2">
-            <input
-              value={nameDraft}
-              onChange={(e) => setNameDraft(e.target.value)}
-              maxLength={32}
-              placeholder="e.g. Atlas, Nova, Forge"
-              className="flex h-9 w-full rounded-lg border border-slate-700 bg-slate-950/80 px-3 text-sm text-slate-100"
-            />
-            <button
-              type="button"
-              onClick={saveName}
-              disabled={pending}
-              className="h-9 shrink-0 rounded-lg border border-slate-700 px-3 text-sm text-slate-200 hover:border-teal-500/50"
-            >
-              Save
-            </button>
-          </div>
-        </div>
-        <div>
-          <label className="mb-1 block text-[11px] font-medium text-slate-400">
-            Voice (Grok TTS)
-          </label>
-          <select
-            value={voiceId}
-            onChange={(e) => saveVoice(e.target.value)}
-            className="flex h-9 w-full rounded-lg border border-slate-700 bg-slate-950/80 px-3 text-sm text-slate-100"
+      <div>
+        <label className="mb-1 block text-[11px] font-medium text-slate-400">
+          Assistant name (wake word)
+        </label>
+        <div className="flex gap-2">
+          <input
+            value={nameDraft}
+            onChange={(e) => setNameDraft(e.target.value)}
+            maxLength={32}
+            placeholder="e.g. Atlas, Nova, Forge"
+            className="flex h-9 w-full max-w-md rounded-lg border border-slate-700 bg-slate-950/80 px-3 text-sm text-slate-100"
+          />
+          <button
+            type="button"
+            onClick={saveName}
+            disabled={pending}
+            className="h-9 shrink-0 rounded-lg border border-slate-700 px-3 text-sm text-slate-200 hover:border-teal-500/50"
           >
-            {GROK_VOICES.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.label}
-              </option>
-            ))}
-          </select>
+            Save
+          </button>
         </div>
       </div>
 
