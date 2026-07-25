@@ -11,9 +11,13 @@ import {
   createSupportTicket,
   getSupportTicket,
   getSupportTicketByGuestToken,
+  isTypingActive,
+  markSupportThreadRead,
   postSupportMessage,
+  setSupportTyping,
   updateSupportTicket,
 } from "@/lib/services/support";
+import { grokConfigured, grokTranslate } from "@/lib/services/grok";
 
 /** Support staff portal only — not ERP company (tenant) admins. */
 async function requireSupportStaff() {
@@ -61,6 +65,7 @@ export type SupportThreadMessage = {
   isStaff: boolean;
   createdAt: string;
   authorName: string;
+  readAt: string | null;
 };
 
 export type SupportThreadResult =
@@ -74,6 +79,8 @@ export type SupportThreadResult =
       guestToken: string | null;
       contactName: string;
       contactEmail: string;
+      /** The other party is currently typing */
+      peerTyping: boolean;
       messages: SupportThreadMessage[];
     }
   | { ok: false; error: string };
@@ -151,6 +158,7 @@ function mapMessages(
     body: string;
     isStaff: boolean;
     createdAt: Date;
+    readAt?: Date | null;
     author: { name: string } | null;
   }[],
   guestName?: string | null
@@ -160,6 +168,7 @@ function mapMessages(
     body: m.body,
     isStaff: m.isStaff,
     createdAt: m.createdAt.toISOString(),
+    readAt: m.readAt ? m.readAt.toISOString() : null,
     authorName: m.author?.name || (m.isStaff ? "ForgeRP" : guestName || "You"),
   }));
 }
@@ -176,6 +185,12 @@ export async function actionFetchSupportThread(params: {
     if (token) {
       const ticket = await getSupportTicketByGuestToken(token);
       if (!ticket) return { ok: false, error: "Conversation not found" };
+      // Guest viewing → mark staff messages read
+      await markSupportThreadRead({
+        ticketId: ticket.id,
+        who: "customer",
+        guestToken: token,
+      }).catch(() => undefined);
       return {
         ok: true,
         id: ticket.id,
@@ -186,6 +201,7 @@ export async function actionFetchSupportThread(params: {
         guestToken: ticket.guestToken,
         contactName: ticket.guestName || "You",
         contactEmail: ticket.guestEmail || "",
+        peerTyping: isTypingActive(ticket.staffTypingAt),
         messages: mapMessages(ticket.messages, ticket.guestName),
       };
     }
@@ -203,6 +219,15 @@ export async function actionFetchSupportThread(params: {
       return { ok: false, error: "You don't have access to this conversation" };
     }
 
+    await markSupportThreadRead({
+      ticketId: ticket.id,
+      who: isStaff ? "staff" : "customer",
+      guestToken: ticket.guestToken,
+    }).catch(() => undefined);
+
+    // Re-fetch messages after read stamps
+    const fresh = await getSupportTicket(id);
+
     return {
       ok: true,
       id: ticket.id,
@@ -215,8 +240,11 @@ export async function actionFetchSupportThread(params: {
         ticket.requester?.name || ticket.guestName || "Customer",
       contactEmail:
         ticket.requester?.email || ticket.guestEmail || "",
+      peerTyping: isStaff
+        ? isTypingActive(ticket.customerTypingAt)
+        : isTypingActive(ticket.staffTypingAt),
       messages: mapMessages(
-        ticket.messages,
+        (fresh || ticket).messages,
         ticket.guestName || ticket.requester?.name
       ),
     };
@@ -361,4 +389,44 @@ export async function actionUpdateSupportTicket(formData: FormData) {
   }
   revalidateSupport(ticketId);
   redirect(`/admin/support/${ticketId}`);
+}
+
+/** Typing heartbeat for live “is typing…” indicators. */
+export async function actionSupportTyping(params: {
+  ticketId: string;
+  who: "staff" | "customer";
+  guestToken?: string | null;
+}): Promise<{ ok: boolean }> {
+  try {
+    if (params.who === "staff") await requireSupportStaff();
+    await setSupportTyping(params);
+    return { ok: true };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/** Grok real-time translation for chat messages. */
+export async function actionTranslateText(params: {
+  text: string;
+  targetLanguage: string;
+}): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
+  try {
+    if (!grokConfigured()) {
+      return {
+        ok: false,
+        error: "Translation needs XAI_API_KEY (Grok) configured on the server.",
+      };
+    }
+    const text = params.text?.trim();
+    if (!text) return { ok: false, error: "Nothing to translate" };
+    const lang = params.targetLanguage?.trim() || "English";
+    const out = await grokTranslate(text, lang);
+    return { ok: true, text: out };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Translation failed",
+    };
+  }
 }

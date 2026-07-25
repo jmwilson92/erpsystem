@@ -693,3 +693,81 @@ export async function listPlatformAdmins() {
     select: { id: true, name: true, email: true },
   });
 }
+
+const TYPING_TTL_MS = 4000;
+
+export function isTypingActive(at: Date | null | undefined) {
+  if (!at) return false;
+  return Date.now() - new Date(at).getTime() < TYPING_TTL_MS;
+}
+
+/** Heartbeat while the peer is typing. */
+export async function setSupportTyping(params: {
+  ticketId: string;
+  who: "staff" | "customer";
+  guestToken?: string | null;
+}) {
+  const ticket = await db().supportTicket.findUnique({
+    where: { id: params.ticketId },
+  });
+  if (!ticket) throw new Error("Ticket not found");
+  if (
+    params.who === "customer" &&
+    params.guestToken &&
+    ticket.guestToken &&
+    params.guestToken !== ticket.guestToken
+  ) {
+    throw new Error("Invalid conversation");
+  }
+  const now = new Date();
+  await db().supportTicket.update({
+    where: { id: ticket.id },
+    data:
+      params.who === "staff"
+        ? { staffTypingAt: now }
+        : { customerTypingAt: now },
+  });
+}
+
+/**
+ * Mark the thread as read by staff or customer; stamp unread messages from
+ * the other party with readAt for receipts.
+ */
+export async function markSupportThreadRead(params: {
+  ticketId: string;
+  who: "staff" | "customer";
+  guestToken?: string | null;
+}) {
+  const ticket = await db().supportTicket.findUnique({
+    where: { id: params.ticketId },
+  });
+  if (!ticket) throw new Error("Ticket not found");
+  if (
+    params.who === "customer" &&
+    params.guestToken &&
+    ticket.guestToken &&
+    params.guestToken !== ticket.guestToken
+  ) {
+    throw new Error("Invalid conversation");
+  }
+
+  const now = new Date();
+  await db().$transaction([
+    db().supportTicket.update({
+      where: { id: ticket.id },
+      data:
+        params.who === "staff"
+          ? { staffLastReadAt: now }
+          : { customerLastReadAt: now },
+    }),
+    // Staff reading → mark non-staff messages read; customer reading → staff msgs
+    db().supportMessage.updateMany({
+      where: {
+        ticketId: ticket.id,
+        readAt: null,
+        isStaff: params.who === "customer",
+      },
+      data: { readAt: now },
+    }),
+  ]);
+}

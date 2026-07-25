@@ -209,25 +209,48 @@ export async function processAiQuery(query: string): Promise<string> {
 
 async function callGrok(query: string): Promise<string> {
   const ctx = await getAiContextSummary();
-  const res = await fetch("https://api.x.ai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.XAI_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: process.env.XAI_MODEL || "grok-2-latest",
-      messages: [
-        {
-          role: "system",
-          content: `You are ForgeRP AI assistant for a high-reliability manufacturing plant. Be concise, action-oriented, and cite module names. Live context JSON: ${JSON.stringify(ctx)}`,
-        },
-        { role: "user", content: query },
-      ],
-      temperature: 0.3,
-    }),
+  const { grokChat } = await import("@/lib/services/grok");
+  return grokChat({
+    temperature: 0.35,
+    system: `You are the ForgeRP manufacturing ERP voice assistant. Be concise, friendly, and action-oriented. Cite module names and routes when helpful (e.g. Work Orders, MRB, Purchasing). Live plant context JSON: ${JSON.stringify(ctx)}`,
+    user: query,
   });
-  if (!res.ok) throw new Error(`Grok API ${res.status}`);
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content || "No response from Grok.";
+}
+
+/** Multi-turn voice/chat conversation with Grok + live ERP context. */
+export async function processAiConversation(
+  messages: { role: "user" | "assistant"; content: string }[]
+): Promise<string> {
+  if (process.env.XAI_API_KEY) {
+    try {
+      const ctx = await getAiContextSummary();
+      const key = process.env.XAI_API_KEY;
+      const model = process.env.XAI_MODEL || "grok-4.5";
+      const res = await fetch("https://api.x.ai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${key}`,
+        },
+        body: JSON.stringify({
+          model,
+          temperature: 0.4,
+          messages: [
+            {
+              role: "system",
+              content: `You are a spoken manufacturing ERP assistant inside ForgeRP. Keep answers short enough to speak aloud (2–5 sentences when possible). Help users find modules and understand status. Live context: ${JSON.stringify(ctx)}`,
+            },
+            ...messages.map((m) => ({ role: m.role, content: m.content })),
+          ],
+        }),
+      });
+      if (!res.ok) throw new Error(`Grok ${res.status}`);
+      const data = await res.json();
+      return data.choices?.[0]?.message?.content || "I didn't catch that.";
+    } catch (e) {
+      console.error("Grok conversation failed:", e);
+    }
+  }
+  const last = messages.filter((m) => m.role === "user").pop()?.content || "";
+  return processAiQuery(last);
 }

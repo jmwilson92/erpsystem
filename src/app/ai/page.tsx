@@ -5,7 +5,8 @@ import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { actionAiChat } from "@/app/actions";
+import { actionAiChat } from "@/app/ai/actions";
+import { VoiceAssistant } from "@/components/ai/voice-assistant";
 import { Bot, Send, Sparkles } from "lucide-react";
 
 const suggestions = [
@@ -45,8 +46,10 @@ export default function AiPage() {
     <div className="mx-auto max-w-3xl space-y-6">
       <PageHeader
         title="AI Assistant"
-        description="Local intelligence with upgrade path to xAI Grok API + tool calling"
+        description="Grok-powered plant assistant — type here or use your custom voice wake word"
       />
+
+      <VoiceAssistant />
 
       <div className="flex flex-wrap gap-2">
         {suggestions.map((s) => (

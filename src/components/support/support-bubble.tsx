@@ -19,11 +19,15 @@ import {
   Loader2,
   Sparkles,
   Plus,
+  CheckCheck,
+  Languages,
 } from "lucide-react";
 import {
   actionCreateSupportTicketResult,
   actionFetchSupportThread,
   actionPostSupportMessageResult,
+  actionSupportTyping,
+  actionTranslateText,
   type SupportThreadMessage,
 } from "@/app/support/actions";
 import {
@@ -35,7 +39,7 @@ import { cn } from "@/lib/utils";
 const AUTO_OPEN_MS = 4000;
 const SESSION_KEY = "forge-support-auto-opened";
 const THREAD_KEY = "forge-support-active-thread";
-const POLL_MS = 2500;
+const POLL_MS = 2000;
 
 type ActiveThread = {
   kind: "guest" | "user";
@@ -73,11 +77,15 @@ export function SupportBubble({
   const [status, setStatus] = useState("");
   const [closed, setClosed] = useState(false);
   const [messages, setMessages] = useState<SupportThreadMessage[]>([]);
+  const [peerTyping, setPeerTyping] = useState(false);
   const [reply, setReply] = useState("");
   const [pending, startTransition] = useTransition();
   const [loadingThread, setLoadingThread] = useState(false);
+  const [lang, setLang] = useState("English");
+  const [translated, setTranslated] = useState<Record<string, string>>({});
   const panelRef = useRef<HTMLDivElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
+  const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const titleId = useId();
   const needContact = !accountLinked;
 
@@ -110,6 +118,7 @@ export function SupportBubble({
       setStatus(result.status);
       setClosed(result.closed);
       setMessages(result.messages);
+      setPeerTyping(result.peerTyping);
       persistThread({
         ...t,
         number: result.number,
@@ -153,7 +162,7 @@ export function SupportBubble({
     return () => window.clearTimeout(t);
   }, [autoOpen]);
 
-  // Poll for staff replies while conversation is open
+  // Poll for staff replies + typing indicator
   useEffect(() => {
     if (!open || !active) return;
     const tick = () => {
@@ -165,6 +174,7 @@ export function SupportBubble({
         setMessages(result.messages);
         setStatus(result.status);
         setClosed(result.closed);
+        setPeerTyping(result.peerTyping);
       });
     };
     const id = window.setInterval(tick, POLL_MS);
@@ -252,6 +262,18 @@ export function SupportBubble({
     });
   }
 
+  function onCustomerReplyChange(value: string) {
+    setReply(value);
+    if (!active) return;
+    if (typingTimer.current) clearTimeout(typingTimer.current);
+    void actionSupportTyping({
+      ticketId: active.id,
+      who: "customer",
+      guestToken: active.token || null,
+    });
+    typingTimer.current = setTimeout(() => undefined, 1500);
+  }
+
   function handleReply(e: React.FormEvent) {
     e.preventDefault();
     if (!active || !reply.trim() || closed) return;
@@ -269,6 +291,20 @@ export function SupportBubble({
       }
       setMessages(result.messages);
       setReply("");
+    });
+  }
+
+  function translateMsg(id: string, text: string) {
+    startTransition(async () => {
+      const result = await actionTranslateText({
+        text,
+        targetLanguage: lang,
+      });
+      if (result.ok) {
+        setTranslated((t) => ({ ...t, [id]: result.text }));
+      } else {
+        setError(result.error);
+      }
     });
   }
 
@@ -336,6 +372,30 @@ export function SupportBubble({
                 </div>
               )}
 
+              <div className="flex shrink-0 items-center justify-between border-b border-slate-800/60 px-3 py-1.5">
+                <label className="flex items-center gap-1 text-[10px] text-slate-500">
+                  <Languages className="h-3 w-3" />
+                  <select
+                    value={lang}
+                    onChange={(e) => setLang(e.target.value)}
+                    className="rounded border border-slate-700 bg-slate-950 px-1 py-0.5 text-[10px]"
+                  >
+                    {[
+                      "English",
+                      "Spanish",
+                      "French",
+                      "German",
+                      "Portuguese",
+                      "Chinese",
+                      "Japanese",
+                    ].map((l) => (
+                      <option key={l} value={l}>
+                        {l}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
               <div
                 ref={scrollerRef}
                 className="min-h-0 flex-1 space-y-2.5 overflow-y-auto px-3 py-3"
@@ -370,10 +430,36 @@ export function SupportBubble({
                             : "rounded-br-md bg-teal-600/90 text-white"
                         )}
                       >
-                        {m.body}
+                        {translated[m.id] || m.body}
+                      </div>
+                      <div className="flex gap-2 text-[10px] text-slate-500">
+                        {!m.isStaff && m.readAt && (
+                          <span className="inline-flex items-center gap-0.5 text-sky-400/90">
+                            <CheckCheck className="h-3 w-3" /> Read
+                          </span>
+                        )}
+                        {!translated[m.id] && (
+                          <button
+                            type="button"
+                            className="hover:text-teal-400"
+                            onClick={() => translateMsg(m.id, m.body)}
+                          >
+                            Translate
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))
+                )}
+                {peerTyping && (
+                  <div className="flex items-center gap-2 text-xs text-violet-300">
+                    <span className="inline-flex gap-0.5">
+                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-violet-400 [animation-delay:0ms]" />
+                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-violet-400 [animation-delay:150ms]" />
+                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-violet-400 [animation-delay:300ms]" />
+                    </span>
+                    Support is typing…
+                  </div>
                 )}
               </div>
 
@@ -404,7 +490,7 @@ export function SupportBubble({
                 >
                   <input
                     value={reply}
-                    onChange={(e) => setReply(e.target.value)}
+                    onChange={(e) => onCustomerReplyChange(e.target.value)}
                     placeholder="Type a reply…"
                     disabled={pending}
                     className="min-w-0 flex-1 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/40 disabled:opacity-60"

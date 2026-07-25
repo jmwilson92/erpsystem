@@ -52,6 +52,8 @@ model User {
   dependentCredits    Float @default(0)
   /// W-4 step 4c — extra withholding per pay period in dollars
   extraWithholding    Float @default(0)
+  /// Custom wake-word name for the in-app voice AI assistant (e.g. "Atlas")
+  assistantName String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -5092,6 +5094,12 @@ model SupportTicket {
   lastMessageAt DateTime @default(now())
   /// True when the latest public message was from the requester (needs staff)
   awaitingStaff Boolean @default(true)
+  /// Typing indicators (heartbeat timestamps; “is typing” if within ~4s)
+  staffTypingAt     DateTime?
+  customerTypingAt  DateTime?
+  /// Read receipts — last time each side viewed the thread
+  staffLastReadAt     DateTime?
+  customerLastReadAt  DateTime?
   resolvedAt  DateTime?
   closedAt    DateTime?
   createdAt   DateTime @default(now())
@@ -5119,6 +5127,8 @@ model SupportMessage {
   body      String
   /// true when the author is staff (ADMIN) answering the ticket
   isStaff   Boolean  @default(false)
+  /// When the *other* party first saw this message (read receipt)
+  readAt    DateTime?
   createdAt DateTime @default(now())
 
   @@index([ticketId, createdAt])

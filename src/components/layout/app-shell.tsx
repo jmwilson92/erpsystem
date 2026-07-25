@@ -9,6 +9,7 @@ import { ThemeProvider, useTheme } from "./theme-provider";
 import { ActionLoadingProvider } from "./action-loading";
 import { GuidedTour } from "@/components/guides/guided-tour";
 import { SupportBubble } from "@/components/support/support-bubble";
+import { VoiceAssistant } from "@/components/ai/voice-assistant";
 import { Toaster } from "sonner";
 
 export type DemoUser = {
@@ -123,6 +124,10 @@ function ShellInner({
               : 0
           }
         />
+      )}
+      {/* Always-available voice AI (wake word) — bottom-left, opposite chat bubble */}
+      {currentUser && !pathname?.startsWith("/print") && (
+        <VoiceAssistant compact />
       )}
       <Toaster
         theme={theme === "light" ? "light" : "dark"}
