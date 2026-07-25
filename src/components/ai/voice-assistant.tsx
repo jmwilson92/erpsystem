@@ -747,8 +747,8 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-semibold text-slate-50">Voice assistant</h3>
           <p className="mt-0.5 text-xs text-slate-400">
-            Carina voice via Grok. Say “{name}, …” or <strong>hold Talk</strong>{" "}
-            and speak (more reliable). Talk over replies to interrupt.
+            Carina voice via Grok. Say “{name}, …” or <strong>hold Talk</strong>.
+            While she speaks, say “{name}” to interrupt (noise is ignored).
             {grokOn ? " Grok connected." : " Needs XAI_API_KEY on the server."}
           </p>
         </div>
