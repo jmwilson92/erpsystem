@@ -495,26 +495,16 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
 
       const wake = nameRef.current;
 
-      // Barge-in while speaking
-      if (speakingRef.current && (finalText || interimText.length > 3)) {
-        stopSpeaking();
-        setStatus("Interrupted — go ahead");
-        keepAwake();
-        if (finalText) {
-          if (includesWake(finalText, wake)) {
-            const after = stripWake(finalText, wake);
-            if (after.length > 2) handleUtterance(after);
-            else setStatus("Yes? Ask me anything…");
-          } else if (finalText.length > 2) {
-            handleUtterance(finalText);
-          }
-        }
+      // While Carina is speaking: ignore ALL mic input (noise / her own voice
+      // from speakers used to cut her off). User can press "Stop talking" or
+      // Hold Talk to interrupt intentionally.
+      if (speakingRef.current) {
         return;
       }
 
       if (!finalText) return;
 
-      // Not awake: need wake word
+      // Not awake: need wake word (require a real final phrase)
       if (!awakeRef.current) {
         if (includesWake(finalText, wake)) {
           keepAwake();
@@ -527,8 +517,9 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
         return;
       }
 
-      // Awake: any final phrase is a command
-      if (finalText.length > 1) {
+      // Awake: only accept a real sentence (filters coughs / clicks)
+      const words = finalText.split(/\s+/).filter(Boolean);
+      if (finalText.length >= 4 || words.length >= 2) {
         handleUtterance(finalText);
       }
     };
@@ -865,7 +856,7 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
         )}
         {speaking && (
           <span className="ml-2 rounded bg-amber-500/20 px-1.5 py-0.5 text-amber-200">
-            Speaking
+            Speaking (mic paused)
           </span>
         )}
         {ptt && (
