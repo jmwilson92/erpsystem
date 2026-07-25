@@ -687,7 +687,13 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
                     : "border-violet-500/50 bg-violet-500/20 text-violet-100"
                 : "border-slate-700 bg-slate-900/90 text-slate-300"
             )}
-            title={listening ? `On — say “${name}” or hold Talk` : "Enable mic"}
+            title={
+              listening
+                ? speaking
+                  ? `Speaking — say “${name}” to interrupt`
+                  : `On — say “${name}” or hold Talk`
+                : "Enable mic"
+            }
           >
             {listening ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
             <span className="text-xs font-medium">{name}</span>
