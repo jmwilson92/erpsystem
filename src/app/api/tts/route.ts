@@ -13,15 +13,14 @@ export const dynamic = "force-dynamic";
  * Optional override for OpenAI-compatible speech endpoints:
  *   TTS_API_URL, TTS_MODEL, TTS_VOICE
  *
- * Voice: TTS_VOICE_ID or body.voiceId — default "carina"
+ * Voice is fixed to Grok Carina (product default).
  */
 export async function POST(req: NextRequest) {
   let text = "";
-  let voiceId = process.env.TTS_VOICE_ID || "carina";
+  const voiceId = "carina";
   try {
-    const body = (await req.json()) as { text?: string; voiceId?: string };
+    const body = (await req.json()) as { text?: string };
     text = body.text ?? "";
-    if (body.voiceId?.trim()) voiceId = body.voiceId.trim().toLowerCase();
   } catch {
     return new Response("bad request", { status: 400 });
   }

@@ -16,21 +16,8 @@ import {
 import { cn } from "@/lib/utils";
 
 const NAME_KEY = "forge-assistant-name";
-const VOICE_KEY = "forge-assistant-voice";
-
-/** Grok TTS voices (xAI). Carina = natural conversational default. */
-export const GROK_VOICES = [
-  { id: "carina", label: "Carina — natural, warm" },
-  { id: "ara", label: "Ara — warm & conversational" },
-  { id: "eve", label: "Eve — energetic" },
-  { id: "leo", label: "Leo" },
-  { id: "rex", label: "Rex" },
-  { id: "sal", label: "Sal" },
-  { id: "luna", label: "Luna" },
-  { id: "atlas", label: "Atlas" },
-  { id: "orion", label: "Orion" },
-  { id: "support", label: "Support — soft & empathetic" },
-] as const;
+/** Grok TTS voice — fixed product default (natural, conversational). */
+const DEFAULT_VOICE_ID = "carina";
 
 type SpeechRecognitionLike = {
   continuous: boolean;
@@ -67,7 +54,6 @@ export function VoiceAssistant({
 }) {
   const [name, setName] = useState("Forge");
   const [nameDraft, setNameDraft] = useState("Forge");
-  const [voiceId, setVoiceId] = useState("carina");
   const [listening, setListening] = useState(false);
   const [awake, setAwake] = useState(false);
   const [speaking, setSpeaking] = useState(false);
@@ -84,7 +70,6 @@ export function VoiceAssistant({
   );
   const awakeRef = useRef(false);
   const nameRef = useRef(name);
-  const voiceRef = useRef(voiceId);
   const speakingRef = useRef(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const speakGenRef = useRef(0); // bump to cancel in-flight TTS
