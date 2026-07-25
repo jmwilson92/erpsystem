@@ -183,6 +183,7 @@ export async function getNotificationSummary(user: {
         countOpenSupportForStaff,
         countUnreadRepliesForUser,
       } = await import("@/lib/services/support");
+      // Support staff (public ADMIN) — not ERP company admins on tenants
       if (user.role === "ADMIN") {
         const openSupport = await countOpenSupportForStaff();
         if (openSupport > 0) {

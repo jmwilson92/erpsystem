@@ -1,13 +1,17 @@
 /**
- * Platform support helpdesk (ForgeRP dogfood / marketing only).
+ * ForgeRP Support Staff helpdesk (separate from ERP company admins).
  *
- * All tickets live in the public schema via controlPlaneClient — never in
- * customer tenant or demo schemas. Call isPlatformSupportEnabled() before
- * any UI or mutation so customer/demo instances never touch this module.
+ * - Support staff = accounts on the public/platform schema who run the
+ *   unlisted /admin/support portal (today: role ADMIN on public only).
+ * - ERP admins = ADMIN inside a customer tenant — they only manage their
+ *   own business instance and cannot open the staff ticket queue.
+ *
+ * All tickets live in the public schema via controlPlaneClient.
  */
 import { randomBytes } from "node:crypto";
 import { controlPlaneClient } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
+import { getSiteUrl } from "@/lib/site";
 import {
   SUPPORT_CATEGORIES,
   SUPPORT_PRIORITIES,
@@ -26,7 +30,7 @@ export {
   type SupportStatus,
 } from "@/lib/support-constants";
 
-/** Always public schema — platform support is never tenant-scoped. */
+/** Always public schema — support desk is never tenant-scoped. */
 const db = () => controlPlaneClient();
 
 const OPEN_STATUSES = ["OPEN", "IN_PROGRESS", "WAITING_ON_USER"] as const;
@@ -38,8 +42,142 @@ async function nextTicketNumber() {
   return `SUP-${String(count + 1).padStart(5, "0")}`;
 }
 
-function isStaffRole(role: string) {
+/** Support staff portal gate (public-schema ADMIN). Not ERP tenant ADMIN. */
+export function isSupportStaffRole(role: string) {
   return role === "ADMIN";
+}
+
+/** @deprecated use isSupportStaffRole */
+function isStaffRole(role: string) {
+  return isSupportStaffRole(role);
+}
+
+// ─── Email alerts to support staff ──────────────────────────────
+
+/**
+ * Who gets notified on new tickets / customer replies.
+ * Prefer SUPPORT_NOTIFY_EMAILS (comma-separated); else all active public ADMINs.
+ */
+export async function listSupportStaffNotifyEmails(): Promise<string[]> {
+  const raw = process.env.SUPPORT_NOTIFY_EMAILS?.trim();
+  if (raw) {
+    return raw
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter((e) => EMAIL_RE.test(e));
+  }
+  const staff = await db().user.findMany({
+    where: { role: "ADMIN", isActive: true },
+    select: { email: true },
+  });
+  return staff
+    .map((u) => u.email.trim().toLowerCase())
+    .filter((e) => EMAIL_RE.test(e));
+}
+
+/**
+ * Fire-and-forget staff alert via Resend. Never throws to callers.
+ * Requires RESEND_API_KEY + EMAIL_FROM (or SUPPORT_EMAIL_FROM).
+ */
+export async function notifySupportStaff(params: {
+  subject: string;
+  text: string;
+}): Promise<void> {
+  try {
+    const apiKey = process.env.RESEND_API_KEY;
+    if (!apiKey) {
+      console.warn(
+        "[support] RESEND_API_KEY not set — support staff not emailed"
+      );
+      return;
+    }
+    const recipients = await listSupportStaffNotifyEmails();
+    if (recipients.length === 0) {
+      console.warn("[support] No support staff emails to notify");
+      return;
+    }
+    const from =
+      process.env.SUPPORT_EMAIL_FROM ||
+      process.env.EMAIL_FROM ||
+      "ForgeRP Support <onboarding@resend.dev>";
+
+    const resp = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from,
+        to: recipients,
+        subject: params.subject,
+        text: params.text,
+      }),
+    });
+    if (!resp.ok) {
+      console.error(
+        "[support] Resend failed:",
+        resp.status,
+        (await resp.text()).slice(0, 300)
+      );
+    }
+  } catch (e) {
+    console.error("[support] notifySupportStaff error:", e);
+  }
+}
+
+function staffDeskUrl(ticketId: string) {
+  return `${getSiteUrl()}/admin/support/${ticketId}`;
+}
+
+async function alertNewTicket(ticket: {
+  id: string;
+  number: string;
+  subject: string;
+  priority: string;
+  source: string;
+  fromLabel: string;
+  preview: string;
+}) {
+  await notifySupportStaff({
+    subject: `[Support] New ticket ${ticket.number}: ${ticket.subject}`,
+    text: [
+      `New support ticket ${ticket.number}`,
+      ``,
+      `From: ${ticket.fromLabel}`,
+      `Source: ${ticket.source}`,
+      `Priority: ${ticket.priority}`,
+      `Subject: ${ticket.subject}`,
+      ``,
+      ticket.preview,
+      ``,
+      `Open in Support Staff portal:`,
+      staffDeskUrl(ticket.id),
+    ].join("\n"),
+  });
+}
+
+async function alertCustomerReply(ticket: {
+  id: string;
+  number: string;
+  subject: string;
+  fromLabel: string;
+  preview: string;
+}) {
+  await notifySupportStaff({
+    subject: `[Support] Reply on ${ticket.number}: ${ticket.subject}`,
+    text: [
+      `Customer reply on ticket ${ticket.number}`,
+      ``,
+      `From: ${ticket.fromLabel}`,
+      `Subject: ${ticket.subject}`,
+      ``,
+      ticket.preview,
+      ``,
+      `Open in Support Staff portal:`,
+      staffDeskUrl(ticket.id),
+    ].join("\n"),
+  });
 }
 
 function newGuestToken() {
@@ -102,6 +240,22 @@ export async function createSupportTicket(params: {
     action: "CREATED",
     userId: params.userId,
     metadata: { number: ticket.number, subject: ticket.subject },
+  });
+
+  const requester = await db().user.findUnique({
+    where: { id: params.userId },
+    select: { name: true, email: true },
+  });
+  void alertNewTicket({
+    id: ticket.id,
+    number: ticket.number,
+    subject: ticket.subject,
+    priority: ticket.priority,
+    source: ticket.source,
+    fromLabel: requester
+      ? `${requester.name} <${requester.email}>`
+      : params.userId,
+    preview: body.slice(0, 500),
   });
 
   return ticket;
@@ -173,6 +327,16 @@ export async function createGuestSupportTicket(params: {
       email,
       subject: ticket.subject,
     },
+  });
+
+  void alertNewTicket({
+    id: ticket.id,
+    number: ticket.number,
+    subject: ticket.subject,
+    priority: ticket.priority,
+    source: ticket.source,
+    fromLabel: `${name} <${email}>`,
+    preview: body.slice(0, 500),
   });
 
   return ticket;
@@ -381,6 +545,24 @@ export async function postSupportMessage(params: {
     userId: params.userId,
     metadata: { isStaff, number: ticket.number, guest: isGuest },
   });
+
+  // Email support staff only when the customer/visitor replied
+  if (!isStaff) {
+    const fromLabel = isGuest
+      ? `${ticket.guestName || "Guest"} <${ticket.guestEmail || "unknown"}>`
+      : (await db().user.findUnique({
+          where: { id: params.userId || "" },
+          select: { name: true, email: true },
+        }).then((u) => (u ? `${u.name} <${u.email}>` : "Customer"))) ||
+        "Customer";
+    void alertCustomerReply({
+      id: ticket.id,
+      number: ticket.number,
+      subject: ticket.subject,
+      fromLabel,
+      preview: body.slice(0, 500),
+    });
+  }
 
   return message;
 }

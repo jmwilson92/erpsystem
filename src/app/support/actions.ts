@@ -15,13 +15,14 @@ import {
   updateSupportTicket,
 } from "@/lib/services/support";
 
-async function requirePlatformAdmin() {
+/** Support staff portal only — not ERP company (tenant) admins. */
+async function requireSupportStaff() {
   if (!(await isPlatformSupportEnabled())) {
-    throw new Error("Only ForgeRP platform staff can do that");
+    throw new Error("Only ForgeRP support staff can do that");
   }
   const user = await getCurrentUser();
   if (!user || user.role !== "ADMIN") {
-    throw new Error("Only platform staff can do that");
+    throw new Error("Only ForgeRP support staff can do that");
   }
   return user;
 }
@@ -228,7 +229,7 @@ export async function actionPostSupportMessageResult(formData: FormData): Promis
     const fromAdmin = formData.get("fromAdmin") === "1";
 
     if (fromAdmin) {
-      await requirePlatformAdmin();
+      await requireSupportStaff();
     } else if (!guestToken) {
       if (!(await isPlatformSupportEnabled()) || !user) {
         return { ok: false, error: "Sign in to reply here." };
@@ -274,13 +275,12 @@ export async function actionPostSupportMessage(formData: FormData) {
   const guestToken = String(formData.get("guestToken") || "") || null;
   const fromAdmin = formData.get("fromAdmin") === "1";
 
-  // Staff replies only from platform admin desk
+  // Staff replies only from support staff portal
   if (fromAdmin) {
-    await requirePlatformAdmin();
+    await requireSupportStaff();
   } else if (!guestToken) {
-    // Account-linked replies only on platform dogfood
     if (!(await isPlatformSupportEnabled()) || !user) {
-      await flashToast("Sign in on the platform to reply here.", "error");
+      await flashToast("Sign in to reply here.", "error");
       redirect("/");
     }
   }
@@ -307,7 +307,7 @@ export async function actionPostSupportMessage(formData: FormData) {
 }
 
 export async function actionAddSupportNote(formData: FormData) {
-  const user = await requirePlatformAdmin();
+  const user = await requireSupportStaff();
   const ticketId = String(formData.get("ticketId") || "");
   try {
     await addSupportNote({
@@ -328,7 +328,7 @@ export async function actionAddSupportNote(formData: FormData) {
 }
 
 export async function actionUpdateSupportTicket(formData: FormData) {
-  const user = await requirePlatformAdmin();
+  const user = await requireSupportStaff();
   const ticketId = String(formData.get("ticketId") || "");
   const assigneeRaw = formData.get("assigneeId");
   try {

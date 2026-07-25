@@ -14,8 +14,8 @@ import { Inbox, MessagesSquare } from "lucide-react";
 export const dynamic = "force-dynamic";
 
 /**
- * Platform staff desk only — same hard gate as /admin/tenants.
- * Customer ADMIN and demo personas never see this queue.
+ * Support Staff ticket queue only.
+ * ERP company admins (tenant) and demos never see this queue.
  */
 export default async function AdminSupportQueuePage({
   searchParams,
@@ -23,7 +23,6 @@ export default async function AdminSupportQueuePage({
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   if (!(await isPlatformSupportEnabled())) redirect("/");
-  // Belt-and-suspenders: refuse any tenant/demo cookie even if platform check drifts
   const jar = await cookies();
   if (jar.get(TENANT_COOKIE)?.value || jar.get(DEMO_COOKIE)?.value) redirect("/");
 
@@ -53,7 +52,7 @@ export default async function AdminSupportQueuePage({
     <div className="space-y-6">
       <PageHeader
         title="Ticket queue"
-        description="Answer chats from the website and ERP. Internal notes stay staff-only. Customers never see this page."
+        description="Support staff only — answer website and ERP help chats. ERP company admins and customers never see this portal."
       />
 
       <div className="flex flex-wrap gap-2">

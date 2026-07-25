@@ -3,8 +3,9 @@ import { ForgeMark } from "@/components/marketing/logo";
 import { LifeBuoy } from "lucide-react";
 
 /**
- * Standalone chrome for the platform support desk (/admin/support).
- * No ERP sidebar, no module nav — staff type the URL to get here.
+ * Standalone Support Staff portal (/admin/support).
+ * Separate from ERP company admins — no ERP sidebar or modules.
+ * Staff type the URL; it is not listed in the ERP nav.
  */
 export function StaffDeskShell({
   children,
@@ -22,16 +23,18 @@ export function StaffDeskShell({
             <div>
               <p className="flex items-center gap-1.5 text-sm font-semibold tracking-tight text-slate-50">
                 <LifeBuoy className="h-3.5 w-3.5 text-teal-400" aria-hidden />
-                ForgeRP Support Desk
+                Support Staff Portal
               </p>
               <p className="text-[11px] text-slate-500">
-                Platform staff only · not part of the ERP
+                ForgeRP support team only · not the customer ERP
               </p>
             </div>
           </div>
           <div className="flex items-center gap-3 text-sm">
             {userName && (
-              <span className="hidden text-slate-400 sm:inline">{userName}</span>
+              <span className="hidden text-slate-400 sm:inline">
+                {userName} · Support staff
+              </span>
             )}
             <Link
               href="/admin/support"
@@ -43,14 +46,15 @@ export function StaffDeskShell({
               href="/"
               className="rounded-lg border border-slate-700 px-3 py-1.5 text-slate-300 hover:border-slate-500"
             >
-              Exit desk
+              Exit portal
             </Link>
           </div>
         </div>
       </header>
       <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-8">{children}</main>
       <footer className="border-t border-slate-800/80 py-4 text-center text-xs text-slate-600">
-        Unlisted staff tool · customers cannot access this URL
+        Unlisted support portal · ERP company admins and customers cannot access
+        this URL
       </footer>
     </div>
   );
