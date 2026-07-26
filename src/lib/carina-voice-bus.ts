@@ -14,9 +14,18 @@ export function stopCarinaVoiceEvent() {
   return new CustomEvent("forge:carina-stop-voice");
 }
 
-export function carinaListenChangedEvent(listening: boolean) {
+export function carinaListenChangedEvent(
+  listening: boolean,
+  extra?: { recAlive?: boolean }
+) {
   return new CustomEvent("forge:carina-listen-changed", {
-    detail: { listening },
+    detail: { listening, recAlive: extra?.recAlive },
+  });
+}
+
+export function carinaRecAliveEvent(recAlive: boolean) {
+  return new CustomEvent("forge:carina-rec-alive", {
+    detail: { recAlive },
   });
 }
 

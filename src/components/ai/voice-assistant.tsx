@@ -338,15 +338,31 @@ export function VoiceAssistant({
     setRecAlive(false);
   }, []);
 
+  const setRecAliveBoth = useCallback((alive: boolean) => {
+    setRecAlive(alive);
+    try {
+      window.dispatchEvent(
+        new CustomEvent("forge:carina-rec-alive", { detail: { recAlive: alive } })
+      );
+    } catch {
+      // ignore
+    }
+  }, []);
+
   /**
-   * Chrome-reliable pattern: continuous=false + restart on end.
-   * continuous=true often stops delivering results without erroring.
+   * continuous=true with restart-on-end. Brief gaps no longer look "stuck reconnecting".
    */
   const bootRecognition = useCallback(() => {
     if (!wantListenRef.current) return;
     if (host !== "shell") return;
     if (typeof window === "undefined") return;
-    if (carinaIsSpeaking() || modeRef.current === "speaking") return;
+    // Only skip while audio is actually playing (not a stuck mode flag)
+    if (carinaIsSpeaking()) {
+      restartTimerRef.current = setTimeout(() => {
+        if (wantListenRef.current && !carinaIsSpeaking()) bootRecognition();
+      }, 500);
+      return;
+    }
     const Ctor = getSpeechRecognition();
     if (!Ctor) {
       setError("Use Chrome or Edge on HTTPS for voice.");
@@ -357,24 +373,25 @@ export function VoiceAssistant({
     killRecognition();
 
     const rec = new Ctor();
-    // Non-continuous + loop is more reliable than continuous=true on Chrome
-    rec.continuous = false;
+    rec.continuous = true;
     rec.interimResults = true;
-    // Follow Carina's reply language (default en-US)
     rec.lang = langRef.current.code || "en-US";
     if (typeof rec.maxAlternatives === "number") rec.maxAlternatives = 3;
 
     rec.onstart = () => {
       if (bootGenRef.current !== gen) return;
-      setRecAlive(true);
+      setRecAliveBoth(true);
+      setError(null);
+      if (modeRef.current === "off" || modeRef.current === "wake") {
+        setStatus(`Listening for “${nameRef.current}”… (any page)`);
+      }
     };
 
     rec.onresult = (ev) => {
       if (bootGenRef.current !== gen) return;
+      setRecAliveBoth(true);
       let finals = "";
       let interim = "";
-      // Also scan alternatives for wake-name mishears (Chrome often puts
-      // "Carina" on alt 1–2 while alt 0 is "Karen" / "Katrina").
       let wakeHint = "";
       for (let i = 0; i < ev.results.length; i++) {
         const r = ev.results[i];
@@ -388,7 +405,6 @@ export function VoiceAssistant({
             const alt = (anyR[a]?.transcript || "").trim();
             if (alt && includesWake(alt, nameRef.current)) {
               wakeHint = alt;
-              // Prefer alt that contains the wake word as the best text
               if (a === 0 || !includesWake(best, nameRef.current)) {
                 best = best && a === 0 ? best : alt;
               }
@@ -401,7 +417,6 @@ export function VoiceAssistant({
         if (r.isFinal) finals += best + " ";
         else interim += best + " ";
       }
-      // If primary transcript missed the name but an alternative had it, merge
       if (wakeHint && !includesWake(finals + " " + interim, nameRef.current)) {
         interim = (interim + " " + wakeHint).trim();
       }
@@ -428,42 +443,52 @@ export function VoiceAssistant({
       if (ev.error === "not-allowed") {
         setError("Microphone permission denied — allow mic in the address bar.");
         wantListenRef.current = false;
+        shellEngineActive = false;
+        persistWantListen(false);
         setListening(false);
         setModeBoth("off");
         setStatus("Off — mic blocked");
+        setRecAliveBoth(false);
         killRecognition();
         return;
       }
-      // no-speech is normal for short sessions — onend restarts
+      // no-speech / aborted: normal — onend restarts
       if (ev.error === "network") {
         setError("Speech network glitch — retrying…");
       }
+      setRecAliveBoth(false);
     };
 
     rec.onend = () => {
       if (bootGenRef.current !== gen) return;
-      setRecAlive(false);
+      setRecAliveBoth(false);
       if (!wantListenRef.current) return;
-      // If we still have a pending utterance when the session ends, flush it
+
       if (
         (modeRef.current === "command" || modeRef.current === "wake") &&
         currentUtterance().length > 2
       ) {
-        // Let silence timer handle it; re-arm if missing
         if (!silenceTimerRef.current) {
           silenceTimerRef.current = setTimeout(() => {
             flushAskRef.current();
           }, 400);
         }
       }
+
+      // Don't fight TTS
+      if (carinaIsSpeaking() || modeRef.current === "speaking") {
+        return;
+      }
+
       restartTimerRef.current = setTimeout(() => {
         if (!wantListenRef.current) return;
         if (bootGenRef.current !== gen) return;
-        // Same instance restart is fine for non-continuous
+        if (carinaIsSpeaking()) return;
         try {
           rec.start();
-          setRecAlive(true);
+          setRecAliveBoth(true);
         } catch {
+          // Instance dead — full reboot
           bootRecognition();
         }
       }, RESTART_MS);
@@ -479,15 +504,26 @@ export function VoiceAssistant({
         }
       }, 400);
     }
-  }, [currentUtterance, host, killRecognition, setModeBoth]);
+  }, [
+    currentUtterance,
+    host,
+    killRecognition,
+    setModeBoth,
+    setRecAliveBoth,
+  ]);
 
   const scheduleBoot = useCallback(
     (delayMs = 200) => {
       if (host !== "shell") return;
-      bootGenRef.current += 1; // invalidate current loop
       if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
       restartTimerRef.current = setTimeout(() => {
-        if (wantListenRef.current && !carinaIsSpeaking()) bootRecognition();
+        if (!wantListenRef.current) return;
+        if (carinaIsSpeaking()) {
+          // Try again shortly — don't leave mic dead
+          scheduleBoot(400);
+          return;
+        }
+        bootRecognition();
       }, delayMs);
     },
     [bootRecognition, host]
@@ -925,12 +961,6 @@ export function VoiceAssistant({
       return;
     }
 
-    if (shellEngineActive && wantListenRef.current) {
-      // Already running — don't stack engines
-      setListening(true);
-      setStatus(`Listening for “${nameRef.current}”… (any page)`);
-      return;
-    }
     shellEngineActive = true;
     wantListenRef.current = true;
     persistWantListen(true);
@@ -940,6 +970,7 @@ export function VoiceAssistant({
     setError(null);
     clearBuf();
     setRawHeard("");
+    // Always (re)boot — recovers from stuck "reconnecting" if engine was half-dead
     bootRecognition();
   }, [bootRecognition, clearBuf, host, setModeBoth]);
 
@@ -1014,22 +1045,39 @@ export function VoiceAssistant({
   // Shell owns mic: enable/stop from bubble or settings page
   useEffect(() => {
     if (host !== "shell") {
-      // Mirror shell listen state into settings UI
+      // Mirror shell listen + rec-alive into settings UI
       const onChange = (e: Event) => {
-        const on = !!(e as CustomEvent).detail?.listening;
+        const d = (e as CustomEvent).detail as {
+          listening?: boolean;
+          recAlive?: boolean;
+        };
+        const on = !!d?.listening;
         setListening(on);
+        if (typeof d?.recAlive === "boolean") setRecAlive(d.recAlive);
         setStatus(
           on
             ? `Listening site-wide for “${nameRef.current}”…`
             : "Off — enable mic once (works everywhere)"
         );
         if (on) setModeBoth("wake");
-        else setModeBoth("off");
+        else {
+          setModeBoth("off");
+          setRecAlive(false);
+        }
+      };
+      const onAlive = (e: Event) => {
+        const alive = !!(e as CustomEvent).detail?.recAlive;
+        setRecAlive(alive);
       };
       window.addEventListener("forge:carina-listen-changed", onChange);
+      window.addEventListener("forge:carina-rec-alive", onAlive);
       setListening(readWantListen());
-      return () =>
+      // Settings page is not the engine — if listening, show as live (shell owns mic)
+      if (readWantListen()) setRecAlive(true);
+      return () => {
         window.removeEventListener("forge:carina-listen-changed", onChange);
+        window.removeEventListener("forge:carina-rec-alive", onAlive);
+      };
     }
 
     const onEnable = () => {
@@ -1044,11 +1092,23 @@ export function VoiceAssistant({
     if (readWantListen()) {
       void startListening();
     }
+
+    // Watchdog: if we want to listen but recognition is dead, reboot
+    const watchdog = window.setInterval(() => {
+      if (!wantListenRef.current) return;
+      if (carinaIsSpeaking()) return;
+      if (modeRef.current === "thinking") return;
+      if (!recRef.current) {
+        bootRecognition();
+      }
+    }, 2500);
+
     return () => {
       window.removeEventListener("forge:carina-enable-voice", onEnable);
       window.removeEventListener("forge:carina-stop-voice", onStop);
+      window.clearInterval(watchdog);
     };
-  }, [host, setModeBoth, startListening, stopListening]);
+  }, [bootRecognition, host, setModeBoth, startListening, stopListening]);
 
   async function saveName() {
     const clean = nameDraft.trim() || DEFAULT_NAME;
@@ -1240,7 +1300,7 @@ export function VoiceAssistant({
                 : "bg-amber-500/20 text-amber-200"
             )}
           >
-            {recAlive ? "mic live" : "reconnecting…"}
+            {recAlive ? "mic live" : "starting mic…"}
           </span>
         )}
         {mode === "command" && (
