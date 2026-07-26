@@ -5,6 +5,10 @@ import { createPortal } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
 import { Volume2, VolumeX, X, ArrowLeft, ArrowRight, Check } from "lucide-react";
 import { getTour, type Tour, type TourStep } from "@/lib/guides";
+import {
+  carinaPlaySpeech,
+  carinaStopAllAudio,
+} from "@/lib/carina-audio";
 
 const VOICE_KEY = "forge-guide-voice";
 
@@ -30,77 +34,13 @@ export function startCarinaGuideEvent(detail: {
   return new CustomEvent("forge:carina-guide", { detail });
 }
 
-// Probe the server TTS route once; fall back to Web Speech if unconfigured.
-let ttsAvailable: boolean | null = null;
-let currentAudio: HTMLAudioElement | null = null;
-
 function stopNarration() {
-  try {
-    window.speechSynthesis?.cancel();
-  } catch {
-    /* ignore */
-  }
-  if (currentAudio) {
-    try {
-      currentAudio.onended = null;
-      currentAudio.onerror = null;
-      currentAudio.pause();
-      currentAudio.removeAttribute("src");
-    } catch {
-      /* ignore */
-    }
-    currentAudio = null;
-  }
+  carinaStopAllAudio();
 }
 
-/** Speak text; resolves when audio ends (or fails). */
+/** Shared audio channel — never overlaps Carina's main speak path. */
 function narrate(text: string): Promise<void> {
-  stopNarration();
-  return new Promise(async (resolve) => {
-    const done = () => resolve();
-    if (ttsAvailable !== false) {
-      try {
-        const res = await fetch("/api/tts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text }),
-        });
-        if (res.ok) {
-          ttsAvailable = true;
-          const blob = await res.blob();
-          const url = URL.createObjectURL(blob);
-          const audio = new Audio(url);
-          currentAudio = audio;
-          audio.onended = () => {
-            URL.revokeObjectURL(url);
-            done();
-          };
-          audio.onerror = () => {
-            URL.revokeObjectURL(url);
-            done();
-          };
-          try {
-            await audio.play();
-          } catch {
-            done();
-          }
-          return;
-        }
-        ttsAvailable = false;
-      } catch {
-        ttsAvailable = false;
-      }
-    }
-    try {
-      const u = new SpeechSynthesisUtterance(text);
-      u.rate = 1.02;
-      u.onend = () => done();
-      u.onerror = () => done();
-      window.speechSynthesis?.speak(u);
-    } catch {
-      done();
-    }
-  });
+  return carinaPlaySpeech(text, { language: "en", voiceId: "carina" });
 }
 
 type Rect = { top: number; left: number; width: number; height: number };
@@ -238,7 +178,16 @@ export function GuidedTour() {
     const locate = () => {
       const el = document.querySelector(step.selector!) as HTMLElement | null;
       if (el) {
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        const r0 = el.getBoundingClientRect();
+        const offscreen =
+          r0.bottom < 0 ||
+          r0.top > window.innerHeight ||
+          r0.right < 0 ||
+          r0.left > window.innerWidth;
+        el.scrollIntoView({
+          behavior: offscreen ? "smooth" : "instant" as ScrollBehavior,
+          block: "center",
+        });
         const r = el.getBoundingClientRect();
         setRect({
           top: r.top,
@@ -253,11 +202,11 @@ export function GuidedTour() {
     if (!locate()) {
       pollRef.current = setInterval(() => {
         tries += 1;
-        if (locate() || tries > 25) {
+        if (locate() || tries > 30) {
           if (pollRef.current) clearInterval(pollRef.current);
-          if (tries > 25) setRect(null);
+          if (tries > 30) setRect(null);
         }
-      }, 100);
+      }, 60);
     }
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
@@ -298,8 +247,8 @@ export function GuidedTour() {
 
     let cancelled = false;
     void (async () => {
-      // Small pause so the spotlight can settle after navigation
-      await new Promise((r) => setTimeout(r, 350));
+      // Short settle after nav so highlight is on-screen before speech
+      await new Promise((r) => setTimeout(r, 120));
       if (cancelled || narrateGenRef.current !== gen) return;
       await narrate(text);
       if (cancelled || narrateGenRef.current !== gen) return;
@@ -308,10 +257,13 @@ export function GuidedTour() {
       if (!t) return;
       const i = stepIndexRef.current;
       if (i < t.steps.length - 1) {
+        // Small gap between steps (TTS already ended)
+        await new Promise((r) => setTimeout(r, 180));
+        if (cancelled || narrateGenRef.current !== gen) return;
         setStepIndex(i + 1);
       } else {
         // Brief hold on last step, then close
-        await new Promise((r) => setTimeout(r, 1200));
+        await new Promise((r) => setTimeout(r, 500));
         if (narrateGenRef.current === gen) finish();
       }
     })();

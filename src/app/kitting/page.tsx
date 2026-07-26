@@ -132,6 +132,7 @@ export default async function KittingPage() {
         description={`Pick from shown locations · travelers auto-open ${KIT_PREP_WINDOW_DAYS} days before WO start once material lands · early kit allowed when everything's in stock`}
       />
 
+      <div data-tour="kitting-board" className="space-y-6">
       {upcoming.length > 0 && (
         <Card className="border-sky-900/40">
           <CardHeader className="pb-2">
@@ -495,6 +496,7 @@ export default async function KittingPage() {
             </CardContent>
           </Card>
         )}
+      </div>
       </div>
     </div>
   );

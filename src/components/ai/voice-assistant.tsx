@@ -25,7 +25,39 @@ import {
   actionProbeGrok,
 } from "@/app/ai/actions";
 import { startCarinaGuideEvent } from "@/components/guides/guided-tour";
+import {
+  DEFAULT_LANG,
+  loadStoredLang,
+  resolveLang,
+  storeLang,
+  ttsLanguageCode,
+  type CarinaLang,
+} from "@/lib/carina-language";
+import {
+  carinaPointEvent,
+  enableCarinaVoiceEvent,
+  persistWantListen,
+  readWantListen,
+  stopCarinaVoiceEvent,
+} from "@/lib/carina-voice-bus";
+import {
+  carinaIsAudioCurrent,
+  carinaPlaySpeech,
+  carinaStopAllAudio,
+  carinaBumpAudioGen,
+  carinaIsSpeaking,
+} from "@/lib/carina-audio";
+import {
+  bestPointAnchor,
+  wantsPointOnly,
+} from "@/lib/carina-catalog";
 import { cn } from "@/lib/utils";
+
+export { enableCarinaVoiceEvent, stopCarinaVoiceEvent } from "@/lib/carina-voice-bus";
+
+/** Only one shell engine should boot recognition */
+let shellEngineActive = false;
+let globalAskLock = false;
 
 const NAME_KEY = "forge-assistant-name";
 const DEFAULT_NAME = "Carina";
@@ -151,7 +183,18 @@ function isLikelyEcho(heard: string, spoken: string, wake: string) {
   return false;
 }
 
-export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
+/**
+ * host="page" — full settings UI (Company Settings → My AI assistant / /ai)
+ * host="shell" — invisible engine for the help bubble (no left-side chip)
+ * compact — legacy floating chip (prefer shell + bubble)
+ */
+export function VoiceAssistant({
+  compact = false,
+  host = "page",
+}: {
+  compact?: boolean;
+  host?: "page" | "shell";
+}) {
   const [name, setName] = useState(DEFAULT_NAME);
   const [nameDraft, setNameDraft] = useState(DEFAULT_NAME);
   const [listening, setListening] = useState(false);
@@ -191,6 +234,14 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
   const pttRef = useRef(false);
   const bootGenRef = useRef(0);
   const askingRef = useRef(false);
+  /** Business-agent multi-turn state (finish WO, etc.) */
+  const pendingActionRef = useRef<{
+    action: string;
+    partial: Record<string, string>;
+    phase?: "clarify" | "confirm";
+  } | null>(null);
+  const langRef = useRef<CarinaLang>(DEFAULT_LANG);
+  const [langLabel, setLangLabel] = useState(DEFAULT_LANG.name);
 
   const handleResultRef = useRef<
     (finalChunk: string, interim: string) => void
@@ -211,6 +262,9 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
   }, [ptt]);
 
   useEffect(() => {
+    const stored = loadStoredLang();
+    langRef.current = stored;
+    setLangLabel(stored.name);
     void actionGrokStatus().then((s) => setGrokOn(s.configured));
     void actionGetAssistantName().then((n) => {
       const resolved =
@@ -252,26 +306,10 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
   }, [clearBuf, setModeBoth]);
 
   const stopSpeaking = useCallback(() => {
-    speakGenRef.current += 1;
+    speakGenRef.current = carinaBumpAudioGen();
     speakingTextRef.current = "";
-    try {
-      window.speechSynthesis?.cancel();
-    } catch {
-      // ignore
-    }
-    const a = audioRef.current;
-    if (a) {
-      try {
-        a.onended = null;
-        a.onerror = null;
-        a.pause();
-        a.removeAttribute("src");
-        a.load();
-      } catch {
-        // ignore
-      }
-      audioRef.current = null;
-    }
+    carinaStopAllAudio();
+    audioRef.current = null;
   }, []);
 
   const killRecognition = useCallback(() => {
@@ -306,7 +344,9 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
    */
   const bootRecognition = useCallback(() => {
     if (!wantListenRef.current) return;
+    if (host !== "shell") return;
     if (typeof window === "undefined") return;
+    if (carinaIsSpeaking() || modeRef.current === "speaking") return;
     const Ctor = getSpeechRecognition();
     if (!Ctor) {
       setError("Use Chrome or Edge on HTTPS for voice.");
@@ -320,7 +360,8 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
     // Non-continuous + loop is more reliable than continuous=true on Chrome
     rec.continuous = false;
     rec.interimResults = true;
-    rec.lang = "en-US";
+    // Follow Carina's reply language (default en-US)
+    rec.lang = langRef.current.code || "en-US";
     if (typeof rec.maxAlternatives === "number") rec.maxAlternatives = 3;
 
     rec.onstart = () => {
@@ -438,23 +479,26 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
         }
       }, 400);
     }
-  }, [currentUtterance, killRecognition, setModeBoth]);
+  }, [currentUtterance, host, killRecognition, setModeBoth]);
 
   const scheduleBoot = useCallback(
     (delayMs = 200) => {
+      if (host !== "shell") return;
       bootGenRef.current += 1; // invalidate current loop
       if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
       restartTimerRef.current = setTimeout(() => {
-        if (wantListenRef.current) bootRecognition();
+        if (wantListenRef.current && !carinaIsSpeaking()) bootRecognition();
       }, delayMs);
     },
-    [bootRecognition]
+    [bootRecognition, host]
   );
 
   const speak = useCallback(
     async (text: string) => {
-      stopSpeaking();
-      const gen = speakGenRef.current;
+      // Settings page must not run a second audio channel
+      if (host === "page") {
+        return;
+      }
       const spoken = text
         .replace(/\*\*/g, "")
         .replace(/`+/g, "")
@@ -463,91 +507,49 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
         .replace(/\n{2,}/g, ". ")
         .replace(/\n/g, " ")
         .trim();
+      if (!spoken) return;
 
       speakingTextRef.current = spoken;
       speakStartedAtRef.current = Date.now();
       setModeBoth("speaking");
       setStatus(`Speaking… say “${nameRef.current}” to interrupt`);
+      setError(null);
 
-      const finish = () => {
-        if (speakGenRef.current !== gen) return;
-        speakingTextRef.current = "";
-        setModeBoth("command");
-        extendConvo();
-        setStatus(
-          wantListenRef.current
-            ? `Listening… (say “${nameRef.current}” or just ask)`
-            : "Off"
-        );
-        if (wantListenRef.current) scheduleBoot(250);
-      };
-
+      // Pause recognition while speaking to avoid self-echo loops
       try {
-        const res = await fetch("/api/tts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            text: spoken.slice(0, 1800),
-            voiceId: DEFAULT_VOICE_ID,
-          }),
-        });
-        if (speakGenRef.current !== gen) return;
-        if (res.ok) {
-          const buf = await res.arrayBuffer();
-          if (speakGenRef.current !== gen) return;
-          const blob = new Blob([buf], {
-            type: res.headers.get("Content-Type") || "audio/mpeg",
-          });
-          const url = URL.createObjectURL(blob);
-          const audio = new Audio(url);
-          audioRef.current = audio;
-          await new Promise<void>((resolve) => {
-            audio.onended = () => {
-              URL.revokeObjectURL(url);
-              resolve();
-            };
-            audio.onerror = () => {
-              URL.revokeObjectURL(url);
-              resolve();
-            };
-            void audio.play().catch(() => resolve());
-          });
-          if (speakGenRef.current !== gen) return;
-          finish();
-          return;
-        }
-        setError("TTS failed — using browser voice");
+        recRef.current?.stop();
       } catch {
-        // fallback
+        // ignore
       }
 
-      if (speakGenRef.current !== gen) return;
-      if (typeof window !== "undefined" && window.speechSynthesis) {
-        window.speechSynthesis.cancel();
-        await new Promise<void>((resolve) => {
-          const u = new SpeechSynthesisUtterance(spoken);
-          u.rate = 1.05;
-          const voices = window.speechSynthesis.getVoices();
-          const preferred =
-            voices.find((v) =>
-              /google|natural|neural|samantha|karen|moira/i.test(v.name)
-            ) || voices.find((v) => v.lang.startsWith("en"));
-          if (preferred) u.voice = preferred;
-          u.onend = () => resolve();
-          u.onerror = () => resolve();
-          window.speechSynthesis.speak(u);
-        });
-      }
-      if (speakGenRef.current !== gen) return;
-      finish();
+      const genBefore = carinaBumpAudioGen();
+      speakGenRef.current = genBefore;
+      await carinaPlaySpeech(spoken, {
+        language: ttsLanguageCode(langRef.current),
+        voiceId: DEFAULT_VOICE_ID,
+      });
+
+      // Another speak may have started
+      if (carinaIsSpeaking()) return;
+      speakingTextRef.current = "";
+      setModeBoth("command");
+      extendConvo();
+      setStatus(
+        wantListenRef.current
+          ? `Listening… (say “${nameRef.current}” or just ask)`
+          : "Off"
+      );
+      if (wantListenRef.current) scheduleBoot(400);
     },
-    [extendConvo, scheduleBoot, setModeBoth, stopSpeaking]
+    [extendConvo, host, scheduleBoot, setModeBoth]
   );
 
   const ask = useCallback(
     (raw: string) => {
       let text = raw.trim();
-      if (!text || askingRef.current) return;
+      if (!text || askingRef.current || globalAskLock) return;
+      // Don't process while another utterance is still playing
+      if (carinaIsSpeaking() && modeRef.current === "speaking") return;
 
       const now = Date.now();
       const key = normalize(text);
@@ -582,6 +584,7 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
       setError(null);
       setBusy(true);
       askingRef.current = true;
+      globalAskLock = true;
       extendConvo();
 
       historyRef.current = [
@@ -592,7 +595,11 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
       // Plain async — do NOT use startTransition (defers the reply)
       void (async () => {
         try {
-          const result = await actionAiConversation(historyRef.current);
+          const result = await actionAiConversation(historyRef.current, {
+            pendingAction: pendingActionRef.current,
+            language: langRef.current.code,
+            source: "APP",
+          });
           if (!result.ok) {
             setError(result.error);
             setLastReply(result.error);
@@ -603,6 +610,13 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
             );
             return;
           }
+          // Persist language if model / switch path returned a code
+          if (result.language) {
+            const next = resolveLang(result.language);
+            langRef.current = next;
+            storeLang(next);
+            setLangLabel(next.name);
+          }
           historyRef.current = [
             ...historyRef.current,
             { role: "assistant", content: result.text },
@@ -610,18 +624,69 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
           setLastReply(result.text);
           setError(null);
 
+          // Navigate after agent action (open PR, WO, module, etc.)
+          if (result.href && typeof window !== "undefined") {
+            window.dispatchEvent(
+              new CustomEvent("forge:carina-navigate", {
+                detail: { href: result.href },
+              })
+            );
+          }
+
+          // Multi-turn agent (confirm / clarify)
+          pendingActionRef.current = result.pendingAction ?? null;
+          if (result.pendingAction?.phase === "confirm") {
+            setStatus("Waiting for yes/no…");
+          } else if (result.pendingAction?.phase === "clarify") {
+            setStatus("Need a bit more info…");
+          }
+
           const guide = result.guide;
-          const willTour = !!(guide?.tourId || (guide?.steps && guide.steps.length));
-
-          // Speak the short answer first; then open the on-screen walkthrough
-          // so Carina's TTS and the tour narration don't fight.
-          await speak(
-            willTour
-              ? result.text.replace(/\n+/g, " ").slice(0, 400)
-              : result.text
+          const willTour = !!(
+            guide?.tourId ||
+            (guide?.steps && guide.steps.length)
           );
+          const userQ = text;
+          const pointMode = wantsPointOnly(userQ);
+          let point:
+            | { selector: string; route?: string; label?: string }
+            | null = null;
+          if (pointMode) {
+            const a = bestPointAnchor(userQ);
+            if (a?.selector) {
+              point = {
+                selector: a.selector,
+                route: a.route,
+                label: a.label,
+              };
+            } else if (guide?.steps?.[0]?.selector) {
+              point = {
+                selector: guide.steps[0].selector!,
+                route: guide.steps[0].route,
+                label: guide.steps[0].title,
+              };
+            }
+          }
 
-          if (willTour && typeof window !== "undefined") {
+          if (point && typeof window !== "undefined") {
+            await speak(result.text.replace(/\n+/g, " ").slice(0, 320));
+            setStatus("Highlighting…");
+            window.dispatchEvent(
+              carinaPointEvent({
+                selector: point.selector,
+                route: point.route,
+                label: point.label || "Here",
+                ms: 3200,
+              })
+            );
+            setStatus(
+              wantListenRef.current || host === "page"
+                ? `Listening… (say “${nameRef.current}”)`
+                : "Highlighted"
+            );
+          } else if (willTour && typeof window !== "undefined") {
+            // Tour narration owns speech — only a short ack so we don't double-talk
+            setLastReply(result.text);
             setStatus("Opening walkthrough…");
             window.dispatchEvent(
               startCarinaGuideEvent({
@@ -636,6 +701,20 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
                 ? `Walkthrough running — say “${nameRef.current}” when done`
                 : "Walkthrough running"
             );
+            // Resume listen after a beat without stacking TTS
+            if (wantListenRef.current) scheduleBoot(800);
+          } else {
+            await speak(result.text);
+          }
+
+          if (result.pendingAction) {
+            setModeBoth("command");
+            extendConvo();
+            setStatus(
+              result.pendingAction.phase === "confirm"
+                ? "Say yes to confirm, or no to cancel"
+                : "Listening for your answer…"
+            );
           }
         } catch (e) {
           const msg = e instanceof Error ? e.message : "Failed";
@@ -646,6 +725,7 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
           if (wantListenRef.current) scheduleBoot(200);
         } finally {
           askingRef.current = false;
+          globalAskLock = false;
           setBusy(false);
         }
       })();
@@ -806,11 +886,24 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
   }, [handleResult]);
 
   const startListening = useCallback(async () => {
+    // Settings page does not own the mic — shell engine does (survives navigation)
+    if (host === "page") {
+      persistWantListen(true);
+      window.dispatchEvent(enableCarinaVoiceEvent());
+      setListening(true);
+      setStatus(`Listening site-wide for “${nameRef.current}”…`);
+      setError(null);
+      return;
+    }
+
     const Ctor = getSpeechRecognition();
     if (!Ctor) {
       setError("Use Chrome or Edge on https://www.forge-rp.live for voice.");
       return;
     }
+    const stored = loadStoredLang();
+    langRef.current = stored;
+    setLangLabel(stored.name);
     try {
       if (!window.isSecureContext) {
         setError("Needs HTTPS.");
@@ -828,24 +921,44 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
       setError(
         `Mic blocked: ${e instanceof Error ? e.message : String(e)}. Allow mic in the lock icon.`
       );
+      persistWantListen(false);
       return;
     }
 
+    if (shellEngineActive && wantListenRef.current) {
+      // Already running — don't stack engines
+      setListening(true);
+      setStatus(`Listening for “${nameRef.current}”… (any page)`);
+      return;
+    }
+    shellEngineActive = true;
     wantListenRef.current = true;
+    persistWantListen(true);
     setListening(true);
     setModeBoth("wake");
-    setStatus(`Listening for “${nameRef.current}”… say her name anytime`);
+    setStatus(`Listening for “${nameRef.current}”… (any page)`);
     setError(null);
     clearBuf();
     setRawHeard("");
     bootRecognition();
-  }, [bootRecognition, clearBuf, setModeBoth]);
+  }, [bootRecognition, clearBuf, host, setModeBoth]);
 
   const stopListening = useCallback(() => {
+    if (host === "page") {
+      persistWantListen(false);
+      window.dispatchEvent(stopCarinaVoiceEvent());
+      setListening(false);
+      setModeBoth("off");
+      setStatus("Off");
+      return;
+    }
     wantListenRef.current = false;
+    shellEngineActive = false;
+    persistWantListen(false);
     bootGenRef.current += 1;
     killRecognition();
     stopSpeaking();
+    carinaStopAllAudio();
     clearSilence();
     clearBuf();
     if (convoTimerRef.current) clearTimeout(convoTimerRef.current);
@@ -856,7 +969,8 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
     setStatus("Off");
     setBusy(false);
     askingRef.current = false;
-  }, [clearBuf, clearSilence, killRecognition, setModeBoth, stopSpeaking]);
+    globalAskLock = false;
+  }, [clearBuf, clearSilence, host, killRecognition, setModeBoth, stopSpeaking]);
 
   const pttDown = useCallback(async () => {
     if (!wantListenRef.current) await startListening();
@@ -886,14 +1000,55 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
 
   useEffect(() => {
     return () => {
-      wantListenRef.current = false;
+      // Page instance must NOT kill shell mic when leaving /ai
+      if (host !== "shell") return;
+      // Shell unmount (rare): stop engine but keep session flag so remount resumes
       bootGenRef.current += 1;
       killRecognition();
       stopSpeaking();
       clearSilence();
       if (convoTimerRef.current) clearTimeout(convoTimerRef.current);
     };
-  }, [clearSilence, killRecognition, stopSpeaking]);
+  }, [clearSilence, host, killRecognition, stopSpeaking]);
+
+  // Shell owns mic: enable/stop from bubble or settings page
+  useEffect(() => {
+    if (host !== "shell") {
+      // Mirror shell listen state into settings UI
+      const onChange = (e: Event) => {
+        const on = !!(e as CustomEvent).detail?.listening;
+        setListening(on);
+        setStatus(
+          on
+            ? `Listening site-wide for “${nameRef.current}”…`
+            : "Off — enable mic once (works everywhere)"
+        );
+        if (on) setModeBoth("wake");
+        else setModeBoth("off");
+      };
+      window.addEventListener("forge:carina-listen-changed", onChange);
+      setListening(readWantListen());
+      return () =>
+        window.removeEventListener("forge:carina-listen-changed", onChange);
+    }
+
+    const onEnable = () => {
+      void startListening();
+    };
+    const onStop = () => {
+      stopListening();
+    };
+    window.addEventListener("forge:carina-enable-voice", onEnable);
+    window.addEventListener("forge:carina-stop-voice", onStop);
+    // Resume after refresh / soft remount if user left mic on
+    if (readWantListen()) {
+      void startListening();
+    }
+    return () => {
+      window.removeEventListener("forge:carina-enable-voice", onEnable);
+      window.removeEventListener("forge:carina-stop-voice", onStop);
+    };
+  }, [host, setModeBoth, startListening, stopListening]);
 
   async function saveName() {
     const clean = nameDraft.trim() || DEFAULT_NAME;
@@ -952,113 +1107,9 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
   const speaking = mode === "speaking";
   const awake = mode === "command" || mode === "thinking";
 
-  if (compact) {
-    return (
-      <div className="pointer-events-none fixed bottom-5 left-5 z-40 flex flex-col items-start gap-2">
-        {(error || lastReply || listening) && (
-          <div className="pointer-events-auto max-w-[16rem] rounded-lg border border-slate-700 bg-slate-950/95 px-2.5 py-1.5 text-[10px] shadow-lg">
-            <p className="text-slate-400">
-              {status}
-              {listening && (
-                <span
-                  className={cn(
-                    "ml-1 inline-block h-1.5 w-1.5 rounded-full",
-                    recAlive ? "bg-teal-400" : "bg-amber-400 animate-pulse"
-                  )}
-                />
-              )}
-            </p>
-            {(partial || rawHeard) && (
-              <p className="mt-0.5 italic text-slate-500">
-                …{(partial || rawHeard).slice(-70)}
-              </p>
-            )}
-            {error && <p className="mt-0.5 text-amber-300">{error}</p>}
-            {lastHeard && !error && (
-              <p className="mt-0.5 text-slate-500">
-                You: {lastHeard.slice(0, 70)}
-              </p>
-            )}
-            {lastReply && !error && (
-              <p className="mt-0.5 line-clamp-3 text-slate-300">
-                {lastReply.slice(0, 120)}
-              </p>
-            )}
-          </div>
-        )}
-        {speaking && (
-          <div className="pointer-events-none rounded-full border border-amber-500/40 bg-amber-500/15 px-3 py-1 text-[11px] font-medium text-amber-200">
-            Say “{name}” to interrupt
-          </div>
-        )}
-        <div className="pointer-events-auto flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() =>
-              listening ? stopListening() : void startListening()
-            }
-            className={cn(
-              "flex h-12 items-center gap-2 rounded-full border px-3 shadow-lg",
-              listening
-                ? speaking
-                  ? "border-amber-400 bg-amber-500/20 text-amber-100"
-                  : awake
-                    ? "border-teal-400 bg-teal-500 text-slate-950"
-                    : "border-violet-500/50 bg-violet-500/20 text-violet-100"
-                : "border-slate-700 bg-slate-900/90 text-slate-300"
-            )}
-            title={
-              listening
-                ? `Always listening for “${name}”`
-                : "Enable always-on voice (one click)"
-            }
-          >
-            {listening ? (
-              <Mic className="h-4 w-4" />
-            ) : (
-              <MicOff className="h-4 w-4" />
-            )}
-            <span className="text-xs font-medium">
-              {listening ? name : `Enable ${name}`}
-            </span>
-            {busy && <LoaderDots />}
-          </button>
-          {listening && (
-            <button
-              type="button"
-              onMouseDown={(e) => {
-                e.preventDefault();
-                void pttDown();
-              }}
-              onMouseUp={(e) => {
-                e.preventDefault();
-                pttUp();
-              }}
-              onMouseLeave={() => {
-                if (pttRef.current) pttUp();
-              }}
-              onTouchStart={(e) => {
-                e.preventDefault();
-                void pttDown();
-              }}
-              onTouchEnd={(e) => {
-                e.preventDefault();
-                pttUp();
-              }}
-              className={cn(
-                "flex h-12 items-center gap-1.5 rounded-full border px-3 text-xs font-semibold shadow-lg",
-                ptt
-                  ? "border-teal-400 bg-teal-500 text-slate-950"
-                  : "border-slate-600 bg-slate-800 text-slate-200"
-              )}
-            >
-              <Radio className="h-3.5 w-3.5" />
-              Talk
-            </button>
-          )}
-        </div>
-      </div>
-    );
+  // Shell host: engine only — no floating status bubble (voice UI is in help chat)
+  if (host === "shell" || compact) {
+    return null;
   }
 
   return (
@@ -1072,11 +1123,12 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
             Voice assistant
           </h3>
           <p className="mt-0.5 text-xs text-slate-400">
-            Tap <strong>Enable always-on mic</strong> once. Then say{" "}
-            <strong>“{name}, …”</strong> anytime. Ask{" "}
-            <strong>“show me how to…”</strong> and she opens an on-screen
-            walkthrough with spotlights. ERP topics only. While she talks, say{" "}
-            <strong>“{name}”</strong> to interrupt.
+            Tap <strong>Enable always-on mic</strong> once — stays on across the
+            ERP until you stop. Say <strong>&ldquo;{name}, …&rdquo;</strong>.
+            Ask <strong>&ldquo;where is the … button?&rdquo;</strong> for a quick
+            highlight (page stays usable), or{" "}
+            <strong>&ldquo;show me how…&rdquo;</strong> for a full walkthrough.
+            ERP only. Interrupt with her name.
             {grokOn ? " Grok connected." : " Needs XAI_API_KEY."}
           </p>
         </div>
@@ -1124,7 +1176,7 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
             <MicOff className="h-4 w-4" />
           )}
           {listening
-            ? `Always listening for “${name}”`
+            ? `Listening site-wide for “${name}”`
             : "Enable always-on mic"}
         </button>
         {listening && (
@@ -1228,9 +1280,9 @@ export function VoiceAssistant({ compact = false }: { compact?: boolean }) {
 
       <p className="text-[11px] text-slate-600">
         Examples: “{name}, how is the production floor?” · “{name}, show me how
-        to create a work order” · “{name}, walk me through MRB”. If “Hearing:”
-        never updates, use Chrome/Edge on HTTPS with the mic allowed and the tab
-        focused.
+        to create a work order” · “{name}, walk me through MRB” · “{name},
+        finish work order WO-10042”. If “Hearing:” never updates, use
+        Chrome/Edge on HTTPS with mic allowed and the tab focused.
       </p>
 
       <details className="text-[11px] text-slate-600">

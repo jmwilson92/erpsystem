@@ -73,7 +73,6 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/floor", label: "Production Floor", icon: Factory, keywords: ["shop floor", "live"] },
       { href: "/radiators", label: "Info Radiators", icon: Monitor, keywords: ["wall display", "big screen"] },
       { href: "/value-stream", label: "Value Stream", icon: Network, keywords: ["vsm", "flow", "constraint"] },
-      { href: "/ai", label: "AI Assistant", icon: Bot, keywords: ["chat", "grok", "assistant"] },
       { href: "/approvals", label: "My Approvals", icon: ClipboardCheck, keywords: ["pending", "pto", "timesheet", "expense", "manager"] },
       { href: "/hr/timesheet", label: "My Timesheet", icon: Clock, keywords: ["time", "hours", "pay period", "charge"] },
       { href: "/support", label: "Help & Support", icon: MessagesSquare, keywords: ["ticket", "chat", "helpdesk", "help", "support", "ask"] },
@@ -157,6 +156,19 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Administration",
     items: [
       { href: "/admin/settings", label: "Company Settings", icon: SlidersHorizontal, keywords: ["settings", "config", "preferences", "company", "fiscal", "basis", "admin"] },
+      {
+        href: "/ai",
+        label: "My AI assistant",
+        icon: Bot,
+        keywords: [
+          "carina",
+          "voice",
+          "wake word",
+          "grok",
+          "ai settings",
+          "assistant",
+        ],
+      },
       { href: "/admin/permissions", label: "Roles & Permissions", icon: KeyRound, keywords: ["rbac", "access", "security"] },
       // Staff support desk is intentionally unlisted — platform only via /admin/support
       { href: "/billing", label: "Plan & Billing", icon: CreditCard, keywords: ["subscription", "trial", "plan", "upgrade", "invoice", "stripe", "payment"] },

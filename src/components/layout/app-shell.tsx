@@ -10,6 +10,7 @@ import { ActionLoadingProvider } from "./action-loading";
 import { GuidedTour } from "@/components/guides/guided-tour";
 import { SupportBubble } from "@/components/support/support-bubble";
 import { VoiceAssistant } from "@/components/ai/voice-assistant";
+import { CarinaPoint } from "@/components/ai/carina-point";
 import { Toaster } from "sonner";
 
 export type DemoUser = {
@@ -59,19 +60,25 @@ function ShellInner({
     return <>{children}</>;
   }
 
-  // Everyone gets the help bubble except platform staff (they answer tickets
-  // on the unlisted /admin/support desk, outside the ERP shell).
-  const isPlatformStaff =
-    platformSupport && currentUser?.role === "ADMIN";
-  const showHelpBubble = !isPlatformStaff;
+  // Help bubble for everyone in the ERP (including platform admins testing).
+  // Hide only on the staff desk route so it doesn't cover ticket work.
+  const showHelpBubble = !pathname?.startsWith("/admin/support");
 
   // Demo splash can render without sidebar chrome but still gets the bubble.
   if (pathname?.startsWith("/demo")) {
+    // Demo shell: support tickets OK; AI only if user is in demo ERP (not bare splash)
+    // Bare /demo splash gets support-only; signed-in demo app uses full shell below.
     return (
       <>
         {children}
         {showHelpBubble && (
-          <SupportBubble source="DEMO" autoOpen defaultName="" defaultEmail="" />
+          <SupportBubble
+            source="DEMO"
+            autoOpen
+            defaultName=""
+            defaultEmail=""
+            enableAi={false}
+          />
         )}
       </>
     );
@@ -111,6 +118,7 @@ function ShellInner({
         platformSupport={platformSupport}
       />
       <GuidedTour />
+      <CarinaPoint />
       {showHelpBubble && (
         <SupportBubble
           accountLinked={platformSupport && !!currentUser}
@@ -118,6 +126,7 @@ function ShellInner({
           defaultName={currentUser?.name || ""}
           defaultEmail={currentUser?.email || ""}
           autoOpen
+          enableAi
           badge={
             platformSupport
               ? notifications.badges["/support"] || 0
@@ -125,9 +134,9 @@ function ShellInner({
           }
         />
       )}
-      {/* Always-available voice AI (wake word) — bottom-left, opposite chat bubble */}
+      {/* Single global Carina mic engine (ERP only) */}
       {currentUser && !pathname?.startsWith("/print") && (
-        <VoiceAssistant compact />
+        <VoiceAssistant host="shell" />
       )}
       <Toaster
         theme={theme === "light" ? "light" : "dark"}
@@ -172,7 +181,7 @@ export function AppShell({
     return (
       <ThemeProvider>
         {children}
-        <SupportBubble source="MARKETING" autoOpen />
+        <SupportBubble source="MARKETING" autoOpen enableAi={false} />
       </ThemeProvider>
     );
   }

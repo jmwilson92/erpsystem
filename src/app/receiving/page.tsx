@@ -201,6 +201,7 @@ export default async function ReceivingPage({
         }
       />
 
+      <div data-tour="receiving-queue" className="space-y-6">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <StatCard
           title="Waiting dock"
@@ -526,6 +527,7 @@ export default async function ReceivingPage({
         )}
       </div>
       )}
+      </div>
     </div>
   );
 }

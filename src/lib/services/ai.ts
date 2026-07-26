@@ -14,6 +14,12 @@ import {
   matchTourFromQuery,
   type TourStep,
 } from "@/lib/guides";
+import {
+  anchorsToTourSteps,
+  inventStepsFromCatalog,
+  listCatalogForPrompt,
+  resolveAnchorIds,
+} from "@/lib/carina-catalog";
 import { getFloorBoardData } from "./work-orders";
 import { getValueStreamMetrics } from "./supply-chain";
 import { computeEvm } from "@/lib/utils";
@@ -28,9 +34,21 @@ export type AiGuideAction = {
   steps?: TourStep[];
 };
 
+export type AiPendingAction = {
+  action: string;
+  partial: Record<string, string>;
+  phase?: "clarify" | "confirm";
+};
+
 export type AiConversationOutput = {
   text: string;
   guide?: AiGuideAction;
+  /** Multi-turn agent: client echoes this on the next utterance */
+  pendingAction?: AiPendingAction | null;
+  /** BCP-47 language for TTS / UI (default en-US) */
+  language?: string;
+  /** Optional client navigation after an agent action */
+  href?: string;
 };
 
 const OFF_TOPIC_REPLY =
@@ -268,37 +286,53 @@ export async function processAiQuery(query: string): Promise<string> {
   ].join("\n");
 }
 
-function buildCarinaSystem(ctx: unknown): string {
+function buildCarinaSystem(ctx: unknown, languageName: string): string {
   const tours = listToursForAi()
-    .map((t) => `- ${t.id}: ${t.title} (${t.category}) — ${t.description}`)
+    .map((t) => `- ${t.id}: ${t.title} (${t.category})`)
     .join("\n");
+
+  const anchors = listCatalogForPrompt();
 
   return `You are Carina, the ForgeRP manufacturing ERP assistant (voice + text).
 
 STRICT SCOPE — ERP ONLY:
-- You ONLY discuss ForgeRP / manufacturing ERP topics: production, work orders, quality/MRB/NCR, purchasing, receiving, inventory, sales/shipping, BOMs/engineering, programs/PMO, accounting/payroll, HR, admin setup, navigation inside the app, and live plant data.
-- Refuse anything else (weather, sports, general knowledge, politics, personal advice, creative writing, other software). One short redirect, then invite an ERP question.
-- Do not roleplay as other characters. Do not say your name every turn (speakers pick it up).
+- ONLY ForgeRP manufacturing ERP: production, WOs, quality/MRB, purchasing, inventory, sales/shipping, engineering, PMO, accounting, HR, navigation, live plant data.
+- Refuse everything else in one short redirect (still in the user's language).
+- Do not say your name every turn.
 
-STYLE:
-- 2–4 short sentences for speech when possible.
-- Warm, practical, action-oriented. Name modules and paths (e.g. Work Orders, MRB).
+LANGUAGE (critical):
+- Reply language RIGHT NOW: ${languageName}.
+- The "speak" field MUST be written entirely in ${languageName}.
+- Default is English. Only use another language when the user (or session) selected it.
+- If the user asks to switch languages ("speak Spanish", "en français", "switch to English"), acknowledge in the NEW language and put the new language name in "language".
 
-WALKTHROUGHS:
-- When the user asks how to do something, where something is, or says "show me" / "walk me through", pick the best matching tourId from the catalog below.
-- If none fit but a single module helps, you may omit tourId and just explain + mention the route.
-- Valid tour ids ONLY from this list:
+STYLE: 2–4 short spoken sentences. Practical. Name modules.
+
+ACTIONS (handled by the app before you — do not invent fake success):
+- Users can ask you to create a purchase request / finish a work order. The app runs those.
+- If you are only answering in JSON here, explain process briefly; prefer not launching a long tour when they clearly asked you to DO something.
+
+WALKTHROUGHS (Approach B):
+- For "show me / how do I / where is / walk me through" (teaching), not for "create a PR for me":
+  1) Prefer a canned tourId when it fits.
+  2) Else invent steps using ONLY anchor ids from ANCHORS (never invent CSS or routes).
+- Canned tours:
 ${tours}
 
-RESPONSE FORMAT — reply with ONLY valid JSON (no markdown fences):
-{"speak":"<what you say out loud>","tourId":"<id or null>"}
+ANCHORS (id|route|label|keywords) — ONLY valid highlight targets:
+${anchors}
 
-Live plant snapshot (may be partial): ${JSON.stringify(ctx).slice(0, 5500)}`;
+RESPONSE — ONLY JSON (no markdown):
+{"speak":"...","tourId":null,"anchorIds":["wo-create"],"language":"${languageName}"}
+- tourId: canned tour id or null
+- anchorIds: 1–5 ids from ANCHORS when inventing (omit if using tourId or pure Q&A)
+- language: name of the language used in "speak" (e.g. English, Spanish)
+
+Live snapshot: ${JSON.stringify(ctx).slice(0, 4500)}`;
 }
 
 function parseCarinaJson(raw: string): AiConversationOutput | null {
   const trimmed = raw.trim();
-  // Strip accidental fences
   const unfenced = trimmed
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/\s*```$/i, "")
@@ -312,13 +346,31 @@ function parseCarinaJson(raw: string): AiConversationOutput | null {
       text?: string;
       tourId?: string | null;
       guide?: string | null;
+      anchorIds?: string[] | null;
+      anchors?: string[] | null;
+      language?: string | null;
+      lang?: string | null;
     };
     const text = (obj.speak || obj.text || "").trim();
     if (!text) return null;
     const tid = (obj.tourId || obj.guide || "").toString().trim();
-    const guide =
-      tid && tid !== "null" && getTour(tid) ? { tourId: tid } : undefined;
-    return { text, guide };
+    const guide: AiGuideAction = {};
+    if (tid && tid !== "null" && getTour(tid)) {
+      guide.tourId = tid;
+    }
+    const ids = obj.anchorIds || obj.anchors || [];
+    if (!guide.tourId && Array.isArray(ids) && ids.length > 0) {
+      // Resolve server-side only — never trust free-form selectors from the model
+      const resolved = resolveAnchorIds(ids.map(String));
+      if (resolved.length > 0) {
+        guide.steps = anchorsToTourSteps(resolved);
+      }
+    }
+    return {
+      text,
+      guide: guide.tourId || guide.steps ? guide : undefined,
+      language: (obj.language || obj.lang || undefined) || undefined,
+    };
   } catch {
     return null;
   }
@@ -334,20 +386,132 @@ async function callGrok(query: string): Promise<string> {
   });
 }
 
+function attachLocalInventGuide(
+  out: AiConversationOutput,
+  query: string
+): AiConversationOutput {
+  if (out.guide?.tourId || (out.guide?.steps && out.guide.steps.length)) {
+    return out;
+  }
+  if (!wantsWalkthrough(query)) return out;
+
+  const tid = matchTourFromQuery(query);
+  if (tid) {
+    out.guide = { tourId: tid };
+    return out;
+  }
+
+  // Approach B invent: score catalog anchors only
+  const anchors = inventStepsFromCatalog(query, 4);
+  if (anchors.length > 0) {
+    out.guide = {
+      steps: anchorsToTourSteps(anchors),
+    };
+    if (!/walk|show|open/i.test(out.text)) {
+      out.text = `${out.text} I'll highlight the screens as we go.`;
+    }
+  }
+  return out;
+}
+
 /**
  * Multi-turn voice/chat conversation with Grok + live ERP context.
- * May attach a guided tour when the user asks "show me / how do I…".
+ * May attach a guided tour / catalog invent steps, or run Business agent actions.
  */
 export async function processAiConversation(
-  messages: { role: "user" | "assistant"; content: string }[]
+  messages: { role: "user" | "assistant"; content: string }[],
+  opts?: {
+    pendingAction?: AiPendingAction | null;
+    /** BCP-47 or language name; default English */
+    language?: string | null;
+  }
 ): Promise<AiConversationOutput> {
+  const { resolveLang, detectLanguageSwitch, DEFAULT_LANG } = await import(
+    "@/lib/carina-language"
+  );
+
   const last = messages.filter((m) => m.role === "user").pop()?.content || "";
   if (!last.trim()) {
-    return { text: "I didn't hear a question. Try again." };
+    return {
+      text: "I didn't hear a question. Try again.",
+      language: DEFAULT_LANG.code,
+    };
+  }
+
+  // Language preference for this turn (client may send stored choice)
+  let lang = resolveLang(opts?.language || DEFAULT_LANG.code);
+  const switchTo = detectLanguageSwitch(last);
+  if (switchTo) {
+    lang = switchTo;
+    return {
+      text:
+        lang.code.startsWith("en")
+          ? `Sure — I'll speak English from now on. What do you need in ForgeRP?`
+          : lang.code.startsWith("es")
+            ? `Perfecto — a partir de ahora hablo en español. ¿En qué te ayudo en ForgeRP?`
+            : lang.code.startsWith("fr")
+              ? `D'accord — je parle français maintenant. Que puis-je faire dans ForgeRP ?`
+              : lang.code.startsWith("de")
+                ? `Alles klar — ich spreche ab jetzt Deutsch. Wobei kann ich im ForgeRP helfen?`
+                : `OK — I'll continue in ${lang.name}. How can I help in ForgeRP?`,
+      language: lang.code,
+      pendingAction: null,
+    };
+  }
+
+  // ── Agent actions first (Business+ / local override) ──────────────
+  // Agent replies stay English for safety unless we expand later
+  try {
+    const { tryCarinaAction } = await import("@/lib/services/carina-actions");
+    const agent = await tryCarinaAction({
+      userText: last,
+      pending: opts?.pendingAction
+        ? {
+            action: opts.pendingAction.action,
+            partial: opts.pendingAction.partial || {},
+            phase: opts.pendingAction.phase,
+          }
+        : null,
+    });
+    if (agent.kind === "done") {
+      return {
+        text: agent.speak,
+        pendingAction: null,
+        language: lang.code,
+        href: agent.href,
+      };
+    }
+    if (agent.kind === "blocked" || agent.kind === "error") {
+      return { text: agent.speak, pendingAction: null, language: lang.code };
+    }
+    if (agent.kind === "clarify") {
+      return {
+        text: agent.speak,
+        pendingAction: {
+          action: agent.pendingAction,
+          partial: agent.partial,
+          phase: "clarify",
+        },
+        language: lang.code,
+      };
+    }
+    if (agent.kind === "confirm") {
+      return {
+        text: agent.speak,
+        pendingAction: {
+          action: agent.pendingAction,
+          partial: agent.partial,
+          phase: "confirm",
+        },
+        language: lang.code,
+      };
+    }
+  } catch (e) {
+    console.warn("[ai] agent action path failed", e);
   }
 
   if (!looksLikeErpTopic(last)) {
-    return { text: OFF_TOPIC_REPLY };
+    return { text: OFF_TOPIC_REPLY, language: lang.code };
   }
 
   if (process.env.XAI_API_KEY?.trim()) {
@@ -359,7 +523,7 @@ export async function processAiConversation(
         console.warn("[ai] context summary failed, continuing without:", ctxErr);
       }
       const { grokChat } = await import("@/lib/services/grok");
-      const system = buildCarinaSystem(ctx);
+      const system = buildCarinaSystem(ctx, lang.name);
       const content = await grokChat({
         temperature: 0.35,
         system,
@@ -378,41 +542,27 @@ export async function processAiConversation(
       if (content?.trim()) {
         const parsed = parseCarinaJson(content);
         if (parsed) {
-          // If user clearly wants a walkthrough but model skipped tourId, match locally
-          if (!parsed.guide && wantsWalkthrough(last)) {
-            const tid = matchTourFromQuery(last);
-            if (tid) parsed.guide = { tourId: tid };
-          }
-          return parsed;
+          const out = attachLocalInventGuide(parsed, last);
+          out.language = resolveLang(parsed.language || lang.code).code;
+          return out;
         }
-        // Model returned plain text — still usable
-        const out: AiConversationOutput = { text: content.trim() };
-        if (wantsWalkthrough(last)) {
-          const tid = matchTourFromQuery(last);
-          if (tid) out.guide = { tourId: tid };
-        }
-        return out;
+        return attachLocalInventGuide(
+          { text: content.trim(), language: lang.code },
+          last
+        );
       }
     } catch (e) {
       console.error("Grok conversation failed:", e);
-      // fall through to local
     }
   }
 
   try {
     const text = await processAiQuery(last);
-    const out: AiConversationOutput = { text };
-    if (wantsWalkthrough(last)) {
-      const tid = matchTourFromQuery(last);
-      if (tid) {
-        out.guide = { tourId: tid };
-        out.text = `${text}\n\nI'll open the interactive walkthrough so you can follow along on screen.`;
-      }
-    }
-    return out;
+    return attachLocalInventGuide({ text, language: lang.code }, last);
   } catch {
     return {
       text: "I'm having trouble answering right now. Try the text chat on the AI page, or ask again in a moment.",
+      language: lang.code,
     };
   }
 }

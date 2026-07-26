@@ -122,6 +122,7 @@ export default async function MrbPage({
       />
 
       {/* Primary navigation: MRB vs CAR */}
+      <div data-tour="mrb-board" className="space-y-6">
       <div className="grid gap-3 sm:grid-cols-2">
         <Link
           href="/mrb?view=mrb&filter=open"
@@ -739,6 +740,7 @@ export default async function MrbPage({
           })}
         </div>
       )}
+      </div>
     </div>
   );
 }

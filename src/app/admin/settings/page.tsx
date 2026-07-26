@@ -24,6 +24,8 @@ import {
   Lock,
   Blocks,
   Check,
+  Bot,
+  ArrowRight,
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -125,6 +127,33 @@ export default async function AdminSettingsPage() {
               textareaRows={6}
             />
           </div>
+        </CardContent>
+      </Card>
+
+      {/* My AI assistant — day-to-day use is the help bubble; this is settings */}
+      <Card data-tour="settings-ai">
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Bot className="h-4 w-4 text-teal-400" />
+            My AI assistant
+          </CardTitle>
+          <p className="text-xs text-slate-500">
+            Carina lives in the help bubble on every page. Use this screen to
+            set her wake name, test voice, and open the full AI workspace.
+          </p>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-slate-400">
+            Wake word, language, diagnostics, and text chat with plant context.
+            ERP topics only.
+          </p>
+          <Link
+            href="/ai"
+            className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-lg bg-teal-500 px-4 text-sm font-semibold text-slate-950 hover:bg-teal-400"
+          >
+            Open AI settings
+            <ArrowRight className="h-4 w-4" />
+          </Link>
         </CardContent>
       </Card>
 

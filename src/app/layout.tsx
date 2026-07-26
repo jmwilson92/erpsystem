@@ -231,6 +231,7 @@ export default async function RootLayout({
             <SupportBubble
               source={pathname === "/" ? "LANDING" : "MARKETING"}
               autoOpen
+              enableAi={false}
             />
           )}
           <CookieBanner />

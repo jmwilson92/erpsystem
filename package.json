@@ -5,6 +5,7 @@
   "scripts": {
     "predev": "prisma generate && prisma db push",
     "dev": "next dev --turbopack",
+    "dev:app": "next dev --turbopack",
     "prestart": "prisma generate && prisma db push",
     "build": "next build",
     "prebuild": "prisma generate",

@@ -45,9 +45,16 @@ export default function AiPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <PageHeader
-        title="AI Assistant"
-        description="Grok-powered plant assistant — ERP only. Voice wake word, or say “show me how…” for live walkthroughs"
+        title="My AI assistant"
+        description="Wake name, diagnostics, and text chat. Enable the mic once — Carina keeps listening on every page until you stop her."
       />
+
+      <p className="rounded-lg border border-slate-800 bg-slate-950/50 px-3 py-2 text-xs text-slate-400">
+        <strong className="text-slate-300">Find this page anytime:</strong>{" "}
+        sidebar → Administration → <em>My AI assistant</em>, or Company Settings
+        → My AI assistant, or the help bubble → Carina → settings. Day-to-day
+        voice also lives in the help bubble.
+      </p>
 
       <VoiceAssistant />
 

@@ -7,8 +7,11 @@ import {
   processAiConversation,
   processAiQuery,
   type AiGuideAction,
+  type AiPendingAction,
 } from "@/lib/services/ai";
 import { grokConfigured, grokModel, probeGrok } from "@/lib/services/grok";
+import { getCarinaFeatures } from "@/lib/services/carina-features";
+import { formatCarinaCostReport } from "@/lib/services/carina-cost";
 
 export type AiConversationResult =
   | {
@@ -17,6 +20,12 @@ export type AiConversationResult =
       source: "grok" | "local";
       /** When set, client should start the interactive spotlight tour */
       guide?: AiGuideAction;
+      /** Echo back on next turn for multi-step agent actions */
+      pendingAction?: AiPendingAction | null;
+      /** BCP-47 code for TTS */
+      language?: string;
+      /** Optional path to open after agent action */
+      href?: string;
     }
   | { ok: false; error: string };
 
@@ -25,7 +34,15 @@ export async function actionAiChat(query: string) {
 }
 
 export async function actionAiConversation(
-  messages: { role: "user" | "assistant"; content: string }[]
+  messages: { role: "user" | "assistant"; content: string }[],
+  opts?: {
+    pendingAction?: AiPendingAction | null;
+    language?: string | null;
+    /** LANDING | MARKETING | DEMO | APP | TENANT — demo/landing get strict rate limits */
+    source?: string | null;
+    /** Stable browser id for guest rate limits (localStorage uuid) */
+    guestKey?: string | null;
+  }
 ): Promise<AiConversationResult> {
   try {
     const clean = (messages || [])
@@ -37,7 +54,23 @@ export async function actionAiConversation(
       return { ok: false, error: "No message to send" };
     }
 
-    const result = await processAiConversation(clean);
+    const user = await getCurrentUser().catch(() => null);
+    const { checkCarinaRateLimit } = await import(
+      "@/lib/services/carina-rate-limit"
+    );
+    const rl = checkCarinaRateLimit({
+      source: opts?.source,
+      userId: user?.id,
+      guestKey: opts?.guestKey,
+    });
+    if (!rl.ok) {
+      return { ok: false, error: rl.message };
+    }
+
+    const result = await processAiConversation(clean, {
+      pendingAction: opts?.pendingAction,
+      language: opts?.language,
+    });
     if (!result?.text?.trim()) {
       return { ok: false, error: "Empty reply from the model" };
     }
@@ -46,6 +79,9 @@ export async function actionAiConversation(
       text: result.text.trim(),
       source: grokConfigured() ? "grok" : "local",
       guide: result.guide,
+      pendingAction: result.pendingAction ?? null,
+      language: result.language,
+      href: result.href,
     };
   } catch (e) {
     console.error("[actionAiConversation]", e);
@@ -54,6 +90,16 @@ export async function actionAiConversation(
       error: e instanceof Error ? e.message : "AI request failed",
     };
   }
+}
+
+/** Local/dev: which Carina capabilities this tenant has. */
+export async function actionCarinaFeatures() {
+  return getCarinaFeatures();
+}
+
+/** Local/dev: print unit-economics assumptions (not a live meter). */
+export async function actionCarinaCostReport() {
+  return formatCarinaCostReport("fast");
 }
 
 export async function actionGetAssistantName(): Promise<string> {

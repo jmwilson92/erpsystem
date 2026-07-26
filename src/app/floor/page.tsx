@@ -115,7 +115,7 @@ export default async function FloorPage({
       {tab === "stations" ? (
         <WorkcenterPanel area="MANUFACTURING" returnPath="/floor" />
       ) : (
-        <>
+        <div data-tour="floor-board">
 
       {/* Over-capacity pulsing alert */}
       {data.kpis.overCapacity && (
@@ -315,7 +315,7 @@ export default async function FloorPage({
           );
         })}
       </div>
-        </>
+        </div>
       )}
     </div>
   );
