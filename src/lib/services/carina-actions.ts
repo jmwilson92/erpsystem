@@ -562,6 +562,13 @@ async function executeReleaseWo(
 }
 
 // ─── Create PR ────────────────────────────────────────────────────
+//
+// Rules:
+//   • Catalog part found → OK (any charge; we still draft as normal)
+//   • Not in catalog → free-text ONLY if charged to OH / indirect / IR&D
+//     (enacted INDIRECT budget). Otherwise refuse and ask for a PN or budget.
+
+type FreeTextBudgetKind = "OH" | "INDIRECT" | "IRD";
 
 function extractPrDetails(text: string) {
   const quantity = extractQuantity(text, 1);
@@ -570,9 +577,65 @@ function extractPrDetails(text: string) {
   const description = stripFiller(text, [
     /\b(open|create|make|start|submit|raise|new|file|buy|purchase|order|procure|request|requisition|pr|item|items)\b/gi,
     /\bpurchase\s*request\b/gi,
+    /\b(overhead|indirect|ir\s*&?\s*d|ird|g\s*&\s*a|facility|facilities)\b/gi,
     /\b\d+(?:\.\d+)?\s*(x|ea|pcs|pieces|units|of)?\b/gi,
   ]);
   return { quantity, partHint, description };
+}
+
+/** Detect OH / indirect / IR&D charge intent from speech. */
+function extractFreeTextBudgetKind(text: string): FreeTextBudgetKind | null {
+  if (/\b(ir\s*&?\s*d|ird|i\s*r\s*and\s*d|research\s+and\s+development)\b/i.test(text)) {
+    return "IRD";
+  }
+  if (/\b(overhead|\boh\b|g\s*&\s*a|gaa|facility|facilities|office\s+supplies)\b/i.test(text)) {
+    return "OH";
+  }
+  if (/\bindirect\b/i.test(text)) return "INDIRECT";
+  return null;
+}
+
+async function findFreeTextBudget(kind: FreeTextBudgetKind) {
+  const budgets = await prisma.budget.findMany({
+    where: {
+      status: "ENACTED",
+      costClass: "INDIRECT",
+    },
+    select: {
+      id: true,
+      number: true,
+      name: true,
+      chargeCode: true,
+      sourceType: true,
+      costClass: true,
+    },
+    orderBy: { updatedAt: "desc" },
+    take: 80,
+  });
+  if (budgets.length === 0) return null;
+
+  const label = (b: (typeof budgets)[0]) =>
+    `${b.name} ${b.chargeCode || ""} ${b.number}`.toLowerCase();
+
+  if (kind === "IRD") {
+    const ird = budgets.find((b) =>
+      /ir\s*&?\s*d|\bird\b|research|r\s*&\s*d/.test(label(b))
+    );
+    return ird || null;
+  }
+
+  // OH / INDIRECT — prefer STANDALONE company pocketbook
+  const standalone = budgets.filter((b) => b.sourceType === "STANDALONE");
+  if (kind === "OH") {
+    const oh = standalone.find((b) =>
+      /overhead|\boh\b|g\s*&\s*a|facility|facilities|office|company/.test(
+        label(b)
+      )
+    );
+    return oh || standalone[0] || budgets[0];
+  }
+  // generic indirect
+  return standalone[0] || budgets[0];
 }
 
 async function startCreatePr(
@@ -585,23 +648,27 @@ async function startCreatePr(
   const partial: Record<string, string> = {
     quantity: String(details.quantity || 1),
   };
+  const kind = extractFreeTextBudgetKind(text);
+  if (kind) partial.budgetKind = kind;
+
   await fillPrItem(partial, details);
   if (!partial.description && !partial.partId) {
     return {
       kind: "clarify",
-      speak: "What should I buy? Give a part number or description.",
+      speak:
+        "What should I buy? Prefer a catalog part number. Non-catalog items need an overhead, indirect, or IR&D budget.",
       pendingAction: "create_purchase_request",
       fields: [
         {
           id: "description",
-          question: "Part number or description",
-          examples: "M8 bolts or PN-10042",
+          question: "Catalog part number, or description + budget type",
+          examples: "PN-10042 or coffee filters on overhead",
         },
       ],
       partial: {},
     };
   }
-  return confirmCreatePr(partial);
+  return resolvePrChargeGate(partial);
 }
 
 async function continueCreatePr(
@@ -613,7 +680,43 @@ async function continueCreatePr(
   if (blocked) return blocked;
   const partial = { ...pending.partial };
   const details = extractPrDetails(text);
+  const kind = extractFreeTextBudgetKind(text);
+  if (kind) partial.budgetKind = kind;
+
+  // Explicit budget pick by charge code / name fragment
+  if (!partial.budgetId && (kind || pending.phase === "clarify")) {
+    const maybeCode = text.trim();
+    if (maybeCode.length >= 2 && !isAffirmative(text)) {
+      const byCode = await prisma.budget.findFirst({
+        where: {
+          status: "ENACTED",
+          costClass: "INDIRECT",
+          OR: [
+            { chargeCode: { equals: maybeCode, mode: "insensitive" } },
+            { number: { equals: maybeCode, mode: "insensitive" } },
+            { name: { contains: maybeCode, mode: "insensitive" } },
+          ],
+        },
+        select: {
+          id: true,
+          number: true,
+          name: true,
+          chargeCode: true,
+        },
+      });
+      if (byCode) {
+        partial.budgetId = byCode.id;
+        partial.budgetLabel =
+          byCode.chargeCode || byCode.number || byCode.name;
+        partial.freeTextOk = "1";
+      }
+    }
+  }
+
   if (!partial.description && !partial.partId) {
+    await fillPrItem(partial, details);
+  } else if (!partial.partId && details.description.length >= 2) {
+    // User may be providing a catalog PN on the second turn
     await fillPrItem(partial, details);
   }
   if (details.quantity > 1) partial.quantity = String(details.quantity);
@@ -621,18 +724,17 @@ async function continueCreatePr(
 
   if (pending.phase === "confirm") {
     if (isAffirmative(text)) return executeCreatePr(partial);
-    if (details.description.length >= 2) {
-      await fillPrItem(partial, details);
-    } else {
-      return {
-        kind: "confirm",
-        speak: `Say yes to create the PR for ${partial.quantity} × ${partial.description}, or no to cancel.`,
-        pendingAction: "create_purchase_request",
-        partial,
-        summary: partial.summary || "",
-      };
-    }
+    return {
+      kind: "confirm",
+      speak: `Say yes to create the PR for ${partial.quantity} × ${partial.description}${
+        partial.budgetLabel ? ` on ${partial.budgetLabel}` : ""
+      }, or no to cancel.`,
+      pendingAction: "create_purchase_request",
+      partial,
+      summary: partial.summary || "",
+    };
   }
+
   if (!partial.description && !partial.partId) {
     return {
       kind: "clarify",
@@ -642,7 +744,7 @@ async function continueCreatePr(
       partial,
     };
   }
-  return confirmCreatePr(partial);
+  return resolvePrChargeGate(partial);
 }
 
 async function fillPrItem(
@@ -658,16 +760,82 @@ async function fillPrItem(
     partial.description = `${part.partNumber} — ${part.description}`;
     if (part.standardCost) partial.unitCost = String(part.standardCost);
     if (part.uom) partial.uom = part.uom;
+    // Catalog hit clears free-text budget requirement
+    delete partial.freeTextOk;
+    delete partial.needsBudget;
   } else {
     partial.description = details.description || details.partHint || hint;
+    delete partial.partId;
+    delete partial.partNumber;
+    partial.needsBudget = "1";
   }
 }
 
+/**
+ * Catalog part → confirm.
+ * Free-text → must bind OH / indirect / IR&D enacted budget first.
+ */
+async function resolvePrChargeGate(
+  partial: Record<string, string>
+): Promise<CarinaActionResult> {
+  if (partial.partId) {
+    return confirmCreatePr(partial);
+  }
+
+  // Free-text path
+  partial.needsBudget = "1";
+  if (partial.budgetId && partial.freeTextOk === "1") {
+    return confirmCreatePr(partial);
+  }
+
+  const kind = (partial.budgetKind as FreeTextBudgetKind | undefined) || null;
+  if (!kind) {
+    return {
+      kind: "clarify",
+      speak: `“${partial.description}” is not in the item catalog. I can only buy non-catalog items on an overhead, indirect, or IR&D budget. Say overhead, indirect, or IR&D — or give me a real catalog part number.`,
+      pendingAction: "create_purchase_request",
+      fields: [
+        {
+          id: "budgetKind",
+          question: "Budget type for non-catalog buy",
+          examples: "overhead, indirect, or IR&D",
+        },
+      ],
+      partial,
+    };
+  }
+
+  const budget = await findFreeTextBudget(kind);
+  if (!budget) {
+    const label =
+      kind === "IRD"
+        ? "IR&D"
+        : kind === "OH"
+          ? "overhead"
+          : "indirect";
+    return {
+      kind: "error",
+      speak: `I don't see an enacted ${label} (indirect) budget to charge. Create or enact one under Budgets, then ask me again — or use a catalog part number.`,
+    };
+  }
+
+  partial.budgetId = budget.id;
+  partial.budgetLabel = budget.chargeCode || budget.number || budget.name;
+  partial.freeTextOk = "1";
+  partial.budgetKind = kind;
+  return confirmCreatePr(partial);
+}
+
 function confirmCreatePr(partial: Record<string, string>): CarinaActionResult {
-  const summary = `PR draft: ${partial.quantity} × ${partial.description}`;
+  const chargeNote = partial.partId
+    ? "from the catalog"
+    : `as free-text on ${partial.budgetLabel || "indirect/OH"}`;
+  const summary = `PR draft: ${partial.quantity} × ${partial.description} (${chargeNote})`;
   return {
     kind: "confirm",
-    speak: `I'll create a draft purchase request for ${partial.quantity} × ${partial.description}. Yes or no?`,
+    speak: partial.partId
+      ? `I'll create a draft purchase request for ${partial.quantity} × ${partial.description} from the catalog. Yes or no?`
+      : `I'll create a draft PR for ${partial.quantity} × ${partial.description} charged to ${partial.budgetLabel} (overhead/indirect — not a catalog part). Yes or no?`,
     pendingAction: "create_purchase_request",
     partial: { ...partial, summary },
     summary,
@@ -692,6 +860,25 @@ async function executeCreatePr(
       partial: {},
     };
   }
+
+  // Enforce charge rules at execute time too
+  if (!partial.partId) {
+    if (!partial.budgetId || partial.freeTextOk !== "1") {
+      return resolvePrChargeGate(partial);
+    }
+    const budget = await prisma.budget.findUnique({
+      where: { id: partial.budgetId },
+      select: { id: true, status: true, costClass: true, name: true },
+    });
+    if (!budget || budget.status !== "ENACTED" || budget.costClass !== "INDIRECT") {
+      return {
+        kind: "error",
+        speak:
+          "That budget is not an enacted indirect/overhead budget. Non-catalog buys need OH, indirect, or IR&D.",
+      };
+    }
+  }
+
   try {
     const pr = await createStandalonePurchaseRequest({
       lines: [
@@ -703,9 +890,13 @@ async function executeCreatePr(
           uom: partial.uom || "EA",
         },
       ],
-      purpose: "OTHER",
+      // Free-text → OTHER/FACILITIES path (no catalog required); catalog line OK too
+      purpose: partial.partId ? "OTHER" : "OTHER",
       chargeType: "INDIRECT",
-      justification: "Created by Carina assistant",
+      budgetId: partial.budgetId || null,
+      justification: partial.partId
+        ? "Created by Carina assistant (catalog part)"
+        : `Created by Carina assistant (non-catalog on ${partial.budgetLabel || "indirect"})`,
       submit: false,
       userId: user.id,
     });
@@ -714,11 +905,18 @@ async function executeCreatePr(
       entityId: pr.id,
       action: "CARINA_AGENT_CREATE_PR",
       userId: user.id,
-      metadata: { number: pr.number },
+      metadata: {
+        number: pr.number,
+        catalog: !!partial.partId,
+        budgetId: partial.budgetId || null,
+      },
     });
+    const chargeBit = partial.partId
+      ? "from the catalog"
+      : `on ${partial.budgetLabel || "indirect"}`;
     return {
       kind: "done",
-      speak: `Done. Draft purchase request ${pr.number} for ${quantity} × ${description}. Open it under Purchasing to review and submit.`,
+      speak: `Done. Draft purchase request ${pr.number} for ${quantity} × ${description} ${chargeBit}. Open Purchasing to review and submit.`,
       detail: pr.number,
       href: `/purchasing/pr/${pr.id}`,
     };
