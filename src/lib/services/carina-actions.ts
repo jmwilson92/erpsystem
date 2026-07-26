@@ -123,7 +123,11 @@ async function findWorkOrder(numberOrFragment: string) {
 
 async function findPart(hint: string) {
   const h = hint.trim();
-  if (!h) return null;
+  if (!h || h.length < 2) return null;
+  // Never treat a question as a part number
+  if (isCatalogHelpQuestion(h) || /[?]/.test(h) || looksLikeMetaQuestion(h)) {
+    return null;
+  }
   const exact = await prisma.part.findFirst({
     where: {
       isActive: true,
@@ -158,6 +162,79 @@ async function findPart(hint: string) {
       uom: true,
     },
   });
+}
+
+/** User is asking about the catalog, not naming a part. */
+function isCatalogHelpQuestion(text: string): boolean {
+  const t = text.toLowerCase().trim();
+  if (!t) return false;
+  if (
+    /\b(what|which|list|show|search|find|browse|do we have|have we|available|in (the )?catalog|item master)\b/.test(
+      t
+    ) &&
+    /\b(part|parts|catalog|items?|sku|stock|inventory)\b/.test(t)
+  ) {
+    return true;
+  }
+  if (/\?/.test(t) && /\b(part|catalog|item|buy|have)\b/.test(t)) return true;
+  return false;
+}
+
+function looksLikeMetaQuestion(text: string): boolean {
+  const t = text.toLowerCase().trim();
+  return (
+    /^(what|which|who|where|how|why|when|do we|can you|could you|tell me|list|show)\b/.test(
+      t
+    ) || /\?$/.test(t)
+  );
+}
+
+/** Pull a search token from "what parts do we have for bolts" → bolts */
+function extractCatalogSearch(text: string): string | null {
+  const t = text
+    .toLowerCase()
+    .replace(
+      /\b(what|which|list|show|search|find|browse|do we have|have we got|are there|available|in (the )?catalog|parts?|items?|our|the|a|an|for|of|me|please|catalog)\b/gi,
+      " "
+    )
+    .replace(/[?.,!]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return t.length >= 2 ? t : null;
+}
+
+async function listCatalogForSpeak(search?: string | null): Promise<string> {
+  const where = search
+    ? {
+        isActive: true,
+        OR: [
+          { partNumber: { contains: search, mode: "insensitive" as const } },
+          { description: { contains: search, mode: "insensitive" as const } },
+        ],
+      }
+    : { isActive: true };
+
+  const parts = await prisma.part.findMany({
+    where,
+    orderBy: { partNumber: "asc" },
+    take: 12,
+    select: { partNumber: true, description: true },
+  });
+
+  if (parts.length === 0) {
+    return search
+      ? `I didn't find active catalog parts matching “${search}”.`
+      : "There are no active parts in the catalog yet.";
+  }
+
+  const lines = parts.map(
+    (p) =>
+      `${p.partNumber} (${(p.description || "").slice(0, 48)}${
+        (p.description || "").length > 48 ? "…" : ""
+      })`
+  );
+  const more = parts.length >= 12 ? " (showing first 12)" : "";
+  return `Catalog${search ? ` matches for “${search}”` : ""}${more}: ${lines.join("; ")}.`;
 }
 
 function requireAgent(features: Awaited<ReturnType<typeof getCarinaFeatures>>) {
@@ -294,6 +371,16 @@ export async function tryCarinaAction(params: {
   if (wantsCreatePart(text)) return startCreatePart(text, features);
   if (wantsCreatePto(text)) return startCreatePto(text, features);
   if (wantsOpenModule(text)) return doOpenModule(text);
+
+  // Standalone catalog Q&A (no pending action)
+  if (isCatalogHelpQuestion(text)) {
+    const search = extractCatalogSearch(text);
+    const catalogSpeak = await listCatalogForSpeak(search);
+    return {
+      kind: "done",
+      speak: `${catalogSpeak} You can say “create a PR for” plus a part number when you're ready.`,
+    };
+  }
 
   return { kind: "none" };
 }
@@ -679,6 +766,31 @@ async function continueCreatePr(
   const blocked = requireAgent(features);
   if (blocked) return blocked;
   const partial = { ...pending.partial };
+
+  // Side questions while collecting PR fields — answer, keep the PR open
+  if (isCatalogHelpQuestion(text) || looksLikeMetaQuestion(text)) {
+    if (
+      isCatalogHelpQuestion(text) ||
+      /\b(part|catalog|item)\b/i.test(text)
+    ) {
+      const search = extractCatalogSearch(text);
+      const catalogSpeak = await listCatalogForSpeak(search);
+      return {
+        kind: "clarify",
+        speak: `${catalogSpeak} Which part number should go on the purchase request?`,
+        pendingAction: "create_purchase_request",
+        fields: [
+          {
+            id: "description",
+            question: "Catalog part number",
+            examples: "Pick a PN from the list, or another catalog number",
+          },
+        ],
+        partial,
+      };
+    }
+  }
+
   const details = extractPrDetails(text);
   const kind = extractFreeTextBudgetKind(text);
   if (kind) partial.budgetKind = kind;
@@ -686,7 +798,12 @@ async function continueCreatePr(
   // Explicit budget pick by charge code / name fragment
   if (!partial.budgetId && (kind || pending.phase === "clarify")) {
     const maybeCode = text.trim();
-    if (maybeCode.length >= 2 && !isAffirmative(text)) {
+    if (
+      maybeCode.length >= 2 &&
+      !isAffirmative(text) &&
+      !isCatalogHelpQuestion(text) &&
+      !looksLikeMetaQuestion(text)
+    ) {
       const byCode = await prisma.budget.findFirst({
         where: {
           status: "ENACTED",
@@ -713,17 +830,29 @@ async function continueCreatePr(
     }
   }
 
-  if (!partial.description && !partial.partId) {
-    await fillPrItem(partial, details);
-  } else if (!partial.partId && details.description.length >= 2) {
-    // User may be providing a catalog PN on the second turn
-    await fillPrItem(partial, details);
+  // Only treat utterance as a part if it looks like an answer, not a question
+  if (!isCatalogHelpQuestion(text) && !looksLikeMetaQuestion(text)) {
+    if (!partial.description && !partial.partId) {
+      await fillPrItem(partial, details);
+    } else if (!partial.partId && details.description.length >= 2) {
+      await fillPrItem(partial, details);
+    }
   }
   if (details.quantity > 1) partial.quantity = String(details.quantity);
   if (!partial.quantity) partial.quantity = "1";
 
   if (pending.phase === "confirm") {
     if (isAffirmative(text)) return executeCreatePr(partial);
+    if (isCatalogHelpQuestion(text)) {
+      const catalogSpeak = await listCatalogForSpeak(extractCatalogSearch(text));
+      return {
+        kind: "confirm",
+        speak: `${catalogSpeak} Still create the PR for ${partial.quantity} × ${partial.description}? Yes or no.`,
+        pendingAction: "create_purchase_request",
+        partial,
+        summary: partial.summary || "",
+      };
+    }
     return {
       kind: "confirm",
       speak: `Say yes to create the PR for ${partial.quantity} × ${partial.description}${
@@ -738,9 +867,10 @@ async function continueCreatePr(
   if (!partial.description && !partial.partId) {
     return {
       kind: "clarify",
-      speak: "Part number or what to buy?",
+      speak:
+        "Give me a catalog part number to buy. Or ask “what parts do we have?” and I’ll list some, then you pick one.",
       pendingAction: "create_purchase_request",
-      fields: [{ id: "description", question: "Item" }],
+      fields: [{ id: "description", question: "Catalog part number" }],
       partial,
     };
   }
@@ -753,6 +883,8 @@ async function fillPrItem(
 ) {
   const hint = details.partHint || details.description;
   if (!hint || hint.length < 2) return;
+  if (isCatalogHelpQuestion(hint) || looksLikeMetaQuestion(hint)) return;
+
   const part = await findPart(hint);
   if (part) {
     partial.partId = part.id;
@@ -763,12 +895,21 @@ async function fillPrItem(
     // Catalog hit clears free-text budget requirement
     delete partial.freeTextOk;
     delete partial.needsBudget;
-  } else {
-    partial.description = details.description || details.partHint || hint;
-    delete partial.partId;
-    delete partial.partNumber;
-    partial.needsBudget = "1";
+    return;
   }
+
+  // Bare PN-like token that missed catalog — keep as attempted PN, not free-text yet
+  const looksLikePn = /^[A-Za-z]{1,8}[-_]?\d{2,}[A-Za-z0-9._-]*$/.test(hint.trim());
+  if (looksLikePn) {
+    // Don't invent free-text from a failed PN; ask again
+    return;
+  }
+
+  // Descriptive free-text only when not a question
+  partial.description = details.description || details.partHint || hint;
+  delete partial.partId;
+  delete partial.partNumber;
+  partial.needsBudget = "1";
 }
 
 /**
@@ -990,6 +1131,16 @@ async function continueCreateWo(
   if (pending.phase === "confirm" && isAffirmative(text)) {
     return executeCreateWo(partial);
   }
+  if (isCatalogHelpQuestion(text) || looksLikeMetaQuestion(text)) {
+    const catalogSpeak = await listCatalogForSpeak(extractCatalogSearch(text));
+    return {
+      kind: "clarify",
+      speak: `${catalogSpeak} Which part number is this work order for?`,
+      pendingAction: "create_work_order",
+      fields: [{ id: "partNumber", question: "Part number" }],
+      partial,
+    };
+  }
   const qty = extractQuantity(text, Number(partial.quantity) || 1);
   partial.quantity = String(qty);
   if (!partial.partId) {
@@ -999,10 +1150,10 @@ async function continueCreateWo(
       partial.partId = part.id;
       partial.partNumber = part.partNumber;
       partial.description = part.description;
-    } else if (hint.length >= 2) {
+    } else if (hint.length >= 2 && !looksLikeMetaQuestion(hint)) {
       return {
         kind: "clarify",
-        speak: `No catalog part matched “${hint}”. Try another part number.`,
+        speak: `No catalog part matched “${hint}”. Try another part number, or ask what parts we have.`,
         pendingAction: "create_work_order",
         fields: [{ id: "partNumber", question: "Part number" }],
         partial,
