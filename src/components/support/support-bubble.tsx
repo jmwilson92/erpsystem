@@ -494,6 +494,7 @@ export function SupportBubble({
   return (
     <div
       ref={panelRef}
+      data-help-bubble
       className="pointer-events-none fixed bottom-5 right-5 z-[200] flex flex-col items-end gap-3"
     >
       {open && (
@@ -784,6 +785,7 @@ export function SupportBubble({
                   ) : (
                     <form
                       onSubmit={handleReply}
+                      data-no-loading="true"
                       className="flex shrink-0 gap-2 border-t border-slate-800 p-2.5"
                     >
                       <input
@@ -812,7 +814,11 @@ export function SupportBubble({
                   <p className="text-xs text-slate-400">
                     Reach a human on our support desk. We reply in this chat.
                   </p>
-                  <form onSubmit={handleCreate} className="space-y-2.5">
+                  <form
+                    onSubmit={handleCreate}
+                    data-no-loading="true"
+                    className="space-y-2.5"
+                  >
                     <input type="hidden" name="source" value={source} />
                     {needContact && (
                       <>
