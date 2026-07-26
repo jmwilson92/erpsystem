@@ -1,10 +1,5 @@
 /**
- * AI Assistant service — rule-based prototype with upgrade path to xAI Grok API.
- *
- * Production upgrade:
- *   1. Set XAI_API_KEY in env
- *   2. Implement callGrok() with tool-calling against live ERP tools
- *   3. Register tools: getFloorStatus, getOpenMrb, getSupplierScores, suggestGoals, etc.
+ * AI Assistant service — plant context + xAI chat when configured.
  */
 
 import { prisma } from "@/lib/db";
@@ -132,12 +127,11 @@ export async function processAiQuery(query: string): Promise<string> {
     return OFF_TOPIC_REPLY;
   }
 
-  // Prefer live Grok if configured
   if (process.env.XAI_API_KEY) {
     try {
       return await callGrok(query);
     } catch (e) {
-      console.error("Grok API failed, falling back to local assistant:", e);
+      console.error("AI chat failed, falling back to local assistant:", e);
     }
   }
 
@@ -246,7 +240,7 @@ export async function processAiQuery(query: string): Promise<string> {
       `- Recommend cross-training operators on TEST-01 / CMM based on WO backlog`,
       `- Link engineering goals to open CM change requests and sprint capacity`,
       ``,
-      `_Upgrade: wire XAI_API_KEY for personalized Grok suggestions with tool calling._`,
+      `_Upgrade: wire XAI_API_KEY for live plant AI suggestions._`,
     ].join("\n");
   }
 
@@ -282,7 +276,7 @@ export async function processAiQuery(query: string): Promise<string> {
     ``,
     `Try asking about: **production floor**, **MRB**, **suppliers**, **value stream**, **projects/EVM**, **goals**, or **BOM certification**.`,
     ``,
-    `_Set \`XAI_API_KEY\` to upgrade to live xAI Grok with tool calling._`,
+    `_Set \`XAI_API_KEY\` to upgrade to live plant AI._`,
   ].join("\n");
 }
 
@@ -415,7 +409,7 @@ function attachLocalInventGuide(
 }
 
 /**
- * Multi-turn voice/chat conversation with Grok + live ERP context.
+ * Multi-turn voice/chat conversation with live ERP context.
  * May attach a guided tour / catalog invent steps, or run Business agent actions.
  */
 export async function processAiConversation(
@@ -552,7 +546,7 @@ export async function processAiConversation(
         );
       }
     } catch (e) {
-      console.error("Grok conversation failed:", e);
+      console.error("AI conversation failed:", e);
     }
   }
 

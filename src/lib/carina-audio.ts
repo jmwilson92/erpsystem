@@ -48,7 +48,7 @@ export function carinaStopAllAudio(): void {
   }
 }
 
-/** Play Grok TTS (or browser fallback). Only one utterance at a time. */
+/** Play Carina TTS (or browser fallback). Only one utterance at a time. */
 export async function carinaPlaySpeech(
   text: string,
   opts?: { language?: string; voiceId?: string }

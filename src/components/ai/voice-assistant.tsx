@@ -1,11 +1,11 @@
 "use client";
 
 /**
- * Always-on voice assistant (Grok + Carina TTS).
+ * Always-on voice assistant (Carina TTS).
  *
  * After one "Enable mic" click:
  *   - Continuously listens for wake name (default Carina)
- *   - On name + question → Grok → Carina TTS
+ *   - On name + question → plant AI reply → Carina TTS
  *   - While speaking, saying her name interrupts
  *   - ~25s after a reply, follow-ups without the name
  *
@@ -606,7 +606,7 @@ export function VoiceAssistant({
             setModeBoth("command");
             setStatus("Error — still listening");
             await speak(
-              "Sorry, I could not reach Grok. Please try again in a moment."
+              "Sorry, I could not reach the plant assistant. Please try again in a moment."
             );
             return;
           }
@@ -1076,16 +1076,16 @@ export function VoiceAssistant({
 
   async function runSmokeTest() {
     setError(null);
-    setStatus("Testing Grok + Carina…");
+    setStatus("Testing Carina voice…");
     setLastHeard("(diagnostic test)");
     setBusy(true);
     try {
       const probe = await actionProbeGrok();
       if (!probe.ok) {
-        setError(probe.error || "Grok failed");
-        setLastReply(probe.error || "Grok failed");
+        setError(probe.error || "AI connection failed");
+        setLastReply(probe.error || "AI connection failed");
         setGrokOn(probe.configured);
-        setStatus("Grok failed");
+        setStatus("AI test failed");
         return;
       }
       setGrokOn(true);
@@ -1129,7 +1129,7 @@ export function VoiceAssistant({
             highlight (page stays usable), or{" "}
             <strong>&ldquo;show me how…&rdquo;</strong> for a full walkthrough.
             ERP only. Interrupt with her name.
-            {grokOn ? " Grok connected." : " Needs XAI_API_KEY."}
+            {grokOn ? " AI connected." : " Needs XAI_API_KEY on the server."}
           </p>
         </div>
       </div>
@@ -1296,7 +1296,7 @@ export function VoiceAssistant({
             disabled={busy}
             className="inline-flex h-8 items-center gap-2 rounded-lg border border-slate-700 px-3 text-xs text-slate-400 hover:text-slate-200"
           >
-            Test Grok + Carina (diagnostic only)
+            Test Carina voice (diagnostic only)
           </button>
         </div>
       </details>

@@ -6,11 +6,11 @@ export const dynamic = "force-dynamic";
 /**
  * Text-to-speech for voice assistant + guided tours.
  *
- * Prefer xAI Grok TTS (natural voices: carina, ara, eve, leo, …):
+ * Prefer xAI TTS (natural voices: carina, ara, eve, leo, …):
  *   POST https://api.x.ai/v1/tts  { text, voice_id, language }
  *   Needs XAI_API_KEY (or TTS_API_KEY)
  *
- * Voice is fixed to Grok Carina. Language defaults to English (`en`).
+ * Voice defaults to Carina. Language defaults to English (`en`).
  */
 export async function POST(req: NextRequest) {
   let text = "";

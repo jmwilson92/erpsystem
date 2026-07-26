@@ -6,7 +6,7 @@
  *   1. Every selector must exist as data-tour on a real page
  *   2. Every route must match a real Next.js path (no query strings in route
  *      for the tour engine — put tab hints in body text)
- *   3. keywords power local matching when Grok is off or forgets an id
+ *   3. keywords power local matching when the model is off or forgets an id
  *   4. Prefer region anchors (tables, forms, tabs) over tiny icons
  *
  * Adding a highlight: put data-tour="foo" on the element, then add a CatalogAnchor.

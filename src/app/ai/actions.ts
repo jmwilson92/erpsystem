@@ -145,12 +145,12 @@ export async function actionGrokStatus() {
   };
 }
 
-/** One-click server test: Grok chat (no mic). */
+/** One-click server test: AI chat (no mic). */
 export async function actionProbeGrok() {
   return probeGrok();
 }
 
-/** One-click: ask Grok a fixed plant question and return text for TTS. */
+/** One-click: fixed plant question for TTS smoke test. */
 export async function actionVoiceSmokeTest(): Promise<AiConversationResult> {
   return actionAiConversation([
     {

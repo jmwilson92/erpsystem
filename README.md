@@ -44,7 +44,7 @@ Navigation is organized into seven domains (sidebar groups are collapsible; stat
 | Production floor | `/floor` | Color-coded WO tiles, capacity load, sign-off % |
 | Info radiators | `/radiators` | Large-font wall display, auto-refresh |
 | Value stream | `/value-stream` | Supplier→Ship live flow + constraints |
-| AI assistant | `/ai` | Local assistant; optional Grok API |
+| AI assistant | `/ai` | Carina settings; optional xAI API |
 
 ### Sales & Customers
 | Module | Route | Highlights |

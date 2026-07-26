@@ -406,7 +406,7 @@ export async function actionSupportTyping(params: {
   }
 }
 
-/** Grok real-time translation for chat messages. */
+/** Real-time translation for chat messages (xAI). */
 export async function actionTranslateText(params: {
   text: string;
   targetLanguage: string;
@@ -415,7 +415,7 @@ export async function actionTranslateText(params: {
     if (!grokConfigured()) {
       return {
         ok: false,
-        error: "Translation needs XAI_API_KEY (Grok) configured on the server.",
+        error: "Translation needs XAI_API_KEY configured on the server.",
       };
     }
     const text = params.text?.trim();

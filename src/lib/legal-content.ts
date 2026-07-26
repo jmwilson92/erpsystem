@@ -216,13 +216,13 @@ export const LEGAL_DOCS: LegalDoc[] = [
           "Payment processing: Stripe — subscription billing and card processing. Card data is handled by Stripe; we do not store full card numbers.",
           "Email delivery: Resend — transactional and notification email (account, invite, and password messages).",
           "Bank connectivity (optional, if you enable it): Plaid — read-only bank transaction feeds you connect.",
-          "AI voice / assistance (optional, if you enable guided-tour voice or AI features): xAI (Grok) — processes the prompts and text you submit to those features.",
+          "AI voice / assistance (optional, if you enable guided-tour voice or AI features): xAI — processes the prompts and text you submit to those features.",
         ],
       },
       {
         heading: "Self-hosted deployments",
         paragraphs: [
-          "If you run a self-hosted or desktop deployment, your business data stays in your environment and the hosting, database, email, and payment subprocessors above do not apply. Two optional integrations still reach external providers if you enable them: Plaid (for bank-connection feeds) and xAI/Grok (for AI voice or assistance features). Leave those disabled and no third party processes your data.",
+          "If you run a self-hosted or desktop deployment, your business data stays in your environment and the hosting, database, email, and payment subprocessors above do not apply. Two optional integrations still reach external providers if you enable them: Plaid (for bank-connection feeds) and xAI (for AI voice or assistance features). Leave those disabled and no third party processes your data.",
         ],
       },
     ],

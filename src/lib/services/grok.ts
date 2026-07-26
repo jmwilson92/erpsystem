@@ -1,6 +1,6 @@
 /**
- * Shared xAI Grok helpers (OpenAI-compatible chat completions).
- * Requires XAI_API_KEY.
+ * Shared xAI chat helpers (OpenAI-compatible completions).
+ * Requires XAI_API_KEY. Model IDs are xAI product names (API identifiers).
  */
 
 const XAI_BASE = "https://api.x.ai/v1";
@@ -39,7 +39,7 @@ export async function grokChat(params: {
       { role: "user" as const, content: params.user },
     ] as const);
 
-  let lastErr = "Grok request failed";
+  let lastErr = "AI request failed";
   for (const model of MODEL_FALLBACKS) {
     try {
       const res = await fetch(`${XAI_BASE}/chat/completions`, {
@@ -56,8 +56,8 @@ export async function grokChat(params: {
       });
       if (!res.ok) {
         const body = (await res.text()).slice(0, 240);
-        lastErr = `Grok ${model} → HTTP ${res.status}: ${body}`;
-        console.error("[grok]", lastErr);
+        lastErr = `AI ${model} → HTTP ${res.status}: ${body}`;
+        console.error("[ai]", lastErr);
         // try next model on 404/400 model errors
         if (res.status === 404 || res.status === 400) continue;
         throw new Error(lastErr);
@@ -67,16 +67,16 @@ export async function grokChat(params: {
       };
       const content = data.choices?.[0]?.message?.content?.trim();
       if (content) return content;
-      lastErr = `Grok ${model} returned empty content`;
+      lastErr = `AI ${model} returned empty content`;
     } catch (e) {
       lastErr = e instanceof Error ? e.message : String(e);
-      console.error("[grok] attempt failed:", model, lastErr);
+      console.error("[ai] attempt failed:", model, lastErr);
     }
   }
   throw new Error(lastErr);
 }
 
-/** Translate text into target language via Grok. */
+/** Translate text into target language via xAI. */
 export async function grokTranslate(
   text: string,
   targetLanguage: string

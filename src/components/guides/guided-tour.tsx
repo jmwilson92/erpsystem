@@ -48,7 +48,7 @@ type Rect = { top: number; left: number; width: number; height: number };
 /**
  * Global guided-tour controller. Lives in the app shell so it survives
  * route changes. Spotlights DOM elements, shows a note box (what + why),
- * and narrates each step (Grok TTS via /api/tts when configured).
+ * and narrates each step (Carina TTS via /api/tts when configured).
  *
  * Carina can start canned tours or ad-hoc step lists and auto-advance
  * while she speaks so the UI tracks her explanation.
