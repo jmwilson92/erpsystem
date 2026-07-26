@@ -336,6 +336,15 @@ export function VoiceAssistant({
       }
     }
     setRecAlive(false);
+    try {
+      window.dispatchEvent(
+        new CustomEvent("forge:carina-rec-alive", {
+          detail: { recAlive: false },
+        })
+      );
+    } catch {
+      // ignore
+    }
   }, []);
 
   const setRecAliveBoth = useCallback((alive: boolean) => {
