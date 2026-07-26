@@ -444,6 +444,8 @@ export function ActionLoadingProvider({ children }: { children: ReactNode }) {
       if (!form || form.tagName !== "FORM") return;
       if (form.dataset.actionLoading === "true") return; // ActionLoadingForm owns it
       if (form.dataset.noLoading === "true") return;
+      // Floating help / AI bubble — never full-page status bar
+      if (form.closest("[data-help-bubble]")) return;
       const theme = themeFromForm(form);
       start(theme, form.dataset.loadingTitle || undefined);
       // Forms without our wrapper: stop after a generous timeout if no nav

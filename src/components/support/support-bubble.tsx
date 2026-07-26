@@ -635,6 +635,7 @@ export function SupportBubble({
               )}
               <form
                 onSubmit={sendCarina}
+                data-no-loading="true"
                 className="flex shrink-0 gap-2 border-t border-slate-800 p-2.5"
               >
                 <input
