@@ -5,7 +5,7 @@ import {
   periodPriceForPlan,
   planSeatsLabel,
   type PlanDef,
-} from "@/lib/services/subscription";
+} from "@/lib/services/subscription-plans";
 
 function money(n: number) {
   return `$${n.toLocaleString()}`;
