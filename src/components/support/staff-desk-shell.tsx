@@ -46,7 +46,10 @@ export function StaffDeskShell({
             >
               Queue
             </Link>
-            {/* Full page load — not Next <Link> — so AppShell remounts with sidebar */}
+            {/* Full page load — not Next <Link> — so AppShell remounts with
+                sidebar. The lint rule wants <Link>, but a soft nav is exactly
+                what breaks the shell here, so the plain anchor is deliberate. */}
+            {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
             <a
               href="/"
               className="rounded-lg border border-slate-700 px-3 py-1.5 text-slate-300 hover:border-slate-500"

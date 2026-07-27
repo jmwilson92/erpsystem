@@ -57,6 +57,13 @@ spin up a `demo_*` schema and drop you into a seeded ERP with no login.
 Already set (confirmed): `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
 `STRIPE_PRICE_SHOP` (per-seat monthly $30, qty 1–10), `STRIPE_PRICE_STARTER`, `STRIPE_PRICE_GROWTH`, `STRIPE_PRICE_BUSINESS`.
 
+> **Test vs live mode:** every Stripe value above is mode-specific. Switching to
+> live means recreating the **4 prices** (Shop per-seat + 3 annual), the coupon,
+> and the webhook endpoint in live mode, then updating `STRIPE_SECRET_KEY`
+> (`sk_live_…`), the 4 `STRIPE_PRICE_*`, `STRIPE_COUPON_LAUNCH`, and
+> `STRIPE_WEBHOOK_SECRET` to the live values. A leftover test webhook secret
+> makes live events fail signature verification (400s in Stripe → Webhooks).
+
 Add these:
 
 | Var | Value | Purpose |
@@ -75,6 +82,29 @@ Notes:
   `LAUNCH_PROMO_DAYS` days after it.
 - Until `STRIPE_COUPON_LAUNCH` exists, no auto-discount is applied even inside
   the window (fails safe — full price, never a broken checkout).
+
+### 3a. Carina (AI voice assistant + agent)
+
+| Var | Value | Purpose |
+|-----|-------|---------|
+| `XAI_API_KEY` | xAI API key | **Required for Carina.** Powers chat, the agent, and (by default) her voice. Unset → Carina is off; the rest of the app is unaffected. |
+| `XAI_MODEL` | e.g. `grok-4.5` (optional) | Pins the model. Unset → tries `grok-4.5` → `grok-4` → `grok-3` → `grok-2` in order. |
+| `CARINA_AGENT_ACTIONS` | `1` / unset = on, `0` = off, `business` = Business+ only | Gates whether Carina may **create records** (work orders, PRs, customers, parts, PTO). Set `0` to leave her read-only/advisory. |
+| `TTS_API_KEY` | (optional) | Separate key for speech. Falls back to `XAI_API_KEY`. |
+| `TTS_VOICE_ID` | (optional, default `carina`) | Voice for xAI TTS. |
+| `TTS_API_URL` / `TTS_MODEL` / `TTS_VOICE` | (optional) | Only for pointing speech at an OpenAI-compatible TTS endpoint instead of xAI. |
+
+### 3b. Email + support desk
+
+| Var | Value | Purpose |
+|-----|-------|---------|
+| `RESEND_API_KEY` | Resend API key | Turns on **real** email delivery (invites, password resets, support notifications). Unset → messages are logged in the app's email center but never sent. |
+| `EMAIL_FROM` | e.g. `erp@forge-rp.live` | From address. The sending domain must be verified in Resend. |
+| `SUPPORT_EMAIL_FROM` | (optional) | Overrides `EMAIL_FROM` for support-desk mail only. |
+| `SUPPORT_NOTIFY_EMAILS` | comma-separated addresses (optional) | Who gets notified on a new support ticket. Unset → all active ADMINs on the public/platform instance. |
+
+Note: `SMTP_URL` is an alternate transport for self-hosted deployments; the
+hosted app uses Resend.
 
 ## 4. Stripe dashboard — coupon + webhook
 
