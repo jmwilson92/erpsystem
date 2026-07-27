@@ -77,7 +77,9 @@ export function Sidebar({
     <aside
       data-tour="sidebar"
       className={cn(
-        "flex h-screen flex-col border-r border-slate-800/80 bg-slate-950/95 transition-all duration-200",
+        // h-full (not h-screen): demo wraps the shell under marketing header/footer;
+        // h-screen would clip the bottom persona switcher off-screen.
+        "flex h-full min-h-0 flex-col border-r border-slate-800/80 bg-slate-950/95 transition-all duration-200",
         collapsed ? "w-[68px]" : "w-60"
       )}
     >
@@ -173,55 +175,63 @@ export function Sidebar({
         })}
       </nav>
 
-      {!collapsed && (
-        <div className="border-t border-slate-800/80 p-3">
-          <div className="rounded-lg bg-slate-900/80 p-2.5">
-            {demoUsers.length > 0 ? (
-              <>
+      <div className="shrink-0 border-t border-slate-800/80 p-3">
+        <div className="rounded-lg bg-slate-900/80 p-2.5">
+          {demoUsers.length > 0 ? (
+            <>
+              {!collapsed && (
                 <p className="text-xs font-medium text-slate-300">
                   Demo Mode {switching && "· switching…"}
                 </p>
-                <select
-                  value={currentUser?.id || ""}
-                  onChange={(e) => {
-                    const fd = new FormData();
-                    fd.set("userId", e.target.value);
-                    startSwitch(async () => {
-                      await actionSwitchDemoUser(fd);
-                      router.refresh();
-                    });
-                  }}
-                  className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-1.5 py-1 text-[11px] text-slate-300"
-                  aria-label="Switch demo user"
-                >
-                  {demoUsers.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name} · {u.role}
-                    </option>
-                  ))}
-                </select>
-              </>
-            ) : (
-              <>
-                <p className="text-xs font-medium text-slate-300">Signed in</p>
-                <p className="mt-1 text-[11px] text-slate-400">
-                  {currentUser
-                    ? `${currentUser.name} · ${currentUser.role}`
-                    : "Not signed in"}
-                </p>
-                {currentUser && (
-                  <Link
-                    href="/account"
-                    className="mt-1.5 inline-block text-[10px] text-teal-400 hover:underline"
-                  >
-                    Account & security
-                  </Link>
+              )}
+              <select
+                value={currentUser?.id || ""}
+                onChange={(e) => {
+                  const fd = new FormData();
+                  fd.set("userId", e.target.value);
+                  startSwitch(async () => {
+                    await actionSwitchDemoUser(fd);
+                    router.refresh();
+                  });
+                }}
+                className={cn(
+                  "w-full rounded border border-slate-700 bg-slate-950 px-1.5 py-1 text-[11px] text-slate-300",
+                  !collapsed && "mt-1"
                 )}
-              </>
-            )}
-          </div>
+                aria-label="Switch demo user"
+                title={
+                  currentUser
+                    ? `${currentUser.name} · ${currentUser.role}`
+                    : "Switch demo user"
+                }
+              >
+                {demoUsers.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {collapsed ? u.role : `${u.name} · ${u.role}`}
+                  </option>
+                ))}
+              </select>
+            </>
+          ) : !collapsed ? (
+            <>
+              <p className="text-xs font-medium text-slate-300">Signed in</p>
+              <p className="mt-1 text-[11px] text-slate-400">
+                {currentUser
+                  ? `${currentUser.name} · ${currentUser.role}`
+                  : "Not signed in"}
+              </p>
+              {currentUser && (
+                <Link
+                  href="/account"
+                  className="mt-1.5 inline-block text-[10px] text-teal-400 hover:underline"
+                >
+                  Account & security
+                </Link>
+              )}
+            </>
+          ) : null}
         </div>
-      )}
+      </div>
     </aside>
   );
 }
