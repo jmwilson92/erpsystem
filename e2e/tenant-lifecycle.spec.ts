@@ -44,6 +44,15 @@ test("customer claims workspace and logs into their own tenant", async ({ page }
   expect(bannerText).toMatch(/Growth plan/i);
   expect(bannerText).not.toMatch(/Pick a plan any time/i);
 
+  // 3a) The staff portal must be invisible to a tenant admin — nav links absent
+  await expect(page.getByRole("link", { name: /Support desk/i })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: /Product insights/i })).toHaveCount(0);
+  // ...and the pages themselves stay guarded
+  await page.goto("/admin/insights");
+  await expect(page).not.toHaveURL(/\/admin\/insights$/);
+  await page.goto("/admin/support");
+  await expect(page).not.toHaveURL(/\/admin\/support$/);
+
   // 3) Tenant admin cannot reach the platform registry (dogfood-only)
   await page.goto("/admin/tenants");
   await expect(page).not.toHaveURL(/\/admin\/tenants$/); // redirected away
