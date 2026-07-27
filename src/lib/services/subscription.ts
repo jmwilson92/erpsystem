@@ -23,42 +23,147 @@ type Db = Pick<PrismaClient, "companySettings" | "auditLog">;
  * care which provider flipped the status.
  */
 
-export const PLANS = [
+/**
+ * Pricing model:
+ *  - Shop: per-seat annual for 1–10 users ($30/user/mo billed yearly).
+ *  - Starter / Growth / Business: flat annual seat bands.
+ *  - Enterprise: custom (self-host, SSO, 251+).
+ *
+ * Crossover: 10 × Shop = Starter list price, but Starter includes 30 seats.
+ */
+export type PlanDef = {
+  key: string;
+  name: string;
+  /** "per_seat" = Stripe quantity × pricePerSeat; "flat" = fixed annual. */
+  pricing: "per_seat" | "flat" | "custom";
+  /** Annual list for flat plans; for per_seat, annual total at 1 seat (JSON-LD / min). */
+  price: number;
+  /** Annual $ per seat (Shop). Null for flat/custom. */
+  pricePerSeat: number | null;
+  /** Display monthly equivalent per seat (Shop). */
+  pricePerSeatMonthly: number | null;
+  interval: "year";
+  blurb: string;
+  /** Max seats included (or max purchasable for Shop). Null = unlimited / custom. */
+  seats: number | null;
+  minSeats: number | null;
+  maxSeats: number | null;
+};
+
+export const PLANS: readonly PlanDef[] = [
+  {
+    key: "SHOP",
+    name: "Shop",
+    pricing: "per_seat",
+    price: 360, // 1 seat annual
+    pricePerSeat: 360,
+    pricePerSeatMonthly: 30,
+    interval: "year",
+    blurb: "Startups & micro shops — full ERP, pay only for the seats you need.",
+    seats: 10,
+    minSeats: 1,
+    maxSeats: 10,
+  },
   {
     key: "STARTER",
     name: "Starter",
+    pricing: "flat",
     price: 3600,
+    pricePerSeat: null,
+    pricePerSeatMonthly: null,
     interval: "year",
-    blurb: "Small shops — full ERP, single site, up to 30 users.",
+    blurb: "Small manufacturers — full ERP, single site, up to 30 users.",
     seats: 30,
+    minSeats: null,
+    maxSeats: 30,
   },
   {
     key: "GROWTH",
     name: "Growth",
+    pricing: "flat",
     price: 8400,
+    pricePerSeat: null,
+    pricePerSeatMonthly: null,
     interval: "year",
-    blurb: "Growing manufacturers — priority support, up to 125 users.",
-    seats: 125,
+    blurb: "Growing manufacturers — priority support, up to 100 users.",
+    seats: 100,
+    minSeats: null,
+    maxSeats: 100,
   },
   {
     key: "BUSINESS",
     name: "Business",
+    pricing: "flat",
     price: 18000,
+    pricePerSeat: null,
+    pricePerSeatMonthly: null,
     interval: "year",
-    blurb: "Multi-site + custom modules, up to 225 users.",
-    seats: 225,
+    blurb: "Multi-site + custom modules, up to 250 users.",
+    seats: 250,
+    minSeats: null,
+    maxSeats: 250,
   },
   {
     key: "ENTERPRISE",
     name: "Enterprise",
+    pricing: "custom",
     price: 0,
+    pricePerSeat: null,
+    pricePerSeatMonthly: null,
     interval: "year",
-    blurb: "226+ users — bespoke modules, SSO, self-host, SLA. Let's talk.",
+    blurb: "251+ users — bespoke modules, SSO, self-host, SLA. Let's talk.",
     seats: null,
+    minSeats: null,
+    maxSeats: null,
   },
 ] as const;
 
 export const TRIAL_DAYS = 45;
+
+export function getPlan(key: string): PlanDef | undefined {
+  return PLANS.find((p) => p.key === key.toUpperCase());
+}
+
+export function isPerSeatPlan(plan: PlanDef | string): boolean {
+  const p = typeof plan === "string" ? getPlan(plan) : plan;
+  return p?.pricing === "per_seat";
+}
+
+/** Clamp seat count for a plan (Shop 1–10; flat plans return max seats). */
+export function normalizeSeats(
+  planKey: string,
+  requested?: number | null
+): number | null {
+  const plan = getPlan(planKey);
+  if (!plan || plan.pricing === "custom") return null;
+  if (plan.pricing === "flat") return plan.seats;
+  const min = plan.minSeats ?? 1;
+  const max = plan.maxSeats ?? 10;
+  const n = Number(requested);
+  if (!Number.isFinite(n)) return min;
+  return Math.min(max, Math.max(min, Math.round(n)));
+}
+
+/** Annual list price for the plan (× seats for Shop). */
+export function annualPriceForPlan(
+  planKey: string,
+  seats?: number | null
+): number {
+  const plan = getPlan(planKey);
+  if (!plan || plan.pricing === "custom") return 0;
+  if (plan.pricing === "flat") return plan.price;
+  const n = normalizeSeats(planKey, seats) ?? plan.minSeats ?? 1;
+  return (plan.pricePerSeat ?? 0) * n;
+}
+
+/** Short seat label for marketing cards. */
+export function planSeatsLabel(plan: PlanDef): string {
+  if (plan.pricing === "custom" || plan.seats == null) return "Unlimited seats";
+  if (plan.pricing === "per_seat") {
+    return `${plan.minSeats}–${plan.maxSeats} users (pay per seat)`;
+  }
+  return `Up to ${plan.seats} users`;
+}
 
 export type SubscriptionState = {
   plan: string;
@@ -177,11 +282,16 @@ export async function activatePlan(
   },
   db: Db = prisma
 ) {
-  const known = PLANS.find((p) => p.key === params.plan);
+  const known = getPlan(params.plan);
   if (!known) throw new Error(`Unknown plan: ${params.plan}`);
   const periodEnd =
     params.currentPeriodEnd ??
     new Date(Date.now() + 365 * 86_400_000); // annual by default
+
+  const seats =
+    known.pricing === "per_seat"
+      ? normalizeSeats(params.plan, params.seats)
+      : (params.seats ?? known.seats);
 
   const sub = await db.companySettings.update({
     where: { id: "default" },
@@ -189,7 +299,7 @@ export async function activatePlan(
       plan: params.plan,
       subscriptionStatus: "ACTIVE",
       currentPeriodEnd: periodEnd,
-      seats: params.seats ?? known.seats,
+      seats,
       billingEmail: params.billingEmail ?? undefined,
       billingProvider: params.provider ?? undefined,
       stripeCustomerId: params.stripeCustomerId ?? undefined,
@@ -203,7 +313,7 @@ export async function activatePlan(
       entityType: "Subscription",
       entityId: "default",
       action: "ACTIVATED",
-      metadata: JSON.stringify({ plan: params.plan, periodEnd }),
+      metadata: JSON.stringify({ plan: params.plan, seats, periodEnd }),
       userId: params.userId ?? null,
     },
   });

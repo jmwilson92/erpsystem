@@ -3,7 +3,12 @@
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { createTrialCheckoutSession, stripeEnabled } from "@/lib/services/stripe";
-import { PLANS, TRIAL_DAYS } from "@/lib/services/subscription";
+import {
+  PLANS,
+  TRIAL_DAYS,
+  isPerSeatPlan,
+  normalizeSeats,
+} from "@/lib/services/subscription";
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
@@ -16,11 +21,16 @@ export async function actionStartTrial(formData: FormData) {
   const plan = String(formData.get("plan") || "").toUpperCase();
   const email = String(formData.get("email") || "").trim();
   const company = String(formData.get("company") || "").trim();
+  const seatsRaw = formData.get("seats");
 
   const selectable = PLANS.some((p) => p.key === plan && p.key !== "ENTERPRISE");
   if (!selectable) redirect(`/signup?error=plan`);
   if (!EMAIL_RE.test(email)) redirect(`/signup?error=email&plan=${plan}`);
   if (!stripeEnabled()) redirect(`/signup?error=unavailable&plan=${plan}`);
+
+  const seats = isPerSeatPlan(plan)
+    ? normalizeSeats(plan, Number(seatsRaw))
+    : null;
 
   const h = await headers();
   const appUrl =
@@ -31,6 +41,7 @@ export async function actionStartTrial(formData: FormData) {
   try {
     url = await createTrialCheckoutSession({
       plan,
+      seats,
       trialDays: TRIAL_DAYS,
       customerEmail: email,
       companyName: company || undefined,

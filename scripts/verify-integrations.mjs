@@ -30,7 +30,7 @@ console.log("── Config presence (values masked) ──");
 for (const k of [
   "PLAID_CLIENT_ID", "PLAID_SECRET", "PLAID_ENV",
   "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET",
-  "STRIPE_PRICE_STARTER", "STRIPE_PRICE_GROWTH", "STRIPE_PRICE_BUSINESS",
+  "STRIPE_PRICE_SHOP", "STRIPE_PRICE_STARTER", "STRIPE_PRICE_GROWTH", "STRIPE_PRICE_BUSINESS",
   "APP_URL",
 ]) {
   console.log(`  ${k.padEnd(24)} ${env[k] ? mask(env[k]) : "MISSING"}`);
@@ -51,6 +51,7 @@ async function checkStripe() {
   console.log(ok("secret key valid"));
   console.log(sk.startsWith("sk_test_") ? ok("test mode") : warn("LIVE key — use sk_test_ for sandbox"));
   for (const [label, key, expect] of [
+    ["Shop (per seat)", "STRIPE_PRICE_SHOP", 36000],
     ["Starter", "STRIPE_PRICE_STARTER", 360000],
     ["Growth", "STRIPE_PRICE_GROWTH", 840000],
     ["Business", "STRIPE_PRICE_BUSINESS", 1800000],

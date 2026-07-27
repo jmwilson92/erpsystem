@@ -274,6 +274,7 @@ export async function provisionDemo() {
  */
 export async function provisionCustomerTenant(params: {
   plan: string;
+  seats?: number | null;
   billingEmail: string;
   companyName?: string | null;
   trialDays: number;
@@ -330,6 +331,12 @@ export async function provisionCustomerTenant(params: {
     const db = clientForSchema(schemaName);
     // Essentials: a settings row carrying the trialing subscription state, and a
     // first admin user (no password yet — set during onboarding).
+    const { normalizeSeats, getPlan } = await import("./subscription");
+    const seats =
+      params.seats != null
+        ? normalizeSeats(params.plan, params.seats)
+        : getPlan(params.plan)?.seats ?? null;
+
     await db.companySettings.upsert({
       where: { id: "default" },
       create: {
@@ -338,7 +345,7 @@ export async function provisionCustomerTenant(params: {
         plan: params.plan,
         subscriptionStatus: "TRIALING",
         trialEndsAt,
-        seats: null,
+        seats,
         billingEmail: params.billingEmail,
         billingProvider: "stripe",
         stripeCustomerId: params.stripeCustomerId ?? undefined,
@@ -348,6 +355,7 @@ export async function provisionCustomerTenant(params: {
         plan: params.plan,
         subscriptionStatus: "TRIALING",
         trialEndsAt,
+        seats: seats ?? undefined,
         billingProvider: "stripe",
         billingEmail: params.billingEmail,
         stripeCustomerId: params.stripeCustomerId ?? undefined,

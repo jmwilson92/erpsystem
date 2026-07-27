@@ -32,7 +32,7 @@ Flagship chat (~$2/$6 per 1M) multiplies **chat** portion ~10×; TTS unchanged. 
 | Power user | 80 Q&A + 20 tours + 15 agent | **$1 – $2** |
 | 10 floor users mixed | 40 Q&A + 8 tours + 5 agent each | **$8 – $20** |
 
-Even a busy plant is usually **tens of dollars/month** in API cost on fast models — noise next to annual plans (Starter $3.6k / Growth $8.4k / Business $18k list).
+Even a busy plant is usually **tens of dollars/month** in API cost on fast models — noise next to annual plans (Shop from $360/user/yr · Starter $3.6k / Growth $8.4k / Business $18k list).
 
 ## Pricing philosophy
 

@@ -24,7 +24,12 @@ import {
   Database,
   Users,
 } from "lucide-react";
-import { PLANS, TRIAL_DAYS } from "@/lib/services/subscription";
+import {
+  PLANS,
+  TRIAL_DAYS,
+  planSeatsLabel,
+  type PlanDef,
+} from "@/lib/services/subscription";
 import { SiteHeader } from "./site-header";
 import { SiteFooter } from "./site-footer";
 import {
@@ -160,7 +165,7 @@ const FAQS = [
   },
   {
     q: "How is pricing structured?",
-    a: "Simple annual plans by seat band (Starter, Growth, Business) plus Enterprise for larger teams that need SSO, self-host, or custom modules. No per-module nickel-and-diming.",
+    a: "Shop is pay-per-seat for 1–10 users ($30/user/mo billed annually). Larger teams pick a flat annual seat band — Starter (30), Growth (100), or Business (250). Enterprise covers 251+, SSO, self-host, and custom modules. Every paid plan is the full product — no per-module nickel-and-diming.",
   },
 ];
 
@@ -174,6 +179,33 @@ const TRUST = [
 
 function money(n: number) {
   return `$${n.toLocaleString()}`;
+}
+
+/** Schema.org / list price: per-seat plans quote 1-seat annual. */
+function offerPrice(p: PlanDef): string {
+  return String(p.price);
+}
+
+function PlanPriceDisplay({ p }: { p: PlanDef }) {
+  if (p.pricing === "per_seat") {
+    return (
+      <div className="mt-2">
+        <span className="text-3xl font-bold">
+          {money(p.pricePerSeatMonthly ?? 30)}
+        </span>
+        <span className="text-sm text-slate-500">/user/mo</span>
+        <p className="mt-1 text-xs text-slate-500">
+          billed annually ({money(p.pricePerSeat ?? 360)}/user/yr)
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="mt-2">
+      <span className="text-3xl font-bold">{money(p.price)}</span>
+      <span className="text-sm text-slate-500">/year</span>
+    </div>
+  );
 }
 
 function JsonLd() {
@@ -211,7 +243,7 @@ function JsonLd() {
     offers: paid.map((p) => ({
       "@type": "Offer",
       name: `${p.name} plan`,
-      price: String(p.price),
+      price: offerPrice(p),
       priceCurrency: "USD",
       description: p.blurb,
       url: `${base}/signup?plan=${p.key.toLowerCase()}`,
@@ -515,52 +547,62 @@ export function LandingPage() {
                 id="pricing-heading"
                 className="mt-2 text-3xl font-bold tracking-tight"
               >
-                Simple, per-year manufacturing ERP pricing
+                Fair pricing from the smallest shop to the largest plant
               </h2>
               <p className="mx-auto mt-3 max-w-2xl text-slate-400">
-                Every plan is the full product — the tiers are just seat counts.
-                Start with a {TRIAL_DAYS}-day free trial; your card isn&rsquo;t
-                charged until it ends, and you have 15 days after that to request
-                a full refund.
+                Pay per user for 1–10 seats, then flat annual bands as you grow.
+                Every plan is the full product. Start with a {TRIAL_DAYS}-day free
+                trial; your card isn&rsquo;t charged until it ends, and you have
+                15 days after that to request a full refund.
               </p>
             </div>
 
-            <div className="mt-12 grid gap-5 lg:grid-cols-4">
-              {paid.map((p) => (
-                <div
-                  key={p.key}
-                  className={`relative flex flex-col rounded-2xl border p-6 ${
-                    p.key === "GROWTH"
-                      ? "border-teal-500/60 bg-teal-500/[0.06] ring-1 ring-teal-500/30"
-                      : "border-slate-800 bg-slate-950/40"
-                  }`}
-                >
-                  {p.key === "GROWTH" && (
-                    <span className="absolute right-4 top-4 rounded-full bg-teal-500 px-2 py-0.5 text-[10px] font-semibold uppercase text-slate-950">
-                      Most popular
-                    </span>
-                  )}
-                  <h3 className="text-lg font-semibold">{p.name}</h3>
-                  <div className="mt-2">
-                    <span className="text-3xl font-bold">{money(p.price)}</span>
-                    <span className="text-sm text-slate-500">/year</span>
-                  </div>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Up to {p.seats} users
-                  </p>
-                  <p className="mt-3 text-sm text-slate-400">{p.blurb}</p>
-                  <Link
-                    href={`/signup?plan=${p.key.toLowerCase()}`}
-                    className={`mt-auto inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors ${
-                      p.key === "GROWTH"
-                        ? "bg-teal-500 text-slate-950 hover:bg-teal-400"
-                        : "border border-slate-700 text-slate-100 hover:border-teal-500/50"
+            <div className="mt-12 grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
+              {paid.map((p) => {
+                const featured = p.key === "GROWTH";
+                const shopBadge = p.key === "SHOP";
+                return (
+                  <div
+                    key={p.key}
+                    className={`relative flex flex-col rounded-2xl border p-6 ${
+                      featured
+                        ? "border-teal-500/60 bg-teal-500/[0.06] ring-1 ring-teal-500/30"
+                        : shopBadge
+                          ? "border-cyan-500/40 bg-cyan-500/[0.04]"
+                          : "border-slate-800 bg-slate-950/40"
                     }`}
                   >
-                    Start free trial
-                  </Link>
-                </div>
-              ))}
+                    {featured && (
+                      <span className="absolute right-4 top-4 rounded-full bg-teal-500 px-2 py-0.5 text-[10px] font-semibold uppercase text-slate-950">
+                        Most popular
+                      </span>
+                    )}
+                    {shopBadge && (
+                      <span className="absolute right-4 top-4 rounded-full bg-cyan-500/20 px-2 py-0.5 text-[10px] font-semibold uppercase text-cyan-300">
+                        Small teams
+                      </span>
+                    )}
+                    <h3 className="text-lg font-semibold pr-24">{p.name}</h3>
+                    <PlanPriceDisplay p={p} />
+                    <p className="mt-1 text-xs text-slate-500">
+                      {planSeatsLabel(p)}
+                    </p>
+                    <p className="mt-3 flex-1 text-sm text-slate-400">
+                      {p.blurb}
+                    </p>
+                    <Link
+                      href={`/signup?plan=${p.key.toLowerCase()}`}
+                      className={`mt-5 inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors ${
+                        featured
+                          ? "bg-teal-500 text-slate-950 hover:bg-teal-400"
+                          : "border border-slate-700 text-slate-100 hover:border-teal-500/50"
+                      }`}
+                    >
+                      Start free trial
+                    </Link>
+                  </div>
+                );
+              })}
             </div>
 
             {enterprise && (

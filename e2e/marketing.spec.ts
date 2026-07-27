@@ -30,12 +30,13 @@ test.describe("Landing page", () => {
   test("pricing CTAs pre-select their plan", async ({ page }) => {
     await page.goto("/#pricing");
     // Each paid plan CTA carries ?plan=<key>
-    const growth = page.locator('a[href="/signup?plan=growth"]');
-    await expect(growth.first()).toBeVisible();
+    await expect(page.locator('a[href="/signup?plan=shop"]').first()).toBeVisible();
     await expect(page.locator('a[href="/signup?plan=starter"]').first()).toBeVisible();
+    await expect(page.locator('a[href="/signup?plan=growth"]').first()).toBeVisible();
     await expect(page.locator('a[href="/signup?plan=business"]').first()).toBeVisible();
-    // Most popular badge appears once (on Growth)
+    // Most popular badge appears once (on Growth); Shop has "Small teams"
     await expect(page.getByText("Most popular", { exact: false })).toHaveCount(1);
+    await expect(page.getByText("Small teams", { exact: false })).toHaveCount(1);
   });
 
   test("logo returns home from a deep page", async ({ page }) => {

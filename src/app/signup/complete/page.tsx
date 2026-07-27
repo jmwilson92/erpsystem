@@ -44,6 +44,7 @@ export default async function SignupCompletePage({
     }
     const tenant = await provisionCustomerTenant({
       plan: session.plan,
+      seats: session.seats,
       billingEmail: session.email,
       companyName: session.companyName,
       trialDays: TRIAL_DAYS,

@@ -96,7 +96,7 @@ DIRECT_URL="postgresql://postgres.xxxx:PW@aws-0-REGION.pooler.supabase.com:5432/
 
 **Optional integrations (set only what you use)**
 - [ ] Billing: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
-      `STRIPE_PRICE_STARTER`, `STRIPE_PRICE_GROWTH`, `STRIPE_PRICE_BUSINESS`
+      `STRIPE_PRICE_SHOP`, `STRIPE_PRICE_STARTER`, `STRIPE_PRICE_GROWTH`, `STRIPE_PRICE_BUSINESS`
 - [ ] Bank feeds: `PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_ENV`
 - [ ] Email: `RESEND_API_KEY` **or** `SMTP_URL`, plus `EMAIL_FROM`
 - [ ] AI assistant: `XAI_API_KEY`, `XAI_MODEL`

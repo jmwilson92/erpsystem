@@ -8,6 +8,8 @@ import {
   getSubscriptionState,
   PLANS,
   TRIAL_DAYS,
+  planSeatsLabel,
+  annualPriceForPlan,
 } from "@/lib/services/subscription";
 import {
   actionStartCheckout,
@@ -130,9 +132,10 @@ export default async function BillingPage({
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {PLANS.map((plan) => {
           const current = sub.plan === plan.key && sub.isPaid;
+          const isShop = plan.pricing === "per_seat";
           return (
             <Card
               key={plan.key}
@@ -153,6 +156,17 @@ export default async function BillingPage({
                 <p className="text-2xl font-bold text-slate-100">
                   {plan.key === "ENTERPRISE" ? (
                     "Custom"
+                  ) : isShop ? (
+                    <>
+                      {money(plan.pricePerSeatMonthly ?? 30)}
+                      <span className="text-sm font-normal text-slate-500">
+                        /user/mo
+                      </span>
+                      <span className="mt-0.5 block text-xs font-normal text-slate-500">
+                        billed annually ({money(plan.pricePerSeat ?? 360)}
+                        /user/yr)
+                      </span>
+                    </>
                   ) : (
                     <>
                       {money(plan.price)}
@@ -165,7 +179,7 @@ export default async function BillingPage({
                 <ul className="space-y-1 text-xs text-slate-400">
                   <li className="flex items-center gap-1.5">
                     <Check className="h-3.5 w-3.5 text-teal-400" />
-                    {plan.seats ? `Up to ${plan.seats} seats` : "Unlimited seats"}
+                    {planSeatsLabel(plan)}
                   </li>
                   <li className="flex items-center gap-1.5">
                     <Check className="h-3.5 w-3.5 text-teal-400" />
@@ -174,13 +188,35 @@ export default async function BillingPage({
                   {(plan.key === "BUSINESS" || plan.key === "ENTERPRISE") && (
                     <li className="flex items-center gap-1.5">
                       <Check className="h-3.5 w-3.5 text-teal-400" />
-                      Custom modules{plan.key === "ENTERPRISE" ? " + self-host + SSO" : ""}
+                      Custom modules
+                      {plan.key === "ENTERPRISE" ? " + self-host + SSO" : ""}
                     </li>
                   )}
                 </ul>
                 {canManage && !current && (
                   <form action={actionStartCheckout} className="space-y-2">
                     <input type="hidden" name="plan" value={plan.key} />
+                    {isShop && (
+                      <label className="block text-xs text-slate-400">
+                        Seats (1–{plan.maxSeats})
+                        <Input
+                          name="seats"
+                          type="number"
+                          min={plan.minSeats ?? 1}
+                          max={plan.maxSeats ?? 10}
+                          defaultValue={
+                            sub.plan === "SHOP" && sub.seats
+                              ? sub.seats
+                              : 3
+                          }
+                          className="mt-1 h-8 text-xs"
+                        />
+                        <span className="mt-1 block text-[11px] text-slate-500">
+                          Example: 3 seats ={" "}
+                          {money(annualPriceForPlan("SHOP", 3))}/yr
+                        </span>
+                      </label>
+                    )}
                     <Input
                       name="billingEmail"
                       type="email"
@@ -208,7 +244,9 @@ export default async function BillingPage({
           {!sub.isPaid && (
             <form action={actionStartTrial}>
               <Button type="submit" size="sm" variant="outline">
-                {sub.isTrialing ? "Restart 30-day trial" : `Start ${TRIAL_DAYS}-day trial`}
+                {sub.isTrialing
+                  ? "Restart 30-day trial"
+                  : `Start ${TRIAL_DAYS}-day trial`}
               </Button>
             </form>
           )}
@@ -221,11 +259,6 @@ export default async function BillingPage({
           )}
         </div>
       )}
-
-      <p className="text-[11px] text-slate-600">
-        Card payment via Stripe is coming online for the public beta — during the
-        beta, plans activate in-app. Billing questions? billing@forgerp.example
-      </p>
     </div>
   );
 }

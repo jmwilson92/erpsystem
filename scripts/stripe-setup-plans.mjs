@@ -7,6 +7,9 @@
  *   node scripts/stripe-setup-plans.mjs --write   # also write them into .env
  *
  * Reads STRIPE_SECRET_KEY from .env. Use your sk_test_ key for the sandbox.
+ *
+ * Shop is a *per-seat* annual price (quantity = seats at checkout).
+ * Starter / Growth / Business are flat annual (quantity = 1).
  */
 import fs from "fs";
 import path from "path";
@@ -31,9 +34,35 @@ if (!sk) {
 
 // Mirrors PLANS in src/lib/services/subscription.ts (amounts in cents).
 const PLANS = [
-  { key: "STARTER", name: "ForgeRP Starter", amount: 360000, envKey: "STRIPE_PRICE_STARTER", blurb: "Full ERP, single site, up to 30 users" },
-  { key: "GROWTH", name: "ForgeRP Growth", amount: 840000, envKey: "STRIPE_PRICE_GROWTH", blurb: "Priority support, up to 50 users" },
-  { key: "BUSINESS", name: "ForgeRP Business", amount: 1800000, envKey: "STRIPE_PRICE_BUSINESS", blurb: "Multi-site + custom modules, up to 150 users" },
+  {
+    key: "SHOP",
+    name: "ForgeRP Shop",
+    amount: 36000, // $360 / seat / year ($30/user/mo)
+    envKey: "STRIPE_PRICE_SHOP",
+    blurb: "Per-seat annual — full ERP for 1–10 users",
+    perSeat: true,
+  },
+  {
+    key: "STARTER",
+    name: "ForgeRP Starter",
+    amount: 360000,
+    envKey: "STRIPE_PRICE_STARTER",
+    blurb: "Full ERP, single site, up to 30 users",
+  },
+  {
+    key: "GROWTH",
+    name: "ForgeRP Growth",
+    amount: 840000,
+    envKey: "STRIPE_PRICE_GROWTH",
+    blurb: "Priority support, up to 100 users",
+  },
+  {
+    key: "BUSINESS",
+    name: "ForgeRP Business",
+    amount: 1800000,
+    envKey: "STRIPE_PRICE_BUSINESS",
+    blurb: "Multi-site + custom modules, up to 250 users",
+  },
 ];
 
 const api = async (method, pth, params) => {
@@ -66,12 +95,16 @@ for (const plan of PLANS) {
   let price = existing.data?.[0];
 
   if (price) {
-    console.log(`= ${plan.key}: reusing ${price.id} ($${(price.unit_amount / 100).toLocaleString()}/yr)`);
+    const unit = `$${(price.unit_amount / 100).toLocaleString()}/yr`;
+    console.log(
+      `= ${plan.key}: reusing ${price.id} (${unit}${plan.perSeat ? " per seat" : ""})`
+    );
   } else {
     const product = await api("POST", "/products", {
       name: plan.name,
       description: plan.blurb,
       "metadata[forgerp_plan]": plan.key,
+      "metadata[per_seat]": plan.perSeat ? "1" : "0",
     });
     price = await api("POST", "/prices", {
       product: product.id,
@@ -80,8 +113,11 @@ for (const plan of PLANS) {
       "recurring[interval]": "year",
       lookup_key: lookupKey,
       "metadata[forgerp_plan]": plan.key,
+      "metadata[per_seat]": plan.perSeat ? "1" : "0",
     });
-    console.log(`+ ${plan.key}: created ${price.id} ($${(plan.amount / 100).toLocaleString()}/yr)`);
+    console.log(
+      `+ ${plan.key}: created ${price.id} ($${(plan.amount / 100).toLocaleString()}/yr${plan.perSeat ? " per seat" : ""})`
+    );
   }
   results[plan.envKey] = price.id;
 }
@@ -91,11 +127,17 @@ console.log("\n── Add these to your .env ──\n" + block + "\n");
 
 if (process.argv.includes("--write")) {
   let content = "";
-  try { content = fs.readFileSync(envPath, "utf8"); } catch { /* new file */ }
+  try {
+    content = fs.readFileSync(envPath, "utf8");
+  } catch {
+    /* new file */
+  }
   for (const p of PLANS) {
     const line = `${p.envKey}=${results[p.envKey]}`;
     const re = new RegExp(`^\\s*#?\\s*${p.envKey}=.*$`, "m");
-    content = re.test(content) ? content.replace(re, line) : content.replace(/\n?$/, `\n${line}\n`);
+    content = re.test(content)
+      ? content.replace(re, line)
+      : content.replace(/\n?$/, `\n${line}\n`);
   }
   fs.writeFileSync(envPath, content);
   console.log("✓ Wrote the price IDs into .env");

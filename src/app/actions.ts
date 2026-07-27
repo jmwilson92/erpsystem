@@ -8720,11 +8720,19 @@ export async function actionActivatePlan(formData: FormData): Promise<void> {
   const user = await requirePermission("admin.permissions");
   const plan = ((formData.get("plan") as string) || "").trim();
   const billingEmail = ((formData.get("billingEmail") as string) || "").trim() || null;
+  const seatsRaw = formData.get("seats");
   try {
-    const { activatePlan } = await import("@/lib/services/subscription");
+    const {
+      activatePlan,
+      isPerSeatPlan,
+      normalizeSeats,
+    } = await import("@/lib/services/subscription");
     // Beta: activate in-app immediately. When Stripe is wired, this action
     // starts a checkout session and the webhook calls activatePlan on success.
-    await activatePlan({ plan, billingEmail, userId: user?.id });
+    const seats = isPerSeatPlan(plan)
+      ? normalizeSeats(plan, Number(seatsRaw))
+      : undefined;
+    await activatePlan({ plan, seats, billingEmail, userId: user?.id });
     await flashToast(`${plan} plan activated — you're all set`);
   } catch (err) {
     await flashToast(
@@ -8742,6 +8750,7 @@ export async function actionStartCheckout(formData: FormData): Promise<void> {
   const { stripeEnabled, createCheckoutSession } = await import("@/lib/services/stripe");
   const plan = ((formData.get("plan") as string) || "").trim();
   const billingEmail = ((formData.get("billingEmail") as string) || "").trim();
+  const seatsRaw = formData.get("seats");
 
   // No Stripe configured → fall back to in-app activation (beta behaviour).
   if (!stripeEnabled()) {
@@ -8750,6 +8759,9 @@ export async function actionStartCheckout(formData: FormData): Promise<void> {
   let url: string | null = null;
   try {
     const { headers } = await import("next/headers");
+    const { isPerSeatPlan, normalizeSeats } = await import(
+      "@/lib/services/subscription"
+    );
     const h = await headers();
     // Derive the base URL the *browser* is actually using, so Stripe returns
     // to the right place on Codespaces / proxies / custom domains without
@@ -8773,8 +8785,12 @@ export async function actionStartCheckout(formData: FormData): Promise<void> {
       const host = h.get("x-forwarded-host") || h.get("host") || "localhost:3000";
       appUrl = `${proto}://${host}`;
     }
+    const seats = isPerSeatPlan(plan)
+      ? normalizeSeats(plan, Number(seatsRaw))
+      : null;
     url = await createCheckoutSession({
       plan,
+      seats,
       customerEmail: billingEmail || user?.email || undefined,
       appUrl,
     });

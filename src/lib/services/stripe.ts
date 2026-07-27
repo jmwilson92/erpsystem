@@ -1,4 +1,9 @@
 import crypto from "crypto";
+import {
+  getPlan,
+  isPerSeatPlan,
+  normalizeSeats,
+} from "@/lib/services/subscription";
 
 /**
  * Minimal Stripe integration over the REST API (no SDK dependency). Env-gated:
@@ -6,7 +11,8 @@ import crypto from "crypto";
  *
  *   STRIPE_SECRET_KEY        sk_test_... / sk_live_...
  *   STRIPE_WEBHOOK_SECRET    whsec_...
- *   STRIPE_PRICE_STARTER     price_... (annual)
+ *   STRIPE_PRICE_SHOP        price_... (per-seat annual)
+ *   STRIPE_PRICE_STARTER     price_... (flat annual)
  *   STRIPE_PRICE_GROWTH      price_...
  *   STRIPE_PRICE_BUSINESS    price_...
  *   APP_URL                  https://your-instance (for success/cancel URLs)
@@ -22,6 +28,7 @@ export function stripeEnabled(): boolean {
 
 export function priceIdForPlan(plan: string): string | undefined {
   const map: Record<string, string | undefined> = {
+    SHOP: process.env.STRIPE_PRICE_SHOP,
     STARTER: process.env.STRIPE_PRICE_STARTER,
     GROWTH: process.env.STRIPE_PRICE_GROWTH,
     BUSINESS: process.env.STRIPE_PRICE_BUSINESS,
@@ -62,12 +69,19 @@ async function stripeGet(path: string) {
   return json;
 }
 
+/** Line-item quantity: seat count for Shop, 1 for flat plans. */
+function checkoutQuantity(plan: string, seats?: number | null): number {
+  if (!isPerSeatPlan(plan)) return 1;
+  return normalizeSeats(plan, seats) ?? 1;
+}
+
 export type CheckoutSessionInfo = {
   complete: boolean;
   customerId: string | null;
   subscriptionId: string | null;
   email: string;
   plan: string;
+  seats: number | null;
   companyName: string | null;
   /** true when this checkout should provision a self-serve customer tenant */
   provision: boolean;
@@ -91,12 +105,19 @@ export async function retrieveCheckoutSession(
     customer_details?: { email?: string | null } | null;
     metadata?: Record<string, string> | null;
   };
+  const plan = s.metadata?.plan || "STARTER";
+  const seatsRaw = s.metadata?.seats;
+  const seats =
+    seatsRaw != null && seatsRaw !== ""
+      ? normalizeSeats(plan, Number(seatsRaw))
+      : getPlan(plan)?.seats ?? null;
   return {
     complete: s.status === "complete",
     customerId: s.customer || null,
     subscriptionId: s.subscription || null,
     email: s.customer_email || s.customer_details?.email || "",
-    plan: s.metadata?.plan || "STARTER",
+    plan,
+    seats,
     companyName: s.metadata?.companyName || null,
     provision: s.metadata?.provision === "tenant",
   };
@@ -105,6 +126,7 @@ export async function retrieveCheckoutSession(
 /** Create a subscription Checkout Session; returns the hosted checkout URL. */
 export async function createCheckoutSession(params: {
   plan: string;
+  seats?: number | null;
   customerEmail?: string;
   appUrl: string;
 }): Promise<string> {
@@ -114,17 +136,24 @@ export async function createCheckoutSession(params: {
       `No Stripe price configured for ${params.plan}. Set STRIPE_PRICE_${params.plan}.`
     );
   }
+  const qty = checkoutQuantity(params.plan, params.seats);
+  const seatsMeta = isPerSeatPlan(params.plan)
+    ? String(qty)
+    : String(getPlan(params.plan)?.seats ?? "");
+
   const session = await stripePost(
     "/checkout/sessions",
     form({
       mode: "subscription",
       "line_items[0][price]": price,
-      "line_items[0][quantity]": "1",
+      "line_items[0][quantity]": String(qty),
       success_url: `${params.appUrl}/billing?checkout=success`,
       cancel_url: `${params.appUrl}/billing?checkout=cancel`,
       customer_email: params.customerEmail,
       "metadata[plan]": params.plan,
+      "metadata[seats]": seatsMeta,
       "subscription_data[metadata][plan]": params.plan,
+      "subscription_data[metadata][seats]": seatsMeta,
       allow_promotion_codes: "true",
     })
   );
@@ -156,6 +185,7 @@ export function launchPromoActive(now: Date = new Date()): boolean {
  */
 export async function createTrialCheckoutSession(params: {
   plan: string;
+  seats?: number | null;
   trialDays: number;
   customerEmail?: string;
   companyName?: string;
@@ -169,11 +199,15 @@ export async function createTrialCheckoutSession(params: {
   }
   const coupon = process.env.STRIPE_COUPON_LAUNCH;
   const applyCoupon = coupon && launchPromoActive();
+  const qty = checkoutQuantity(params.plan, params.seats);
+  const seatsMeta = isPerSeatPlan(params.plan)
+    ? String(qty)
+    : String(getPlan(params.plan)?.seats ?? "");
 
   const body: Record<string, string | undefined> = {
     mode: "subscription",
     "line_items[0][price]": price,
-    "line_items[0][quantity]": "1",
+    "line_items[0][quantity]": String(qty),
     success_url: `${params.appUrl}/signup/complete?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${params.appUrl}/signup?checkout=cancel&plan=${params.plan}`,
     customer_email: params.customerEmail,
@@ -181,8 +215,10 @@ export async function createTrialCheckoutSession(params: {
     payment_method_collection: "always",
     "subscription_data[trial_period_days]": String(params.trialDays),
     "subscription_data[metadata][plan]": params.plan,
+    "subscription_data[metadata][seats]": seatsMeta,
     "subscription_data[metadata][provision]": "tenant",
     "metadata[plan]": params.plan,
+    "metadata[seats]": seatsMeta,
     "metadata[provision]": "tenant",
     "metadata[companyName]": params.companyName,
     allow_promotion_codes: applyCoupon ? undefined : "true",
@@ -228,6 +264,24 @@ function meta(obj: Record<string, unknown>): Record<string, string> {
   return (obj.metadata as Record<string, string> | undefined) ?? {};
 }
 
+function seatsFromMeta(
+  plan: string,
+  m: Record<string, string>,
+  obj?: Record<string, unknown>
+): number | null {
+  if (m.seats != null && m.seats !== "") {
+    return normalizeSeats(plan, Number(m.seats));
+  }
+  // Fallback: subscription item quantity (Shop)
+  const qty = (
+    obj?.items as { data?: { quantity?: number }[] } | undefined
+  )?.data?.[0]?.quantity;
+  if (typeof qty === "number" && qty > 0 && isPerSeatPlan(plan)) {
+    return normalizeSeats(plan, qty);
+  }
+  return getPlan(plan)?.seats ?? null;
+}
+
 /**
  * Map a verified webhook event onto tenant subscription state.
  *
@@ -259,8 +313,10 @@ export async function handleWebhookEvent(event: {
       ((obj.customer_details as Record<string, string> | undefined)?.email) ||
       "";
     if (!email) throw new Error("checkout.session.completed missing customer email");
+    const plan = m.plan || "STARTER";
     await provisionCustomerTenant({
-      plan: m.plan || "STARTER",
+      plan,
+      seats: seatsFromMeta(plan, m),
       billingEmail: email,
       companyName: m.companyName || null,
       trialDays: 45,
@@ -289,9 +345,11 @@ export async function handleWebhookEvent(event: {
       (obj.current_period_end as number | undefined) ??
       (obj.lines as { data?: { period?: { end?: number } }[] } | undefined)
         ?.data?.[0]?.period?.end;
+    const plan = tenant.plan || meta(obj).plan || "STARTER";
     await activatePlan(
       {
-        plan: tenant.plan || meta(obj).plan || "STARTER",
+        plan,
+        seats: seatsFromMeta(plan, meta(obj), obj),
         provider: "stripe",
         currentPeriodEnd: periodEndUnix ? new Date(periodEndUnix * 1000) : null,
         stripeCustomerId: customerId,
