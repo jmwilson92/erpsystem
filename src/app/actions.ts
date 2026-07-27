@@ -37,7 +37,6 @@ import {
   createQuote,
   convertQuoteToSalesOrder,
   planSalesOrderFulfillment,
-  planWorkOrderMaterials,
   createKitOrder,
   completeKitOrder,
   startProductionFromKit,
