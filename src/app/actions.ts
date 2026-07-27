@@ -1681,22 +1681,58 @@ export async function actionRequestPasswordReset(
   const { headers } = await import("next/headers");
   const email = ((formData.get("email") as string) || "").trim().toLowerCase();
   if (!email) return { ok: false, message: "Enter your e-mail" };
-  const existing = await prisma.user.findFirst({ where: { email } });
+
+  // Look the account up the same way login does — NOT through the request-scoped
+  // `prisma` proxy. Resetting happens from /login, but the browser may still
+  // carry a forge-tenant/forge-demo cookie from a previous session; the proxy
+  // would then search that schema, miss a platform account entirely, and the
+  // uniform "link sent" response would hide the miss. Platform first, then the
+  // tenant directory.
+  const { controlPlaneClient, clientForSchema } = await import("@/lib/db");
+  const cp = controlPlaneClient();
+  let existing = await cp.user
+    .findFirst({ where: { email } })
+    .catch(() => null);
+  if (!existing) {
+    const dir = await cp.tenantLogin
+      .findUnique({ where: { email } })
+      .catch(() => null);
+    if (dir?.schemaName) {
+      existing = await clientForSchema(dir.schemaName)
+        .user.findFirst({ where: { email } })
+        .catch(() => null);
+    }
+  }
+
   if (existing) {
     const h = await headers();
     const proto = h.get("x-forwarded-proto") || "http";
     const host = h.get("host") || "localhost:3000";
-    await createInvite({
-      email,
-      kind: "RESET",
-      role: existing.role,
-      baseUrl: `${proto}://${host}`,
-    }).catch(() => null);
+    try {
+      await createInvite({
+        email,
+        kind: "RESET",
+        role: existing.role,
+        baseUrl: `${proto}://${host}`,
+      });
+    } catch (err) {
+      // Still answer uniformly to the visitor, but make the failure findable
+      // instead of vanishing into a .catch(() => null).
+      console.error("[auth] password reset failed for", email, err);
+      const { trackEvent } = await import("@/lib/services/telemetry");
+      trackEvent({
+        kind: "ERROR",
+        source: "PLATFORM",
+        label: `password reset failed: ${err instanceof Error ? err.message : String(err)}`,
+        severity: "error",
+        path: "/login",
+      });
+    }
   }
   // Uniform response — never reveal whether the account exists
   return {
     ok: true,
-    message: "If that account exists, a reset link has been sent (check the Email Center in demo mode).",
+    message: "If that account exists, a reset link is on its way. Check your inbox (and spam).",
   };
 }
 
