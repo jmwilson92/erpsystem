@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import {
   Factory,
   FlaskConical,
@@ -215,22 +216,35 @@ function CinematicSection({
   image,
   children,
   className = "",
+  priority = false,
 }: {
   id?: string;
   image: string;
   children: import("react").ReactNode;
   className?: string;
+  /** Set on the first section so its art isn't lazy-loaded (LCP). */
+  priority?: boolean;
 }) {
   return (
     <section
       id={id}
       className={`relative scroll-mt-20 overflow-hidden ${className}`}
     >
-      <div
-        className="absolute inset-0 scale-105 bg-cover bg-center"
-        style={{ backgroundImage: `url(${image})` }}
-        aria-hidden
-      />
+      {/* next/image (not a CSS background) so these are served as AVIF/WebP at
+          a size matched to the device. Full-resolution source art can then be
+          dropped in without shipping multi-MB JPEGs to phones. `fill` needs a
+          positioned parent, which the wrapper provides. */}
+      <div className="absolute inset-0 scale-105" aria-hidden>
+        <Image
+          src={image}
+          alt=""
+          fill
+          priority={priority}
+          quality={82}
+          sizes="100vw"
+          className="object-cover object-center"
+        />
+      </div>
       <div className="relative z-10">{children}</div>
     </section>
   );
@@ -500,7 +514,7 @@ export function LandingPage({
         </section>
 
         {/* Who it's for — operator hologram wall */}
-        <CinematicSection id="who" image={ART.operator}>
+        <CinematicSection id="who" image={ART.operator} priority>
           <div className="mx-auto max-w-6xl px-6 py-20">
             <SectionIntro
               eyebrow="Built for manufacturers"
