@@ -14,7 +14,11 @@ export {
   planSeatsLabel,
   type PlanDef,
 } from "./subscription-plans";
-import { getPlan } from "./subscription-plans";
+import {
+  getPlan,
+  normalizeSeats,
+  TRIAL_DAYS,
+} from "./subscription-plans";
 
 /**
  * A Prisma-ish client. Every function here defaults to the request-scoped
