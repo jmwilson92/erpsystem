@@ -63,9 +63,15 @@ function ShellInner({
     return <>{children}</>;
   }
 
+  // Support Staff portal — own chrome (StaffDeskShell), no ERP sidebar/header.
+  // Keep AppShell mounted so "Exit portal" → / soft-nav restores the shell
+  // (sidebar + logout) instead of a bare page.
+  if (pathname?.startsWith("/admin/support")) {
+    return <>{children}</>;
+  }
+
   // Help bubble for everyone in the ERP (including platform admins testing).
-  // Hide only on the staff desk route so it doesn't cover ticket work.
-  const showHelpBubble = !pathname?.startsWith("/admin/support");
+  const showHelpBubble = true;
 
   // Demo splash can render without sidebar chrome but still gets the bubble.
   if (pathname?.startsWith("/demo")) {

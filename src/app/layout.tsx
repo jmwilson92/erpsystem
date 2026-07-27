@@ -197,33 +197,10 @@ export default async function RootLayout({
   // Platform support (ForgeRP dogfood + public marketing) — never customer/demo.
   const platformSupport = await isPlatformSupportEnabled();
 
-  // Platform staff support desk — standalone page, no ERP chrome, no chat bubble.
-  // Unlisted in nav; staff type /admin/support. Gating is in admin/support/layout.
-  const isStaffDesk = pathname.startsWith("/admin/support");
-  if (isStaffDesk) {
-    if (process.env.DEMO_MODE === "0" && !currentUser) {
-      redirect(`/login?next=${encodeURIComponent(pathname || "/admin/support")}`);
-    }
-    return (
-      <html lang="en" className="dark" suppressHydrationWarning>
-        <head>
-          <script
-            dangerouslySetInnerHTML={{
-              __html: `try{var t=localStorage.getItem("forge-theme")||(matchMedia("(prefers-color-scheme: light)").matches?"light":"dark");var c=document.documentElement.classList;c.toggle("dark",t==="dark");c.toggle("light",t==="light");document.documentElement.style.colorScheme=t;}catch(e){}`,
-            }}
-          />
-        </head>
-        <body
-          className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-          suppressHydrationWarning
-        >
-          {children}
-          <CookieBanner />
-          <Analytics />
-        </body>
-      </html>
-    );
-  }
+  // Staff desk (/admin/support) uses the same root tree as the ERP shell.
+  // AppShell hides sidebar/header for that path (see app-shell.tsx). Returning a
+  // separate bare <html> here used to break soft nav on "Exit portal" — users
+  // landed on / without sidebar or the header logout menu.
 
   // Public marketing surfaces render without the ERP app shell (no sidebar).
   // Opening the Forge is splash-only. ?app=1 always uses the full ERP shell

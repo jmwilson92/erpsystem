@@ -1,11 +1,15 @@
 import Link from "next/link";
 import { ForgeMark } from "@/components/marketing/logo";
 import { LifeBuoy } from "lucide-react";
+import { actionLogout } from "@/app/actions";
 
 /**
  * Standalone Support Staff portal (/admin/support).
  * Separate from ERP company admins — no ERP sidebar or modules.
  * Staff type the URL; it is not listed in the ERP nav.
+ *
+ * "Exit portal" uses a full document navigation so the ERP shell (sidebar +
+ * header logout) always remounts cleanly after leaving the portal.
  */
 export function StaffDeskShell({
   children,
@@ -42,12 +46,21 @@ export function StaffDeskShell({
             >
               Queue
             </Link>
-            <Link
+            {/* Full page load — not Next <Link> — so AppShell remounts with sidebar */}
+            <a
               href="/"
               className="rounded-lg border border-slate-700 px-3 py-1.5 text-slate-300 hover:border-slate-500"
             >
               Exit portal
-            </Link>
+            </a>
+            <form action={actionLogout}>
+              <button
+                type="submit"
+                className="rounded-lg px-3 py-1.5 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+              >
+                Sign out
+              </button>
+            </form>
           </div>
         </div>
       </header>
