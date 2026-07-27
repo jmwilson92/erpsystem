@@ -233,19 +233,41 @@ export async function loginWithPassword(params: {
     throw new Error("Invalid e-mail or password");
   };
 
-  // Resolve the customer's workspace from the control-plane directory. An email
-  // that isn't a registered tenant login is a public/dogfood account.
+  // Where does this address sign in? Usually one place, but the platform owner
+  // can legitimately exist in BOTH: an account on public (dogfood / staff desk)
+  // and a tenant login from testing a signup with the same address. Try the
+  // platform account first so a test signup can never lock the owner out of
+  // their own instance, then fall back to the tenant directory.
+  const candidates: (string | null)[] = [];
+  const platformUser = await controlPlaneClient()
+    .user.findFirst({
+      where: { email: { equals: email }, isActive: true, passwordHash: { not: null } },
+      select: { id: true },
+    })
+    .catch(() => null);
+  if (platformUser) candidates.push(null); // null = public / platform
   const directory = await controlPlaneClient()
     .tenantLogin.findUnique({ where: { email } })
     .catch(() => null);
-  const schema = directory?.schemaName ?? null;
-  const db: Pick<PrismaClient, "user"> = schema
-    ? clientForSchema(schema)
-    : controlPlaneClient();
+  if (directory?.schemaName) candidates.push(directory.schemaName);
+  if (candidates.length === 0) candidates.push(null); // nothing found → uniform failure
 
-  const user = await db.user.findFirst({ where: { email: { equals: email } } });
-  if (!user || !user.isActive || !user.passwordHash) fail();
-  if (!verifyPassword(params.password, user!.passwordHash!)) fail();
+  let schema: string | null = null;
+  let user: Awaited<ReturnType<PrismaClient["user"]["findFirst"]>> = null;
+  for (const candidate of candidates) {
+    const db: Pick<PrismaClient, "user"> = candidate
+      ? clientForSchema(candidate)
+      : controlPlaneClient();
+    const found = await db.user
+      .findFirst({ where: { email: { equals: email } } })
+      .catch(() => null);
+    if (!found || !found.isActive || !found.passwordHash) continue;
+    if (!verifyPassword(params.password, found.passwordHash)) continue;
+    schema = candidate;
+    user = found;
+    break;
+  }
+  if (!user) fail();
 
   clearLoginFailures(email);
   if (schema) {
@@ -379,10 +401,24 @@ export async function createInvite(params: {
   // the login directory by email. Otherwise it's a public/dogfood invite.
   let schemaName = await currentRequestSchema();
   if (schemaName === "public") {
-    const dir = await controlPlaneClient()
-      .tenantLogin.findUnique({ where: { email } })
-      .catch(() => null);
-    if (dir) schemaName = dir.schemaName;
+    // Same precedence as login: a platform/dogfood account with this address
+    // owns the reset, even if the address also appears in the tenant directory
+    // (owner testing a signup). Otherwise route to the customer's schema.
+    const platformUser =
+      kind === "RESET"
+        ? await controlPlaneClient()
+            .user.findFirst({
+              where: { email: { equals: email }, isActive: true },
+              select: { id: true },
+            })
+            .catch(() => null)
+        : null;
+    if (!platformUser) {
+      const dir = await controlPlaneClient()
+        .tenantLogin.findUnique({ where: { email } })
+        .catch(() => null);
+      if (dir) schemaName = dir.schemaName;
+    }
   }
   const db = dbForSchema(schemaName);
 
