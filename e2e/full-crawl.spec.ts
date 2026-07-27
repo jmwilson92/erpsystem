@@ -31,9 +31,13 @@ test.describe("Full route crawl", () => {
       page.on("console", (msg) => {
         if (msg.type() === "error") {
           const t = msg.text();
-          // ignore noisy third-party / expected warnings
+          // Ignore noisy third-party / expected warnings. `_vercel/insights` is
+          // Vercel Analytics: that script only exists on Vercel's edge, so it
+          // 404s (as HTML) on any local/self-hosted run — not an app error.
           if (
-            !/favicon|Failed to load resource|manifest|hydrat|Download the React|preload/i.test(t)
+            !/favicon|Failed to load resource|manifest|hydrat|Download the React|preload|_vercel\/insights|vercel\/speed-insights/i.test(
+              t
+            )
           ) {
             consoleErrors.push(t);
           }

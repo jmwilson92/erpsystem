@@ -69,11 +69,16 @@ test.describe.serial("Authenticated app", () => {
     await expect(page.locator("body")).not.toContainText(/unexpected error|Application error/i);
   });
 
-  test("logout returns to login", async ({ page }) => {
+  test("logout ends the session and lands on marketing", async ({ page }) => {
     await login(page);
-    await page.locator('[data-tour="account-menu"] button').first().click();
-    await page.getByRole("button", { name: /Sign out/i }).click();
-    await page.waitForURL(/\/login/, { timeout: 30_000 });
-    await expect(page.locator('input[name="password"]')).toBeVisible();
+    const menu = page.locator('[data-tour="account-menu"]');
+    await menu.locator("button").first().click();
+    await menu.getByRole("button", { name: /Sign out/i }).click();
+    // Signing out lands on the public marketing site (by design — not forced
+    // back to /login). Apex shows the splash; /welcome is the full landing.
+    await page.waitForURL(/\/welcome|\/$/, { timeout: 30_000 });
+    // The session is really gone: an app route now bounces to login.
+    await page.goto("/purchasing");
+    await expect(page).toHaveURL(/\/login/);
   });
 });

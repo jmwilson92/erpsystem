@@ -205,18 +205,53 @@ export async function cloneSchema(source: string, dest: string): Promise<void> {
     //    exist yet). Batched into one multi-statement query so it's a single
     //    round trip (matters on a remote DB), fully qualified so search_path is
     //    irrelevant.
+    //
+    //    Columns are listed EXPLICITLY rather than `SELECT *`: the source
+    //    (e.g. a demo_template built before the last schema change) can have a
+    //    different column set/order than the freshly created dest. `SELECT *`
+    //    copies positionally, so one added column silently shifts every value
+    //    and the clone dies on a NOT NULL violation. Copying the intersection
+    //    by name means added columns take their defaults, dropped columns are
+    //    skipped, and order never matters.
     const { rows } = await client.query<{ tablename: string }>(
       `SELECT tablename FROM pg_tables WHERE schemaname = $1`,
       [source]
     );
     if (rows.length > 0) {
-      const copySql = rows
-        .map(
-          ({ tablename }) =>
-            `INSERT INTO "${dest}"."${tablename}" SELECT * FROM "${source}"."${tablename}";`
-        )
-        .join("\n");
-      await client.query(copySql);
+      const { rows: cols } = await client.query<{
+        table_schema: string;
+        table_name: string;
+        column_name: string;
+      }>(
+        `SELECT table_schema, table_name, column_name
+           FROM information_schema.columns
+          WHERE table_schema IN ($1, $2)`,
+        [source, dest]
+      );
+      const bySchema = new Map<string, Map<string, Set<string>>>();
+      for (const c of cols) {
+        let tables = bySchema.get(c.table_schema);
+        if (!tables) bySchema.set(c.table_schema, (tables = new Map()));
+        let set = tables.get(c.table_name);
+        if (!set) tables.set(c.table_name, (set = new Set()));
+        set.add(c.column_name);
+      }
+      const srcCols = bySchema.get(source) ?? new Map();
+      const dstCols = bySchema.get(dest) ?? new Map();
+
+      const statements: string[] = [];
+      for (const { tablename } of rows) {
+        const s = srcCols.get(tablename);
+        const d = dstCols.get(tablename);
+        if (!s || !d) continue; // table missing on one side — skip, not fatal
+        const shared = [...s].filter((c) => d.has(c));
+        if (shared.length === 0) continue;
+        const list = shared.map((c) => `"${c}"`).join(", ");
+        statements.push(
+          `INSERT INTO "${dest}"."${tablename}" (${list}) SELECT ${list} FROM "${source}"."${tablename}";`
+        );
+      }
+      if (statements.length > 0) await client.query(statements.join("\n"));
     }
     // 3. Now add the foreign keys (data is already consistent).
     await client.query(`SET search_path TO "${dest}";\n${TENANT_FKS_SQL}`);

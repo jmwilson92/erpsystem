@@ -4,8 +4,13 @@ import { join } from "node:path";
 
 /**
  * Real customer tenant lifecycle (DEMO_MODE=0). Provision a tenant fixture with:
- *   npx tsx scripts/_provision-fixture.ts   (writes e2e/tenant-fixture.json)
- * then this claims it in the browser and proves the customer can get in and
+ *   npx tsx scripts/e2e-provision-fixture.ts   (writes e2e/tenant-fixture.json)
+ *
+ * The fixture is SINGLE USE — claiming consumes the onboarding token (that is
+ * the product behaviour), so re-run the provision script before each run of
+ * this spec or the claim step reports "invalid or has expired".
+ *
+ * It claims the tenant in the browser and proves the customer can get in and
  * stay isolated:
  *   onboard/<token> -> set password -> lands in the guided setup wizard
  *   trial banner shows the chosen plan (not "pick a plan")
@@ -43,11 +48,15 @@ test("customer claims workspace and logs into their own tenant", async ({ page }
   await page.goto("/admin/tenants");
   await expect(page).not.toHaveURL(/\/admin\/tenants$/); // redirected away
 
-  // 4) Log out, then log back in by email -> routed back to this tenant
-  await page.locator('[data-tour="account-menu"] button').first().click();
-  await page.getByRole("button", { name: /Sign out/i }).click();
-  await page.waitForURL(/\/login/, { timeout: 30_000 });
+  // 4) Log out, then log back in by email -> routed back to this tenant.
+  //    Signing out lands on the public marketing site (by design), so navigate
+  //    to /login explicitly rather than expecting a redirect there.
+  const menu = page.locator('[data-tour="account-menu"]');
+  await menu.locator("button").first().click();
+  await menu.getByRole("button", { name: /Sign out/i }).click();
+  await page.waitForURL(/\/welcome|\/$/, { timeout: 30_000 });
 
+  await page.goto("/login");
   await page.fill('input[name="email"]', email);
   await page.fill('input[name="password"]', PASSWORD);
   await page.getByRole("button", { name: "Sign in" }).click();

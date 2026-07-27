@@ -66,9 +66,18 @@ async function first(model: string): Promise<string | null> {
   }
 }
 
+/**
+ * Static routes that legitimately 404 without query params or seed data, so
+ * crawling them bare proves nothing. (They still render fine when reached the
+ * normal way — with a `?report=` param, or once the record exists.)
+ */
+const SKIP_STATIC = new Set(["/print/report", "/print/labels"]);
+
 async function main() {
   const urls: Record<string, string> = {};
-  for (const r of staticRoutes(join(process.cwd(), "src/app"))) urls[r] = r;
+  for (const r of staticRoutes(join(process.cwd(), "src/app"))) {
+    if (!SKIP_STATIC.has(r)) urls[r] = r;
+  }
   for (const [tpl, model] of Object.entries(DYNAMIC)) {
     const id = await first(model);
     if (id) urls[tpl] = tpl.replace(/\[[^\]]+\]/, id);

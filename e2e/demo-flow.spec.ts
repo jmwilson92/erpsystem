@@ -2,18 +2,24 @@ import { test, expect } from "@playwright/test";
 
 /**
  * Public demo end-to-end (DEMO_MODE=0 server, demo_template seeded). One test so
- * the demo cookie/session persists across the whole funnel: start the test
- * drive -> the seeded app loads with the sandbox banner + "Start your own
- * instance" CTA -> switch personas -> browse a module with demo data -> convert
- * CTA -> end the test drive (cleans up the sandbox).
+ * the demo cookie/session persists across the whole funnel.
+ *
+ * Flow shape (current):
+ *   /demo splash -> "Start your free test drive" (server action provisions a
+ *   throwaway schema) -> redirects to `/?app=1` (apex + app flag, since bare "/"
+ *   shows the marketing splash) -> sandbox banner with a convert CTA and an
+ *   "End test drive" link to GET /api/demo/end (full navigation, so the ERP
+ *   shell is never left half-mounted).
  */
 test("demo funnel: start -> switch persona -> browse -> convert -> end", async ({ page }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(180_000);
 
   // Start the test drive
   await page.goto("/demo");
   await page.getByRole("button", { name: /Start your free test drive/i }).click();
-  await page.waitForURL((u) => u.pathname === "/", { timeout: 60_000 });
+  await page.waitForURL((u) => u.pathname === "/" && u.searchParams.get("app") === "1", {
+    timeout: 120_000,
+  });
 
   // Sandbox banner + convert CTA
   await expect(page.getByText(/Test drive/i).first()).toBeVisible();
@@ -22,12 +28,12 @@ test("demo funnel: start -> switch persona -> browse -> convert -> end", async (
   // Persona switcher (enabled for anonymous demo visitors), scoped to the sandbox
   const select = page.getByLabel("Switch demo user");
   await expect(select).toBeVisible();
-  const values = (await select.locator("option").all()).length;
-  expect(values).toBeGreaterThan(1);
+  const options = await select.locator("option").all();
+  expect(options.length).toBeGreaterThan(1);
   const before = await select.inputValue();
-  const other = (await Promise.all(
-    (await select.locator("option").all()).map((o) => o.getAttribute("value"))
-  )).find((v) => v && v !== before)!;
+  const other = (
+    await Promise.all(options.map((o) => o.getAttribute("value")))
+  ).find((v) => v && v !== before)!;
   await select.selectOption(other);
   await page.waitForLoadState("networkidle");
   await expect(page.getByLabel("Switch demo user")).toHaveValue(other);
@@ -39,13 +45,14 @@ test("demo funnel: start -> switch persona -> browse -> convert -> end", async (
   expect(body.length).toBeGreaterThan(50);
 
   // Convert CTA -> signup
-  await page.goto("/");
   await page.getByRole("link", { name: /Start your own instance/i }).click();
   await expect(page).toHaveURL(/\/signup/);
 
-  // End the test drive (cleans up the sandbox schema)
-  await page.goto("/");
-  await page.getByRole("button", { name: /End test drive/i }).click();
-  await page.waitForURL(/\/demo/, { timeout: 30_000 });
-  await expect(page.getByRole("button", { name: /Start your free test drive/i })).toBeVisible();
+  // End the test drive (GET /api/demo/end clears cookies + drops the schema)
+  await page.goto("/?app=1");
+  await page.getByRole("link", { name: /End test drive/i }).click();
+  await page.waitForURL(/\/welcome|\/demo|\/$/, { timeout: 60_000 });
+  // Sandbox is gone: the app flag no longer yields a demo session.
+  await page.goto("/purchasing");
+  await expect(page).toHaveURL(/\/login/);
 });

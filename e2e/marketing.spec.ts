@@ -42,7 +42,9 @@ test.describe("Landing page", () => {
   test("logo returns home from a deep page", async ({ page }) => {
     await page.goto("/legal/terms-of-service");
     await page.getByRole("link", { name: /ForgeRP home|^ForgeRP/ }).first().click();
-    await expect(page).toHaveURL(/\/$|\/#/);
+    // Marketing home is /welcome; the apex "/" shows the splash for anonymous
+    // visitors, so either destination counts as "back to the marketing site".
+    await expect(page).toHaveURL(/\/welcome|\/$|\/#/);
   });
 });
 
