@@ -56,6 +56,14 @@ test.describe.serial("Authenticated app", () => {
     expect(onTop, "account dropdown is not occluded").toBeTruthy();
   });
 
+  test("platform admin sees the staff portal links", async ({ page }) => {
+    await login(page);
+    await page.goto("/");
+    // Owner-only nav section (never rendered for tenants/demo — see below spec)
+    await expect(page.getByRole("link", { name: /Support desk/i })).toBeVisible();
+    await expect(page.getByRole("link", { name: /Product insights/i })).toBeVisible();
+  });
+
   test("sidebar navigation works", async ({ page }) => {
     await login(page);
     // Navigate to a couple of core modules via their links

@@ -7,11 +7,23 @@ import { NAV_GROUPS, activeNavHref } from "@/lib/navigation";
 import { moduleKeyForPath } from "@/lib/modules";
 import { actionSwitchDemoUser } from "@/app/actions";
 import type { DemoUser } from "./app-shell";
-import { ChevronLeft, ChevronDown, Flame } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronDown,
+  Flame,
+  LifeBuoy,
+  BarChart3,
+} from "lucide-react";
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 const COLLAPSED_GROUPS_KEY = "forge-nav-collapsed-groups";
+
+/** ForgeRP-staff-only destinations (never rendered for tenants or demo). */
+const STAFF_LINKS = [
+  { href: "/admin/support", label: "Support desk", icon: LifeBuoy },
+  { href: "/admin/insights", label: "Product insights", icon: BarChart3 },
+] as const;
 
 export function Sidebar({
   demoUsers = [],
@@ -26,10 +38,9 @@ export function Sidebar({
   badges?: Record<string, number>;
   company?: { name: string; tagline: string };
   disabledModules?: string[];
-  /** Reserved for future platform-only nav; staff desk is unlisted */
+  /** True only on the ForgeRP platform instance (no tenant/demo cookie). */
   platformSupport?: boolean;
 }) {
-  void platformSupport;
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -173,6 +184,44 @@ export function Sidebar({
             </div>
           );
         })}
+
+        {/* ForgeRP staff portal — platform instance + ADMIN only.
+            `platformSupport` is false whenever a forge-tenant or forge-demo
+            cookie is present, so a customer's own ADMIN and demo visitors never
+            see this (and the pages themselves re-check the same guard). */}
+        {platformSupport && currentUser?.role === "ADMIN" && (
+          <div className="mt-4 border-t border-slate-800/80 pt-3">
+            {!collapsed && (
+              <p className="px-2 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-600">
+                ForgeRP staff
+              </p>
+            )}
+            <ul className="space-y-0.5">
+              {STAFF_LINKS.map((item) => {
+                const active = pathname?.startsWith(item.href);
+                return (
+                  <li key={item.href}>
+                    <Link
+                      href={item.href}
+                      title={collapsed ? item.label : undefined}
+                      className={cn(
+                        "flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors",
+                        active
+                          ? "bg-teal-500/15 text-teal-300"
+                          : "text-slate-400 hover:bg-slate-900 hover:text-slate-200"
+                      )}
+                    >
+                      <span className="grid h-5 w-5 shrink-0 place-items-center">
+                        <item.icon className="h-4 w-4" />
+                      </span>
+                      {!collapsed && <span className="truncate">{item.label}</span>}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
       </nav>
 
       <div className="shrink-0 border-t border-slate-800/80 p-3">
