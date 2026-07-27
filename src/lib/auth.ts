@@ -28,6 +28,8 @@ export async function getCurrentUser(roleHint?: string) {
   // 1b. Anonymous demo visitor: signed in as the demo schema's admin. `prisma`
   // already routes to that schema (see currentDemoSchema in db.ts), so a plain
   // user lookup resolves against the demo's own seeded users — never public.
+  // If the schema is missing tables (stale cookie after failed provision /
+  // destroy), rethrow so the root layout can clear the cookie via /api/demo/reset.
   try {
     const jar = await cookies();
     const demoSchema = jar.get("forge-demo")?.value;
@@ -55,9 +57,19 @@ export async function getCurrentUser(roleHint?: string) {
         (await prisma.user.findFirst({ where: { role: "ADMIN", isActive: true } })) ??
         (await prisma.user.findFirst({ where: { isActive: true } }));
       if (admin) return admin;
+      // Schema exists but has no users — treat as broken sandbox.
+      throw new Error(`Demo schema ${demoSchema} has no active users`);
     }
-  } catch {
-    /* outside request scope */
+  } catch (err) {
+    // Prisma "table does not exist" / empty schema — surface to layout.
+    const msg = err instanceof Error ? err.message : String(err);
+    if (
+      /does not exist|Demo schema .* has no active users/i.test(msg) ||
+      (err as { code?: string })?.code === "P2021"
+    ) {
+      throw err;
+    }
+    /* outside request scope or unrelated */
   }
 
   // 2. Demo fallback (evaluation / test-drive) — off when DEMO_MODE=0

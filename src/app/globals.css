@@ -307,6 +307,98 @@ html.light .shadow-black\/30 {
   animation: station-pop 0.9s ease-out;
 }
 
+/* Opening the Forge — spin the splash-ring artwork */
+@keyframes forge-ring-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+.forge-ring-spin {
+  animation: forge-ring-spin 3.2s linear infinite;
+  will-change: transform;
+}
+
+/**
+ * Marketing story surfaces: force real black/white regardless of html.light
+ * slate inversion (which otherwise turns text-slate-950 into a pale wash).
+ */
+.marketing-story {
+  --color-slate-50: #f8fafc;
+  --color-slate-100: #f1f5f9;
+  --color-slate-200: #e2e8f0;
+  --color-slate-300: #cbd5e1;
+  --color-slate-400: #94a3b8;
+  --color-slate-500: #64748b;
+  --color-slate-600: #475569;
+  --color-slate-700: #334155;
+  --color-slate-800: #1e293b;
+  --color-slate-900: #0f172a;
+  --color-slate-950: #020617;
+  --color-teal-50: #f0fdfa;
+  --color-teal-100: #ccfbf1;
+  --color-teal-200: #99f6e4;
+  --color-teal-300: #5eead4;
+  --color-teal-400: #2dd4bf;
+  --color-teal-500: #14b8a6;
+  --color-teal-600: #0d9488;
+  --color-teal-700: #0f766e;
+  --color-teal-800: #115e59;
+  --color-teal-900: #134e4a;
+  --color-teal-950: #042f2e;
+  --color-cyan-300: #67e8f9;
+  --color-cyan-400: #22d3ee;
+  --color-cyan-600: #0891b2;
+  --color-cyan-700: #0e7490;
+  --color-sky-400: #38bdf8;
+}
+.marketing-story .tile {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+  border-color: #cbd5e1 !important;
+}
+.marketing-story .tile h1,
+.marketing-story .tile h2,
+.marketing-story .tile h3,
+.marketing-story .tile h4,
+.marketing-story .tile p,
+.marketing-story .tile span,
+.marketing-story .tile li,
+.marketing-story .tile summary,
+.marketing-story .tile a:not(.btn-green) {
+  color: #000000 !important;
+}
+.marketing-story .tile .muted {
+  color: #1e293b !important;
+}
+.marketing-story .tile .eyebrow {
+  color: #115e59 !important;
+}
+.marketing-story .btn-green {
+  background-color: #0d9488 !important;
+  color: #ffffff !important;
+  border-color: transparent !important;
+}
+.marketing-story .btn-green:hover {
+  background-color: #0f766e !important;
+  color: #ffffff !important;
+}
+.marketing-story .btn-outline-black {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+  border: 2px solid #000000 !important;
+}
+.marketing-story .btn-outline-black:hover {
+  background-color: #f1f5f9 !important;
+  color: #000000 !important;
+}
+.marketing-story .badge-green {
+  background-color: #0d9488 !important;
+  color: #ffffff !important;
+}
+
 /* Flow connector for value stream */
 .vsm-arrow::after {
   content: "→";

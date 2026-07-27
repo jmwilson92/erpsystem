@@ -2,6 +2,45 @@ import Link from "next/link";
 import { ForgeMark } from "./logo";
 import { SITE_DESCRIPTION, SITE_NAME } from "@/lib/site";
 
+/**
+ * Slim bar for the live demo plant — keeps legal/pricing links without eating
+ * the ERP viewport. Full SiteFooter stays on marketing pages.
+ */
+export function CompactSiteFooter() {
+  return (
+    <footer className="shrink-0 border-t border-slate-800/70 bg-slate-950">
+      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-4 gap-y-1 px-4 py-2 text-xs text-slate-400">
+        <p className="text-slate-400">
+          © {new Date().getFullYear()} {SITE_NAME}
+        </p>
+        <nav
+          className="flex flex-wrap items-center gap-x-3 gap-y-1 text-teal-300/90"
+          aria-label="Marketing and legal"
+        >
+          <a href="/welcome#pricing" className="hover:text-teal-200">
+            Pricing
+          </a>
+          <a href="/welcome#faq" className="hover:text-teal-200">
+            FAQ
+          </a>
+          <a href="/welcome#features" className="hover:text-teal-200">
+            Features
+          </a>
+          <Link href="/signup" className="hover:text-teal-200">
+            Start free
+          </Link>
+          <Link href="/legal/terms-of-service" className="hover:text-cyan-300">
+            Terms
+          </Link>
+          <Link href="/legal/privacy-policy" className="hover:text-cyan-300">
+            Privacy
+          </Link>
+        </nav>
+      </div>
+    </footer>
+  );
+}
+
 /** Constant marketing footer shown on every public page. */
 export function SiteFooter() {
   return (
@@ -25,18 +64,18 @@ export function SiteFooter() {
               Product
             </p>
             <nav className="mt-3 flex flex-col gap-2 text-sm text-slate-500" aria-label="Product">
-              <Link href="/#features" className="hover:text-slate-300">
+              <a href="/welcome#features" className="hover:text-slate-300">
                 Features
-              </Link>
-              <Link href="/#pricing" className="hover:text-slate-300">
+              </a>
+              <a href="/welcome#pricing" className="hover:text-slate-300">
                 Pricing
-              </Link>
-              <Link href="/#faq" className="hover:text-slate-300">
+              </a>
+              <a href="/welcome#faq" className="hover:text-slate-300">
                 FAQ
-              </Link>
-              <Link href="/demo" className="hover:text-slate-300">
+              </a>
+              <a href="/" className="hover:text-slate-300">
                 Live demo
-              </Link>
+              </a>
               <Link href="/signup" className="hover:text-slate-300">
                 Start free trial
               </Link>

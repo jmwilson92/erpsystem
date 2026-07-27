@@ -19,6 +19,11 @@ const PUBLIC_PREFIXES = [
   "/onboard",
   "/demo",
   "/legal",
+  "/welcome",
+  // Local / staging marketing mocks (splash, tenant URL concepts)
+  "/preview",
+  "/marketing-preview",
+  "/api/demo", // includes /api/demo/end, /api/demo/reset
   // Guest support chat thread (secret token in path)
   "/support/t",
   "/_next",
@@ -44,6 +49,16 @@ function isPublicPath(pathname: string) {
 function withPathname(req: NextRequest) {
   const headers = new Headers(req.headers);
   headers.set("x-pathname", req.nextUrl.pathname);
+  // Apex splash for anonymous visitors only (not password sessions).
+  // ?app=1 = post-splash ERP entry for a live demo cookie.
+  const isApex = req.nextUrl.pathname === "/";
+  const enterApp = req.nextUrl.searchParams.get("app") === "1";
+  const hasSession = !!req.cookies.get("forge-session")?.value;
+  if (isApex && enterApp) {
+    headers.set("x-forge-app", "1");
+  } else if (isApex && !enterApp && !hasSession) {
+    headers.set("x-forge-splash", "1");
+  }
   return NextResponse.next({ request: { headers } });
 }
 
@@ -51,6 +66,11 @@ export function middleware(req: NextRequest) {
   if (process.env.DEMO_MODE !== "0") return withPathname(req);
 
   const { pathname } = req.nextUrl;
+  // Never block Next.js server-action POSTs — a middleware redirect/HTML
+  // response surfaces as "unexpected response was received from the server".
+  if (req.headers.has("next-action") || req.headers.has("Next-Action")) {
+    return withPathname(req);
+  }
   if (isPublicPath(pathname)) {
     return withPathname(req);
   }
@@ -69,5 +89,8 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|.*\\.(?:png|jpg|svg|ico)$).*)"],
+  // Skip static assets (incl. marketing-preview HTML/CSS under public/)
+  matcher: [
+    "/((?!_next/static|_next/image|marketing-preview/|.*\\.(?:png|jpg|jpeg|svg|ico|css|html|webp|gif|mp4|webm)$).*)",
+  ],
 };

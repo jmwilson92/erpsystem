@@ -25,6 +25,9 @@ import {
 } from "@/lib/site";
 import { isPlatformSupportEnabled } from "@/lib/platform";
 import { SupportBubble } from "@/components/support/support-bubble";
+import { SiteHeader } from "@/components/marketing/site-header";
+import { CompactSiteFooter } from "@/components/marketing/site-footer";
+import { DemoLeaveBeacon } from "@/components/marketing/demo-leave-beacon";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -107,9 +110,20 @@ export default async function RootLayout({
   const isAnonymousDemo =
     !!jar.get(DEMO_COOKIE)?.value && !jar.get("forge-session")?.value;
   const showDemoSwitcher = demoModeEnabled() || isAnonymousDemo;
-  const [demoUsers, currentUser, companyRaw] = await Promise.all([
-    showDemoSwitcher ? listUsers() : Promise.resolve([]),
-    getCurrentUser(),
+
+  // Stale forge-demo cookies (schema dropped / half-provisioned) used to 500
+  // the whole layout on listUsers/getCurrentUser. Detect that and bounce to
+  // /api/demo/reset which clears the cookie so Opening the Forge can retry.
+  const [usersResult, userResult, companyRaw] = await Promise.all([
+    showDemoSwitcher
+      ? listUsers().then(
+          (u) => ({ ok: true as const, users: u }),
+          (err) => ({ ok: false as const, err })
+        )
+      : Promise.resolve({ ok: true as const, users: [] as Awaited<ReturnType<typeof listUsers>> }),
+    getCurrentUser()
+      .then((u) => ({ ok: true as const, user: u }))
+      .catch((err) => ({ ok: false as const, err })),
     // Tolerate a bad/forged forge-tenant cookie pointing at a nonexistent
     // schema: the query throws, we fall back to defaults, and the request
     // resolves as logged-out (redirect to /login or the marketing page) rather
@@ -118,6 +132,18 @@ export default async function RootLayout({
       .upsert({ where: { id: "default" }, create: { id: "default" }, update: {} })
       .catch(() => null),
   ]);
+
+  if (isAnonymousDemo && (!usersResult.ok || !userResult.ok)) {
+    console.error(
+      "[demo] broken sandbox schema — clearing cookie",
+      !usersResult.ok ? usersResult.err : !userResult.ok ? userResult.err : null
+    );
+    // Land on welcome (ended) so we never loop a blank / broken splash shell.
+    redirect("/api/demo/reset?to=welcome");
+  }
+
+  const demoUsers = usersResult.ok ? usersResult.users : [];
+  const currentUser = userResult.ok ? userResult.user : null;
   const company =
     companyRaw ??
     ({
@@ -127,9 +153,14 @@ export default async function RootLayout({
       breaksConfig: null,
     } as unknown as NonNullable<typeof companyRaw>);
   const notifications = currentUser
-    ? await getNotificationSummary(currentUser)
+    ? await getNotificationSummary(currentUser).catch(() => ({
+        total: 0,
+        items: [] as { label: string; count: number; href: string }[],
+        badges: {} as Record<string, number>,
+      }))
     : { total: 0, items: [], badges: {} };
-  const inSandbox = Boolean(jar.get(DEMO_COOKIE)?.value);
+  const inSandbox =
+    Boolean(jar.get(DEMO_COOKIE)?.value) && !!currentUser;
   const flash = await readFlashToast();
 
   // Per-module enable/disable: block a disabled module's routes server-side
@@ -158,7 +189,10 @@ export default async function RootLayout({
         }
       })()
     : [];
-  const pathname = (await headers()).get("x-pathname") || "";
+  const hdrs = await headers();
+  const pathname = hdrs.get("x-pathname") || "";
+  const forgeSplash = hdrs.get("x-forge-splash") === "1";
+  const forgeApp = hdrs.get("x-forge-app") === "1";
 
   // Platform support (ForgeRP dogfood + public marketing) — never customer/demo.
   const platformSupport = await isPlatformSupportEnabled();
@@ -191,16 +225,20 @@ export default async function RootLayout({
     );
   }
 
-  // Public marketing surfaces render without the app shell (no sidebar/header),
-  // and skip the auth + subscription gates: the home page for signed-out
-  // visitors, and the signup flow. Signed-in users on "/" fall through to the
-  // dashboard below.
+  // Public marketing surfaces render without the ERP app shell (no sidebar).
+  // Opening the Forge is splash-only. ?app=1 always uses the full ERP shell
+  // (sidebar + marketing chrome for demo visitors) — never bare marketing.
   const isBareMarketing =
-    pathname.startsWith("/signup") ||
-    pathname.startsWith("/demo") ||
-    pathname.startsWith("/legal") ||
-    pathname.startsWith("/support/t/") ||
-    (pathname === "/" && !currentUser);
+    !forgeApp &&
+    (pathname.startsWith("/signup") ||
+      pathname.startsWith("/demo") ||
+      pathname.startsWith("/legal") ||
+      pathname.startsWith("/welcome") ||
+      pathname.startsWith("/support/t/") ||
+      pathname.startsWith("/preview") ||
+      pathname.startsWith("/marketing-preview") ||
+      forgeSplash ||
+      (pathname === "/" && !currentUser && !isAnonymousDemo));
   if (isBareMarketing) {
     // Chat on every public marketing surface (landing, signup, legal, demo splash,
     // guest ticket). Not shown on the staff desk (that's app shell + platform admin).
@@ -208,6 +246,7 @@ export default async function RootLayout({
       pathname === "/" ||
       pathname.startsWith("/signup") ||
       pathname.startsWith("/legal") ||
+      pathname.startsWith("/welcome") ||
       pathname.startsWith("/demo") ||
       pathname.startsWith("/support/t/");
     return (
@@ -244,15 +283,22 @@ export default async function RootLayout({
   // Production auth: middleware only checks that a session cookie EXISTS
   // (edge runtime, no DB). A forged/expired cookie passes it, so enforce
   // the resolved identity here before any page content renders.
+  // Never send demo/marketing guests to /login. Public marketing + demo end
+  // routes are bare; anything else without a user goes to the forge landing.
   if (
     process.env.DEMO_MODE === "0" &&
     !currentUser &&
     pathname &&
-    !["/login", "/invite", "/onboard", "/module-off", "/demo", "/legal"].some(
-      (p) => pathname.startsWith(p)
-    )
+    !isBareMarketing &&
+    ![
+      "/login",
+      "/invite",
+      "/onboard",
+      "/module-off",
+      "/api",
+    ].some((p) => pathname.startsWith(p))
   ) {
-    redirect("/login");
+    redirect("/");
   }
 
   const blockedKey = pathname ? moduleKeyForPath(pathname) : null;
@@ -313,39 +359,92 @@ export default async function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
         suppressHydrationWarning
       >
-        <AppShell
-          company={{ name: company.name, tagline: company.tagline }}
-          disabledModules={disabledModules}
-          breaks={breaks}
-          notifications={notifications}
-          demoUsers={shellUsers}
-          platformSupport={platformSupport}
-          currentUser={
-            currentUser
-              ? {
-                  id: currentUser.id,
-                  name: currentUser.name,
-                  role: currentUser.role,
-                  title: currentUser.title,
-                  email: currentUser.email,
+        {isAnonymousDemo ? (
+          // Demo plant: marketing header + footer around full ERP shell (sidebar).
+          <div className="flex h-screen flex-col overflow-hidden">
+            <SiteHeader />
+            <DemoLeaveBeacon />
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+              <AppShell
+                fill
+                company={{ name: company.name, tagline: company.tagline }}
+                disabledModules={disabledModules}
+                breaks={breaks}
+                notifications={notifications}
+                demoUsers={shellUsers}
+                platformSupport={platformSupport}
+                currentUser={
+                  currentUser
+                    ? {
+                        id: currentUser.id,
+                        name: currentUser.name,
+                        role: currentUser.role,
+                        title: currentUser.title,
+                        email: currentUser.email,
+                      }
+                    : null
                 }
-              : null
-          }
-        >
-          {inSandbox && <SandboxBanner />}
-          {subscription.isTrialing && subscription.trialDaysLeft != null && (
-            <TrialBanner
-              daysLeft={subscription.trialDaysLeft}
-              plan={subscription.plan}
-              provider={subscription.billingProvider}
-              endsAt={subscription.trialEndsAt?.toISOString() ?? null}
-            />
-          )}
-          {flash && (
-            <FlashToast message={flash.m} kind={flash.k} stamp={flash.t} />
-          )}
-          {children}
-        </AppShell>
+              >
+                {inSandbox && <SandboxBanner />}
+                {subscription.isTrialing &&
+                  subscription.trialDaysLeft != null && (
+                    <TrialBanner
+                      daysLeft={subscription.trialDaysLeft}
+                      plan={subscription.plan}
+                      provider={subscription.billingProvider}
+                      endsAt={
+                        subscription.trialEndsAt?.toISOString() ?? null
+                      }
+                    />
+                  )}
+                {flash && (
+                  <FlashToast
+                    message={flash.m}
+                    kind={flash.k}
+                    stamp={flash.t}
+                  />
+                )}
+                {children}
+              </AppShell>
+            </div>
+            <CompactSiteFooter />
+          </div>
+        ) : (
+          <AppShell
+            company={{ name: company.name, tagline: company.tagline }}
+            disabledModules={disabledModules}
+            breaks={breaks}
+            notifications={notifications}
+            demoUsers={shellUsers}
+            platformSupport={platformSupport}
+            currentUser={
+              currentUser
+                ? {
+                    id: currentUser.id,
+                    name: currentUser.name,
+                    role: currentUser.role,
+                    title: currentUser.title,
+                    email: currentUser.email,
+                  }
+                : null
+            }
+          >
+            {inSandbox && <SandboxBanner />}
+            {subscription.isTrialing &&
+              subscription.trialDaysLeft != null && (
+                <TrialBanner
+                  daysLeft={subscription.trialDaysLeft}
+                  plan={subscription.plan}
+                  provider={subscription.billingProvider}
+                  endsAt={subscription.trialEndsAt?.toISOString() ?? null}
+                />
+              )}
+            {flash && (
+              <FlashToast message={flash.m} kind={flash.k} stamp={flash.t} />
+            )}
+            {children}
+          </AppShell>
+        )}
         <CookieBanner />
         <Analytics />
       </body>

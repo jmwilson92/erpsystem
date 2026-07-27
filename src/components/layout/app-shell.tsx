@@ -40,6 +40,7 @@ function ShellInner({
   disabledModules,
   breaks,
   platformSupport = false,
+  fill = false,
 }: {
   children: React.ReactNode;
   demoUsers: DemoUser[];
@@ -50,6 +51,8 @@ function ShellInner({
   breaks: ShellBreak[];
   /** ForgeRP dogfood only — never customer tenant or demo */
   platformSupport?: boolean;
+  /** Fill parent height (demo stack with marketing header/footer) instead of h-screen */
+  fill?: boolean;
 }) {
   const [cmdOpen, setCmdOpen] = useState(false);
   const { theme } = useTheme();
@@ -85,7 +88,11 @@ function ShellInner({
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background text-foreground">
+    <div
+      className={`flex overflow-hidden bg-background text-foreground ${
+        fill ? "h-full min-h-0 w-full" : "h-screen"
+      }`}
+    >
       <Suspense
         fallback={
           <aside className="w-60 border-r border-border bg-background" />
@@ -161,6 +168,7 @@ export function AppShell({
   disabledModules = [],
   breaks = [],
   platformSupport = false,
+  fill = false,
 }: {
   children: React.ReactNode;
   demoUsers: DemoUser[];
@@ -170,6 +178,8 @@ export function AppShell({
   disabledModules?: string[];
   breaks?: ShellBreak[];
   platformSupport?: boolean;
+  /** Nest under marketing chrome (demo) — use parent height instead of h-screen */
+  fill?: boolean;
 }) {
   const pathname = usePathname();
   // Auth screens render bare — no sidebar/header chrome, but still offer chat
@@ -196,6 +206,7 @@ export function AppShell({
           disabledModules={disabledModules}
           breaks={breaks}
           platformSupport={platformSupport}
+          fill={fill}
         >
           {children}
         </ShellInner>

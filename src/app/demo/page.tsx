@@ -1,10 +1,7 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import Link from "next/link";
-import {
-  actionStartTestDrive,
-  actionEndTestDrive,
-} from "@/app/actions";
+import { actionStartTestDrive } from "@/app/demo-actions";
 import { DEMO_COOKIE } from "@/lib/db";
 import { MarketingShell } from "@/components/marketing/marketing-shell";
 import {
@@ -124,19 +121,17 @@ export default async function DemoLandingPage({
             {inSandbox ? (
               <>
                 <Link
-                  href="/"
+                  href="/?app=1"
                   className="rounded-xl bg-gradient-to-r from-teal-500 to-cyan-500 px-8 py-3.5 text-base font-semibold text-white shadow-lg shadow-teal-500/25 transition-transform hover:scale-[1.02]"
                 >
                   Continue your test drive →
                 </Link>
-                <form action={actionEndTestDrive}>
-                  <button
-                    type="submit"
-                    className="text-xs text-slate-500 underline-offset-2 hover:text-slate-300 hover:underline"
-                  >
-                    End test drive and delete my sandbox
-                  </button>
-                </form>
+                <a
+                  href="/api/demo/end"
+                  className="text-xs text-slate-500 underline-offset-2 hover:text-slate-300 hover:underline"
+                >
+                  End test drive and delete my sandbox
+                </a>
               </>
             ) : (
               <form action={actionStartTestDrive}>

@@ -1,8 +1,11 @@
 import Link from "next/link";
-import { actionEndTestDrive } from "@/app/actions";
 import { FlaskConical, ArrowRight } from "lucide-react";
 
-/** Shown at the top of every page while a visitor is in a test-drive sandbox. */
+/**
+ * Test-drive banner. "End test drive" is a normal link to /api/demo/end so
+ * the browser always does a full navigation (clears cookies server-side and
+ * lands on /welcome?ended=1). No server-action race, no leftover sidebar.
+ */
 export function SandboxBanner() {
   return (
     <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-cyan-500/40 bg-gradient-to-r from-cyan-500/10 to-teal-500/10 px-4 py-2.5">
@@ -21,14 +24,12 @@ export function SandboxBanner() {
         >
           Start your own instance <ArrowRight className="h-3.5 w-3.5" />
         </Link>
-        <form action={actionEndTestDrive}>
-          <button
-            type="submit"
-            className="rounded-lg border border-cyan-500/40 px-3 py-1.5 text-xs font-medium text-cyan-200 transition-colors hover:bg-cyan-500/15"
-          >
-            End test drive
-          </button>
-        </form>
+        <a
+          href="/api/demo/end"
+          className="rounded-lg border border-cyan-500/40 px-3 py-1.5 text-xs font-medium text-cyan-200 transition-colors hover:bg-cyan-500/15"
+        >
+          End test drive
+        </a>
       </div>
     </div>
   );

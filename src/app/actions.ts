@@ -1558,7 +1558,10 @@ export async function actionBootstrapInstance(
 export async function actionLogout(): Promise<void> {
   const { destroySession } = await import("@/lib/auth-core");
   await destroySession();
-  redirect("/login");
+  // Land on marketing home when signed out (not forced back into /login).
+  // With DEMO_MODE=0, / is the public landing page; with DEMO_MODE on and
+  // demo cookies cleared, guests still see the persona-less state cleanly.
+  redirect("/");
 }
 
 export async function actionAcceptInvite(
@@ -7412,50 +7415,8 @@ export async function actionImportData(
   return result;
 }
 
-export async function actionStartTestDrive(): Promise<void> {
-  const { cookies } = await import("next/headers");
-  const { DEMO_COOKIE } = await import("@/lib/db");
-  const { provisionDemo } = await import("@/lib/services/tenancy");
-  // Clone a fresh throwaway tenant schema from the seeded demo template, then
-  // route this visitor to it via the demo cookie. If provisioning fails (e.g.
-  // the demo template hasn't been built on this database yet), send the visitor
-  // back to /demo with a friendly notice instead of crashing to an error page.
-  let schemaName: string;
-  try {
-    const tenant = await provisionDemo();
-    schemaName = tenant.schemaName;
-  } catch (err) {
-    console.error("[demo] provisionDemo failed:", err);
-    redirect("/demo?error=warming");
-  }
-  const jar = await cookies();
-  jar.set(DEMO_COOKIE, schemaName, {
-    path: "/",
-    httpOnly: true,
-    sameSite: "lax",
-    maxAge: 60 * 60 * 4, // 4h hard cap; idle sweep reaps sooner
-  });
-  jar.delete("forge-demo-user");
-  revalidatePath("/", "layout");
-  redirect("/");
-}
-
-export async function actionEndTestDrive(): Promise<void> {
-  const { cookies } = await import("next/headers");
-  const { DEMO_COOKIE } = await import("@/lib/db");
-  const { destroyTenant } = await import("@/lib/services/tenancy");
-  const jar = await cookies();
-  const schema = jar.get(DEMO_COOKIE)?.value;
-  // Clear the cookie first so subsequent requests route to public even if the
-  // drop lags, then destroy the throwaway schema.
-  jar.delete(DEMO_COOKIE);
-  jar.delete("forge-demo-user");
-  if (schema && schema !== "demo_template" && /^demo_[a-z0-9]{6,40}$/.test(schema)) {
-    await destroyTenant(schema).catch(() => undefined);
-  }
-  revalidatePath("/", "layout");
-  redirect("/demo?ended=1");
-}
+// Demo test-drive actions: import from @/app/demo-actions
+// (cannot re-export in a "use server" file — only async functions allowed).
 
 export async function actionAddFeedbackNote(
   formData: FormData

@@ -211,6 +211,10 @@ export async function destroySession() {
   }
   jar.delete(SESSION_COOKIE);
   jar.delete(TENANT_COOKIE);
+  // Clear demo/persona cookies too — otherwise DEMO_MODE can immediately
+  // re-resolve a fake "logged in" user and bounce guests back into the ERP.
+  jar.delete("forge-demo-user");
+  jar.delete("forge-demo");
 }
 
 // ─── Login / bootstrap ──────────────────────────────────────────

@@ -2,37 +2,42 @@ import Link from "next/link";
 import { ForgeLogo } from "./logo";
 
 /**
- * Constant marketing header shown on every public page (landing, demo, signup,
- * legal). The logo always returns to the landing page, so visitors are never
- * stranded. Section links point at the landing anchors so they work from any
- * page.
+ * Marketing header. Product story links always go to /welcome (full marketing
+ * page with cinematic backgrounds) — never into the ERP shell. "Live demo"
+ * returns to the sandbox / Opening the Forge flow on /.
+ *
+ * Using plain <a> for story links so demo→marketing is a full navigation and
+ * never paints pricing/FAQ inside the app chrome.
  */
 export function SiteHeader() {
   return (
-    <header className="sticky top-0 z-40 border-b border-slate-800/70 bg-slate-950/80 backdrop-blur">
+    <header className="sticky top-0 z-40 border-b border-slate-800/70 bg-slate-950/85 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3.5">
-        <Link href="/" aria-label="ForgeRP home">
-          <ForgeLogo />
+        <Link href="/welcome" aria-label="ForgeRP home">
+          <ForgeLogo className="text-white" />
         </Link>
         <nav
-          className="hidden items-center gap-6 text-sm text-slate-300 sm:flex"
+          className="hidden items-center gap-6 text-sm text-teal-200/90 sm:flex"
           aria-label="Primary"
         >
-          <Link href="/#features" className="hover:text-white">
+          <a href="/welcome#features" className="hover:text-teal-300">
             Features
-          </Link>
-          <Link href="/#pricing" className="hover:text-white">
+          </a>
+          <a href="/welcome#pricing" className="hover:text-teal-300">
             Pricing
-          </Link>
-          <Link href="/#faq" className="hover:text-white">
+          </a>
+          <a href="/welcome#faq" className="hover:text-teal-300">
             FAQ
-          </Link>
-          <Link href="/demo" className="hover:text-white">
+          </a>
+          <a href="/" className="hover:text-teal-300">
             Live demo
-          </Link>
+          </a>
         </nav>
         <div className="flex items-center gap-2">
-          <Link href="/login" className="rounded-lg px-3 py-1.5 text-sm text-slate-300 hover:text-white">
+          <Link
+            href="/login"
+            className="rounded-lg px-3 py-1.5 text-sm font-medium text-cyan-300 hover:text-cyan-200"
+          >
             Sign in
           </Link>
           <Link

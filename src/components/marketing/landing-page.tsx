@@ -190,11 +190,9 @@ function PlanPriceDisplay({ p }: { p: PlanDef }) {
   if (p.pricing === "per_seat") {
     return (
       <div className="mt-2">
-        <span className="text-3xl font-bold">
-          {money(p.pricePerSeatMonthly ?? 30)}
-        </span>
-        <span className="text-sm text-slate-500">/user/mo</span>
-        <p className="mt-1 text-xs text-slate-500">
+        <span className="text-3xl font-bold">{money(p.pricePerSeatMonthly ?? 30)}</span>
+        <span className="muted text-sm font-medium">/user/mo</span>
+        <p className="muted mt-1 text-xs">
           billed monthly · quantity = seats (max {p.maxSeats})
         </p>
       </div>
@@ -203,10 +201,95 @@ function PlanPriceDisplay({ p }: { p: PlanDef }) {
   return (
     <div className="mt-2">
       <span className="text-3xl font-bold">{money(p.price)}</span>
-      <span className="text-sm text-slate-500">/year</span>
+      <span className="muted text-sm font-medium">/year</span>
     </div>
   );
 }
+
+/**
+ * Full-bleed cinematic section — no fog on the photo. Text contrast comes from
+ * solid local panels (SectionIntro / cards), not a wash over the image.
+ */
+function CinematicSection({
+  id,
+  image,
+  children,
+  className = "",
+}: {
+  id?: string;
+  image: string;
+  children: import("react").ReactNode;
+  className?: string;
+}) {
+  return (
+    <section
+      id={id}
+      className={`relative scroll-mt-20 overflow-hidden ${className}`}
+    >
+      <div
+        className="absolute inset-0 scale-105 bg-cover bg-center"
+        style={{ backgroundImage: `url(${image})` }}
+        aria-hidden
+      />
+      <div className="relative z-10">{children}</div>
+    </section>
+  );
+}
+
+/**
+ * Light plaque on photo sections. Forced black type via .marketing-story CSS
+ * (beats html.light slate inversion that washes text out).
+ */
+function SectionIntro({
+  eyebrow,
+  title,
+  titleId,
+  children,
+  center = false,
+  wide = false,
+}: {
+  eyebrow: string;
+  title: string;
+  titleId?: string;
+  children?: import("react").ReactNode;
+  center?: boolean;
+  wide?: boolean;
+}) {
+  return (
+    <div
+      className={`tile rounded-2xl px-6 py-5 shadow-[0_12px_40px_rgba(0,0,0,0.45)] sm:px-8 sm:py-6 ${
+        center ? "mx-auto text-center" : ""
+      } ${wide ? "max-w-3xl" : "max-w-2xl"}`}
+    >
+      <p className="eyebrow text-xs font-semibold uppercase tracking-wider">
+        {eyebrow}
+      </p>
+      <h2 id={titleId} className="mt-2 text-3xl font-bold tracking-tight">
+        {title}
+      </h2>
+      {children ? (
+        <div className="muted mt-3 text-base leading-relaxed">{children}</div>
+      ) : null}
+    </div>
+  );
+}
+
+const cardClass = "tile rounded-2xl p-5 shadow-[0_12px_40px_rgba(0,0,0,0.4)]";
+
+/** Outline CTA: black on white. */
+const secondaryBtnClass =
+  "btn-outline-black inline-flex items-center justify-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors";
+
+/** Solid green CTA — only place white text is allowed. */
+const primaryBtnClass =
+  "btn-green inline-flex items-center justify-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-semibold shadow-lg shadow-teal-900/25 transition-colors";
+
+const ART = {
+  factory: "/marketing/A-factory-command-center.jpg",
+  product: "/marketing/B-floating-product-ui.jpg",
+  operator: "/marketing/C-operator-hologram-wall.jpg",
+  isometric: "/marketing/D-isometric-whole-company.jpg",
+} as const;
 
 function JsonLd() {
   const base = getSiteUrl();
@@ -219,7 +302,6 @@ function JsonLd() {
     legalName: SITE_LEGAL,
     url: base,
     description: SITE_DESCRIPTION,
-    email: "legal@forge-rp.live",
     foundingLocation: {
       "@type": "Place",
       address: {
@@ -291,89 +373,89 @@ function JsonLd() {
   );
 }
 
-export function LandingPage() {
+export function LandingPage({
+  /** Include SiteHeader / SiteFooter (default). Off when nested under Opening the Forge. */
+  showChrome = true,
+  /** Classic plug-and-play hero block. Off when Opening the Forge is already the hero. */
+  showClassicHero = true,
+}: {
+  showChrome?: boolean;
+  showClassicHero?: boolean;
+} = {}) {
   const paid = PLANS.filter((p) => p.key !== "ENTERPRISE");
   const enterprise = PLANS.find((p) => p.key === "ENTERPRISE");
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div
+      className={`marketing-story ${showChrome ? "min-h-screen" : ""} bg-slate-950`}
+    >
       <JsonLd />
-      <a
-        href="#main"
-        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-teal-500 focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-slate-950"
-      >
-        Skip to content
-      </a>
-      <SiteHeader />
+      {showChrome && (
+        <a
+          href="#main"
+          className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-teal-500 focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-slate-950"
+        >
+          Skip to content
+        </a>
+      )}
+      {showChrome && <SiteHeader />}
 
-      <main id="main">
+      <main id={showChrome ? "main" : "story"}>
         {/* Hero */}
+        {showClassicHero && (
         <section
-          className="relative overflow-hidden"
+          className="relative overflow-hidden bg-slate-100"
           aria-labelledby="hero-heading"
         >
-          <div
-            className="pointer-events-none absolute inset-0 bg-[radial-gradient(60%_50%_at_50%_0%,rgba(20,184,166,0.18),transparent)]"
-            aria-hidden
-          />
-          <div
-            className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_bottom,transparent,rgba(2,6,23,0.4))]"
-            aria-hidden
-          />
           <div className="relative mx-auto max-w-4xl px-6 py-20 text-center sm:py-28">
-            <p className="inline-flex items-center gap-1.5 rounded-full border border-teal-500/30 bg-teal-500/10 px-3 py-1 text-xs font-medium text-teal-300">
-              <Plug className="h-3.5 w-3.5" aria-hidden />
-              Plug-and-play manufacturing ERP
-            </p>
-            <h1
-              id="hero-heading"
-              className="mt-5 text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl"
-            >
-              The manufacturing ERP that runs your{" "}
-              <span className="bg-gradient-to-r from-teal-300 to-sky-400 bg-clip-text text-transparent">
-                whole shop
-              </span>
-            </h1>
-            <p className="mx-auto mt-5 max-w-2xl text-lg leading-relaxed text-slate-300">
-              {SITE_TAGLINE}. Sales, engineering, purchasing, production,
-              quality, and accounting in one connected system — no integration
-              project, no consultants to hire. Enter data once; it follows the
-              work everywhere.
-            </p>
-            <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-              <Link
-                href="/signup"
-                className="inline-flex items-center gap-2 rounded-xl bg-teal-500 px-5 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-teal-900/30 transition-colors hover:bg-teal-400"
+            <div className="tile mx-auto max-w-3xl rounded-2xl px-6 py-8 shadow-[0_12px_40px_rgba(0,0,0,0.12)] sm:px-10">
+              <p className="eyebrow inline-flex items-center gap-1.5 rounded-full border border-teal-700/30 bg-teal-50 px-3 py-1 text-xs font-semibold">
+                <Plug className="h-3.5 w-3.5" aria-hidden />
+                Plug-and-play manufacturing ERP
+              </p>
+              <h1
+                id="hero-heading"
+                className="mt-5 text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl"
               >
-                Start your 45-day free trial{" "}
-                <ArrowRight className="h-4 w-4" aria-hidden />
-              </Link>
-              <Link
-                href="/demo"
-                className="inline-flex items-center gap-2 rounded-xl border border-slate-700 px-5 py-3 text-sm font-semibold text-slate-100 transition-colors hover:border-teal-500/50"
-              >
-                <Rocket className="h-4 w-4" aria-hidden /> Take the live demo
-              </Link>
+                The manufacturing ERP that runs your{" "}
+                <span className="eyebrow">whole shop</span>
+              </h1>
+              <p className="muted mx-auto mt-5 max-w-2xl text-lg leading-relaxed">
+                {SITE_TAGLINE}. Sales, engineering, purchasing, production,
+                quality, and accounting in one connected system — no integration
+                project, no consultants to hire. Enter data once; it follows the
+                work everywhere.
+              </p>
+              <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+                <Link href="/signup" className={`${primaryBtnClass} px-5 py-3`}>
+                  Start your 45-day free trial{" "}
+                  <ArrowRight className="h-4 w-4" aria-hidden />
+                </Link>
+                <Link href="/" className={`${secondaryBtnClass} px-5 py-3`}>
+                  <Rocket className="h-4 w-4" aria-hidden /> Take the live demo
+                </Link>
+              </div>
+              <p className="muted mt-4 text-xs font-medium">
+                Full access for {TRIAL_DAYS} days. No charge until day {TRIAL_DAYS}{" "}
+                · 15-day money-back guarantee.
+              </p>
             </div>
-            <p className="mt-4 text-xs text-slate-500">
-              Full access for {TRIAL_DAYS} days. No charge until day {TRIAL_DAYS}{" "}
-              · 15-day money-back guarantee.
-            </p>
           </div>
         </section>
+        )}
 
         {/* Trust bar */}
         <section
           aria-label="Why manufacturers choose ForgeRP"
-          className="border-y border-slate-800/70 bg-slate-900/40"
+          className="border-y border-slate-300 bg-white"
         >
           <ul className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-x-8 gap-y-3 px-6 py-5">
             {TRUST.map((t) => (
               <li
                 key={t.label}
-                className="inline-flex items-center gap-2 text-sm text-slate-300"
+                className="tile inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium shadow-sm"
               >
-                <t.icon className="h-4 w-4 text-teal-400" aria-hidden />
+                <t.icon className="eyebrow h-4 w-4" aria-hidden />
                 {t.label}
               </li>
             ))}
@@ -383,7 +465,7 @@ export function LandingPage() {
         {/* Plug and play */}
         <section
           aria-labelledby="value-heading"
-          className="border-b border-slate-800/70"
+          className="border-b border-slate-300 bg-white"
         >
           <div className="mx-auto max-w-6xl px-6 py-16">
             <h2 id="value-heading" className="sr-only">
@@ -407,155 +489,104 @@ export function LandingPage() {
                   b: "AS9100-shaped quality, government property, configuration management, and audit trails come standard, not as add-ons.",
                 },
               ].map((c) => (
-                <div key={c.h}>
-                  <c.icon className="h-6 w-6 text-teal-400" aria-hidden />
+                <div key={c.h} className={cardClass}>
+                  <c.icon className="eyebrow h-6 w-6" aria-hidden />
                   <h3 className="mt-3 text-base font-semibold">{c.h}</h3>
-                  <p className="mt-1.5 text-sm leading-relaxed text-slate-400">
-                    {c.b}
-                  </p>
+                  <p className="muted mt-1.5 text-sm leading-relaxed">{c.b}</p>
                 </div>
               ))}
             </div>
           </div>
         </section>
 
-        {/* Who it's for */}
-        <section
-          id="who"
-          className="scroll-mt-20 mx-auto max-w-6xl px-6 py-20"
-          aria-labelledby="who-heading"
-        >
-          <div className="max-w-2xl">
-            <p className="text-xs font-semibold uppercase tracking-wider text-teal-400">
-              Built for manufacturers
-            </p>
-            <h2
-              id="who-heading"
-              className="mt-2 text-3xl font-bold tracking-tight"
+        {/* Who it's for — operator hologram wall */}
+        <CinematicSection id="who" image={ART.operator}>
+          <div className="mx-auto max-w-6xl px-6 py-20">
+            <SectionIntro
+              eyebrow="Built for manufacturers"
+              title="Manufacturing ERP for shops that can't afford chaos"
+              titleId="who-heading"
             >
-              Manufacturing ERP for shops that can&rsquo;t afford chaos
-            </h2>
-            <p className="mt-3 text-slate-400">
               If your floor still runs on spreadsheets, shared drives, and three
               systems that never agree, {SITE_NAME} is the single system of
               record that replaces the tangle.
-            </p>
-          </div>
-          <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-            {INDUSTRIES.map((ind) => (
-              <div
-                key={ind.title}
-                className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5"
-              >
-                <ind.icon className="h-6 w-6 text-teal-400" aria-hidden />
-                <h3 className="mt-3 font-semibold">{ind.title}</h3>
-                <p className="mt-1.5 text-sm leading-relaxed text-slate-400">
-                  {ind.body}
-                </p>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* How it works */}
-        <section
-          id="how"
-          className="scroll-mt-20 border-y border-slate-800/70 bg-slate-900/30"
-          aria-labelledby="how-heading"
-        >
-          <div className="mx-auto max-w-6xl px-6 py-20">
-            <div className="max-w-2xl">
-              <p className="text-xs font-semibold uppercase tracking-wider text-teal-400">
-                How it works
-              </p>
-              <h2
-                id="how-heading"
-                className="mt-2 text-3xl font-bold tracking-tight"
-              >
-                From signup to shipping without a project plan
-              </h2>
+            </SectionIntro>
+            <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+              {INDUSTRIES.map((ind) => (
+                <div key={ind.title} className={cardClass}>
+                  <ind.icon className="eyebrow h-6 w-6" aria-hidden />
+                  <h3 className="mt-3 font-semibold">{ind.title}</h3>
+                  <p className="muted mt-1.5 text-sm leading-relaxed">{ind.body}</p>
+                </div>
+              ))}
             </div>
+          </div>
+        </CinematicSection>
+
+        {/* How it works — isometric whole company */}
+        <CinematicSection id="how" image={ART.isometric}>
+          <div className="mx-auto max-w-6xl px-6 py-20">
+            <SectionIntro
+              eyebrow="How it works"
+              title="From signup to shipping without a project plan"
+              titleId="how-heading"
+            />
             <ol className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
               {STEPS.map((s) => (
-                <li
-                  key={s.n}
-                  className="rounded-2xl border border-slate-800 bg-slate-950/40 p-5"
-                >
-                  <span className="font-mono text-xs font-semibold text-teal-400">
+                <li key={s.n} className={cardClass}>
+                  <span className="eyebrow font-mono text-xs font-semibold">
                     {s.n}
                   </span>
                   <h3 className="mt-2 font-semibold">{s.title}</h3>
-                  <p className="mt-1.5 text-sm leading-relaxed text-slate-400">
-                    {s.body}
-                  </p>
+                  <p className="muted mt-1.5 text-sm leading-relaxed">{s.body}</p>
                 </li>
               ))}
             </ol>
           </div>
-        </section>
+        </CinematicSection>
 
-        {/* Features */}
-        <section
-          id="features"
-          className="scroll-mt-20 mx-auto max-w-6xl px-6 py-20"
-          aria-labelledby="features-heading"
-        >
-          <div className="max-w-2xl">
-            <p className="text-xs font-semibold uppercase tracking-wider text-teal-400">
-              Modules
-            </p>
-            <h2
-              id="features-heading"
-              className="mt-2 text-3xl font-bold tracking-tight"
+        {/* Features — factory command center */}
+        <CinematicSection id="features" image={ART.factory}>
+          <div className="mx-auto max-w-6xl px-6 py-20">
+            <SectionIntro
+              eyebrow="Modules"
+              title="Everything a shop needs, in one manufacturing ERP"
+              titleId="features-heading"
             >
-              Everything a shop needs, in one manufacturing ERP
-            </h2>
-            <p className="mt-3 text-slate-400">
               {SITE_NAME} replaces the tangle of spreadsheets, point tools, and
               disconnected apps most manufacturers run on — shop floor execution,
               quality, supply chain, configuration management, and the books.
-            </p>
-          </div>
-          <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {FEATURES.map((f) => (
-              <article
-                key={f.title}
-                className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5 transition-colors hover:border-slate-700"
-              >
-                <f.icon className="h-6 w-6 text-teal-400" aria-hidden />
-                <h3 className="mt-3 font-semibold">{f.title}</h3>
-                <p className="mt-1.5 text-sm leading-relaxed text-slate-400">
-                  {f.body}
-                </p>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        {/* Pricing */}
-        <section
-          id="pricing"
-          className="scroll-mt-20 border-t border-slate-800/70 bg-slate-900/30"
-          aria-labelledby="pricing-heading"
-        >
-          <div className="mx-auto max-w-6xl px-6 py-20">
-            <div className="text-center">
-              <p className="text-xs font-semibold uppercase tracking-wider text-teal-400">
-                Pricing
-              </p>
-              <h2
-                id="pricing-heading"
-                className="mt-2 text-3xl font-bold tracking-tight"
-              >
-                Fair pricing from the smallest shop to the largest plant
-              </h2>
-              <p className="mx-auto mt-3 max-w-2xl text-slate-400">
-                Shop is $30 per user per month (1–10 seats). Larger teams get flat
-                annual bands. Every plan is the full product. Start with a{" "}
-                {TRIAL_DAYS}-day free trial; your card isn&rsquo;t charged until it
-                ends, and you have 15 days after that to request a full refund.
-              </p>
+            </SectionIntro>
+            <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+              {FEATURES.map((f) => (
+                <article
+                  key={f.title}
+                  className={`${cardClass} transition-colors hover:border-teal-600`}
+                >
+                  <f.icon className="eyebrow h-6 w-6" aria-hidden />
+                  <h3 className="mt-3 font-semibold">{f.title}</h3>
+                  <p className="muted mt-1.5 text-sm leading-relaxed">{f.body}</p>
+                </article>
+              ))}
             </div>
+          </div>
+        </CinematicSection>
+
+        {/* Pricing — floating product UI */}
+        <CinematicSection id="pricing" image={ART.product}>
+          <div className="mx-auto max-w-6xl px-6 py-20">
+            <SectionIntro
+              eyebrow="Pricing"
+              title="Fair pricing from the smallest shop to the largest plant"
+              titleId="pricing-heading"
+              center
+              wide
+            >
+              Shop is $30 per user per month (1–10 seats). Larger teams get flat
+              annual bands. Every plan is the full product. Start with a{" "}
+              {TRIAL_DAYS}-day free trial; your card isn&rsquo;t charged until it
+              ends, and you have 15 days after that to request a full refund.
+            </SectionIntro>
 
             <div className="mt-12 grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
               {paid.map((p) => {
@@ -564,38 +595,32 @@ export function LandingPage() {
                 return (
                   <div
                     key={p.key}
-                    className={`relative flex flex-col rounded-2xl border p-6 ${
+                    className={`relative flex flex-col border p-6 ${cardClass} ${
                       featured
-                        ? "border-teal-500/60 bg-teal-500/[0.06] ring-1 ring-teal-500/30"
+                        ? "border-teal-600 ring-2 ring-teal-600/30"
                         : shopBadge
-                          ? "border-cyan-500/40 bg-cyan-500/[0.04]"
-                          : "border-slate-800 bg-slate-950/40"
+                          ? "border-cyan-600"
+                          : ""
                     }`}
                   >
                     {featured && (
-                      <span className="absolute right-4 top-4 rounded-full bg-teal-500 px-2 py-0.5 text-[10px] font-semibold uppercase text-slate-950">
+                      <span className="badge-green absolute right-4 top-4 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase">
                         Most popular
                       </span>
                     )}
                     {shopBadge && (
-                      <span className="absolute right-4 top-4 rounded-full bg-cyan-500/20 px-2 py-0.5 text-[10px] font-semibold uppercase text-cyan-300">
+                      <span className="badge-green absolute right-4 top-4 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase">
                         Small teams
                       </span>
                     )}
-                    <h3 className="text-lg font-semibold pr-24">{p.name}</h3>
+                    <h3 className="pr-24 text-lg font-semibold">{p.name}</h3>
                     <PlanPriceDisplay p={p} />
-                    <p className="mt-1 text-xs text-slate-500">
-                      {planSeatsLabel(p)}
-                    </p>
-                    <p className="mt-3 flex-1 text-sm text-slate-400">
-                      {p.blurb}
-                    </p>
+                    <p className="muted mt-1 text-xs">{planSeatsLabel(p)}</p>
+                    <p className="muted mt-3 flex-1 text-sm">{p.blurb}</p>
                     <Link
                       href={`/signup?plan=${p.key.toLowerCase()}`}
-                      className={`mt-5 inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors ${
-                        featured
-                          ? "bg-teal-500 text-slate-950 hover:bg-teal-400"
-                          : "border border-slate-700 text-slate-100 hover:border-teal-500/50"
+                      className={`mt-5 ${
+                        featured ? primaryBtnClass : secondaryBtnClass
                       }`}
                     >
                       Start free trial
@@ -606,23 +631,22 @@ export function LandingPage() {
             </div>
 
             {enterprise && (
-              <div className="mt-6 flex flex-col items-center justify-between gap-4 rounded-2xl border border-slate-800 bg-slate-950/40 p-6 sm:flex-row">
+              <div
+                className={`mt-6 flex flex-col items-center justify-between gap-4 sm:flex-row ${cardClass} p-6`}
+              >
                 <div>
                   <h3 className="text-lg font-semibold">{enterprise.name}</h3>
-                  <p className="mt-1 text-sm text-slate-400">
-                    {enterprise.blurb}
-                  </p>
+                  <p className="muted mt-1 text-sm">{enterprise.blurb}</p>
                 </div>
-                <Link
-                  href="/signup?plan=enterprise"
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-4 py-2.5 text-sm font-semibold transition-colors hover:border-teal-500/50"
-                >
+                <Link href="/signup?plan=enterprise" className={secondaryBtnClass}>
                   Contact sales <ArrowRight className="h-4 w-4" aria-hidden />
                 </Link>
               </div>
             )}
 
-            <ul className="mx-auto mt-10 flex max-w-3xl flex-wrap justify-center gap-x-6 gap-y-2 text-sm text-slate-400">
+            <ul
+              className={`mx-auto mt-10 flex max-w-3xl flex-wrap justify-center gap-x-6 gap-y-2 ${cardClass} px-5 py-3 text-sm`}
+            >
               {[
                 "Every module included",
                 "Unlimited data",
@@ -631,106 +655,80 @@ export function LandingPage() {
                 "Your data stays yours",
               ].map((x) => (
                 <li key={x} className="inline-flex items-center gap-1.5">
-                  <Check className="h-4 w-4 text-teal-400" aria-hidden /> {x}
+                  <Check className="eyebrow h-4 w-4 shrink-0" aria-hidden /> {x}
                 </li>
               ))}
             </ul>
           </div>
-        </section>
+        </CinematicSection>
 
-        {/* FAQ — rich content + FAQPage schema */}
-        <section
-          id="faq"
-          className="scroll-mt-20 mx-auto max-w-3xl px-6 py-20"
-          aria-labelledby="faq-heading"
-        >
-          <div className="text-center">
-            <p className="text-xs font-semibold uppercase tracking-wider text-teal-400">
-              FAQ
-            </p>
-            <h2
-              id="faq-heading"
-              className="mt-2 text-3xl font-bold tracking-tight"
+        {/* FAQ — product UI backdrop */}
+        <CinematicSection id="faq" image={ART.product}>
+          <div className="mx-auto max-w-3xl px-6 py-20">
+            <SectionIntro
+              eyebrow="FAQ"
+              title="Manufacturing ERP questions, answered"
+              titleId="faq-heading"
+              center
+              wide
             >
-              Manufacturing ERP questions, answered
-            </h2>
-            <p className="mt-3 text-slate-400">
               Straight answers before you start a trial or demo.
-            </p>
-          </div>
-          <div className="mt-10 space-y-3">
-            {FAQS.map((item) => (
-              <details
-                key={item.q}
-                className="group rounded-2xl border border-slate-800 bg-slate-900/40 px-5 py-1 open:border-teal-500/30"
-              >
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 py-4 text-left font-medium text-slate-100 marker:content-none [&::-webkit-details-marker]:hidden">
-                  <span className="inline-flex items-start gap-2">
-                    <CircleHelp
-                      className="mt-0.5 h-4 w-4 shrink-0 text-teal-400"
+            </SectionIntro>
+            <div className="mt-10 space-y-3">
+              {FAQS.map((item) => (
+                <details
+                  key={item.q}
+                  className={`group open:border-teal-600 ${cardClass} px-5 py-1`}
+                >
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 py-4 text-left font-medium marker:content-none [&::-webkit-details-marker]:hidden">
+                    <span className="inline-flex items-start gap-2">
+                      <CircleHelp
+                        className="eyebrow mt-0.5 h-4 w-4 shrink-0"
+                        aria-hidden
+                      />
+                      {item.q}
+                    </span>
+                    <span
+                      className="shrink-0 transition-transform group-open:rotate-45"
                       aria-hidden
-                    />
-                    {item.q}
-                  </span>
-                  <span
-                    className="shrink-0 text-slate-500 transition-transform group-open:rotate-45"
-                    aria-hidden
-                  >
-                    +
-                  </span>
-                </summary>
-                <p className="border-t border-slate-800/80 pb-4 pt-3 text-sm leading-relaxed text-slate-400">
-                  {item.a}
-                </p>
-              </details>
-            ))}
-          </div>
-        </section>
-
-        {/* Final CTA */}
-        <section
-          className="border-t border-slate-800/70 bg-gradient-to-b from-slate-900/50 to-slate-950"
-          aria-labelledby="cta-heading"
-        >
-          <div className="mx-auto max-w-6xl px-6 py-20 text-center">
-            <h2
-              id="cta-heading"
-              className="text-3xl font-bold tracking-tight"
-            >
-              Run your shop on one manufacturing system
-            </h2>
-            <p className="mx-auto mt-3 max-w-xl text-slate-400">
-              Take the live demo for a spin, or start your free trial and be
-              running today — full ERP, zero implementation theater.
-            </p>
-            <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-              <Link
-                href="/signup"
-                className="rounded-xl bg-teal-500 px-5 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-teal-900/30 transition-colors hover:bg-teal-400"
-              >
-                Start your 45-day free trial
-              </Link>
-              <Link
-                href="/demo"
-                className="rounded-xl border border-slate-700 px-5 py-3 text-sm font-semibold transition-colors hover:border-teal-500/50"
-              >
-                Take the live demo
-              </Link>
+                    >
+                      +
+                    </span>
+                  </summary>
+                  <p className="muted border-t border-slate-200 pb-4 pt-3 text-sm leading-relaxed">
+                    {item.a}
+                  </p>
+                </details>
+              ))}
             </div>
-            <p className="mt-4 text-xs text-slate-500">
-              Questions?{" "}
-              <a
-                href="mailto:legal@forge-rp.live"
-                className="text-teal-400 hover:underline"
-              >
-                legal@forge-rp.live
-              </a>
-            </p>
           </div>
-        </section>
+        </CinematicSection>
+
+        {/* Final CTA — factory floor */}
+        <CinematicSection image={ART.factory}>
+          <div className="mx-auto max-w-6xl px-6 py-20">
+            <div className={`${cardClass} mx-auto max-w-2xl px-8 py-8 text-center`}>
+              <h2 id="cta-heading" className="text-3xl font-bold tracking-tight">
+                Run your shop on one manufacturing system
+              </h2>
+              <p className="muted mx-auto mt-3 max-w-xl">
+                Take the live demo for a spin, or start your free trial and be
+                running today — full ERP, zero implementation theater.
+              </p>
+              <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+                <Link href="/signup" className={`${primaryBtnClass} px-5 py-3`}>
+                  Start your 45-day free trial
+                </Link>
+                <a href="/" className={`${secondaryBtnClass} px-5 py-3`}>
+                  Take the live demo
+                </a>
+              </div>
+            </div>
+          </div>
+        </CinematicSection>
       </main>
 
-      <SiteFooter />
+      {showChrome && <SiteFooter />}
     </div>
   );
 }

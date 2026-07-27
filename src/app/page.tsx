@@ -27,15 +27,21 @@ import { DisciplinePulseCharts } from "@/components/dashboard/discipline-pulse";
 import { getDisciplinePulse } from "@/lib/services/dashboard-pulse";
 import { DashboardPersonalize } from "@/components/dashboard/dashboard-personalize";
 import { Sparkline } from "@/components/dashboard/sparkline";
+import { OpeningForge } from "@/components/marketing/opening-forge";
 import { LandingPage } from "@/components/marketing/landing-page";
+import { SiteHeader } from "@/components/marketing/site-header";
+import { SiteFooter } from "@/components/marketing/site-footer";
 import { SITE_DESCRIPTION, SITE_NAME, SITE_TAGLINE } from "@/lib/site";
+import { cookies } from "next/headers";
+import { DEMO_COOKIE } from "@/lib/db";
+import { getSessionUser } from "@/lib/auth-core";
 
 export const dynamic = "force-dynamic";
 
 /** Marketing SEO for crawlers / signed-out visitors; app users get a private title. */
 export async function generateMetadata(): Promise<Metadata> {
-  const user = await getCurrentUser();
-  if (user) {
+  const session = await getSessionUser().catch(() => null);
+  if (session) {
     return {
       title: "Command center",
       robots: { index: false, follow: false },
@@ -63,12 +69,80 @@ const fmtMoney = (n: number) =>
       ? `$${Math.round(n / 1000).toLocaleString()}k`
       : `$${Math.round(n).toLocaleString()}`;
 
-export default async function DashboardPage() {
+function SplashShell({
+  hasExistingDemo,
+  ended = false,
+  /** First visit can auto-provision; ended landing never auto-starts */
+  autoStart = true,
+}: {
+  hasExistingDemo?: boolean;
+  ended?: boolean;
+  autoStart?: boolean;
+}) {
+  return (
+    <div className="marketing-story flex min-h-screen flex-col bg-slate-950">
+      <SiteHeader />
+      <main className="flex-1">
+        <OpeningForge
+          hasExistingDemo={hasExistingDemo}
+          autoStart={autoStart && !ended}
+          ended={ended}
+        />
+        <LandingPage showChrome={false} showClassicHero={false} />
+      </main>
+      <SiteFooter />
+    </div>
+  );
+}
+
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const sp = searchParams ? await searchParams : {};
+  const appRaw = Array.isArray(sp.app) ? sp.app[0] : sp.app;
+  const endedRaw = Array.isArray(sp.ended) ? sp.ended[0] : sp.ended;
+  const enterApp = appRaw === "1";
+  const ended = endedRaw === "1";
+
+  // Real password session → ERP dashboard (no splash).
+  const sessionUser = await getSessionUser().catch(() => null);
+  const jar = await cookies();
+  const demoCookie = jar.get(DEMO_COOKIE)?.value;
+  const hasDemoCookie =
+    !!demoCookie &&
+    demoCookie !== "demo_template" &&
+    /^demo_[a-z0-9]{6,40}$/.test(demoCookie);
+
+  // Anonymous apex without ?app=1: marketing / forge. Never treat as ERP.
+  // After end-drive users land on /welcome?ended=1 (see /api/demo/end).
+  if (!sessionUser && !enterApp) {
+    // If they hit /?ended=1, send them to the full landing (no auto-start).
+    if (ended) {
+      const { redirect } = await import("next/navigation");
+      redirect("/welcome?ended=1");
+    }
+    return (
+      <SplashShell
+        hasExistingDemo={hasDemoCookie}
+        ended={false}
+      />
+    );
+  }
+
+  // ?app=1 without a real session or demo cookie → back to forge (user must
+  // complete Opening the Forge / click Live demo), never /login.
+  if (!sessionUser && enterApp && !hasDemoCookie) {
+    const { redirect } = await import("next/navigation");
+    redirect("/");
+  }
+
   const user = await getCurrentUser();
-  // Unauthenticated visitors get the public marketing landing page; signed-in
-  // users get their dashboard. (Under DEMO_MODE, getCurrentUser resolves a
-  // persona, so evaluators still see the app.)
-  if (!user) return <LandingPage />;
+  // ?app=1 but identity missing → clear path back to forge, not login.
+  if (!user) {
+    return <SplashShell hasExistingDemo={false} ended={false} />;
+  }
   const canSeeMoney = await userCanSeeFinancials(user.id);
   const setupDone = (
     await prisma.companySettings.findUnique({ where: { id: "default" } })

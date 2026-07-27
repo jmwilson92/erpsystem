@@ -38,6 +38,6 @@ export function getSiteUrl(): string {
 }
 
 export const SITE_CONTACT = {
-  legal: "legal@forge-rp.live",
+  legal: "",
   privacy: "privacy@forge-rp.live",
 };
