@@ -19,9 +19,6 @@ const PUBLIC_PREFIXES = [
   "/onboard",
   "/demo",
   "/legal",
-  // Local / staging marketing mocks (splash, tenant URL concepts)
-  "/preview",
-  "/marketing-preview",
   // Guest support chat thread (secret token in path)
   "/support/t",
   "/_next",
@@ -72,8 +69,5 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  // Skip static assets (incl. marketing-preview HTML/CSS under public/)
-  matcher: [
-    "/((?!_next/static|_next/image|marketing-preview/|.*\\.(?:png|jpg|jpeg|svg|ico|css|html|webp|gif|mp4|webm)$).*)",
-  ],
+  matcher: ["/((?!_next/static|_next/image|.*\\.(?:png|jpg|svg|ico)$).*)"],
 };

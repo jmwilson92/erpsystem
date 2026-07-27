@@ -200,8 +200,6 @@ export default async function RootLayout({
     pathname.startsWith("/demo") ||
     pathname.startsWith("/legal") ||
     pathname.startsWith("/support/t/") ||
-    pathname.startsWith("/preview") ||
-    pathname.startsWith("/marketing-preview") ||
     (pathname === "/" && !currentUser);
   if (isBareMarketing) {
     // Chat on every public marketing surface (landing, signup, legal, demo splash,
@@ -250,17 +248,9 @@ export default async function RootLayout({
     process.env.DEMO_MODE === "0" &&
     !currentUser &&
     pathname &&
-    ![
-      "/login",
-      "/invite",
-      "/onboard",
-      "/module-off",
-      "/demo",
-      "/legal",
-      "/preview",
-      "/marketing-preview",
-      "/signup",
-    ].some((p) => pathname.startsWith(p))
+    !["/login", "/invite", "/onboard", "/module-off", "/demo", "/legal"].some(
+      (p) => pathname.startsWith(p)
+    )
   ) {
     redirect("/login");
   }
