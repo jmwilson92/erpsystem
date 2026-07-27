@@ -2,7 +2,6 @@ import Link from "next/link";
 import {
   CheckCircle2,
   Globe,
-  MonitorDown,
   ArrowRight,
   AlertTriangle,
 } from "lucide-react";
@@ -21,8 +20,8 @@ export const dynamic = "force-dynamic";
  *
  * The session_id Stripe appends to the success URL is verified server-side with
  * the secret key; a complete checkout provisions the customer's workspace right
- * here (idempotent with the webhook — whoever runs first wins) and offers two
- * paths: jump into the browser setup now, or get the desktop build.
+ * here (idempotent with the webhook — whoever runs first wins) and sends them
+ * into browser setup. Desktop installer is not offered until that product ships.
  */
 export default async function SignupCompletePage({
   searchParams,
@@ -72,12 +71,12 @@ export default async function SignupCompletePage({
             <p className="mx-auto mt-3 max-w-lg text-slate-400">
               Your card is on file but won&apos;t be charged for {TRIAL_DAYS} days.
               Cancel anytime before the trial ends and you&apos;re never billed.
-              Pick how you want to run ForgeRP:
+              Next step: set up ForgeRP in your browser.
             </p>
           </div>
 
           {onboardUrl ? (
-            <div className="mt-10 grid gap-4 sm:grid-cols-2">
+            <div className="mx-auto mt-10 max-w-md">
               <Link
                 href={onboardUrl}
                 className="group flex flex-col rounded-2xl border border-teal-500/50 bg-teal-500/[0.07] p-6 ring-1 ring-teal-500/30 transition-colors hover:bg-teal-500/[0.12]"
@@ -96,45 +95,6 @@ export default async function SignupCompletePage({
                   <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
                 </span>
               </Link>
-
-              {(() => {
-                const installer = process.env.DESKTOP_DOWNLOAD_URL;
-                const cardClass =
-                  "group flex flex-col rounded-2xl border border-slate-800 bg-slate-950/40 p-6 transition-colors hover:border-teal-500/40";
-                const body = (
-                  <>
-                    <MonitorDown className="h-6 w-6 text-slate-400" />
-                    <h2 className="mt-3 font-semibold text-slate-100">
-                      Run it on your own machine
-                    </h2>
-                    <p className="mt-1.5 flex-1 text-sm text-slate-400">
-                      Prefer the downloadable version? Your data stays entirely on
-                      your hardware.
-                      {installer
-                        ? " The installer download starts as soon as you click."
-                        : " The desktop installer is on the way — request it and we’ll send it with setup steps."}
-                    </p>
-                    <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-slate-300">
-                      {installer ? "Download the desktop app" : "Request the installer"}{" "}
-                      <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-                    </span>
-                  </>
-                );
-                // When the installer URL is configured, clicking auto-starts the
-                // download; until then, fall back to requesting it.
-                return installer ? (
-                  <a href={installer} download className={cardClass}>
-                    {body}
-                  </a>
-                ) : (
-                  <a
-                    href="mailto:hello@forge-rp.live?subject=ForgeRP%20desktop%20installer"
-                    className={cardClass}
-                  >
-                    {body}
-                  </a>
-                );
-              })()}
             </div>
           ) : failed ? (
             <div className="mx-auto mt-8 flex max-w-lg items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3.5 text-sm text-amber-200">

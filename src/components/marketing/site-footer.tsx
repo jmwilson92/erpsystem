@@ -73,9 +73,9 @@ export function SiteFooter() {
               <a href="/welcome#faq" className="hover:text-slate-300">
                 FAQ
               </a>
-              <a href="/" className="hover:text-slate-300">
+              <Link href="/" className="hover:text-slate-300">
                 Live demo
-              </a>
+              </Link>
               <Link href="/signup" className="hover:text-slate-300">
                 Start free trial
               </Link>

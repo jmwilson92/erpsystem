@@ -29,9 +29,9 @@ export function SiteHeader() {
           <a href="/welcome#faq" className="hover:text-teal-300">
             FAQ
           </a>
-          <a href="/" className="hover:text-teal-300">
+          <Link href="/" className="hover:text-teal-300">
             Live demo
-          </a>
+          </Link>
         </nav>
         <div className="flex items-center gap-2">
           <Link

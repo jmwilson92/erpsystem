@@ -719,9 +719,9 @@ export function LandingPage({
                 <Link href="/signup" className={`${primaryBtnClass} px-5 py-3`}>
                   Start your 45-day free trial
                 </Link>
-                <a href="/" className={`${secondaryBtnClass} px-5 py-3`}>
+                <Link href="/" className={`${secondaryBtnClass} px-5 py-3`}>
                   Take the live demo
-                </a>
+                </Link>
               </div>
             </div>
           </div>
