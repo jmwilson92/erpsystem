@@ -1,5 +1,10 @@
 import { NextRequest } from "next/server";
-import { sweepIdleDemos } from "@/lib/services/tenancy";
+import {
+  sweepIdleDemos,
+  ensureDemoPool,
+  recycleStalePool,
+  demoPoolTarget,
+} from "@/lib/services/tenancy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,5 +25,17 @@ export async function GET(req: NextRequest) {
   }
   const maxIdle = Number(process.env.DEMO_IDLE_MINUTES) || 60;
   const destroyed = await sweepIdleDemos(maxIdle);
-  return Response.json({ ok: true, destroyed, maxIdleMinutes: maxIdle });
+  // Recycle spares that have been sitting unclaimed for a day so the pool never
+  // serves stale seed data after a template rebuild.
+  const recycled = await recycleStalePool(24);
+  // Then refill so the next visitor gets an instant sandbox.
+  const warmed = await ensureDemoPool().catch(() => 0);
+  return Response.json({
+    ok: true,
+    destroyed,
+    recycled,
+    warmed,
+    poolTarget: demoPoolTarget(),
+    maxIdleMinutes: maxIdle,
+  });
 }

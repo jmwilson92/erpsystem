@@ -42,19 +42,27 @@ export function OpeningForge({
     };
     raf = requestAnimationFrame(tick);
 
+    let creep = 0;
     const kickoff = window.setTimeout(() => {
       setStatus(
         hasExistingDemo
           ? "Re-entering your plant…"
           : "Spinning up your private plant…"
       );
-      setPct(97);
+      setPct(95);
       formRef.current?.requestSubmit();
+      // Sandboxes are pre-warmed, so the redirect is normally immediate. On a
+      // cold start (empty pool) the clone can take a few seconds — keep easing
+      // toward 99 so the bar never looks frozen while we wait.
+      creep = window.setInterval(() => {
+        setPct((p) => (p >= 99 ? 99 : p + 1));
+      }, 700);
     }, MIN_SPLASH_MS);
 
     return () => {
       cancelAnimationFrame(raf);
       window.clearTimeout(kickoff);
+      if (creep) window.clearInterval(creep);
     };
   }, [autoStart, ended, hasExistingDemo]);
 

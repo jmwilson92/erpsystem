@@ -265,6 +265,115 @@ export async function cloneSchema(source: string, dest: string): Promise<void> {
  * Provision a throwaway demo by cloning the seeded template. Registers the
  * tenant and returns its schema. Fast enough to run at request time.
  */
+/**
+ * How many demo sandboxes to keep cloned and waiting. Cloning the template
+ * takes several seconds against a remote database — doing that while a visitor
+ * stares at a progress bar is the difference between "instant" and "did this
+ * break?". Pre-warming moves that cost off the click path entirely.
+ */
+export function demoPoolTarget(): number {
+  const n = Number(process.env.DEMO_POOL_SIZE);
+  return Number.isFinite(n) && n >= 0 ? Math.min(n, 20) : 3;
+}
+
+/** Build one spare sandbox and park it as READY for the next visitor. */
+export async function warmOneDemo(): Promise<string | null> {
+  const cp = controlPlaneClient();
+  const schemaName = `demo_${randToken()}`;
+  const tenant = await cp.tenant.create({
+    data: { slug: schemaName, schemaName, isDemo: true, status: "PROVISIONING" },
+  });
+  try {
+    await cloneSchema(DEMO_TEMPLATE_SCHEMA, schemaName);
+    await cp.tenant.update({ where: { id: tenant.id }, data: { status: "READY" } });
+    return schemaName;
+  } catch (err) {
+    console.error("[demo] warm failed:", err);
+    await cp.tenant
+      .update({ where: { id: tenant.id }, data: { status: "DESTROYED" } })
+      .catch(() => undefined);
+    await dropSchema(schemaName).catch(() => undefined);
+    return null;
+  }
+}
+
+/** Top the pool back up to `demoPoolTarget()`. Safe to call repeatedly. */
+export async function ensureDemoPool(): Promise<number> {
+  const target = demoPoolTarget();
+  if (target === 0) return 0;
+  if (!(await demoTemplateExists())) return 0;
+  const cp = controlPlaneClient();
+  const ready = await cp.tenant.count({ where: { isDemo: true, status: "READY" } });
+  let made = 0;
+  // Build sequentially: a burst of parallel clones is heavy on a small database.
+  for (let i = ready; i < target; i++) {
+    const s = await warmOneDemo();
+    if (!s) break; // template/database trouble — stop rather than thrash
+    made += 1;
+  }
+  return made;
+}
+
+/**
+ * Drop pooled sandboxes that have waited longer than `maxAgeHours`. Keeps the
+ * pool from serving stale seed data after the demo template is rebuilt, and
+ * stops unclaimed schemas accumulating. Returns how many were recycled.
+ */
+export async function recycleStalePool(maxAgeHours = 24): Promise<number> {
+  const cp = controlPlaneClient();
+  const cutoff = new Date(Date.now() - maxAgeHours * 3_600_000);
+  const stale = await cp.tenant
+    .findMany({
+      where: { isDemo: true, status: "READY", createdAt: { lt: cutoff } },
+      select: { id: true, schemaName: true },
+      take: 25,
+    })
+    .catch(() => []);
+  let n = 0;
+  for (const t of stale) {
+    // Only recycle if it's still unclaimed at this instant.
+    const taken = await cp.tenant.updateMany({
+      where: { id: t.id, status: "READY" },
+      data: { status: "DESTROYED" },
+    });
+    if (taken.count === 1) {
+      await dropSchema(t.schemaName).catch(() => undefined);
+      n += 1;
+    }
+  }
+  return n;
+}
+
+/**
+ * Claim a pre-warmed sandbox, atomically. `updateMany` with the status in the
+ * WHERE clause means two visitors landing at the same instant can't be handed
+ * the same schema — the loser's update matches 0 rows and falls through.
+ */
+async function claimPooledDemo() {
+  const cp = controlPlaneClient();
+  const candidates = await cp.tenant.findMany({
+    where: { isDemo: true, status: "READY" },
+    select: { id: true, schemaName: true },
+    orderBy: { createdAt: "asc" },
+    take: 5,
+  });
+  for (const c of candidates) {
+    const claimed = await cp.tenant.updateMany({
+      where: { id: c.id, status: "READY" },
+      data: { status: "ACTIVE", lastActiveAt: new Date() },
+    });
+    if (claimed.count === 1) {
+      return cp.tenant.findUnique({ where: { id: c.id } });
+    }
+  }
+  return null;
+}
+
+/**
+ * Hand a visitor a demo sandbox. Takes a pre-warmed one when the pool has any
+ * (near-instant), otherwise clones on demand so the demo still works on a cold
+ * start. Either way the pool is topped back up in the background.
+ */
 export async function provisionDemo() {
   if (!(await demoTemplateExists())) {
     throw new Error(
@@ -276,6 +385,14 @@ export async function provisionDemo() {
   const maxIdle = Number(process.env.DEMO_IDLE_MINUTES) || 60;
   void sweepIdleDemos(maxIdle).catch(() => undefined);
 
+  // Fast path — a sandbox is already built and waiting.
+  const pooled = await claimPooledDemo().catch(() => null);
+  if (pooled) {
+    void ensureDemoPool().catch(() => undefined); // refill behind them
+    return pooled;
+  }
+
+  // Cold start / pool exhausted — clone now (the old behaviour).
   const schemaName = `demo_${randToken()}`;
   const tenant = await controlPlaneClient().tenant.create({
     data: { slug: schemaName, schemaName, isDemo: true, status: "PROVISIONING" },
@@ -289,10 +406,12 @@ export async function provisionDemo() {
     await dropSchema(schemaName).catch(() => undefined);
     throw err;
   }
-  return controlPlaneClient().tenant.update({
+  const active = await controlPlaneClient().tenant.update({
     where: { id: tenant.id },
     data: { status: "ACTIVE" },
   });
+  void ensureDemoPool().catch(() => undefined);
+  return active;
 }
 
 // ─── Real customer tenants (Stripe signup) ──────────────────────
