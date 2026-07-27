@@ -91,6 +91,37 @@ export function trackEvent(input: TelemetryInput): void {
 
 // ─── Dashboard queries ──────────────────────────────────────────
 
+export type TelemetryHealth =
+  | { ok: true; total: number }
+  | { ok: false; reason: "missing_table" | "unavailable"; detail: string };
+
+/**
+ * Is telemetry actually recording?
+ *
+ * Writes are deliberately fire-and-forget, which is right for a hot path but
+ * means a missing table fails *silently* — the dashboard would just show zeros
+ * forever and look like "nobody used the demo". This separates "set up, no data
+ * yet" from "not set up", so the dashboard can say which.
+ */
+export async function getTelemetryHealth(): Promise<TelemetryHealth> {
+  try {
+    const total = await controlPlaneClient().telemetryEvent.count();
+    return { ok: true, total };
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e);
+    // Postgres 42P01 = undefined_table; Prisma surfaces it in the message.
+    const missing =
+      /42P01|does not exist|relation .* does not exist|Unknown table|TelemetryEvent/i.test(
+        detail
+      );
+    return {
+      ok: false,
+      reason: missing ? "missing_table" : "unavailable",
+      detail: detail.slice(0, 300),
+    };
+  }
+}
+
 export type InsightsWindow = 1 | 7 | 30;
 
 function since(days: number): Date {

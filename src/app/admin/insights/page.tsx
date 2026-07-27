@@ -13,6 +13,7 @@ import {
   getLiveDemos,
   getTopActions,
   getTopPages,
+  getTelemetryHealth,
   type InsightsWindow,
 } from "@/lib/services/telemetry";
 import {
@@ -117,7 +118,8 @@ export default async function InsightsPage({
   const raw = Number(Array.isArray(sp.days) ? sp.days[0] : sp.days);
   const days: InsightsWindow = raw === 1 || raw === 30 ? raw : 7;
 
-  const [live, funnel, pages, actions, errors, daily] = await Promise.all([
+  const [health, live, funnel, pages, actions, errors, daily] = await Promise.all([
+    getTelemetryHealth(),
     getLiveDemos(10),
     getDemoFunnel(days),
     getTopPages(days),
@@ -139,6 +141,45 @@ export default async function InsightsPage({
         title="Product insights"
         description="Who's on the demo right now, what test drivers actually do, and what's breaking. Anonymous — no names, emails, or customer data."
       />
+
+      {!health.ok && (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-100">
+          <p className="flex items-center gap-2 font-semibold">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            {health.reason === "missing_table"
+              ? "Telemetry isn't recording yet — the table doesn't exist on this database."
+              : "Telemetry storage is unreachable."}
+          </p>
+          {health.reason === "missing_table" ? (
+            <>
+              <p className="mt-1.5 text-amber-200/90">
+                Everything below will read zero until the schema is pushed. Run
+                this once against this environment&apos;s database:
+              </p>
+              <pre className="mt-2 overflow-x-auto rounded-lg bg-slate-950/70 px-3 py-2 font-mono text-[11px] text-teal-300">
+                npx prisma db push
+              </pre>
+            </>
+          ) : (
+            <p className="mt-1.5 text-amber-200/90">
+              Numbers below may be incomplete. Details: {health.detail}
+            </p>
+          )}
+        </div>
+      )}
+
+      {health.ok && health.total === 0 && (
+        <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-4 text-sm text-slate-400">
+          <p className="font-medium text-slate-300">
+            Telemetry is set up, but nothing has been recorded yet.
+          </p>
+          <p className="mt-1 text-xs">
+            Events are captured from the moment this shipped — earlier test
+            drives aren&apos;t backfilled. Start a demo and it&apos;ll appear here
+            within seconds.
+          </p>
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-2">
         {windows.map((w) => (
