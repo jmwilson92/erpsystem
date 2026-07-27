@@ -20,6 +20,13 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  images: {
+    // Marketing art is full-bleed photography. AVIF first (typically 40-60%
+    // smaller than JPEG at the same quality), WebP fallback — so high-resolution
+    // source images can be dropped into public/marketing without shipping
+    // multi-megabyte JPEGs to phones.
+    formats: ["image/avif", "image/webp"],
+  },
   async headers() {
     return [
       {
