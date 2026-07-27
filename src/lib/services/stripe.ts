@@ -11,13 +11,14 @@ import {
  *
  *   STRIPE_SECRET_KEY        sk_test_... / sk_live_...
  *   STRIPE_WEBHOOK_SECRET    whsec_...
- *   STRIPE_PRICE_SHOP        price_... (per-seat annual)
+ *   STRIPE_PRICE_SHOP        price_... (per-seat monthly, $30/unit; qty = seats 1–10)
  *   STRIPE_PRICE_STARTER     price_... (flat annual)
  *   STRIPE_PRICE_GROWTH      price_...
  *   STRIPE_PRICE_BUSINESS    price_...
  *   APP_URL                  https://your-instance (for success/cancel URLs)
  *
  * Enterprise is "contact sales" — no self-serve checkout.
+ * Shop: line-item quantity = seats (adjustable 1–10 on Checkout).
  */
 
 const API = "https://api.stripe.com/v1";
@@ -97,20 +98,30 @@ export async function retrieveCheckoutSession(
   sessionId: string
 ): Promise<CheckoutSessionInfo | null> {
   if (!/^cs_[a-zA-Z0-9_]+$/.test(sessionId)) return null;
-  const s = (await stripeGet(`/checkout/sessions/${sessionId}`)) as {
+  // Expand line_items so Shop seat count comes from the actual paid quantity
+  // (customer may have adjusted qty on Stripe Checkout).
+  const s = (await stripeGet(
+    `/checkout/sessions/${sessionId}?expand[]=line_items`
+  )) as {
     status?: string;
     customer?: string | null;
     subscription?: string | null;
     customer_email?: string | null;
     customer_details?: { email?: string | null } | null;
     metadata?: Record<string, string> | null;
+    line_items?: { data?: { quantity?: number }[] } | null;
   };
   const plan = s.metadata?.plan || "STARTER";
+  const qty = s.line_items?.data?.[0]?.quantity;
   const seatsRaw = s.metadata?.seats;
-  const seats =
-    seatsRaw != null && seatsRaw !== ""
-      ? normalizeSeats(plan, Number(seatsRaw))
-      : getPlan(plan)?.seats ?? null;
+  let seats: number | null;
+  if (isPerSeatPlan(plan) && typeof qty === "number" && qty > 0) {
+    seats = normalizeSeats(plan, qty);
+  } else if (seatsRaw != null && seatsRaw !== "") {
+    seats = normalizeSeats(plan, Number(seatsRaw));
+  } else {
+    seats = getPlan(plan)?.seats ?? null;
+  }
   return {
     complete: s.status === "complete",
     customerId: s.customer || null,
@@ -140,23 +151,32 @@ export async function createCheckoutSession(params: {
   const seatsMeta = isPerSeatPlan(params.plan)
     ? String(qty)
     : String(getPlan(params.plan)?.seats ?? "");
+  const planDef = getPlan(params.plan);
+  const body: Record<string, string | undefined> = {
+    mode: "subscription",
+    "line_items[0][price]": price,
+    "line_items[0][quantity]": String(qty),
+    success_url: `${params.appUrl}/billing?checkout=success`,
+    cancel_url: `${params.appUrl}/billing?checkout=cancel`,
+    customer_email: params.customerEmail,
+    "metadata[plan]": params.plan,
+    "metadata[seats]": seatsMeta,
+    "subscription_data[metadata][plan]": params.plan,
+    "subscription_data[metadata][seats]": seatsMeta,
+    allow_promotion_codes: "true",
+  };
+  // Shop: let the customer adjust quantity (seats) on Stripe Checkout, max 10.
+  if (isPerSeatPlan(params.plan)) {
+    body["line_items[0][adjustable_quantity][enabled]"] = "true";
+    body["line_items[0][adjustable_quantity][minimum]"] = String(
+      planDef?.minSeats ?? 1
+    );
+    body["line_items[0][adjustable_quantity][maximum]"] = String(
+      planDef?.maxSeats ?? 10
+    );
+  }
 
-  const session = await stripePost(
-    "/checkout/sessions",
-    form({
-      mode: "subscription",
-      "line_items[0][price]": price,
-      "line_items[0][quantity]": String(qty),
-      success_url: `${params.appUrl}/billing?checkout=success`,
-      cancel_url: `${params.appUrl}/billing?checkout=cancel`,
-      customer_email: params.customerEmail,
-      "metadata[plan]": params.plan,
-      "metadata[seats]": seatsMeta,
-      "subscription_data[metadata][plan]": params.plan,
-      "subscription_data[metadata][seats]": seatsMeta,
-      allow_promotion_codes: "true",
-    })
-  );
+  const session = await stripePost("/checkout/sessions", form(body));
   return session.url as string;
 }
 
@@ -203,6 +223,7 @@ export async function createTrialCheckoutSession(params: {
   const seatsMeta = isPerSeatPlan(params.plan)
     ? String(qty)
     : String(getPlan(params.plan)?.seats ?? "");
+  const planDef = getPlan(params.plan);
 
   const body: Record<string, string | undefined> = {
     mode: "subscription",
@@ -223,6 +244,15 @@ export async function createTrialCheckoutSession(params: {
     "metadata[companyName]": params.companyName,
     allow_promotion_codes: applyCoupon ? undefined : "true",
   };
+  if (isPerSeatPlan(params.plan)) {
+    body["line_items[0][adjustable_quantity][enabled]"] = "true";
+    body["line_items[0][adjustable_quantity][minimum]"] = String(
+      planDef?.minSeats ?? 1
+    );
+    body["line_items[0][adjustable_quantity][maximum]"] = String(
+      planDef?.maxSeats ?? 10
+    );
+  }
   // Stripe rejects allow_promotion_codes + discounts together; when we auto-apply
   // the launch coupon we drop the manual promo-code box.
   if (applyCoupon) body["discounts[0][coupon]"] = coupon;
@@ -269,15 +299,23 @@ function seatsFromMeta(
   m: Record<string, string>,
   obj?: Record<string, unknown>
 ): number | null {
-  if (m.seats != null && m.seats !== "") {
-    return normalizeSeats(plan, Number(m.seats));
-  }
-  // Fallback: subscription item quantity (Shop)
-  const qty = (
+  // Prefer live Stripe quantity (Shop seats) over stale metadata.
+  const itemQty = (
     obj?.items as { data?: { quantity?: number }[] } | undefined
   )?.data?.[0]?.quantity;
-  if (typeof qty === "number" && qty > 0 && isPerSeatPlan(plan)) {
+  const lineQty = (
+    obj?.line_items as { data?: { quantity?: number }[] } | undefined
+  )?.data?.[0]?.quantity;
+  // checkout.session.completed may include quantity on display_items or lines
+  const linesQty = (
+    obj?.lines as { data?: { quantity?: number }[] } | undefined
+  )?.data?.[0]?.quantity;
+  const qty = itemQty ?? lineQty ?? linesQty;
+  if (isPerSeatPlan(plan) && typeof qty === "number" && qty > 0) {
     return normalizeSeats(plan, qty);
+  }
+  if (m.seats != null && m.seats !== "") {
+    return normalizeSeats(plan, Number(m.seats));
   }
   return getPlan(plan)?.seats ?? null;
 }
@@ -314,9 +352,20 @@ export async function handleWebhookEvent(event: {
       "";
     if (!email) throw new Error("checkout.session.completed missing customer email");
     const plan = m.plan || "STARTER";
+    // Session payloads often omit line_items — re-fetch so Shop qty is correct.
+    let seats = seatsFromMeta(plan, m, obj);
+    const sid = (obj.id as string) || "";
+    if (isPerSeatPlan(plan) && sid.startsWith("cs_")) {
+      try {
+        const full = await retrieveCheckoutSession(sid);
+        if (full?.seats != null) seats = full.seats;
+      } catch {
+        /* keep seats from meta */
+      }
+    }
     await provisionCustomerTenant({
       plan,
-      seats: seatsFromMeta(plan, m),
+      seats,
       billingEmail: email,
       companyName: m.companyName || null,
       trialDays: 45,
@@ -346,10 +395,22 @@ export async function handleWebhookEvent(event: {
       (obj.lines as { data?: { period?: { end?: number } }[] } | undefined)
         ?.data?.[0]?.period?.end;
     const plan = tenant.plan || meta(obj).plan || "STARTER";
+    let seats = seatsFromMeta(plan, meta(obj), obj);
+    // Subscription quantity may change (Shop seat adds) — re-fetch when per-seat.
+    if (isPerSeatPlan(plan) && subscriptionId?.startsWith("sub_")) {
+      try {
+        const sub = (await stripeGet(
+          `/subscriptions/${subscriptionId}`
+        )) as Record<string, unknown>;
+        seats = seatsFromMeta(plan, meta(sub), sub) ?? seats;
+      } catch {
+        /* keep seats from event payload */
+      }
+    }
     await activatePlan(
       {
         plan,
-        seats: seatsFromMeta(plan, meta(obj), obj),
+        seats,
         provider: "stripe",
         currentPeriodEnd: periodEndUnix ? new Date(periodEndUnix * 1000) : null,
         stripeCustomerId: customerId,

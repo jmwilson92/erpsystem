@@ -1651,15 +1651,22 @@ export async function actionInviteUser(formData: FormData): Promise<void> {
   const h = await headers();
   const proto = h.get("x-forwarded-proto") || "http";
   const host = h.get("host") || "localhost:3000";
-  const { link } = await createInvite({
-    email: (formData.get("email") as string) || "",
-    name: ((formData.get("name") as string) || "").trim() || null,
-    role: ((formData.get("role") as string) || "OPERATOR").trim(),
-    invitedById: user.id,
-    baseUrl: `${proto}://${host}`,
-  });
-  await flashToast(`Invite sent — link also logged in the Email Center`);
-  void link;
+  try {
+    const { link } = await createInvite({
+      email: (formData.get("email") as string) || "",
+      name: ((formData.get("name") as string) || "").trim() || null,
+      role: ((formData.get("role") as string) || "OPERATOR").trim(),
+      invitedById: user.id,
+      baseUrl: `${proto}://${host}`,
+    });
+    await flashToast(`Invite sent — link also logged in the Email Center`);
+    void link;
+  } catch (err) {
+    await flashToast(
+      err instanceof Error ? err.message : "Could not send invite",
+      "error"
+    );
+  }
   revalidatePath("/admin/permissions");
   revalidatePath("/email");
 }

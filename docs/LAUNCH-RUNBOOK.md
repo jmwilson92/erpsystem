@@ -55,7 +55,7 @@ spin up a `demo_*` schema and drop you into a seeded ERP with no login.
 ## 3. Environment variables (Vercel → Project → Settings → Environment Variables)
 
 Already set (confirmed): `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
-`STRIPE_PRICE_SHOP` (per-seat annual), `STRIPE_PRICE_STARTER`, `STRIPE_PRICE_GROWTH`, `STRIPE_PRICE_BUSINESS`.
+`STRIPE_PRICE_SHOP` (per-seat monthly $30, qty 1–10), `STRIPE_PRICE_STARTER`, `STRIPE_PRICE_GROWTH`, `STRIPE_PRICE_BUSINESS`.
 
 Add these:
 

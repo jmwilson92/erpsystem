@@ -4490,7 +4490,7 @@ model CompanySettings {
   trialEndsAt        DateTime?
   /// End of the current paid period (renewal / access-through date)
   currentPeriodEnd   DateTime?
-  /// Purchased seat count (null = unlimited / unmetered during beta)
+  /// Purchased seat count from plan / Stripe quantity (null = unlimited)
   seats              Int?
   /// Billing contact for renewal + dunning notices
   billingEmail       String?

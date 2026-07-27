@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import {
-  annualPriceForPlan,
+  periodPriceForPlan,
   planSeatsLabel,
   type PlanDef,
 } from "@/lib/services/subscription";
@@ -21,7 +21,7 @@ type Props = {
 };
 
 /**
- * Self-serve plan picker with a live seat stepper for Shop (per-user annual).
+ * Self-serve plan picker with a live seat stepper for Shop (per-user monthly).
  */
 export function SignupPlanForm({
   plans,
@@ -40,8 +40,8 @@ export function SignupPlanForm({
     return Math.min(max, Math.max(min, defaultSeats));
   });
 
-  const annual = useMemo(
-    () => annualPriceForPlan(planKey, isShop ? seats : null),
+  const periodTotal = useMemo(
+    () => periodPriceForPlan(planKey, isShop ? seats : null),
     [planKey, isShop, seats]
   );
 
@@ -90,7 +90,7 @@ export function SignupPlanForm({
                   </span>
                   {p.pricing === "per_seat" && (
                     <span className="mt-0.5 block text-[11px] text-slate-600">
-                      billed annually ({money(p.pricePerSeat ?? 360)}/user/yr)
+                      billed monthly · set quantity for seats (max {p.maxSeats})
                     </span>
                   )}
                 </span>
@@ -104,11 +104,13 @@ export function SignupPlanForm({
         <div className="mt-5 rounded-xl border border-slate-800 bg-slate-950/40 p-4">
           <label className="block">
             <span className="text-sm font-medium text-slate-300">
-              How many users?
+              How many seats?
             </span>
             <span className="mt-0.5 block text-xs text-slate-500">
-              Shop is pay-per-seat for 1–{selected.maxSeats} people. Need more?
-              Pick Starter or above.
+              Each seat is {money(selected.pricePerSeatMonthly ?? 30)}/month.
+              Quantity can also be adjusted on Stripe Checkout (1–
+              {selected.maxSeats}). Need more than {selected.maxSeats}? Choose
+              Starter or above.
             </span>
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <input
@@ -128,11 +130,11 @@ export function SignupPlanForm({
               />
               <p className="text-sm text-slate-300">
                 <span className="font-semibold text-slate-100">
-                  {money(annual)}
+                  {money(periodTotal)}
                 </span>
-                <span className="text-slate-500">/year</span>
+                <span className="text-slate-500">/mo</span>
                 <span className="ml-2 text-xs text-slate-500">
-                  ({seats} × {money(selected.pricePerSeatMonthly ?? 30)}/mo)
+                  ({seats} × {money(selected.pricePerSeatMonthly ?? 30)})
                 </span>
               </p>
             </div>

@@ -8,7 +8,7 @@
  *
  * Reads STRIPE_SECRET_KEY from .env. Use your sk_test_ key for the sandbox.
  *
- * Shop is a *per-seat* annual price (quantity = seats at checkout).
+ * Shop is a *per-seat* monthly price ($30/unit; quantity = seats 1–10).
  * Starter / Growth / Business are flat annual (quantity = 1).
  */
 import fs from "fs";
@@ -37,15 +37,18 @@ const PLANS = [
   {
     key: "SHOP",
     name: "ForgeRP Shop",
-    amount: 36000, // $360 / seat / year ($30/user/mo)
+    amount: 3000, // $30 / seat / month
+    interval: "month",
     envKey: "STRIPE_PRICE_SHOP",
-    blurb: "Per-seat annual — full ERP for 1–10 users",
+    blurb: "Per-seat monthly — full ERP for 1–10 users ($30/user/mo)",
     perSeat: true,
+    lookupKey: "forgerp_shop_monthly",
   },
   {
     key: "STARTER",
     name: "ForgeRP Starter",
     amount: 360000,
+    interval: "year",
     envKey: "STRIPE_PRICE_STARTER",
     blurb: "Full ERP, single site, up to 30 users",
   },
@@ -53,6 +56,7 @@ const PLANS = [
     key: "GROWTH",
     name: "ForgeRP Growth",
     amount: 840000,
+    interval: "year",
     envKey: "STRIPE_PRICE_GROWTH",
     blurb: "Priority support, up to 100 users",
   },
@@ -60,6 +64,7 @@ const PLANS = [
     key: "BUSINESS",
     name: "ForgeRP Business",
     amount: 1800000,
+    interval: "year",
     envKey: "STRIPE_PRICE_BUSINESS",
     blurb: "Multi-site + custom modules, up to 250 users",
   },
@@ -88,14 +93,16 @@ if (!sk.startsWith("sk_test_")) {
 
 const results = {};
 for (const plan of PLANS) {
-  const lookupKey = `forgerp_${plan.key.toLowerCase()}_annual`;
+  const interval = plan.interval || "year";
+  const lookupKey =
+    plan.lookupKey || `forgerp_${plan.key.toLowerCase()}_${interval === "month" ? "monthly" : "annual"}`;
 
   // Reuse an existing price with this lookup_key if present.
   const existing = await api("GET", `/prices?active=true&lookup_keys[]=${lookupKey}&limit=1`);
   let price = existing.data?.[0];
 
   if (price) {
-    const unit = `$${(price.unit_amount / 100).toLocaleString()}/yr`;
+    const unit = `$${(price.unit_amount / 100).toLocaleString()}/${interval === "month" ? "mo" : "yr"}`;
     console.log(
       `= ${plan.key}: reusing ${price.id} (${unit}${plan.perSeat ? " per seat" : ""})`
     );
@@ -110,13 +117,13 @@ for (const plan of PLANS) {
       product: product.id,
       unit_amount: String(plan.amount),
       currency: "usd",
-      "recurring[interval]": "year",
+      "recurring[interval]": interval,
       lookup_key: lookupKey,
       "metadata[forgerp_plan]": plan.key,
       "metadata[per_seat]": plan.perSeat ? "1" : "0",
     });
     console.log(
-      `+ ${plan.key}: created ${price.id} ($${(plan.amount / 100).toLocaleString()}/yr${plan.perSeat ? " per seat" : ""})`
+      `+ ${plan.key}: created ${price.id} ($${(plan.amount / 100).toLocaleString()}/${interval === "month" ? "mo" : "yr"}${plan.perSeat ? " per seat" : ""})`
     );
   }
   results[plan.envKey] = price.id;

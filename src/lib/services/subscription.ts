@@ -10,7 +10,7 @@ import { demoModeEnabled } from "@/lib/auth-core";
  * never in public. Typed loosely because a scoped client and the proxy share the
  * delegate surface we use but not the full nominal PrismaClient type.
  */
-type Db = Pick<PrismaClient, "companySettings" | "auditLog">;
+type Db = Pick<PrismaClient, "companySettings" | "auditLog" | "user" | "userInvite">;
 
 /**
  * Instance-per-customer subscription state. Each ForgeRP instance carries its
@@ -25,24 +25,27 @@ type Db = Pick<PrismaClient, "companySettings" | "auditLog">;
 
 /**
  * Pricing model:
- *  - Shop: per-seat annual for 1–10 users ($30/user/mo billed yearly).
+ *  - Shop: per-seat monthly for 1–10 users ($30/user/mo; Stripe quantity = seats).
  *  - Starter / Growth / Business: flat annual seat bands.
  *  - Enterprise: custom (self-host, SSO, 251+).
  *
- * Crossover: 10 × Shop = Starter list price, but Starter includes 30 seats.
+ * Crossover: 10 × Shop ($300/mo) vs Starter ($3,600/yr) — upgrade for more seats.
  */
 export type PlanDef = {
   key: string;
   name: string;
-  /** "per_seat" = Stripe quantity × pricePerSeat; "flat" = fixed annual. */
+  /** "per_seat" = Stripe quantity × unit price; "flat" = fixed; "custom" = sales. */
   pricing: "per_seat" | "flat" | "custom";
-  /** Annual list for flat plans; for per_seat, annual total at 1 seat (JSON-LD / min). */
+  /**
+   * List price for one billing period: per-seat unit $ for Shop, flat annual $ for tiers.
+   * Used for marketing / JSON-LD (Shop quotes 1 seat).
+   */
   price: number;
-  /** Annual $ per seat (Shop). Null for flat/custom. */
+  /** $ per seat per billing period (Shop). Null for flat/custom. */
   pricePerSeat: number | null;
-  /** Display monthly equivalent per seat (Shop). */
+  /** Display monthly $ per seat (Shop). */
   pricePerSeatMonthly: number | null;
-  interval: "year";
+  interval: "month" | "year";
   blurb: string;
   /** Max seats included (or max purchasable for Shop). Null = unlimited / custom. */
   seats: number | null;
@@ -55,11 +58,11 @@ export const PLANS: readonly PlanDef[] = [
     key: "SHOP",
     name: "Shop",
     pricing: "per_seat",
-    price: 360, // 1 seat annual
-    pricePerSeat: 360,
+    price: 30, // 1 seat / month
+    pricePerSeat: 30,
     pricePerSeatMonthly: 30,
-    interval: "year",
-    blurb: "Startups & micro shops — full ERP, pay only for the seats you need.",
+    interval: "month",
+    blurb: "Startups & micro shops — full ERP, $30 per user / month (up to 10 seats).",
     seats: 10,
     minSeats: 1,
     maxSeats: 10,
@@ -144,8 +147,11 @@ export function normalizeSeats(
   return Math.min(max, Math.max(min, Math.round(n)));
 }
 
-/** Annual list price for the plan (× seats for Shop). */
-export function annualPriceForPlan(
+/**
+ * Recurring list charge for one billing period (× seats for Shop).
+ * Shop = monthly total; flat plans = annual total.
+ */
+export function periodPriceForPlan(
   planKey: string,
   seats?: number | null
 ): number {
@@ -156,13 +162,160 @@ export function annualPriceForPlan(
   return (plan.pricePerSeat ?? 0) * n;
 }
 
+/** @deprecated use periodPriceForPlan — kept for call sites expecting annual-ish totals */
+export function annualPriceForPlan(
+  planKey: string,
+  seats?: number | null
+): number {
+  const plan = getPlan(planKey);
+  if (!plan || plan.pricing === "custom") return 0;
+  if (plan.pricing === "per_seat") {
+    return periodPriceForPlan(planKey, seats) * 12;
+  }
+  return plan.price;
+}
+
 /** Short seat label for marketing cards. */
 export function planSeatsLabel(plan: PlanDef): string {
   if (plan.pricing === "custom" || plan.seats == null) return "Unlimited seats";
   if (plan.pricing === "per_seat") {
-    return `${plan.minSeats}–${plan.maxSeats} users (pay per seat)`;
+    return `${plan.minSeats}–${plan.maxSeats} users · pay per seat`;
   }
   return `Up to ${plan.seats} users`;
+}
+
+export type SeatUsage = {
+  /** Purchased / plan seat cap. null = unlimited (Enterprise / unmetered). */
+  limit: number | null;
+  activeUsers: number;
+  /** Open invites for emails that are not already active users. */
+  pendingInvites: number;
+  /** activeUsers + pendingInvites */
+  used: number;
+  /** Seats left to invite/activate; null if unlimited. */
+  available: number | null;
+};
+
+/**
+ * How many seats this instance has paid for vs how many are consumed
+ * (active users + outstanding invites that would create new users).
+ */
+export async function getSeatUsage(db: Db = prisma): Promise<SeatUsage> {
+  const settings = await db.companySettings.findUnique({
+    where: { id: "default" },
+    select: { seats: true },
+  });
+  const limit = settings?.seats ?? null;
+
+  const activeUsers = await db.user.findMany({
+    where: { isActive: true },
+    select: { email: true },
+  });
+  const activeSet = new Set(
+    activeUsers.map((u) => u.email.trim().toLowerCase())
+  );
+
+  const pending = await db.userInvite.findMany({
+    where: {
+      kind: "INVITE",
+      acceptedAt: null,
+      expiresAt: { gt: new Date() },
+    },
+    select: { email: true },
+  });
+  const pendingNew = new Set<string>();
+  for (const inv of pending) {
+    const em = inv.email.trim().toLowerCase();
+    if (!activeSet.has(em)) pendingNew.add(em);
+  }
+
+  const activeCount = activeUsers.length;
+  const pendingInvites = pendingNew.size;
+  const used = activeCount + pendingInvites;
+  const available = limit == null ? null : Math.max(0, limit - used);
+
+  return {
+    limit,
+    activeUsers: activeCount,
+    pendingInvites,
+    used,
+    available,
+  };
+}
+
+/**
+ * Block new invites (and reactivations) when the paid seat cap is full.
+ * No-op when seats is null (unlimited) or in demo mode.
+ * Existing active users and re-sends of an open invite for the same email are allowed.
+ */
+export async function assertSeatAvailableForInvite(
+  email: string,
+  db: Db = prisma
+): Promise<void> {
+  if (demoModeEnabled()) return;
+  const usage = await getSeatUsage(db);
+  if (usage.limit == null) return;
+
+  const em = email.trim().toLowerCase();
+  const existing = await db.user.findFirst({
+    where: { email: em },
+    select: { isActive: true },
+  });
+  if (existing?.isActive) return; // already occupying a seat
+
+  const openInvite = await db.userInvite.findFirst({
+    where: {
+      email: em,
+      kind: "INVITE",
+      acceptedAt: null,
+      expiresAt: { gt: new Date() },
+    },
+    select: { id: true },
+  });
+  if (openInvite) return; // already reserved
+
+  if (usage.used >= usage.limit) {
+    throw new Error(
+      `Seat limit reached (${usage.limit} seat${usage.limit === 1 ? "" : "s"}). ` +
+        `You have ${usage.activeUsers} active user${usage.activeUsers === 1 ? "" : "s"}` +
+        (usage.pendingInvites
+          ? ` and ${usage.pendingInvites} pending invite${usage.pendingInvites === 1 ? "" : "s"}`
+          : "") +
+        `. Upgrade your plan or remove a user before inviting more.`
+    );
+  }
+}
+
+/**
+ * When accepting an invite that creates or reactivates a user, ensure we still
+ * fit under the purchased seat cap (pending invite was counted at send time;
+ * race: another accept could fill the last seat).
+ */
+export async function assertSeatAvailableForAccept(
+  email: string,
+  db: Db = prisma
+): Promise<void> {
+  if (demoModeEnabled()) return;
+  const settings = await db.companySettings.findUnique({
+    where: { id: "default" },
+    select: { seats: true },
+  });
+  const limit = settings?.seats ?? null;
+  if (limit == null) return;
+
+  const em = email.trim().toLowerCase();
+  const existing = await db.user.findFirst({
+    where: { email: em },
+    select: { isActive: true },
+  });
+  if (existing?.isActive) return;
+
+  const activeCount = await db.user.count({ where: { isActive: true } });
+  if (activeCount >= limit) {
+    throw new Error(
+      `This workspace is at its seat limit (${limit}). Ask an admin to free a seat or upgrade the plan.`
+    );
+  }
 }
 
 export type SubscriptionState = {
@@ -284,9 +437,10 @@ export async function activatePlan(
 ) {
   const known = getPlan(params.plan);
   if (!known) throw new Error(`Unknown plan: ${params.plan}`);
+  const defaultPeriodMs =
+    known.interval === "month" ? 32 * 86_400_000 : 365 * 86_400_000;
   const periodEnd =
-    params.currentPeriodEnd ??
-    new Date(Date.now() + 365 * 86_400_000); // annual by default
+    params.currentPeriodEnd ?? new Date(Date.now() + defaultPeriodMs);
 
   const seats =
     known.pricing === "per_seat"

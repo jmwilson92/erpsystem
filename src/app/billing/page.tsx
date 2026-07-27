@@ -6,10 +6,11 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { getCurrentUser, userHasPermission } from "@/lib/auth";
 import {
   getSubscriptionState,
+  getSeatUsage,
   PLANS,
   TRIAL_DAYS,
   planSeatsLabel,
-  annualPriceForPlan,
+  periodPriceForPlan,
 } from "@/lib/services/subscription";
 import {
   actionStartCheckout,
@@ -36,6 +37,7 @@ export default async function BillingPage({
   const user = await getCurrentUser();
   const canManage = await userHasPermission(user?.id, "admin.permissions");
   const sub = await getSubscriptionState();
+  const seatUsage = await getSeatUsage();
 
   return (
     <div className="space-y-6">
@@ -126,7 +128,24 @@ export default async function BillingPage({
               <p className="text-[10px] uppercase tracking-wide text-slate-500">
                 Seats
               </p>
-              <p className="font-medium text-slate-100">{sub.seats}</p>
+              <p className="font-medium text-slate-100">
+                {seatUsage.used} / {sub.seats} used
+                <span className="ml-1 text-xs font-normal text-slate-500">
+                  ({seatUsage.activeUsers} active
+                  {seatUsage.pendingInvites
+                    ? `, ${seatUsage.pendingInvites} pending`
+                    : ""}
+                  )
+                </span>
+              </p>
+            </div>
+          )}
+          {sub.seats == null && (
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-slate-500">
+                Seats
+              </p>
+              <p className="font-medium text-slate-100">Unlimited</p>
             </div>
           )}
         </CardContent>
@@ -163,8 +182,7 @@ export default async function BillingPage({
                         /user/mo
                       </span>
                       <span className="mt-0.5 block text-xs font-normal text-slate-500">
-                        billed annually ({money(plan.pricePerSeat ?? 360)}
-                        /user/yr)
+                        billed monthly · qty = seats (max {plan.maxSeats})
                       </span>
                     </>
                   ) : (
@@ -198,7 +216,7 @@ export default async function BillingPage({
                     <input type="hidden" name="plan" value={plan.key} />
                     {isShop && (
                       <label className="block text-xs text-slate-400">
-                        Seats (1–{plan.maxSeats})
+                        Seats / quantity (1–{plan.maxSeats})
                         <Input
                           name="seats"
                           type="number"
@@ -206,14 +224,14 @@ export default async function BillingPage({
                           max={plan.maxSeats ?? 10}
                           defaultValue={
                             sub.plan === "SHOP" && sub.seats
-                              ? sub.seats
+                              ? Math.min(sub.seats, plan.maxSeats ?? 10)
                               : 3
                           }
                           className="mt-1 h-8 text-xs"
                         />
                         <span className="mt-1 block text-[11px] text-slate-500">
                           Example: 3 seats ={" "}
-                          {money(annualPriceForPlan("SHOP", 3))}/yr
+                          {money(periodPriceForPlan("SHOP", 3))}/mo
                         </span>
                       </label>
                     )}

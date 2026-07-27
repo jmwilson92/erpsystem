@@ -6,7 +6,7 @@ import { SignupPlanForm } from "@/components/marketing/signup-plan-form";
 import {
   PLANS,
   TRIAL_DAYS,
-  annualPriceForPlan,
+  periodPriceForPlan,
   planSeatsLabel,
 } from "@/lib/services/subscription";
 import { launchPromoActive, stripeEnabled } from "@/lib/services/stripe";
@@ -63,11 +63,11 @@ export default async function SignupPage({
 
   const selectedSummary = selected
     ? selected.pricing === "per_seat"
-      ? `You're starting on ${selected.name} (${money(selected.pricePerSeatMonthly ?? 30)}/user/mo billed annually, ${planSeatsLabel(selected)}).`
+      ? `You're starting on ${selected.name} (${money(selected.pricePerSeatMonthly ?? 30)}/user/mo, ${planSeatsLabel(selected)}). Set quantity for the seats you need.`
       : selected.pricing === "custom"
         ? `You're interested in ${selected.name} — contact sales after trial setup, or pick a self-serve plan below.`
         : `You're starting on the ${selected.name} plan (${money(selected.price)}/year, ${planSeatsLabel(selected)}).`
-    : "Pick a plan and get the full product for 45 days, free. Small shops can start pay-per-seat.";
+    : "Pick a plan and get the full product for 45 days, free. Small shops start at $30/user/mo.";
 
   return (
     <MarketingShell>
@@ -119,7 +119,7 @@ export default async function SignupPage({
             <p className="text-sm text-slate-200">
               Self-serve checkout opens at launch. Want in early, or have
               questions about a plan? Shop starts at{" "}
-              {money(annualPriceForPlan("SHOP", 1))}/year for one user.
+              {money(periodPriceForPlan("SHOP", 1))}/month for one user.
             </p>
             <div className="mt-4 flex flex-wrap justify-center gap-3">
               <a

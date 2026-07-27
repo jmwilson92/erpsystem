@@ -51,7 +51,7 @@ async function checkStripe() {
   console.log(ok("secret key valid"));
   console.log(sk.startsWith("sk_test_") ? ok("test mode") : warn("LIVE key — use sk_test_ for sandbox"));
   for (const [label, key, expect] of [
-    ["Shop (per seat)", "STRIPE_PRICE_SHOP", 36000],
+    ["Shop (per seat / mo)", "STRIPE_PRICE_SHOP", 3000],
     ["Starter", "STRIPE_PRICE_STARTER", 360000],
     ["Growth", "STRIPE_PRICE_GROWTH", 840000],
     ["Business", "STRIPE_PRICE_BUSINESS", 1800000],
@@ -63,8 +63,9 @@ async function checkStripe() {
     const amt = p.json.unit_amount;
     const rec = p.json.recurring?.interval;
     const parts = [`$${(amt / 100).toLocaleString()}/${rec || "one-time"}`];
-    let good = p.json.active && rec === "year";
-    if (rec !== "year") parts.push("(not yearly ⚠)");
+    const expectInterval = key === "STRIPE_PRICE_SHOP" ? "month" : "year";
+    let good = p.json.active && rec === expectInterval;
+    if (rec !== expectInterval) parts.push(`(expected ${expectInterval} ⚠)`);
     if (!p.json.active) parts.push("(inactive ⚠)");
     if (amt !== expect) parts.push(`(expected $${(expect / 100).toLocaleString()})`);
     console.log((good ? ok : warn)(`${label}: ${parts.join(" ")}`));

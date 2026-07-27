@@ -18,6 +18,7 @@ import {
   actionAdminResetPin,
 } from "@/app/actions";
 import { Input } from "@/components/ui/input";
+import { getSeatUsage } from "@/lib/services/subscription";
 
 /** Permissions grouped by module for pickers and the catalog reference. */
 function permsByModule() {
@@ -48,34 +49,39 @@ export default async function PermissionsAdminPage() {
     include: { user: { select: { name: true, role: true } } },
     orderBy: { createdAt: "asc" },
   });
-  const [pendingInvites, groups, users, directGrants] = await Promise.all([
-    prisma.userInvite.findMany({
-      where: { acceptedAt: null, expiresAt: { gt: new Date() } },
-      orderBy: { createdAt: "desc" },
-      take: 20,
-    }),
-    listPermissionGroups(),
-    prisma.user.findMany({
-      where: { isActive: true },
-      orderBy: { name: "asc" },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        permissionGroups: {
-          include: { group: { select: { code: true, name: true } } },
+  const [pendingInvites, groups, users, directGrants, seatUsage] =
+    await Promise.all([
+      prisma.userInvite.findMany({
+        where: { acceptedAt: null, expiresAt: { gt: new Date() } },
+        orderBy: { createdAt: "desc" },
+        take: 20,
+      }),
+      listPermissionGroups(),
+      prisma.user.findMany({
+        where: { isActive: true },
+        orderBy: { name: "asc" },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          permissionGroups: {
+            include: { group: { select: { code: true, name: true } } },
+          },
         },
-      },
-    }),
-    prisma.userPermission.findMany({
-      include: {
-        user: { select: { name: true } },
-        permission: { select: { code: true, name: true } },
-      },
-      take: 50,
-    }),
-  ]);
+      }),
+      prisma.userPermission.findMany({
+        include: {
+          user: { select: { name: true } },
+          permission: { select: { code: true, name: true } },
+        },
+        take: 50,
+      }),
+      getSeatUsage(),
+    ]);
+
+  const seatsFull =
+    seatUsage.limit != null && seatUsage.available === 0;
 
   return (
     <div className="space-y-6">
@@ -183,12 +189,46 @@ export default async function PermissionsAdminPage() {
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Invite teammates</CardTitle>
           <p className="text-xs text-slate-500">
-            Unlimited seats — invite everyone. The invite e-mail (with the
-            activation link) is logged in the Email Center; SMTP delivers it
-            for real in production.
+            {seatUsage.limit == null ? (
+              <>
+                Unlimited seats on this plan. Invite e-mail (with the activation
+                link) is logged in the Email Center; SMTP delivers it in
+                production.
+              </>
+            ) : (
+              <>
+                Your plan includes{" "}
+                <span className="font-medium text-slate-300">
+                  {seatUsage.limit} seat{seatUsage.limit === 1 ? "" : "s"}
+                </span>
+                . Using {seatUsage.used} ({seatUsage.activeUsers} active
+                {seatUsage.pendingInvites
+                  ? `, ${seatUsage.pendingInvites} pending invite${
+                      seatUsage.pendingInvites === 1 ? "" : "s"
+                    }`
+                  : ""}
+                )
+                {seatUsage.available != null
+                  ? ` · ${seatUsage.available} remaining`
+                  : ""}
+                . You can only invite as many people as you paid for.{" "}
+                <a href="/billing" className="text-teal-400 hover:underline">
+                  Manage plan
+                </a>
+              </>
+            )}
           </p>
         </CardHeader>
         <CardContent className="space-y-3">
+          {seatsFull && (
+            <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+              Seat limit reached. Free a seat (deactivate a user) or{" "}
+              <a href="/billing" className="underline">
+                upgrade / add seats
+              </a>{" "}
+              before inviting someone new.
+            </p>
+          )}
           <form
             action={actionInviteUser}
             className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4"
@@ -206,7 +246,7 @@ export default async function PermissionsAdminPage() {
                 </option>
               ))}
             </select>
-            <Button type="submit" size="sm" className="h-9">
+            <Button type="submit" size="sm" className="h-9" disabled={seatsFull}>
               Send invite
             </Button>
           </form>

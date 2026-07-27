@@ -165,7 +165,7 @@ const FAQS = [
   },
   {
     q: "How is pricing structured?",
-    a: "Shop is pay-per-seat for 1–10 users ($30/user/mo billed annually). Larger teams pick a flat annual seat band — Starter (30), Growth (100), or Business (250). Enterprise covers 251+, SSO, self-host, and custom modules. Every paid plan is the full product — no per-module nickel-and-diming.",
+    a: "Shop is $30 per user per month for 1–10 seats (you set the quantity). Larger teams pick a flat annual seat band — Starter (30), Growth (100), or Business (250). Enterprise covers 251+, SSO, self-host, and custom modules. Every paid plan is the full product — no per-module nickel-and-diming.",
   },
 ];
 
@@ -195,7 +195,7 @@ function PlanPriceDisplay({ p }: { p: PlanDef }) {
         </span>
         <span className="text-sm text-slate-500">/user/mo</span>
         <p className="mt-1 text-xs text-slate-500">
-          billed annually ({money(p.pricePerSeat ?? 360)}/user/yr)
+          billed monthly · quantity = seats (max {p.maxSeats})
         </p>
       </div>
     );
@@ -550,10 +550,10 @@ export function LandingPage() {
                 Fair pricing from the smallest shop to the largest plant
               </h2>
               <p className="mx-auto mt-3 max-w-2xl text-slate-400">
-                Pay per user for 1–10 seats, then flat annual bands as you grow.
-                Every plan is the full product. Start with a {TRIAL_DAYS}-day free
-                trial; your card isn&rsquo;t charged until it ends, and you have
-                15 days after that to request a full refund.
+                Shop is $30 per user per month (1–10 seats). Larger teams get flat
+                annual bands. Every plan is the full product. Start with a{" "}
+                {TRIAL_DAYS}-day free trial; your card isn&rsquo;t charged until it
+                ends, and you have 15 days after that to request a full refund.
               </p>
             </div>
 

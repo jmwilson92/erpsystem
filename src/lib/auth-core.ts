@@ -382,6 +382,14 @@ export async function createInvite(params: {
   }
   const db = dbForSchema(schemaName);
 
+  // Enforce purchased seat caps (CompanySettings.seats) for new INVITE recipients.
+  if (kind === "INVITE") {
+    const { assertSeatAvailableForInvite } = await import(
+      "./services/subscription"
+    );
+    await assertSeatAvailableForInvite(email, db);
+  }
+
   await db.userInvite.create({
     data: {
       tokenHash: sha256(token),
@@ -488,6 +496,14 @@ export async function acceptInvite(params: {
   assertPasswordStrength(params.password);
 
   const existing = await db.user.findFirst({ where: { email: invite.email } });
+  // New user or reactivation consumes a seat — enforce plan cap.
+  if (invite.kind === "INVITE" && (!existing || !existing.isActive)) {
+    const { assertSeatAvailableForAccept } = await import(
+      "./services/subscription"
+    );
+    await assertSeatAvailableForAccept(invite.email, db);
+  }
+
   const user = existing
     ? await db.user.update({
         where: { id: existing.id },
