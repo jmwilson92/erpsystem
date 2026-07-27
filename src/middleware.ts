@@ -30,6 +30,10 @@ const PUBLIC_PREFIXES = [
   "/favicon",
   "/api/health",
   "/api/stripe", // Stripe webhooks are signature-verified, not cookie-authed
+  // Vercel Cron calls this with no session cookie; it authenticates itself with
+  // CRON_SECRET. Without this the scheduled demo sweep / pool refill just gets
+  // redirected to /login and silently never runs.
+  "/api/cron",
   // SEO / social previews must stay crawlable without a session
   "/robots.txt",
   "/sitemap.xml",
