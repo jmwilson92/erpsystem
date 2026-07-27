@@ -12,6 +12,24 @@ export default function AppError({
 }) {
   useEffect(() => {
     console.error("[forgerp] route error", error.digest || error.message);
+    // Report to the owner insights dashboard so a visitor hitting a broken page
+    // is something we find out about, not something we hope gets emailed in.
+    try {
+      fetch("/api/telemetry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: "ERROR",
+          path: window.location.pathname,
+          label: error.message || "route error",
+          severity: "error",
+          detail: { digest: error.digest ?? null, boundary: "route" },
+        }),
+        keepalive: true,
+      }).catch(() => undefined);
+    } catch {
+      /* never let reporting break the error page itself */
+    }
   }, [error]);
 
   return (

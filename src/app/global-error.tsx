@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect } from "react";
+
 /**
  * Root-level error UI (replaces root layout when it crashes).
  * Keep styling self-contained — layout may not mount.
@@ -11,6 +13,27 @@ export default function GlobalError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  useEffect(() => {
+    // The root layout crashed — the worst kind of failure, so make sure it
+    // still reaches the insights dashboard.
+    try {
+      fetch("/api/telemetry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: "ERROR",
+          path: window.location.pathname,
+          label: error.message || "root layout error",
+          severity: "error",
+          detail: { digest: error.digest ?? null, boundary: "global" },
+        }),
+        keepalive: true,
+      }).catch(() => undefined);
+    } catch {
+      /* nothing left to fall back to */
+    }
+  }, [error]);
+
   return (
     <html lang="en">
       <body

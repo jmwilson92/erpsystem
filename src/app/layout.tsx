@@ -8,6 +8,7 @@ import { SandboxBanner } from "@/components/layout/sandbox-banner";
 import { TrialBanner } from "@/components/layout/trial-banner";
 import { FlashToast } from "@/components/layout/flash-toast";
 import { CookieBanner } from "@/components/marketing/cookie-banner";
+import { TelemetryBeacon } from "@/components/telemetry/telemetry-beacon";
 import { getSubscriptionState } from "@/lib/services/subscription";
 import { getCurrentUser, listUsers } from "@/lib/auth";
 import { demoModeEnabled } from "@/lib/auth-core";
@@ -423,6 +424,7 @@ export default async function RootLayout({
           </AppShell>
         )}
         <CookieBanner />
+        <TelemetryBeacon enabled={isAnonymousDemo} />
         <Analytics />
       </body>
     </html>

@@ -3,6 +3,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { DEMO_COOKIE } from "@/lib/db";
+import { trackEvent } from "@/lib/services/telemetry";
 
 /**
  * Demo start / re-enter only. Ending a drive uses GET /api/demo/end
@@ -27,6 +28,14 @@ export async function actionStartTestDrive(): Promise<void> {
   );
   if (!(await demoTemplateExists())) {
     console.error("[demo] demo_template schema missing — run build-demo-template");
+    trackEvent({
+      kind: "ERROR",
+      source: "DEMO",
+      label: "demo_template schema missing",
+      severity: "error",
+      path: "/demo",
+      detail: { stage: "precheck" },
+    });
     redirect("/welcome?error=warming");
   }
 
@@ -36,6 +45,14 @@ export async function actionStartTestDrive(): Promise<void> {
     schemaName = tenant.schemaName;
   } catch (err) {
     console.error("[demo] provisionDemo failed:", err);
+    trackEvent({
+      kind: "ERROR",
+      source: "DEMO",
+      label: `provisionDemo failed: ${err instanceof Error ? err.message : String(err)}`,
+      severity: "error",
+      path: "/demo",
+      detail: { stage: "provision" },
+    });
     redirect("/welcome?error=warming");
   }
 
@@ -45,6 +62,14 @@ export async function actionStartTestDrive(): Promise<void> {
     if (n < 1) throw new Error("cloned demo has zero users");
   } catch (err) {
     console.error("[demo] clone validation failed:", err);
+    trackEvent({
+      kind: "ERROR",
+      source: "DEMO",
+      label: `clone validation failed: ${err instanceof Error ? err.message : String(err)}`,
+      severity: "error",
+      path: "/demo",
+      detail: { stage: "validate", schemaName },
+    });
     void import("@/lib/services/tenancy")
       .then((m) => m.destroyTenant(schemaName))
       .catch(() => undefined);
@@ -58,6 +83,13 @@ export async function actionStartTestDrive(): Promise<void> {
     maxAge: 60 * 60 * 4,
   });
   jar.delete("forge-demo-user");
+  trackEvent({
+    kind: "DEMO_START",
+    source: "DEMO",
+    sessionId: schemaName,
+    schemaName,
+    path: "/demo",
+  });
   redirect("/?app=1");
 }
 
