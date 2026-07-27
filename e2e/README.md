@@ -53,6 +53,7 @@ HTML report: `npx playwright show-report`
 | `demo-flow.spec.ts` | `DEMO_MODE=0` | Start test drive → sandbox banner + convert CTA → persona switch → browse module → convert → end. Needs `demo_template` seeded. |
 | `tenant-lifecycle.spec.ts` | `DEMO_MODE=0` | Claim workspace → setup wizard → trial banner shows plan → `/admin/tenants` refused for tenant admin → re-login routes to own tenant. |
 | `write-actions.spec.ts` | `DEMO_MODE=0` | A real create action (customer) → server action → DB → list. |
+| `telemetry.spec.ts` | `DEMO_MODE=0` | Runs a real test drive and asserts DEMO_START / PAGE / CONVERT / DEMO_END land, then checks they render on `/admin/insights` (also covers the owner-only guard). |
 
 ### Two server modes
 - **`DEMO_MODE=1`** (no login): `full-crawl`, `nav-smoke`, `core-flows`.

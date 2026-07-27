@@ -66,7 +66,10 @@ function ShellInner({
   // Support Staff portal — own chrome (StaffDeskShell), no ERP sidebar/header.
   // Keep AppShell mounted so "Exit portal" → / soft-nav restores the shell
   // (sidebar + logout) instead of a bare page.
-  if (pathname?.startsWith("/admin/support")) {
+  if (
+    pathname?.startsWith("/admin/support") ||
+    pathname?.startsWith("/admin/insights")
+  ) {
     return <>{children}</>;
   }
 

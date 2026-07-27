@@ -5209,3 +5209,39 @@ model InviteLookup {
   schemaName String
   createdAt  DateTime @default(now())
 }
+
+/// Product telemetry (public/control-plane schema only).
+///
+/// Demo sandboxes are destroyed when the visitor leaves, taking any in-schema
+/// audit trail with them — so anything we want to learn from a test drive has
+/// to be recorded out here. Deliberately anonymous: no names, emails, or
+/// customer business data, just which surfaces get used and what breaks.
+model TelemetryEvent {
+  id String @id @default(cuid())
+
+  /// DEMO_START | DEMO_END | PAGE | ACTION | ERROR | CONVERT
+  kind String
+  /// DEMO | TENANT | MARKETING | PLATFORM
+  source String @default("DEMO")
+
+  /// Anonymous per-visit id (the demo schema name for test drives).
+  sessionId String?
+  /// Tenant/demo schema when known — never used to join customer data.
+  schemaName String?
+
+  /// Route the event happened on (query string stripped).
+  path String?
+  /// Short machine-ish label: "work-order.created", or an error message.
+  label String?
+  /// Small JSON blob for extra context (module, duration, digest…).
+  detail String?
+  /// ERROR only: "error" | "warn".
+  severity String?
+
+  createdAt DateTime @default(now())
+
+  @@index([kind, createdAt])
+  @@index([source, createdAt])
+  @@index([sessionId])
+  @@index([createdAt])
+}
