@@ -70,7 +70,7 @@ jobs:
         # No --accept-data-loss on purpose. If a change would drop a column or
         # a table, this fails loudly instead of quietly destroying customer
         # data — that case wants a human, not an automated retry.
-        run: npx prisma db push --skip-generate
+        run: npx prisma db push
 
       - name: Backfill tenant schemas
         run: npx tsx scripts/backfill-tenant-schemas.ts --apply

@@ -74,7 +74,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U forge"
+          --health-cmd "pg_isready -U forge -d forgerp_ci"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
@@ -100,7 +100,7 @@ jobs:
         run: npx prisma generate
 
       - name: Push schema
-        run: npx prisma db push --skip-generate --accept-data-loss
+        run: npx prisma db push --accept-data-loss
 
       - name: Seed
         run: npm run db:seed
