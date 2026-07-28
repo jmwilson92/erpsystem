@@ -32,6 +32,9 @@ export type PartInput = {
   abcClass?: string | null;
   isCritical?: boolean;
   shelfLifeDays?: number | null;
+  /// Weight of one unit — feeds freight estimates and landed-cost by weight.
+  unitWeight?: number | null;
+  weightUom?: string | null;
   notes?: string | null;
 };
 
@@ -89,6 +92,8 @@ export async function createPart(params: PartInput & { userId?: string }) {
       abcClass: params.abcClass || null,
       isCritical: params.isCritical ?? false,
       shelfLifeDays: params.shelfLifeDays ?? null,
+      unitWeight: params.unitWeight ?? null,
+      weightUom: params.weightUom ?? "LB",
       notes: params.notes || null,
     },
   });
@@ -190,6 +195,8 @@ export async function updatePart(
       ...(params.isCritical !== undefined
         ? { isCritical: params.isCritical }
         : {}),
+      ...(params.unitWeight !== undefined ? { unitWeight: params.unitWeight } : {}),
+      ...(params.weightUom !== undefined ? { weightUom: params.weightUom } : {}),
       ...(params.shelfLifeDays !== undefined
         ? { shelfLifeDays: params.shelfLifeDays }
         : {}),

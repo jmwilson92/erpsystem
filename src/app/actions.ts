@@ -3983,6 +3983,9 @@ export async function actionUpdateItem(formData: FormData): Promise<void> {
     data.abcClass = formOptId(formData, "abcClass");
     const shelf = formStr(formData, "shelfLifeDays");
     data.shelfLifeDays = shelf ? Math.round(formNum(formData, "shelfLifeDays")) : null;
+    const uw = formStr(formData, "unitWeight");
+    data.unitWeight = uw ? formNum(formData, "unitWeight") : null;
+    data.weightUom = formStr(formData, "weightUom") || "LB";
   }
 
   await updatePart(id, data);

@@ -387,6 +387,28 @@ export default async function ItemDetailPage({
                       part.shelfLifeDays != null ? String(part.shelfLifeDays) : ""
                     }
                   />
+                  <FieldInput
+                    label="Unit weight (for freight & landed cost)"
+                    name="unitWeight"
+                    type="number"
+                    step="0.0001"
+                    defaultValue={
+                      part.unitWeight != null ? String(part.unitWeight) : ""
+                    }
+                  />
+                  <div>
+                    <label className="text-[10px] uppercase text-slate-500">
+                      Weight unit
+                    </label>
+                    <select
+                      name="weightUom"
+                      className={`${selectClass} mt-1`}
+                      defaultValue={part.weightUom || "LB"}
+                    >
+                      <option value="LB">LB</option>
+                      <option value="KG">KG</option>
+                    </select>
+                  </div>
                   <p className="sm:col-span-2 text-xs text-slate-500">
                     Kanban items show on Inventory when available qty is at or
                     below min. Refill quantity is typically max − on hand.
