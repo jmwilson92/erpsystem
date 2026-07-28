@@ -21,6 +21,7 @@ import {
   type IssueStatus,
 } from "@/lib/services/telemetry";
 import { actionSetIssueStatus } from "./actions";
+import { AutoRefresh } from "@/components/admin/auto-refresh";
 import {
   Activity,
   AlertTriangle,
@@ -188,7 +189,7 @@ export default async function InsightsPage({
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {windows.map((w) => (
           <Link
             key={w.key}
@@ -202,6 +203,9 @@ export default async function InsightsPage({
             {w.label}
           </Link>
         ))}
+        <span className="ml-auto">
+          <AutoRefresh seconds={60} />
+        </span>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
@@ -379,7 +383,7 @@ export default async function InsightsPage({
             <div className="space-y-2">
               {errors.map((e) => (
                 <div
-                  key={e.label}
+                  key={e.fingerprint}
                   className={`rounded-lg border bg-slate-950/40 p-3 ${
                     e.status === "RESOLVED" && !e.regressed
                       ? "border-slate-800/60 opacity-60"
@@ -427,8 +431,13 @@ export default async function InsightsPage({
                       action={actionSetIssueStatus}
                       className="mt-2 flex flex-wrap items-center gap-1.5"
                     >
-                      <input type="hidden" name="fingerprint" value={e.label} />
+                      <input type="hidden" name="fingerprint" value={e.fingerprint} />
+                      {/* Keyed on the saved value: React resets uncontrolled
+                          fields after a server action, which would snap these
+                          back to the pre-save defaultValue. A changed key
+                          remounts them with what was actually stored. */}
                       <select
+                        key={`s-${e.status}`}
                         name="status"
                         defaultValue={e.status}
                         className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-200"
@@ -440,6 +449,7 @@ export default async function InsightsPage({
                         ))}
                       </select>
                       <input
+                        key={`n-${e.note ?? ""}`}
                         name="note"
                         defaultValue={e.note ?? ""}
                         placeholder="note — cause, ticket, why it's on hold"

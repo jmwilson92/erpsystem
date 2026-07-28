@@ -250,7 +250,23 @@ export type ErrorScope =
   | "MARKETING"
   | "PLATFORM";
 
+/**
+ * Stable key for an error group.
+ *
+ * NOT the raw label. Error messages are multi-line, and a browser normalizes
+ * line breaks to CRLF when it submits a form — so a raw label sent through a
+ * hidden input comes back with different bytes than the one that was stored,
+ * and the lookup silently misses. Collapsing every whitespace run to a single
+ * space makes the key survive the round trip, and groups messages that differ
+ * only in formatting.
+ */
+export function issueFingerprint(label: string): string {
+  return label.replace(/\s+/g, " ").trim().slice(0, 300);
+}
+
 export type ErrorGroup = {
+  /** Round-trip-safe key — use this for triage writes, never the label. */
+  fingerprint: string;
   label: string;
   count: number;
   lastSeen: Date;
@@ -301,6 +317,7 @@ export async function getErrorGroups(
     });
 
     type Acc = {
+      fingerprint: string;
       label: string;
       count: number;
       lastSeen: Date;
@@ -313,9 +330,11 @@ export async function getErrorGroups(
     const map = new Map<string, Acc>();
     for (const r of rows) {
       const label = r.label || "(no message)";
-      let hit = map.get(label);
+      const fingerprint = issueFingerprint(label);
+      let hit = map.get(fingerprint);
       if (!hit) {
         hit = {
+          fingerprint,
           label,
           count: 0,
           lastSeen: r.createdAt, // rows are newest-first, so the first wins
@@ -325,7 +344,7 @@ export async function getErrorGroups(
           tenantSchemas: new Set(),
           allSchemas: new Set(),
         };
-        map.set(label, hit);
+        map.set(fingerprint, hit);
       }
       hit.count += 1;
       hit.sources.add(r.source);
@@ -343,16 +362,17 @@ export async function getErrorGroups(
     // One query for the triage state of everything we're about to show.
     const issues = await controlPlaneClient()
       .telemetryIssue.findMany({
-        where: { fingerprint: { in: top.map((g) => g.label) } },
+        where: { fingerprint: { in: top.map((g) => g.fingerprint) } },
       })
       .catch(() => []);
     const byFingerprint = new Map(issues.map((i) => [i.fingerprint, i]));
 
     return top.map((g) => {
-      const issue = byFingerprint.get(g.label);
+      const issue = byFingerprint.get(g.fingerprint);
       const status = (issue?.status as IssueStatus) || "NEW";
       const scope = deriveScope(g.sources, g.tenantSchemas);
       return {
+        fingerprint: g.fingerprint,
         label: g.label,
         count: g.count,
         lastSeen: g.lastSeen,
@@ -403,6 +423,9 @@ export async function setIssueStatus(params: {
   note?: string | null;
   userId?: string;
 }): Promise<boolean> {
+  // Normalised again here so a caller passing a raw label still lands on the
+  // same key the dashboard reads back.
+  const fingerprint = issueFingerprint(params.fingerprint);
   const resolvedAt = params.status === "RESOLVED" ? new Date() : null;
   const data = {
     status: params.status,
@@ -412,8 +435,8 @@ export async function setIssueStatus(params: {
   };
   try {
     await controlPlaneClient().telemetryIssue.upsert({
-      where: { fingerprint: params.fingerprint },
-      create: { fingerprint: params.fingerprint, ...data },
+      where: { fingerprint },
+      create: { fingerprint, ...data },
       update: data,
     });
     return true;
