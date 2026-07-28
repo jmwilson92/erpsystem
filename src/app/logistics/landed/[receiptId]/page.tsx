@@ -14,8 +14,12 @@ import {
   previewAllocation,
   type AllocationMethod,
 } from "@/lib/services/logistics";
-import { actionAddLandedCost, actionApplyLandedCost } from "../../actions";
-import { CheckCircle2, Clock } from "lucide-react";
+import {
+  actionAddLandedCost,
+  actionApplyLandedCost,
+  actionSetLineWeight,
+} from "../../actions";
+import { CheckCircle2, Clock, Scale } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -41,24 +45,33 @@ export default async function LandedCostPage({
     .catch(() => null);
   if (!receipt) notFound();
 
-  const [charges, totals] = await Promise.all([
+  const partIds = [...new Set(receipt.lines.map((l) => l.partId).filter(Boolean))] as string[];
+  const [charges, totals, parts] = await Promise.all([
     listLandedCosts(receiptId),
     getReceiptLandedTotals(receiptId),
+    partIds.length
+      ? prisma.part.findMany({
+          where: { id: { in: partIds } },
+          select: { id: true, partNumber: true, unitWeight: true, weightUom: true },
+        })
+      : Promise.resolve([]),
   ]);
+  const partById = new Map(parts.map((p) => [p.id, p]));
 
   // Live preview: type an amount into the form, submit as a GET, and see how it
   // would land before committing anything.
   const previewAmount = Number(preview);
   const previewMethod = (ALLOCATION_METHODS.find((m) => m === method) ??
     "VALUE") as AllocationMethod;
-  const allocations =
+  const alloc =
     Number.isFinite(previewAmount) && previewAmount > 0
       ? await previewAllocation({
           receiptId,
           amount: previewAmount,
           allocation: previewMethod,
         })
-      : [];
+      : null;
+  const allocations = alloc?.rows ?? [];
 
   const receiptNo = receipt.number;
   const materialValue = receipt.lines.reduce(
@@ -201,6 +214,7 @@ export default async function LandedCostPage({
                     <th className="pb-2 pr-3 font-medium">Qty</th>
                     <th className="pb-2 pr-3 font-medium">Unit cost</th>
                     <th className="pb-2 pr-3 font-medium">Extended</th>
+                    <th className="pb-2 pr-3 font-medium">Weight</th>
                     <th className="pb-2 pr-3 font-medium">Allocated</th>
                     <th className="pb-2 font-medium">New unit cost</th>
                   </tr>
@@ -216,6 +230,25 @@ export default async function LandedCostPage({
                       <td className="py-2 pr-3 text-xs tabular-nums">
                         {formatCurrency(a.extended)}
                       </td>
+                      <td className="py-2 pr-3 text-xs tabular-nums">
+                        {a.weight != null ? (
+                          <>
+                            {a.weight.toLocaleString()}{" "}
+                            <span
+                              className="text-slate-600"
+                              title={
+                                a.weightSource === "LINE"
+                                  ? "Weighed on this receipt"
+                                  : "Quantity x the part's unit weight"
+                              }
+                            >
+                              {a.weightSource === "LINE" ? "actual" : "calc"}
+                            </span>
+                          </>
+                        ) : (
+                          <span className="text-rose-400">none</span>
+                        )}
+                      </td>
                       <td className="py-2 pr-3 text-xs tabular-nums text-amber-300">
                         +{formatCurrency(a.allocated)}
                       </td>
@@ -227,7 +260,7 @@ export default async function LandedCostPage({
                 </tbody>
                 <tfoot>
                   <tr className="border-t border-slate-800 text-xs text-slate-400">
-                    <td className="pt-2" colSpan={4}>
+                    <td className="pt-2" colSpan={5}>
                       Total allocated
                     </td>
                     <td className="pt-2 tabular-nums text-amber-300">
@@ -238,12 +271,91 @@ export default async function LandedCostPage({
                 </tfoot>
               </table>
               <p className="mt-2 text-[11px] text-slate-600">
-                The last line absorbs any rounding remainder so the parts sum to the whole.
-                {previewMethod === "WEIGHT" &&
-                  " Receipt lines carry no weight, so WEIGHT falls back to quantity."}
+                Split by <strong>{alloc?.basis}</strong>. The last line absorbs any
+                rounding remainder so the parts sum to the whole.
               </p>
+              {alloc?.fellBackToQuantity && (
+                <p className="mt-1 rounded border border-amber-500/30 bg-amber-500/5 px-2 py-1.5 text-[11px] text-amber-200">
+                  Nothing on this receipt has a weight, so this was split by
+                  <strong> quantity</strong> instead. Set a unit weight on the parts, or
+                  enter the weighed amounts below, for a real weight split.
+                </p>
+              )}
+              {alloc?.basis === "WEIGHT" && (alloc?.missingWeight ?? 0) > 0 && (
+                <p className="mt-1 rounded border border-amber-500/30 bg-amber-500/5 px-2 py-1.5 text-[11px] text-amber-200">
+                  {alloc.missingWeight} line{alloc.missingWeight === 1 ? "" : "s"} have no
+                  weight and were allocated nothing — they contributed nothing to the
+                  freight bill. Enter their weights below if that&apos;s wrong.
+                </p>
+              )}
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* ── Line weights ─────────────────────────────────────── */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Scale className="h-4 w-4 text-slate-400" />
+            Line weights
+          </CardTitle>
+          <p className="text-xs text-slate-500">
+            Used when a charge is allocated by weight. A weight entered here is what was
+            actually received and beats the part&apos;s unit weight; leave it blank to use
+            quantity x unit weight from the item master.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-1.5">
+            {receipt.lines.map((l) => {
+              const part = l.partId ? partById.get(l.partId) : null;
+              const calc =
+                part?.unitWeight != null ? part.unitWeight * l.quantityReceived : null;
+              return (
+                <form
+                  key={l.id}
+                  action={actionSetLineWeight}
+                  className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2"
+                >
+                  <input type="hidden" name="lineId" value={l.id} />
+                  <input type="hidden" name="receiptId" value={receiptId} />
+                  <span className="min-w-0 flex-1 truncate text-xs text-slate-300">
+                    {part?.partNumber ? (
+                      <span className="font-mono text-slate-400">{part.partNumber} </span>
+                    ) : null}
+                    {l.description}
+                    <span className="text-slate-600"> · qty {l.quantityReceived}</span>
+                  </span>
+                  <span className="shrink-0 text-[11px] text-slate-500">
+                    {calc != null
+                      ? `master: ${calc.toLocaleString()} ${part?.weightUom ?? "LB"}`
+                      : "no unit weight on part"}
+                  </span>
+                  <Input
+                    key={`w-${l.weight ?? ""}`}
+                    name="weight"
+                    type="number"
+                    step="0.01"
+                    defaultValue={l.weight != null ? String(l.weight) : ""}
+                    placeholder="actual"
+                    className="h-8 w-28"
+                  />
+                  <select
+                    name="weightUom"
+                    defaultValue={l.weightUom ?? "LB"}
+                    className="h-8 rounded-md border border-slate-700 bg-slate-950 px-2 text-xs text-slate-200"
+                  >
+                    <option value="LB">LB</option>
+                    <option value="KG">KG</option>
+                  </select>
+                  <Button type="submit" size="sm" variant="outline">
+                    Save
+                  </Button>
+                </form>
+              );
+            })}
+          </div>
         </CardContent>
       </Card>
 

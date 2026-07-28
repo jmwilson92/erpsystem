@@ -198,34 +198,110 @@ export type Allocation = {
   quantity: number;
   unitCost: number;
   extended: number;
+  /** Line weight used for WEIGHT allocation, and where it came from. */
+  weight: number | null;
+  weightSource: "LINE" | "PART" | "NONE";
   /** Charge apportioned to this line. */
   allocated: number;
   /** Unit cost once the charge is folded in. */
   newUnitCost: number;
 };
 
+export type AllocationResult = {
+  rows: Allocation[];
+  /** What the split was actually computed on. */
+  basis: AllocationMethod;
+  /**
+   * True when WEIGHT was asked for but nothing had a weight, so quantity was
+   * used instead. Surfaced rather than silently swallowed — an allocation that
+   * quietly changes basis is an allocation you can't defend to an auditor.
+   */
+  fellBackToQuantity: boolean;
+  /** Lines with no weight when allocating by weight — the ones to go fix. */
+  missingWeight: number;
+  weightUom: string | null;
+};
+
+/**
+ * Resolve a line's weight: what was actually weighed on the receipt, else
+ * quantity x the part's unit weight, else nothing.
+ */
+function lineWeight(
+  line: { quantityReceived: number; weight: number | null; partId: string | null },
+  partWeight: Map<string, number>
+): { weight: number | null; source: "LINE" | "PART" | "NONE" } {
+  if (line.weight != null && line.weight > 0) {
+    return { weight: line.weight, source: "LINE" };
+  }
+  const unit = line.partId ? partWeight.get(line.partId) : undefined;
+  if (unit != null && unit > 0) {
+    return { weight: unit * line.quantityReceived, source: "PART" };
+  }
+  return { weight: null, source: "NONE" };
+}
+
 /**
  * Work out how one charge spreads across a receipt's lines.
  *
  * Pure — it computes, it doesn't write, so the UI can show the result before
- * anyone commits to it. WEIGHT falls back to QUANTITY when no line carries a
- * weight, which is the common case here: ReceiptLine has no weight column, so
- * quantity is the honest proxy rather than silently allocating nothing.
+ * anyone commits to it.
+ *
+ * WEIGHT uses the line's actual weight when receiving recorded one, otherwise
+ * quantity x the part's unit weight. If nothing on the receipt has a weight at
+ * all it falls back to quantity and says so, because an ocean freight bill
+ * split by value when you asked for weight is wrong in a way that is invisible
+ * afterwards.
  */
 export async function previewAllocation(params: {
   receiptId: string;
   amount: number;
   allocation: AllocationMethod;
-}): Promise<Allocation[]> {
+}): Promise<AllocationResult> {
   const lines = await prisma.receiptLine.findMany({
     where: { receiptId: params.receiptId },
   });
-  if (lines.length === 0) return [];
+  if (lines.length === 0) {
+    return {
+      rows: [],
+      basis: params.allocation,
+      fellBackToQuantity: false,
+      missingWeight: 0,
+      weightUom: null,
+    };
+  }
 
-  const basis = (l: (typeof lines)[number]): number => {
-    switch (params.allocation) {
-      case "QUANTITY":
+  // Unit weights for any catalogued parts on the receipt.
+  const partIds = [...new Set(lines.map((l) => l.partId).filter(Boolean))] as string[];
+  const parts = partIds.length
+    ? await prisma.part.findMany({
+        where: { id: { in: partIds } },
+        select: { id: true, unitWeight: true, weightUom: true },
+      })
+    : [];
+  const partWeight = new Map(
+    parts.filter((p) => p.unitWeight != null).map((p) => [p.id, p.unitWeight as number])
+  );
+  const weightUom =
+    lines.find((l) => l.weight != null)?.weightUom ??
+    parts.find((p) => p.unitWeight != null)?.weightUom ??
+    "LB";
+
+  const weights = lines.map((l) => lineWeight(l, partWeight));
+  const totalWeight = weights.reduce((n, w) => n + (w.weight ?? 0), 0);
+  const missingWeight = weights.filter((w) => w.weight == null).length;
+
+  // Asked for weight, nothing has one → quantity, and say so.
+  const fellBackToQuantity = params.allocation === "WEIGHT" && totalWeight <= 0;
+  const basis: AllocationMethod = fellBackToQuantity ? "QUANTITY" : params.allocation;
+
+  const shareOf = (i: number): number => {
+    const l = lines[i];
+    switch (basis) {
       case "WEIGHT":
+        // A line with no weight gets nothing from a weight-based split, which
+        // is correct: it contributed nothing to the freight bill.
+        return weights[i].weight ?? 0;
+      case "QUANTITY":
         return l.quantityReceived;
       case "VALUE":
       default:
@@ -233,30 +309,31 @@ export async function previewAllocation(params: {
     }
   };
 
-  let total = lines.reduce((n, l) => n + basis(l), 0);
+  let total = lines.reduce((n, _l, i) => n + shareOf(i), 0);
   // A zero basis (free-of-charge receipt, or every line zero qty) would divide
   // by zero. Spread evenly instead of dropping the charge on the floor.
   const even = total <= 0;
   if (even) total = lines.length;
 
-  const out: Allocation[] = [];
+  const rows: Allocation[] = [];
   let running = 0;
   lines.forEach((l, i) => {
-    const share = even ? 1 : basis(l);
+    const share = even ? 1 : shareOf(i);
     // Last line absorbs the rounding remainder so the parts sum to the whole.
     const allocated =
       i === lines.length - 1
         ? Math.round((params.amount - running) * 100) / 100
         : Math.round(((params.amount * share) / total) * 100) / 100;
     running += allocated;
-    const extended = l.quantityReceived * l.unitCost;
-    out.push({
+    rows.push({
       lineId: l.id,
       description: l.description,
       partId: l.partId,
       quantity: l.quantityReceived,
       unitCost: l.unitCost,
-      extended,
+      extended: l.quantityReceived * l.unitCost,
+      weight: weights[i].weight,
+      weightSource: weights[i].source,
       allocated,
       newUnitCost:
         l.quantityReceived > 0
@@ -264,7 +341,23 @@ export async function previewAllocation(params: {
           : l.unitCost,
     });
   });
-  return out;
+
+  return { rows, basis, fellBackToQuantity, missingWeight, weightUom };
+}
+
+/** Record what a receipt line actually weighed. */
+export async function setReceiptLineWeight(params: {
+  lineId: string;
+  weight: number | null;
+  weightUom?: string;
+}) {
+  return prisma.receiptLine.update({
+    where: { id: params.lineId },
+    data: {
+      weight: params.weight != null && params.weight > 0 ? params.weight : null,
+      weightUom: params.weightUom || "LB",
+    },
+  });
 }
 
 /**
@@ -286,7 +379,7 @@ export async function applyLandedCost(params: {
     return { applied: false, reason: "Already applied", lines: 0 };
   }
 
-  const allocations = await previewAllocation({
+  const { rows: allocations } = await previewAllocation({
     receiptId: charge.receiptId,
     amount: charge.amount,
     allocation: charge.allocation as AllocationMethod,

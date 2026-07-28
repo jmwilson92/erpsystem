@@ -52,7 +52,6 @@ import {
   Contact2,
   Cog,
   Ship,
-  Coins,
   Hourglass,
   MapPinned,
   type LucideIcon,
@@ -164,8 +163,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/service/assets", label: "Installed Base", icon: MapPinned, keywords: ["installed asset", "serial", "customer site", "warranty", "equipment", "unit"] },
       { href: "/fleet", label: "Fleet", icon: Truck, keywords: ["vehicle", "van", "truck", "forklift", "trailer", "odometer", "mileage", "registration", "insurance", "dot"] },
       { href: "/fleet?due=1", label: "Vehicle Maintenance", icon: Wrench, keywords: ["pm", "preventive maintenance", "oil change", "tires", "inspection", "fuel", "mpg", "service interval"] },
-      { href: "/logistics", label: "Logistics", icon: Ship, keywords: ["carrier", "freight", "shipping cost", "tracking", "ltl", "parcel", "ocean", "air", "broker", "recovery"] },
-      { href: "/logistics", label: "Landed Cost", icon: Coins, keywords: ["landed cost", "duty", "tariff", "brokerage", "customs", "import", "allocation", "unit cost", "true cost", "freight in"] },
+      { href: "/logistics", label: "Logistics & Landed Cost", icon: Ship, keywords: ["carrier", "freight", "shipping cost", "tracking", "ltl", "parcel", "ocean", "air", "broker", "recovery", "landed cost", "duty", "tariff", "brokerage", "customs", "import", "allocation", "unit cost", "true cost", "freight in", "weight"] },
     ],
   },
   {

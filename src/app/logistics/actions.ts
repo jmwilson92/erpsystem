@@ -7,6 +7,7 @@ import {
   applyLandedCost,
   createCarrier,
   recordFreight,
+  setReceiptLineWeight,
   updateCarrier,
 } from "@/lib/services/logistics";
 
@@ -97,4 +98,16 @@ export async function actionApplyLandedCost(fd: FormData): Promise<void> {
   await applyLandedCost({ chargeId, userId: user?.id });
   revalidatePath(`/logistics/landed/${receiptId}`);
   revalidatePath("/logistics");
+}
+
+export async function actionSetLineWeight(fd: FormData): Promise<void> {
+  const lineId = str(fd, "lineId");
+  const receiptId = str(fd, "receiptId");
+  if (!lineId) return;
+  await setReceiptLineWeight({
+    lineId,
+    weight: num(fd, "weight"),
+    weightUom: str(fd, "weightUom") || "LB",
+  });
+  revalidatePath(`/logistics/landed/${receiptId}`);
 }

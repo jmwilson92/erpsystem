@@ -292,7 +292,11 @@ model Part {
   safetyStock               Float          @default(0)
   abcClass                  String? // A | B | C inventory classification
   isCritical                Boolean        @default(false) // critical / sole-source flag
-  shelfLifeDays             Int? // optional shelf life for lot expiry
+  shelfLifeDays             Int?
+  /// Weight of ONE unit, in `weightUom`. Master data — feeds freight
+  /// estimates and landed-cost allocation by weight.
+  unitWeight                Float?
+  weightUom                 String?        @default("LB") // optional shelf life for lot expiry
   notes                     String?
   createdAt                 DateTime       @default(now())
   updatedAt                 DateTime       @updatedAt
@@ -3256,6 +3260,10 @@ model ReceiptLine {
   serialNumbers    String? // JSON
   unitCost         Float   @default(0)
   ownership        String  @default("COMPANY") // COMPANY, GOVERNMENT, CUSTOMER
+  /// Actual weight received for this line. Overrides quantity x Part.unitWeight
+  /// when the packing list or the scale disagrees with master data.
+  weight           Float?
+  weightUom        String? @default("LB")
 }
 
 model Rfq {
