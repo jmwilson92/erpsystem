@@ -14,6 +14,7 @@ import {
   getTopActions,
   getTopPages,
   getTelemetryHealth,
+  getIssueTrackingHealth,
   ISSUE_STATUSES,
   type ErrorScope,
   type InsightsWindow,
@@ -122,15 +123,17 @@ export default async function InsightsPage({
   const raw = Number(Array.isArray(sp.days) ? sp.days[0] : sp.days);
   const days: InsightsWindow = raw === 1 || raw === 30 ? raw : 7;
 
-  const [health, live, funnel, pages, actions, errors, daily] = await Promise.all([
-    getTelemetryHealth(),
-    getLiveDemos(10),
-    getDemoFunnel(days),
-    getTopPages(days),
-    getTopActions(days),
-    getErrorGroups(days),
-    getDailyStarts(days),
-  ]);
+  const [health, issueHealth, live, funnel, pages, actions, errors, daily] =
+    await Promise.all([
+      getTelemetryHealth(),
+      getIssueTrackingHealth(),
+      getLiveDemos(10),
+      getDemoFunnel(days),
+      getTopPages(days),
+      getTopActions(days),
+      getErrorGroups(days),
+      getDailyStarts(days),
+    ]);
 
   const windows: { key: InsightsWindow; label: string }[] = [
     { key: 1, label: "24 hours" },
@@ -346,6 +349,28 @@ export default async function InsightsPage({
           </p>
         </CardHeader>
         <CardContent>
+          {!issueHealth.ok && errors.length > 0 && (
+            <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-100">
+              <p className="font-semibold">
+                {issueHealth.reason === "missing_table"
+                  ? "Triage isn't available on this database yet."
+                  : "Triage storage is unreachable."}
+              </p>
+              {issueHealth.reason === "missing_table" ? (
+                <>
+                  <p className="mt-1 text-amber-200/90">
+                    Errors and their scope still show. Marking one in progress or
+                    resolved needs one more push:
+                  </p>
+                  <pre className="mt-1.5 overflow-x-auto rounded bg-slate-950/70 px-2 py-1.5 font-mono text-[11px] text-teal-300">
+                    npx prisma db push
+                  </pre>
+                </>
+              ) : (
+                <p className="mt-1 text-amber-200/90">{issueHealth.detail}</p>
+              )}
+            </div>
+          )}
           {errors.length === 0 ? (
             <p className="rounded-lg border border-dashed border-emerald-800/40 bg-emerald-500/[0.04] py-8 text-center text-xs text-emerald-300">
               No errors in this window. 🎉
@@ -395,35 +420,39 @@ export default async function InsightsPage({
                     </p>
                   )}
 
-                  <form
-                    action={actionSetIssueStatus}
-                    className="mt-2 flex flex-wrap items-center gap-1.5"
-                  >
-                    <input type="hidden" name="fingerprint" value={e.label} />
-                    <select
-                      name="status"
-                      defaultValue={e.status}
-                      className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-200"
+                  {/* Only offered when the table exists — a control that
+                      throws on click is worse than no control. */}
+                  {issueHealth.ok && (
+                    <form
+                      action={actionSetIssueStatus}
+                      className="mt-2 flex flex-wrap items-center gap-1.5"
                     >
-                      {ISSUE_STATUSES.map((s) => (
-                        <option key={s} value={s}>
-                          {s.replace(/_/g, " ")}
-                        </option>
-                      ))}
-                    </select>
-                    <input
-                      name="note"
-                      defaultValue={e.note ?? ""}
-                      placeholder="note — cause, ticket, why it's on hold"
-                      className="min-w-0 flex-1 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-200 placeholder:text-slate-600"
-                    />
-                    <button
-                      type="submit"
-                      className="rounded-md border border-slate-700 px-2 py-1 text-[11px] text-slate-300 hover:bg-slate-900"
-                    >
-                      Save
-                    </button>
-                  </form>
+                      <input type="hidden" name="fingerprint" value={e.label} />
+                      <select
+                        name="status"
+                        defaultValue={e.status}
+                        className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-200"
+                      >
+                        {ISSUE_STATUSES.map((s) => (
+                          <option key={s} value={s}>
+                            {s.replace(/_/g, " ")}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        name="note"
+                        defaultValue={e.note ?? ""}
+                        placeholder="note — cause, ticket, why it's on hold"
+                        className="min-w-0 flex-1 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-200 placeholder:text-slate-600"
+                      />
+                      <button
+                        type="submit"
+                        className="rounded-md border border-slate-700 px-2 py-1 text-[11px] text-slate-300 hover:bg-slate-900"
+                      >
+                        Save
+                      </button>
+                    </form>
+                  )}
                 </div>
               ))}
             </div>
