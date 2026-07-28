@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { cookies } from "next/headers";
 import { DEMO_COOKIE, TENANT_COOKIE } from "@/lib/db";
+import { SESSION_COOKIE } from "@/lib/auth-core";
 import { recordEvent, type TelemetryKind } from "@/lib/services/telemetry";
 
 export const runtime = "nodejs";
@@ -33,7 +34,17 @@ export async function POST(req: NextRequest) {
     const jar = await cookies();
     const demo = jar.get(DEMO_COOKIE)?.value || null;
     const tenant = jar.get(TENANT_COOKIE)?.value || null;
-    const source = demo ? "DEMO" : tenant ? "TENANT" : "MARKETING";
+    // No demo and no tenant cookie but signed in = the platform's own dogfood
+    // schema. Without this check those errors file as MARKETING, which reads as
+    // "a stranger on the website" when it's actually your own ERP breaking.
+    const signedIn = !!jar.get(SESSION_COOKIE)?.value;
+    const source = demo
+      ? "DEMO"
+      : tenant
+        ? "TENANT"
+        : signedIn
+          ? "PLATFORM"
+          : "MARKETING";
 
     await recordEvent({
       kind,

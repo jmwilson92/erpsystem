@@ -223,15 +223,64 @@ export async function getTopActions(days: InsightsWindow, limit = 12): Promise<C
   }
 }
 
+export const ISSUE_STATUSES = [
+  "NEW",
+  "IN_PROGRESS",
+  "ON_HOLD",
+  "RESOLVED",
+] as const;
+export type IssueStatus = (typeof ISSUE_STATUSES)[number];
+
+/**
+ * How far an error reaches.
+ *   TENANT    — one paying customer's schema, and only that one
+ *   SYSTEM    — more than one schema, or a mix of demo and tenant: the bug is
+ *               in the product, not in one customer's data
+ *   DEMO      — test drives only
+ *   MARKETING — public pages, nobody signed in
+ *   PLATFORM  — your own dogfood schema
+ * Blast radius is the first thing worth knowing about an error, so it's derived
+ * here rather than left for someone to eyeball across rows.
+ */
+export type ErrorScope =
+  | "TENANT"
+  | "SYSTEM"
+  | "DEMO"
+  | "MARKETING"
+  | "PLATFORM";
+
 export type ErrorGroup = {
   label: string;
   count: number;
   lastSeen: Date;
   lastPath: string | null;
   source: string;
+  /** Every source this error was seen from, e.g. ["TENANT", "DEMO"]. */
+  sources: string[];
+  scope: ErrorScope;
+  /** Distinct schemas affected — 1 means isolated, more means systemic. */
+  schemaCount: number;
+  /** The single affected schema when scope is TENANT, else null. */
+  schemaName: string | null;
+  status: IssueStatus;
+  note: string | null;
+  /** RESOLVED but seen again since — it came back. */
+  regressed: boolean;
 };
 
-/** Errors grouped by message, worst offenders first. */
+function deriveScope(sources: Set<string>, tenantSchemas: Set<string>): ErrorScope {
+  // Reaching more than one tenant means it isn't that customer's data.
+  if (tenantSchemas.size > 1) return "SYSTEM";
+  // Both a real customer and the demo hit it — same conclusion.
+  if (sources.has("TENANT") && sources.size > 1) return "SYSTEM";
+  if (sources.has("TENANT")) return "TENANT";
+  if (sources.has("PLATFORM")) return "PLATFORM";
+  if (sources.has("DEMO")) return "DEMO";
+  if (sources.has("MARKETING")) return "MARKETING";
+  return "SYSTEM";
+}
+
+/** Errors grouped by message, worst offenders first, with triage state. */
 export async function getErrorGroups(
   days: InsightsWindow,
   limit = 20
@@ -239,30 +288,117 @@ export async function getErrorGroups(
   try {
     const rows = await controlPlaneClient().telemetryEvent.findMany({
       where: { kind: "ERROR", createdAt: { gte: since(days) } },
-      select: { label: true, path: true, source: true, createdAt: true },
+      select: {
+        label: true,
+        path: true,
+        source: true,
+        schemaName: true,
+        createdAt: true,
+      },
       orderBy: { createdAt: "desc" },
       take: 1000,
     });
-    const map = new Map<string, ErrorGroup>();
+
+    type Acc = {
+      label: string;
+      count: number;
+      lastSeen: Date;
+      lastPath: string | null;
+      source: string;
+      sources: Set<string>;
+      tenantSchemas: Set<string>;
+      allSchemas: Set<string>;
+    };
+    const map = new Map<string, Acc>();
     for (const r of rows) {
       const label = r.label || "(no message)";
-      const hit = map.get(label);
-      if (hit) {
-        hit.count += 1;
-      } else {
-        map.set(label, {
+      let hit = map.get(label);
+      if (!hit) {
+        hit = {
           label,
-          count: 1,
-          lastSeen: r.createdAt,
+          count: 0,
+          lastSeen: r.createdAt, // rows are newest-first, so the first wins
           lastPath: r.path,
           source: r.source,
-        });
+          sources: new Set(),
+          tenantSchemas: new Set(),
+          allSchemas: new Set(),
+        };
+        map.set(label, hit);
+      }
+      hit.count += 1;
+      hit.sources.add(r.source);
+      if (r.schemaName) {
+        hit.allSchemas.add(r.schemaName);
+        if (r.source === "TENANT") hit.tenantSchemas.add(r.schemaName);
       }
     }
-    return [...map.values()].sort((a, b) => b.count - a.count).slice(0, limit);
+
+    const top = [...map.values()]
+      .sort((a, b) => b.count - a.count)
+      .slice(0, limit);
+    if (top.length === 0) return [];
+
+    // One query for the triage state of everything we're about to show.
+    const issues = await controlPlaneClient()
+      .telemetryIssue.findMany({
+        where: { fingerprint: { in: top.map((g) => g.label) } },
+      })
+      .catch(() => []);
+    const byFingerprint = new Map(issues.map((i) => [i.fingerprint, i]));
+
+    return top.map((g) => {
+      const issue = byFingerprint.get(g.label);
+      const status = (issue?.status as IssueStatus) || "NEW";
+      const scope = deriveScope(g.sources, g.tenantSchemas);
+      return {
+        label: g.label,
+        count: g.count,
+        lastSeen: g.lastSeen,
+        lastPath: g.lastPath,
+        source: g.source,
+        sources: [...g.sources].sort(),
+        scope,
+        schemaCount: g.allSchemas.size,
+        schemaName:
+          scope === "TENANT" && g.tenantSchemas.size === 1
+            ? [...g.tenantSchemas][0]
+            : null,
+        status,
+        note: issue?.note ?? null,
+        regressed:
+          status === "RESOLVED" &&
+          !!issue?.resolvedAt &&
+          g.lastSeen > issue.resolvedAt,
+      };
+    });
   } catch {
     return [];
   }
+}
+
+/**
+ * Set an error's triage state. Upserts on the fingerprint so the first time you
+ * touch an error is also when its issue row is created.
+ */
+export async function setIssueStatus(params: {
+  fingerprint: string;
+  status: IssueStatus;
+  note?: string | null;
+  userId?: string;
+}): Promise<void> {
+  const resolvedAt = params.status === "RESOLVED" ? new Date() : null;
+  const data = {
+    status: params.status,
+    note: params.note?.trim() || null,
+    resolvedAt,
+    updatedById: params.userId || null,
+  };
+  await controlPlaneClient().telemetryIssue.upsert({
+    where: { fingerprint: params.fingerprint },
+    create: { fingerprint: params.fingerprint, ...data },
+    update: data,
+  });
 }
 
 export type LiveDemo = {
