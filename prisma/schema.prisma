@@ -5484,3 +5484,282 @@ model TelemetryIssue {
 
   @@index([status])
 }
+
+// ─── CMMS — plant equipment maintenance ─────────────────────────────
+// The same due-by-date-or-meter engine as Fleet, pointed at production
+// equipment instead of vehicles. A machine is a WorkCenter that happens to
+// need servicing, so Equipment hangs off WorkCenter rather than duplicating it.
+
+model Equipment {
+  id           String    @id @default(cuid())
+  assetTag     String    @unique
+  name         String
+  workCenterId String?
+  manufacturer String?
+  model        String?
+  serialNumber String?
+  location     String?
+  /// ACTIVE | DOWN | STANDBY | RETIRED
+  status       String    @default("ACTIVE")
+  /// Running total in `meterUnit`; forward-only, like a vehicle odometer.
+  meter        Float     @default(0)
+  /// HOURS | CYCLES | UNITS
+  meterUnit    String    @default("HOURS")
+  criticality  String    @default("MEDIUM")
+  installedAt  DateTime?
+  warrantyEnds DateTime?
+  notes        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  maintenance EquipmentMaintenance[]
+  meterLogs   MeterReading[]
+  downtime    DowntimeEvent[]
+
+  @@index([status])
+  @@index([workCenterId])
+}
+
+model EquipmentMaintenance {
+  id          String    @id @default(cuid())
+  equipmentId String
+  equipment   Equipment @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+  /// PM | CALIBRATION | INSPECTION | REPAIR | OVERHAUL
+  type        String    @default("PM")
+  description String?
+  /// SCHEDULED | COMPLETED | SKIPPED
+  status      String    @default("SCHEDULED")
+
+  dueAt         DateTime?
+  dueMeter      Float?
+  intervalDays  Int?
+  intervalMeter Float?
+
+  completedAt     DateTime?
+  completedMeter  Float?
+  completedById   String?
+  cost            Float?
+  vendor          String?
+  /// Minutes the machine was unavailable for this job.
+  downtimeMinutes Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([equipmentId, status])
+  @@index([dueAt])
+}
+
+model MeterReading {
+  id          String    @id @default(cuid())
+  equipmentId String
+  equipment   Equipment @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+  value       Float
+  readAt      DateTime  @default(now())
+  userId      String?
+  notes       String?
+
+  @@index([equipmentId, readAt])
+}
+
+/// Unplanned stops. Reason codes are what make downtime analysable rather
+/// than just a number — Pareto by reason is the first thing a plant manager
+/// asks for.
+model DowntimeEvent {
+  id           String    @id @default(cuid())
+  equipmentId  String
+  equipment    Equipment @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+  /// BREAKDOWN | SETUP | MATERIAL | OPERATOR | QUALITY | PLANNED | OTHER
+  reason       String    @default("BREAKDOWN")
+  description  String?
+  startedAt    DateTime  @default(now())
+  endedAt      DateTime?
+  reportedById String?
+  workOrderId  String?
+
+  createdAt DateTime @default(now())
+
+  @@index([equipmentId, startedAt])
+  @@index([reason])
+}
+
+// ─── CRM — the funnel before a Customer exists ──────────────────────
+// Customer is a billing record (terms, credit, addresses). These models are
+// the pre-sale half: who might buy, what it's worth, and who's chasing it.
+// An Opportunity that closes WON becomes a Customer and, optionally, a Quote.
+
+model Lead {
+  id            String    @id @default(cuid())
+  company       String
+  contactName   String?
+  email         String?
+  phone         String?
+  source        String?
+  /// NEW | WORKING | QUALIFIED | DISQUALIFIED | CONVERTED
+  status        String    @default("NEW")
+  ownerId       String?
+  notes         String?
+  /// Set when this lead became an opportunity.
+  convertedAt   DateTime?
+  opportunityId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([ownerId])
+}
+
+model Contact {
+  id         String  @id @default(cuid())
+  customerId String?
+  name       String
+  title      String?
+  email      String?
+  phone      String?
+  isPrimary  Boolean @default(false)
+  notes      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  activities CrmActivity[]
+
+  @@index([customerId])
+}
+
+model Opportunity {
+  id              String    @id @default(cuid())
+  number          String    @unique
+  name            String
+  customerId      String?
+  contactId       String?
+  /// PROSPECT | QUALIFY | PROPOSAL | NEGOTIATION | WON | LOST
+  stage           String    @default("PROSPECT")
+  /// Expected order value in company currency.
+  value           Float     @default(0)
+  /// 0-100. Defaults follow the stage but stay editable — a rep's read on a
+  /// specific deal beats the stage average.
+  probability     Int       @default(10)
+  expectedCloseAt DateTime?
+  ownerId         String?
+  source          String?
+  description     String?
+  /// Why it was lost — the most useful field in the whole module.
+  lostReason      String?
+  closedAt        DateTime?
+  /// Quote raised from this opportunity, if any.
+  quoteId         String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  activities CrmActivity[]
+
+  @@index([stage])
+  @@index([ownerId])
+  @@index([expectedCloseAt])
+}
+
+model CrmActivity {
+  id            String       @id @default(cuid())
+  opportunityId String?
+  opportunity   Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  contactId     String?
+  contact       Contact?     @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  leadId        String?
+  /// CALL | EMAIL | MEETING | NOTE | TASK
+  type          String       @default("NOTE")
+  subject       String
+  body          String?
+  userId        String?
+  /// Set for TASK — an activity that hasn't happened yet.
+  dueAt         DateTime?
+  completedAt   DateTime?
+  occurredAt    DateTime     @default(now())
+
+  createdAt DateTime @default(now())
+
+  @@index([opportunityId, occurredAt])
+  @@index([dueAt])
+}
+
+// ─── Logistics — freight and landed cost ────────────────────────────
+// A part's real cost is not the PO price. Freight, duty, and brokerage are
+// invisible until something allocates them across the receipt that incurred
+// them, which is what LandedCostCharge does.
+
+model Carrier {
+  id            String  @id @default(cuid())
+  code          String  @unique
+  name          String
+  /// PARCEL | LTL | FTL | AIR | OCEAN | COURIER
+  mode          String  @default("PARCEL")
+  accountNumber String?
+  contactName   String?
+  contactPhone  String?
+  trackingUrl   String?
+  isActive      Boolean @default(true)
+  notes         String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  freight FreightCost[]
+
+  @@index([isActive])
+}
+
+/// What a movement actually cost to ship. Attaches to an outbound Shipment or
+/// an inbound Receipt — both cost money and both are worth seeing.
+model FreightCost {
+  id             String    @id @default(cuid())
+  carrierId      String?
+  carrier        Carrier?  @relation(fields: [carrierId], references: [id], onDelete: SetNull)
+  shipmentId     String?
+  receiptId      String?
+  /// OUTBOUND | INBOUND
+  direction      String    @default("OUTBOUND")
+  trackingNumber String?
+  service        String?
+  weight         Float?
+  weightUnit     String    @default("LB")
+  cost           Float     @default(0)
+  /// Charged on to the customer, if any.
+  billedAmount   Float?
+  shippedAt      DateTime?
+  deliveredAt    DateTime?
+  notes          String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([shipmentId])
+  @@index([receiptId])
+  @@index([direction, shippedAt])
+}
+
+/// A cost incurred on an inbound receipt that isn't the material itself.
+/// Allocated across that receipt's lines by value, weight, or quantity, then
+/// folded into unit cost so margin reflects what the part really cost to land.
+model LandedCostCharge {
+  id          String    @id @default(cuid())
+  receiptId   String
+  /// FREIGHT | DUTY | BROKERAGE | INSURANCE | HANDLING | TARIFF | OTHER
+  type        String    @default("FREIGHT")
+  description String?
+  amount      Float     @default(0)
+  /// VALUE | WEIGHT | QUANTITY — how the amount spreads across receipt lines.
+  allocation  String    @default("VALUE")
+  vendor      String?
+  /// Set once the charge has been pushed into the receipt lines' unit cost;
+  /// stops a second apply from double-counting.
+  appliedAt   DateTime?
+  appliedById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([receiptId])
+}

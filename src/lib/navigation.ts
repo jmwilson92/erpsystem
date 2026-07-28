@@ -47,6 +47,12 @@ import {
   MessagesSquare,
   Headphones,
   Wrench,
+  Handshake,
+  UserSearch,
+  Contact2,
+  Cog,
+  Ship,
+  Coins,
   Hourglass,
   MapPinned,
   type LucideIcon,
@@ -84,6 +90,14 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    label: "CRM & Pipeline",
+    items: [
+      { href: "/crm", label: "Pipeline", icon: Handshake, keywords: ["crm", "opportunity", "deal", "forecast", "funnel", "stage", "weighted", "win rate", "sales pipeline"] },
+      { href: "/crm/leads", label: "Leads", icon: UserSearch, keywords: ["lead", "prospect", "inbound", "enquiry", "inquiry", "capture", "qualify", "convert"] },
+      { href: "/crm/contacts", label: "Contacts", icon: Contact2, keywords: ["contact", "people", "buyer", "decision maker", "primary contact", "address book"] },
+    ],
+  },
+  {
     label: "Sales & Customers",
     items: [
       { href: "/sales/quotes", label: "Quotes", icon: FileSpreadsheet, keywords: ["rfq", "estimate", "quotation"] },
@@ -100,6 +114,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/test-center", label: "Test Center", icon: FlaskConical, keywords: ["ate", "burn-in", "test station"] },
       { href: "/kitting", label: "Kitting", icon: Boxes, keywords: ["pick", "stage", "shortage"] },
       { href: "/planning", label: "Planning & MRP", icon: LineChart, keywords: ["forecast", "mrs", "capacity", "demand"] },
+      { href: "/maintenance", label: "Maintenance (CMMS)", icon: Cog, keywords: ["cmms", "equipment", "machine", "preventive maintenance", "pm", "downtime", "breakdown", "oee", "availability", "calibration", "meter", "run hours", "spindle", "uptime"] },
     ],
   },
   {
@@ -143,12 +158,14 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    label: "Field Service & Fleet",
+    label: "Service, Fleet & Logistics",
     items: [
       { href: "/service", label: "Service Tickets", icon: Headphones, keywords: ["field service", "dispatch", "service call", "work order", "technician", "on site", "sla", "repair", "install", "help", "callout"] },
       { href: "/service/assets", label: "Installed Base", icon: MapPinned, keywords: ["installed asset", "serial", "customer site", "warranty", "equipment", "unit"] },
       { href: "/fleet", label: "Fleet", icon: Truck, keywords: ["vehicle", "van", "truck", "forklift", "trailer", "odometer", "mileage", "registration", "insurance", "dot"] },
       { href: "/fleet?due=1", label: "Vehicle Maintenance", icon: Wrench, keywords: ["pm", "preventive maintenance", "oil change", "tires", "inspection", "fuel", "mpg", "service interval"] },
+      { href: "/logistics", label: "Logistics", icon: Ship, keywords: ["carrier", "freight", "shipping cost", "tracking", "ltl", "parcel", "ocean", "air", "broker", "recovery"] },
+      { href: "/logistics", label: "Landed Cost", icon: Coins, keywords: ["landed cost", "duty", "tariff", "brokerage", "customs", "import", "allocation", "unit cost", "true cost", "freight in"] },
     ],
   },
   {

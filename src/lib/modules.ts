@@ -117,6 +117,27 @@ export const MODULES: ModuleDef[] = [
     prefixes: ["/service"],
   },
   {
+    key: "crm",
+    label: "CRM",
+    description:
+      "Leads, opportunities, pipeline and contacts — the funnel before a customer record exists",
+    prefixes: ["/crm"],
+  },
+  {
+    key: "cmms",
+    label: "Plant Maintenance (CMMS)",
+    description:
+      "Equipment register, preventive maintenance by date or meter, downtime reasons and availability",
+    prefixes: ["/maintenance"],
+  },
+  {
+    key: "logistics",
+    label: "Logistics & Landed Cost",
+    description:
+      "Carriers, freight cost and recovery, and duty/freight allocated into part cost",
+    prefixes: ["/logistics"],
+  },
+  {
     key: "fleet",
     label: "Fleet",
     description:
