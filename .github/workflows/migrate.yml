@@ -1,0 +1,91 @@
+name: Migrate production
+
+# Schema changes need three things, not one: `prisma db push` migrates only
+# `public`, and under schema-per-tenant every tenant and every demo has its own
+# copy of every table. Doing that by hand after each merge is how production
+# ends up broken — Prisma names every column it knows about in generated SQL,
+# so one missing column on a common table breaks every query that touches it.
+#
+# workflow_dispatch is deliberate: schema changes are additive, so running this
+# BEFORE merging is safe and removes the window where the new code is live but
+# the database hasn't caught up.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "prisma/schema.prisma"
+      - "src/lib/tenant-template.ts"
+      - "scripts/backfill-tenant-schemas.ts"
+      - ".github/workflows/migrate.yml"
+  workflow_dispatch:
+    inputs:
+      include_demos:
+        description: "Also patch demo_* sandboxes"
+        type: boolean
+        default: true
+
+# Never let two migrations run at once, and never cancel one part-way.
+concurrency:
+  group: migrate-production
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: Push schema + backfill tenants
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+
+    env:
+      # Must be the DIRECT (non-pooled) Supabase URL — this is DDL.
+      DATABASE_URL: ${{ secrets.DIRECT_URL }}
+      DIRECT_URL: ${{ secrets.DIRECT_URL }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Fail fast if DIRECT_URL is missing
+        run: |
+          if [ -z "${DIRECT_URL}" ]; then
+            echo "::error::DIRECT_URL secret is not set. Add it under Settings → Environments → production."
+            exit 1
+          fi
+
+      - name: Install
+        run: npm ci
+
+      - name: Prisma generate
+        run: npx prisma generate
+
+      - name: Report drift before touching anything
+        run: npx tsx scripts/backfill-tenant-schemas.ts
+
+      - name: Push schema (public)
+        # No --accept-data-loss on purpose. If a change would drop a column or
+        # a table, this fails loudly instead of quietly destroying customer
+        # data — that case wants a human, not an automated retry.
+        run: npx prisma db push --skip-generate
+
+      - name: Backfill tenant schemas
+        run: npx tsx scripts/backfill-tenant-schemas.ts --apply
+
+      - name: Backfill demo sandboxes
+        if: >-
+          github.event_name == 'push' ||
+          github.event.inputs.include_demos == 'true'
+        run: npx tsx scripts/backfill-tenant-schemas.ts --apply --include-demos
+
+      - name: Confirm no drift remains
+        run: |
+          OUT=$(npx tsx scripts/backfill-tenant-schemas.ts --include-demos)
+          echo "$OUT"
+          if echo "$OUT" | grep -q "MISSING"; then
+            echo "::error::Drift remains after backfill — see the report above."
+            exit 1
+          fi

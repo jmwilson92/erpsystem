@@ -37,7 +37,11 @@ export async function runChunkG() {
   });
 
   await check("G", "ensureProjectWbsChargeCodes is idempotent", async () => {
+    // Must be a project that actually HAS a WBS — an unfiltered findFirst
+    // returns an arbitrary row, and the seed has projects both with and
+    // without one, so this check passed or failed on row order.
     const project = await prisma.project.findFirst({
+      where: { wbsElements: { some: {} } },
       include: { _count: { select: { wbsElements: true } } },
     });
     assert(project && project._count.wbsElements > 0, "no project with WBS");
