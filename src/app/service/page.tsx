@@ -12,6 +12,8 @@ import {
   SERVICE_TYPES,
   TICKET_PRIORITIES,
 } from "@/lib/services/field-service";
+import { checkModuleHealth } from "@/lib/services/module-health";
+import { ModuleNotMigrated } from "@/components/shared/module-not-migrated";
 import { actionCreateTicket } from "./actions";
 import { Headphones, CalendarClock, AlarmClock, Inbox } from "lucide-react";
 
@@ -48,6 +50,20 @@ export default async function ServicePage({
 }) {
   const { status } = await searchParams;
   const showAll = status === "all";
+
+  // See the note on /fleet — new tables need `prisma db push` per environment.
+  const health = await checkModuleHealth(() => getServiceSummary());
+  if (!health.ok) {
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Field service"
+          description="Customer calls, dispatch, and on-site work."
+        />
+        <ModuleNotMigrated module="Field service" health={health} />
+      </div>
+    );
+  }
 
   const [tickets, summary, customers, users, assets] = await Promise.all([
     listTickets(showAll ? {} : { open: true }),

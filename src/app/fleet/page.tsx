@@ -10,6 +10,8 @@ import {
   VEHICLE_TYPES,
 } from "@/lib/services/fleet";
 import { listUsers } from "@/lib/auth";
+import { checkModuleHealth } from "@/lib/services/module-health";
+import { ModuleNotMigrated } from "@/components/shared/module-not-migrated";
 import { actionCreateVehicle } from "./actions";
 import { Truck, Wrench, ShieldAlert, Gauge } from "lucide-react";
 
@@ -35,6 +37,19 @@ export default async function FleetPage({
   searchParams: Promise<{ due?: string }>;
 }) {
   const { due: dueParam } = await searchParams;
+
+  // The tables only exist once `prisma db push` has run against this database.
+  // Say so plainly instead of throwing the page into the error boundary.
+  const health = await checkModuleHealth(() => listVehicles());
+  if (!health.ok) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Fleet" description="Vehicles, maintenance, and compliance." />
+        <ModuleNotMigrated module="Fleet" health={health} />
+      </div>
+    );
+  }
+
   const [allVehicles, due, compliance, users] = await Promise.all([
     listVehicles(),
     getMaintenanceDue(),

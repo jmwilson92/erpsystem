@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { prisma } from "@/lib/db";
 import { isUnderWarranty, listInstalledAssets } from "@/lib/services/field-service";
+import { checkModuleHealth } from "@/lib/services/module-health";
+import { ModuleNotMigrated } from "@/components/shared/module-not-migrated";
 import { actionCreateInstalledAsset } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +19,16 @@ function fmtDate(d: Date | null | undefined) {
 }
 
 export default async function InstalledBasePage() {
+  const health = await checkModuleHealth(() => listInstalledAssets());
+  if (!health.ok) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Installed base" description="Units you have in the field." />
+        <ModuleNotMigrated module="Field service" health={health} />
+      </div>
+    );
+  }
+
   const [assets, customers, parts] = await Promise.all([
     listInstalledAssets(),
     prisma.customer.findMany({
