@@ -5457,3 +5457,30 @@ model FuelLog {
 
   @@index([vehicleId, filledAt])
 }
+
+/// Triage state for a group of telemetry errors sharing a fingerprint.
+/// Control plane only (public) — same as TelemetryEvent. Kept in its own table
+/// rather than stamped on each event so marking an issue resolved is one write,
+/// not a bulk update over every occurrence.
+model TelemetryIssue {
+  id String @id @default(cuid())
+
+  /// What groups the occurrences together — currently the error label.
+  fingerprint String @unique
+
+  /// NEW | IN_PROGRESS | ON_HOLD | RESOLVED
+  status String  @default("NEW")
+  /// Why it's on hold, what the fix was, a ticket link — whatever helps later.
+  note   String?
+
+  /// Set when status last moved to RESOLVED. An occurrence newer than this
+  /// means the error came back, which the dashboard surfaces as a regression
+  /// rather than silently leaving it filed as fixed.
+  resolvedAt DateTime?
+
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([status])
+}

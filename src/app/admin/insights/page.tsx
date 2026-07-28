@@ -14,8 +14,12 @@ import {
   getTopActions,
   getTopPages,
   getTelemetryHealth,
+  ISSUE_STATUSES,
+  type ErrorScope,
   type InsightsWindow,
+  type IssueStatus,
 } from "@/lib/services/telemetry";
+import { actionSetIssueStatus } from "./actions";
 import {
   Activity,
   AlertTriangle,
@@ -351,20 +355,75 @@ export default async function InsightsPage({
               {errors.map((e) => (
                 <div
                   key={e.label}
-                  className="rounded-lg border border-slate-800 bg-slate-950/40 p-3"
+                  className={`rounded-lg border bg-slate-950/40 p-3 ${
+                    e.status === "RESOLVED" && !e.regressed
+                      ? "border-slate-800/60 opacity-60"
+                      : "border-slate-800"
+                  }`}
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <p className="min-w-0 flex-1 break-words text-sm text-rose-200">
+                    <p
+                      className={`min-w-0 flex-1 break-words text-sm ${
+                        e.status === "RESOLVED" && !e.regressed
+                          ? "text-slate-400"
+                          : "text-rose-200"
+                      }`}
+                    >
                       {e.label}
                     </p>
                     <span className="shrink-0 rounded-full bg-rose-500/15 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-rose-300 ring-1 ring-rose-500/30">
                       ×{e.count}
                     </span>
                   </div>
-                  <p className="mt-1 text-[11px] text-slate-500">
-                    {e.source}
-                    {e.lastPath ? ` · ${e.lastPath}` : ""} · last {ago(e.lastSeen)}
-                  </p>
+
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    <ScopeBadge
+                      scope={e.scope}
+                      schemaCount={e.schemaCount}
+                      schemaName={e.schemaName}
+                    />
+                    <StatusBadge status={e.status} regressed={e.regressed} />
+                    <span className="text-[11px] text-slate-500">
+                      {e.lastPath ? `${e.lastPath} · ` : ""}last {ago(e.lastSeen)}
+                      {e.sources.length > 1 ? ` · ${e.sources.join(" + ")}` : ""}
+                    </span>
+                  </div>
+
+                  {e.note && (
+                    <p className="mt-1.5 border-l-2 border-slate-700 pl-2 text-[11px] italic text-slate-400">
+                      {e.note}
+                    </p>
+                  )}
+
+                  <form
+                    action={actionSetIssueStatus}
+                    className="mt-2 flex flex-wrap items-center gap-1.5"
+                  >
+                    <input type="hidden" name="fingerprint" value={e.label} />
+                    <select
+                      name="status"
+                      defaultValue={e.status}
+                      className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-200"
+                    >
+                      {ISSUE_STATUSES.map((s) => (
+                        <option key={s} value={s}>
+                          {s.replace(/_/g, " ")}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      name="note"
+                      defaultValue={e.note ?? ""}
+                      placeholder="note — cause, ticket, why it's on hold"
+                      className="min-w-0 flex-1 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-slate-200 placeholder:text-slate-600"
+                    />
+                    <button
+                      type="submit"
+                      className="rounded-md border border-slate-700 px-2 py-1 text-[11px] text-slate-300 hover:bg-slate-900"
+                    >
+                      Save
+                    </button>
+                  </form>
                 </div>
               ))}
             </div>
@@ -372,5 +431,96 @@ export default async function InsightsPage({
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+const SCOPE_STYLE: Record<ErrorScope, { label: string; className: string }> = {
+  SYSTEM: {
+    label: "SYSTEM-WIDE",
+    className: "bg-rose-500/15 text-rose-300 ring-rose-500/40",
+  },
+  TENANT: {
+    label: "TENANT",
+    className: "bg-amber-500/15 text-amber-300 ring-amber-500/40",
+  },
+  PLATFORM: {
+    label: "DOGFOOD",
+    className: "bg-violet-500/15 text-violet-300 ring-violet-500/40",
+  },
+  DEMO: {
+    label: "DEMO",
+    className: "bg-sky-500/15 text-sky-300 ring-sky-500/40",
+  },
+  MARKETING: {
+    label: "MARKETING",
+    className: "bg-slate-600/25 text-slate-300 ring-slate-600/40",
+  },
+};
+
+/**
+ * Blast radius at a glance: is one customer affected, or everybody? A tenant
+ * schema name is shown because it's the handle you need to go look at that
+ * customer — it carries no customer data itself.
+ */
+function ScopeBadge({
+  scope,
+  schemaCount,
+  schemaName,
+}: {
+  scope: ErrorScope;
+  schemaCount: number;
+  schemaName: string | null;
+}) {
+  const s = SCOPE_STYLE[scope];
+  return (
+    <span
+      className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ring-1 ${s.className}`}
+      title={
+        scope === "SYSTEM"
+          ? `Seen across ${schemaCount} schemas — not one customer's data`
+          : schemaName
+            ? `Only ${schemaName}`
+            : undefined
+      }
+    >
+      {s.label}
+      {scope === "SYSTEM" && schemaCount > 1 ? ` · ${schemaCount}` : ""}
+      {scope === "TENANT" && schemaName
+        ? ` · ${schemaName.replace(/^tenant_/, "").slice(0, 8)}`
+        : ""}
+    </span>
+  );
+}
+
+const STATUS_STYLE: Record<IssueStatus, string> = {
+  NEW: "bg-rose-500/10 text-rose-300 ring-rose-500/30",
+  IN_PROGRESS: "bg-amber-500/10 text-amber-300 ring-amber-500/30",
+  ON_HOLD: "bg-slate-600/20 text-slate-300 ring-slate-600/40",
+  RESOLVED: "bg-emerald-500/10 text-emerald-300 ring-emerald-500/30",
+};
+
+function StatusBadge({
+  status,
+  regressed,
+}: {
+  status: IssueStatus;
+  regressed: boolean;
+}) {
+  if (regressed) {
+    return (
+      <span
+        className="rounded px-1.5 py-0.5 text-[10px] font-semibold ring-1 bg-rose-500/20 text-rose-200 ring-rose-400/50"
+        title="Marked resolved, but it has happened again since"
+      >
+        REGRESSED
+      </span>
+    );
+  }
+  return (
+    <span
+      className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ring-1 ${STATUS_STYLE[status]}`}
+    >
+      {status.replace(/_/g, " ")}
+    </span>
   );
 }
