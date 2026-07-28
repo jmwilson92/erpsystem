@@ -15,6 +15,7 @@
  * session id (the throwaway demo schema name), a route, and a short label.
  */
 import { controlPlaneClient } from "@/lib/db";
+import { checkModuleHealth, isMissingTableError } from "@/lib/services/module-health";
 
 export type TelemetryKind =
   | "DEMO_START"
@@ -378,15 +379,30 @@ export async function getErrorGroups(
 }
 
 /**
+ * Can triage state be stored on this database yet?
+ *
+ * getErrorGroups deliberately swallows a missing TelemetryIssue table so the
+ * dashboard still renders — but that would leave triage controls on screen that
+ * throw the moment they're used. The page asks this so it can explain instead.
+ */
+export async function getIssueTrackingHealth() {
+  return checkModuleHealth(() => controlPlaneClient().telemetryIssue.count());
+}
+
+/**
  * Set an error's triage state. Upserts on the fingerprint so the first time you
  * touch an error is also when its issue row is created.
+ *
+ * Returns false when the table isn't on this database — the caller's page shows
+ * the migration banner, so a route error would add nothing. Any other failure
+ * still throws: a genuine bug should be loud.
  */
 export async function setIssueStatus(params: {
   fingerprint: string;
   status: IssueStatus;
   note?: string | null;
   userId?: string;
-}): Promise<void> {
+}): Promise<boolean> {
   const resolvedAt = params.status === "RESOLVED" ? new Date() : null;
   const data = {
     status: params.status,
@@ -394,11 +410,17 @@ export async function setIssueStatus(params: {
     resolvedAt,
     updatedById: params.userId || null,
   };
-  await controlPlaneClient().telemetryIssue.upsert({
-    where: { fingerprint: params.fingerprint },
-    create: { fingerprint: params.fingerprint, ...data },
-    update: data,
-  });
+  try {
+    await controlPlaneClient().telemetryIssue.upsert({
+      where: { fingerprint: params.fingerprint },
+      create: { fingerprint: params.fingerprint, ...data },
+      update: data,
+    });
+    return true;
+  } catch (e) {
+    if (isMissingTableError(e)) return false;
+    throw e;
+  }
 }
 
 export type LiveDemo = {
