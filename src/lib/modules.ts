@@ -109,6 +109,20 @@ export const MODULES: ModuleDef[] = [
     description: "Programs, PMO, PI planning, leadership, project budgets",
     prefixes: ["/pmo", "/leadership", "/budgets"],
   },
+  {
+    key: "fieldservice",
+    label: "Field Service",
+    description:
+      "Service tickets, dispatch, on-site labor and parts, installed base and warranty",
+    prefixes: ["/service"],
+  },
+  {
+    key: "fleet",
+    label: "Fleet",
+    description:
+      "Vehicles and yard equipment — assignments, preventive maintenance, fuel cost, registration and inspection dates",
+    prefixes: ["/fleet"],
+  },
 ];
 
 /**

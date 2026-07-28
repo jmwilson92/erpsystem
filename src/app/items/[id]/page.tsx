@@ -15,6 +15,7 @@ import {
 } from "@/app/actions";
 import Link from "next/link";
 import { listApprovedSuppliers } from "@/lib/services/items";
+import { getLotsForPart, EXPIRY_WARNING_DAYS } from "@/lib/services/shelf-life";
 import { ActivityTimeline } from "@/components/shared/activity-timeline";
 import { AddBomLineForm } from "@/components/bom/add-bom-line-form";
 
@@ -32,7 +33,7 @@ export default async function ItemDetailPage({
   const tabRaw = Array.isArray(sp.tab) ? sp.tab[0] : sp.tab;
   const tab = tabRaw || "general";
 
-  const [part, uoms, accounts, approvedSuppliers, componentParts] =
+  const [part, uoms, accounts, approvedSuppliers, componentParts, lots] =
     await Promise.all([
       prisma.part.findUnique({
         where: { id },
@@ -80,6 +81,7 @@ export default async function ItemDetailPage({
           uom: true,
         },
       }),
+      getLotsForPart(id).catch(() => []),
     ]);
   if (!part) notFound();
 
@@ -462,6 +464,65 @@ export default async function ItemDetailPage({
                       className="mt-2 inline-block text-xs text-sky-400 hover:underline"
                     >
                       Open in inventory →
+                    </Link>
+                  </CardContent>
+                </Card>
+              )}
+              {(part.shelfLifeDays || lots.length > 0) && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Lots &amp; shelf life</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-1 text-sm">
+                    <p className="mb-2 text-xs text-slate-500">
+                      {part.shelfLifeDays
+                        ? `Lots received against this item expire ${part.shelfLifeDays} days after receipt unless the cert says otherwise.`
+                        : "No shelf life set — lots here carry a manually entered expiry."}
+                    </p>
+                    {lots.length === 0 ? (
+                      <p className="text-xs text-slate-500">No lots received yet.</p>
+                    ) : (
+                      lots.slice(0, 12).map((lot) => {
+                        const daysLeft = lot.expiresAt
+                          ? Math.ceil(
+                              (new Date(lot.expiresAt).getTime() - Date.now()) / 86_400_000
+                            )
+                          : null;
+                        const tone =
+                          daysLeft == null
+                            ? "text-slate-400"
+                            : daysLeft < 0
+                              ? "text-rose-300"
+                              : daysLeft <= EXPIRY_WARNING_DAYS
+                                ? "text-amber-300"
+                                : "text-slate-400";
+                        return (
+                          <div
+                            key={lot.id}
+                            className="flex justify-between gap-2 rounded border border-slate-800 px-2 py-1.5 text-xs"
+                          >
+                            <span className="truncate font-mono text-slate-300">
+                              {lot.lotNumber}
+                              <span className="ml-1.5 font-sans text-slate-500">
+                                qty {lot.quantity}
+                              </span>
+                            </span>
+                            <span className={`shrink-0 tabular-nums ${tone}`}>
+                              {daysLeft == null
+                                ? "no expiry"
+                                : daysLeft < 0
+                                  ? `expired ${-daysLeft}d ago`
+                                  : `${daysLeft}d left`}
+                            </span>
+                          </div>
+                        );
+                      })
+                    )}
+                    <Link
+                      href="/inventory/expiring"
+                      className="mt-2 inline-block text-xs text-sky-400 hover:underline"
+                    >
+                      Expiring stock report →
                     </Link>
                   </CardContent>
                 </Card>

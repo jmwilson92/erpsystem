@@ -45,6 +45,10 @@ import {
   ScanBarcode,
   Compass,
   MessagesSquare,
+  Headphones,
+  Wrench,
+  Hourglass,
+  MapPinned,
   type LucideIcon,
 } from "lucide-react";
 
@@ -120,6 +124,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/receiving", label: "Receiving", icon: PackageCheck, keywords: ["dock", "inspection", "gfp", "traveler"] },
       { href: "/suppliers", label: "Suppliers / ASL", icon: Award, keywords: ["vendor", "scorecard", "approved supplier"] },
       { href: "/inventory", label: "Inventory", icon: Package, keywords: ["stock", "bins", "kanban", "quarantine"] },
+      { href: "/inventory/expiring", label: "Expiring Stock", icon: Hourglass, keywords: ["shelf life", "expiry", "expiration", "expired", "lot", "perishable", "adhesive", "sealant", "resin", "cure date", "use by"] },
       { href: "/government-property", label: "Gov Property", icon: Shield, keywords: ["gfp", "cap", "uid", "dfars"] },
       { href: "/assets", label: "Asset Tracker", icon: Briefcase, keywords: ["tools", "test equipment", "demo unit", "checkout", "check out"] },
       { href: "/virtual-assets", label: "Virtual Assets", icon: Package2, keywords: ["licenses", "software", "intangible"] },
@@ -135,6 +140,15 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/rma", label: "RMA", icon: RotateCcw, keywords: ["return", "warranty", "repair", "customer return"] },
       { href: "/trace/serials", label: "Serial trace", icon: ScanBarcode, keywords: ["as-built", "genealogy", "serial number", "sn tree"] },
       { href: "/quality/programs", label: "Quality Programs", icon: Shield, keywords: ["qms", "program", "compliance", "as9100", "calibration", "gage", "tool control", "toolbox", "hazmat", "sds", "esd", "humidity", "fod", "safety", "ehs", "internal audit", "as9101", "ncr", "ofi", "counterfeit", "as5553", "as6174", "policy"] },
+    ],
+  },
+  {
+    label: "Field Service & Fleet",
+    items: [
+      { href: "/service", label: "Service Tickets", icon: Headphones, keywords: ["field service", "dispatch", "service call", "work order", "technician", "on site", "sla", "repair", "install", "help", "callout"] },
+      { href: "/service/assets", label: "Installed Base", icon: MapPinned, keywords: ["installed asset", "serial", "customer site", "warranty", "equipment", "unit"] },
+      { href: "/fleet", label: "Fleet", icon: Truck, keywords: ["vehicle", "van", "truck", "forklift", "trailer", "odometer", "mileage", "registration", "insurance", "dot"] },
+      { href: "/fleet?due=1", label: "Vehicle Maintenance", icon: Wrench, keywords: ["pm", "preventive maintenance", "oil change", "tires", "inspection", "fuel", "mpg", "service interval"] },
     ],
   },
   {

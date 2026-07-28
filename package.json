@@ -8,7 +8,7 @@
     "dev:app": "next dev --turbopack",
     "prestart": "prisma generate && prisma db push",
     "build": "next build",
-    "prebuild": "prisma generate",
+    "prebuild": "prisma generate && node scripts/gen-tenant-ddl.mjs",
     "start": "next start",
     "lint": "eslint",
     "sync": "prisma generate && prisma db push",
