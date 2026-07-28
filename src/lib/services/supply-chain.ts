@@ -14,6 +14,7 @@ import {
   type DocType,
 } from "@/lib/services/receiving-inspection";
 import { isGfpLocation } from "@/lib/utils";
+import { recordLot } from "@/lib/services/shelf-life";
 
 /**
  * Core integrated flow:
@@ -289,6 +290,23 @@ export async function receivePurchaseOrder(params: {
           ownership: receivingGovt ? "GOVERNMENT" : "COMPANY",
         },
       });
+    }
+
+    // Lot-traceable material gets a Lot record so shelf life is stamped at
+    // receipt rather than being a step someone remembers to do later.
+    if (line.lotNumber) {
+      try {
+        await recordLot({
+          lotNumber: line.lotNumber,
+          partId: line.partId,
+          quantity: invItem.quantityOnHand,
+          supplierId: po.supplierId,
+          poNumber: po.number,
+          userId: params.receivedById,
+        });
+      } catch {
+        // Never let expiry bookkeeping block a receipt.
+      }
     }
 
     // Align ownership with GFP material context (area / traveler / PO — not part master)
