@@ -21,14 +21,10 @@ export default async function AccountPage() {
   const sessionUser = await getSessionUser();
   const isLoggedIn = Boolean(sessionUser);
 
-  // Tolerant: an unmigrated schema simply reports MFA unavailable rather than
-  // throwing the whole account page into the error boundary.
-  const mfaStatus = await getMfaStatus(user.id).catch(() => ({
-    enabled: false,
-    pending: false,
-    recoveryRemaining: 0,
-    configured: false,
-  }));
+  // getMfaStatus classifies its own failure (missing key vs unmigrated
+  // schema), so no catch here — a blanket catch is what made an unmigrated
+  // tenant read as "set MFA_SECRET_KEY".
+  const mfaStatus = await getMfaStatus(user.id);
 
   const sessions = isLoggedIn
     ? await prisma.authSession.findMany({
