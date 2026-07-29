@@ -6,7 +6,7 @@
 
 export const SITE_NAME = "Protessera";
 export const SITE_LEGAL = "Protessera, LLC";
-export const SITE_TAGLINE = "Manufacturing ERP for shops that build real hardware";
+export const SITE_TAGLINE = "Connecting everything";
 
 export const SITE_DESCRIPTION =
   "Protessera is plug-and-play manufacturing ERP: sales, engineering, purchasing, production, quality, and accounting in one connected system. 45-day free trial — no consultants required.";

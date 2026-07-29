@@ -4,7 +4,7 @@ import { BrandLogo } from "./logo";
 /**
  * Marketing header. Product story links always go to /welcome (full marketing
  * page with cinematic backgrounds) — never into the ERP shell. "Live demo"
- * returns to the sandbox / Opening the Forge flow on /.
+ * returns to the sandbox / Spinning up the Shop flow on /.
  *
  * Using plain <a> for story links so demo→marketing is a full navigation and
  * never paints pricing/FAQ inside the app chrome.

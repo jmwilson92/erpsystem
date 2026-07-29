@@ -392,9 +392,9 @@ function JsonLd() {
 }
 
 export function LandingPage({
-  /** Include SiteHeader / SiteFooter (default). Off when nested under Opening the Forge. */
+  /** Include SiteHeader / SiteFooter (default). Off when nested under Spinning up the Shop. */
   showChrome = true,
-  /** Classic plug-and-play hero block. Off when Opening the Forge is already the hero. */
+  /** Classic plug-and-play hero block. Off when Spinning up the Shop is already the hero. */
   showClassicHero = true,
 }: {
   showChrome?: boolean;

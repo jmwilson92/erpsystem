@@ -11,7 +11,7 @@ const BG_SRC = "/marketing/E-splash-bg.jpg";
  * Apex hero: static factory scene + spinning SVG ring.
  * Copy sits on a light plaque with black text for maximum contrast.
  */
-export function OpeningForge({
+export function SpinningUpShop({
   hasExistingDemo = false,
   autoStart = true,
   ended = false,
@@ -22,7 +22,7 @@ export function OpeningForge({
 }) {
   const [pct, setPct] = useState(ended ? 100 : 0);
   const [status, setStatus] = useState(
-    ended ? "Test drive ended" : "Opening the Forge"
+    ended ? "Test drive ended" : "Spinning up the Shop"
   );
   const formRef = useRef<HTMLFormElement>(null);
   const started = useRef(false);
@@ -86,16 +86,16 @@ export function OpeningForge({
           />
           <svg
             viewBox="0 0 120 120"
-            className="forge-ring-spin relative h-full w-full drop-shadow-[0_0_24px_rgba(45,212,191,0.55)]"
+            className="shop-ring-spin relative h-full w-full drop-shadow-[0_0_24px_rgba(45,212,191,0.55)]"
             aria-hidden
           >
             <defs>
-              <linearGradient id="forge-ring-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <linearGradient id="shop-ring-grad" x1="0%" y1="0%" x2="100%" y2="100%">
                 <stop offset="0%" stopColor="#5eead4" />
                 <stop offset="55%" stopColor="#2dd4bf" />
                 <stop offset="100%" stopColor="#22d3ee" />
               </linearGradient>
-              <filter id="forge-ring-glow" x="-40%" y="-40%" width="180%" height="180%">
+              <filter id="shop-ring-glow" x="-40%" y="-40%" width="180%" height="180%">
                 <feGaussianBlur stdDeviation="1.6" result="b" />
                 <feMerge>
                   <feMergeNode in="b" />
@@ -116,12 +116,12 @@ export function OpeningForge({
               cy="60"
               r="46"
               fill="none"
-              stroke="url(#forge-ring-grad)"
+              stroke="url(#shop-ring-grad)"
               strokeWidth="6"
               strokeLinecap="round"
               strokeDasharray="190 100"
               strokeDashoffset="20"
-              filter="url(#forge-ring-glow)"
+              filter="url(#shop-ring-glow)"
             />
             <circle
               cx="60"
@@ -160,7 +160,7 @@ export function OpeningForge({
             </h1>
             <p className="muted mx-auto mt-3 max-w-md text-sm leading-relaxed sm:text-base">
               {ended
-                ? "Your sandbox is gone — scroll for pricing, FAQ, and features, or open the Forge again when you’re ready."
+                ? "Your sandbox is gone — scroll for pricing, FAQ, and features, or spin the shop up again when you’re ready."
                 : hasExistingDemo
                   ? "Your sandbox is still warm — taking you back onto the floor."
                   : "Building a private sandbox with a live demo factory — sales, floor, quality, and accounting already talking."}
@@ -173,7 +173,7 @@ export function OpeningForge({
                     type="submit"
                     className="btn-green rounded-xl px-5 py-3 text-sm font-semibold"
                   >
-                    Open the Forge again
+                    Spin the shop up again
                   </button>
                 </form>
                 <a
