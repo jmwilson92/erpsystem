@@ -51,9 +51,9 @@ export const metadata: Metadata = {
   description: SITE_DESCRIPTION,
   keywords: SITE_KEYWORDS,
   applicationName: SITE_NAME,
-  authors: [{ name: "ForgeRP, LLC" }],
+  authors: [{ name: "Protessera, LLC" }],
   creator: SITE_NAME,
-  publisher: "ForgeRP, LLC",
+  publisher: "Protessera, LLC",
   category: "business software",
   alternates: {
     canonical: "/",
@@ -148,7 +148,7 @@ export default async function RootLayout({
   const company =
     companyRaw ??
     ({
-      name: "ForgeRP",
+      name: "Protessera",
       tagline: null,
       disabledModules: null,
       breaksConfig: null,
@@ -195,7 +195,7 @@ export default async function RootLayout({
   const forgeSplash = hdrs.get("x-forge-splash") === "1";
   const forgeApp = hdrs.get("x-forge-app") === "1";
 
-  // Platform support (ForgeRP dogfood + public marketing) — never customer/demo.
+  // Platform support (Protessera dogfood + public marketing) — never customer/demo.
   const platformSupport = await isPlatformSupportEnabled();
 
   // Staff desk (/admin/support) uses the same root tree as the ERP shell.

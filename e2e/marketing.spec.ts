@@ -11,7 +11,7 @@ test.describe("Landing page", () => {
   test("header + footer + hero CTAs", async ({ page }) => {
     await page.goto("/");
     // Header nav
-    await expect(page.getByRole("link", { name: /^ForgeRP/ }).first()).toBeVisible();
+    await expect(page.getByRole("link", { name: /^Protessera/ }).first()).toBeVisible();
     await expect(page.getByRole("link", { name: "Sign in" }).first()).toBeVisible();
     // Hero CTAs
     await expect(page.getByRole("link", { name: /Start your 45-day free trial/i }).first()).toBeVisible();
@@ -41,7 +41,7 @@ test.describe("Landing page", () => {
 
   test("logo returns home from a deep page", async ({ page }) => {
     await page.goto("/legal/terms-of-service");
-    await page.getByRole("link", { name: /ForgeRP home|^ForgeRP/ }).first().click();
+    await page.getByRole("link", { name: /Protessera home|^Protessera/ }).first().click();
     // Marketing home is /welcome; the apex "/" shows the splash for anonymous
     // visitors, so either destination counts as "back to the marketing site".
     await expect(page).toHaveURL(/\/welcome|\/$|\/#/);
@@ -84,7 +84,7 @@ test.describe("Legal", () => {
   test("terms shows real entity + 45-day trial, no template disclaimer", async ({ page }) => {
     await page.goto("/legal/terms-of-service");
     const body = await page.locator("body").innerText();
-    expect(body).toMatch(/ForgeRP, LLC/);
+    expect(body).toMatch(/Protessera, LLC/);
     expect(body).toMatch(/California/);
     expect(body).toMatch(/45 days/);
     expect(body).not.toMatch(/template and not legal advice|have counsel review/i);

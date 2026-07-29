@@ -30,7 +30,7 @@ export default async function PrintRmaPackingListPage({
   ]);
   if (!rma) notFound();
 
-  const companyName = company?.name || "ForgeRP";
+  const companyName = company?.name || "Protessera";
   const issued = rma.approvedAt || rma.requestedAt;
 
   return (

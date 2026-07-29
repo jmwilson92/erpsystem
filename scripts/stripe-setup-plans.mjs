@@ -1,5 +1,5 @@
 /**
- * Create ForgeRP's subscription products + annual prices in Stripe, matching
+ * Create Protessera's subscription products + annual prices in Stripe, matching
  * the app's plan tiers exactly. Idempotent: re-running reuses existing prices
  * (matched by lookup_key) instead of duplicating them.
  *
@@ -36,7 +36,7 @@ if (!sk) {
 const PLANS = [
   {
     key: "SHOP",
-    name: "ForgeRP Shop",
+    name: "Protessera Shop",
     amount: 3000, // $30 / seat / month
     interval: "month",
     envKey: "STRIPE_PRICE_SHOP",
@@ -46,7 +46,7 @@ const PLANS = [
   },
   {
     key: "STARTER",
-    name: "ForgeRP Starter",
+    name: "Protessera Starter",
     amount: 360000,
     interval: "year",
     envKey: "STRIPE_PRICE_STARTER",
@@ -54,7 +54,7 @@ const PLANS = [
   },
   {
     key: "GROWTH",
-    name: "ForgeRP Growth",
+    name: "Protessera Growth",
     amount: 840000,
     interval: "year",
     envKey: "STRIPE_PRICE_GROWTH",
@@ -62,7 +62,7 @@ const PLANS = [
   },
   {
     key: "BUSINESS",
-    name: "ForgeRP Business",
+    name: "Protessera Business",
     amount: 1800000,
     interval: "year",
     envKey: "STRIPE_PRICE_BUSINESS",

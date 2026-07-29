@@ -31,7 +31,7 @@ import {
 type Db = Pick<PrismaClient, "companySettings" | "auditLog" | "user" | "userInvite">;
 
 /**
- * Instance-per-customer subscription state. Each ForgeRP instance carries its
+ * Instance-per-customer subscription state. Each Protessera instance carries its
  * own plan / trial / billing status on CompanySettings. Access is gated once
  * the trial ends with no active paid subscription (production only — the demo
  * instance is never gated).

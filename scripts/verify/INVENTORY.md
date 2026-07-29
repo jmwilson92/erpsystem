@@ -1,4 +1,4 @@
-# ForgeRP full verification inventory
+# Protessera full verification inventory
 
 **Goal:** Prove every major surface works before public beta.  
 **Method:** Chunked automation (service + HTTP + Playwright). Failures block the chunk.

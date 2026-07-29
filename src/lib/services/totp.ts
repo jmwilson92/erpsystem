@@ -127,7 +127,7 @@ export function verifyCode(
 
 /**
  * otpauth:// URI for the QR code. Issuer appears in the app's list, so it
- * wants to be the company name rather than "ForgeRP" for a tenant.
+ * wants to be the company name rather than "Protessera" for a tenant.
  */
 export function otpauthUri(params: {
   secret: string;

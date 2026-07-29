@@ -71,7 +71,7 @@ export default async function SignupCompletePage({
             <p className="mx-auto mt-3 max-w-lg text-slate-400">
               Your card is on file but won&apos;t be charged for {TRIAL_DAYS} days.
               Cancel anytime before the trial ends and you&apos;re never billed.
-              Next step: set up ForgeRP in your browser.
+              Next step: set up Protessera in your browser.
             </p>
           </div>
 
@@ -102,8 +102,8 @@ export default async function SignupCompletePage({
               <span>
                 Your payment went through, but we couldn&apos;t finish preparing the
                 workspace automatically. Refresh this page in a minute — or email{" "}
-                <a href="mailto:hello@forge-rp.live" className="underline">
-                  hello@forge-rp.live
+                <a href="mailto:jeramey.wilson@protessera.com" className="underline">
+                  jeramey.wilson@protessera.com
                 </a>{" "}
                 and we&apos;ll get you set up right away.
               </span>

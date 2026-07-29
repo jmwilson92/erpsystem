@@ -531,12 +531,12 @@ export async function createInvite(params: {
       to: email,
       subject:
         kind === "RESET"
-          ? `Reset your ${company?.name || "ForgeRP"} password`
-          : `You're invited to ${company?.name || "ForgeRP"}`,
+          ? `Reset your ${company?.name || "Protessera"} password`
+          : `You're invited to ${company?.name || "Protessera"}`,
       body: [
         kind === "RESET"
           ? "A password reset was requested for your account."
-          : `You've been invited to join ${company?.name || "ForgeRP"}.`,
+          : `You've been invited to join ${company?.name || "Protessera"}.`,
         "",
         `Open this link to set your password (valid ${INVITE_DAYS} days):`,
         link,

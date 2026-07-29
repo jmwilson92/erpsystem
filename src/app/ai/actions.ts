@@ -156,7 +156,7 @@ export async function actionVoiceSmokeTest(): Promise<AiConversationResult> {
     {
       role: "user",
       content:
-        "In one short spoken sentence, say you're the ForgeRP plant assistant and ready to help with production and quality. Do not say any personal name.",
+        "In one short spoken sentence, say you're the Protessera plant assistant and ready to help with production and quality. Do not say any personal name.",
     },
   ]);
 }

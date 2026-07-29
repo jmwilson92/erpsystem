@@ -43,7 +43,7 @@ export default async function BillingPage({
     <div className="space-y-6">
       <PageHeader
         title="Plan & billing"
-        description="Your ForgeRP subscription for this instance."
+        description="Your Protessera subscription for this instance."
       />
 
       {checkout === "success" && (

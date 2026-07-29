@@ -60,7 +60,7 @@ export default function GlobalError({
               fontWeight: 600,
             }}
           >
-            ForgeRP
+            Protessera
           </p>
           <h1 style={{ fontSize: 20, margin: "12px 0" }}>
             Application error

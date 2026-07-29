@@ -144,7 +144,7 @@ export default async function SetupWizardPage({
                 <Input
                   name="name"
                   required
-                  defaultValue={company.name === "ForgeRP" ? "" : company.name}
+                  defaultValue={company.name === "Protessera" ? "" : company.name}
                   placeholder="e.g. Precision Aero Manufacturing"
                   className="mt-1"
                 />
@@ -407,7 +407,7 @@ export default async function SetupWizardPage({
           <CardContent className="space-y-4">
             <ul className="space-y-1.5 text-sm">
               {[
-                [`Company: ${company.name}`, company.name !== "ForgeRP"],
+                [`Company: ${company.name}`, company.name !== "Protessera"],
                 [
                   `Pay periods: ${payroll.timesheetFrequency.toLowerCase()} · OT after ${payroll.otAfterDailyHours}h/day`,
                   true,

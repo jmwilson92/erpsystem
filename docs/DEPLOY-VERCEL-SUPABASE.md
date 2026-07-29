@@ -1,10 +1,10 @@
-# Deploy ForgeRP on Vercel + Supabase (all-Postgres)
+# Deploy Protessera on Vercel + Supabase (all-Postgres)
 
-Goal: run ForgeRP on **Vercel** with **Supabase Postgres for everything**, as a
-permanent instance ForgeRP uses as its own ERP (dogfooding). Login required, no
+Goal: run Protessera on **Vercel** with **Supabase Postgres for everything**, as a
+permanent instance Protessera uses as its own ERP (dogfooding). Login required, no
 demo data.
 
-> ℹ️ Part 1 is **already done in this repo** — ForgeRP now runs on PostgreSQL.
+> ℹ️ Part 1 is **already done in this repo** — Protessera now runs on PostgreSQL.
 > It's kept here as a record of what changed and how to verify. If you're
 > starting from a fresh checkout, skip to Part 2.
 
@@ -12,7 +12,7 @@ demo data.
 
 ## Part 1 — Postgres conversion (DONE — here's what changed)
 
-ForgeRP originally shipped on SQLite (`better-sqlite3` adapter + a filesystem
+Protessera originally shipped on SQLite (`better-sqlite3` adapter + a filesystem
 "test-drive" sandbox), which serverless can't do. The following are already in
 place on this branch:
 
@@ -65,7 +65,7 @@ policy files, inspection photos) — ✅ serverless-safe, no blob store needed.
   - **Pooled** (Transaction, port **6543**) → `DATABASE_URL`, append
     `?pgbouncer=true&connection_limit=1`
   - **Direct** (Session, port **5432**) → `DIRECT_URL`
-- [ ] (Optional) Restrict network access / rotate the anon keys — ForgeRP talks
+- [ ] (Optional) Restrict network access / rotate the anon keys — Protessera talks
       to Postgres directly via Prisma, so you do **not** need the Supabase JS
       client, PostgREST, or RLS. It's just managed Postgres.
 - [ ] Enable **daily backups / PITR** (Supabase dashboard → Database → Backups).
@@ -138,10 +138,10 @@ Run from your machine (env pointed at Supabase; uses `DIRECT_URL`):
 
 ---
 
-## Part 6 — This IS the permanent ForgeRP-runs-on-ForgeRP instance
+## Part 6 — This IS the permanent Protessera-runs-on-Protessera instance
 
 Parts 2–5 produce exactly that: one clean, login-required production instance on
-its own Supabase project + Vercel project/domain (e.g. `erp.forgerp.com`), with
+its own Supabase project + Vercel project/domain (e.g. `erp.protessera.com`), with
 real data (no demo). Notes:
 
 - [ ] Keep it separate from any public demo. The **test-drive / sandbox** demo is

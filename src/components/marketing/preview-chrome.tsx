@@ -11,7 +11,7 @@ export function PreviewHeader({
       <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3.5">
         <Link href="/preview" className="flex items-center gap-2 font-bold">
           <span className="h-7 w-7 rounded-lg bg-gradient-to-br from-teal-400 to-cyan-500 shadow-lg shadow-teal-500/30" />
-          ForgeRP
+          Protessera
         </Link>
         {showMarketingNav && (
           <nav
@@ -55,7 +55,7 @@ export function PreviewFooter() {
   return (
     <footer className="mt-auto border-t border-slate-800 text-sm text-slate-500">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-6 py-4">
-        <span>© ForgeRP, LLC · mock only</span>
+        <span>© Protessera, LLC · mock only</span>
         <div className="flex flex-wrap gap-4">
           <Link href="/preview/demo-hub#pricing" className="hover:text-slate-300">
             Pricing

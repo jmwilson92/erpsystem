@@ -24,7 +24,7 @@ export default async function InvitePage({
             {(company?.name || "F").slice(0, 1)}
           </div>
           <h1 className="mt-3 text-xl font-bold text-slate-50">
-            {company?.name || "ForgeRP"}
+            {company?.name || "Protessera"}
           </h1>
         </div>
 

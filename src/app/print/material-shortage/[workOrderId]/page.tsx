@@ -26,7 +26,7 @@ export default async function PrintMaterialShortagePage({
   return (
     <PrintFrame>
       <DocHeader
-        company={company?.name || "ForgeRP"}
+        company={company?.name || "Protessera"}
         tagline={company?.tagline}
         title="Material Shortage Report"
         number={wo.number}

@@ -153,7 +153,7 @@ export function OpeningForge({
             </div>
 
             <p className="eyebrow mt-5 text-xs font-semibold uppercase tracking-[0.28em]">
-              ForgeRP
+              Protessera
             </p>
             <h1 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">
               {status}

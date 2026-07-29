@@ -1,15 +1,15 @@
 /**
- * Public site identity + SEO defaults for ForgeRP marketing surfaces.
+ * Public site identity + SEO defaults for Protessera marketing surfaces.
  * Prefer APP_URL / NEXT_PUBLIC_APP_URL in production so absolute OG/sitemap
- * URLs match the live domain (www.forge-rp.live).
+ * URLs match the live domain (www.protessera.com).
  */
 
-export const SITE_NAME = "ForgeRP";
-export const SITE_LEGAL = "ForgeRP, LLC";
+export const SITE_NAME = "Protessera";
+export const SITE_LEGAL = "Protessera, LLC";
 export const SITE_TAGLINE = "Manufacturing ERP for shops that build real hardware";
 
 export const SITE_DESCRIPTION =
-  "ForgeRP is plug-and-play manufacturing ERP: sales, engineering, purchasing, production, quality, and accounting in one connected system. 45-day free trial — no consultants required.";
+  "Protessera is plug-and-play manufacturing ERP: sales, engineering, purchasing, production, quality, and accounting in one connected system. 45-day free trial — no consultants required.";
 
 /** Primary phrase we want to rank for + supporting terms. */
 export const SITE_KEYWORDS = [
@@ -25,7 +25,7 @@ export const SITE_KEYWORDS = [
   "configuration management ERP",
   "government property tracking",
   "small manufacturer ERP",
-  "ForgeRP",
+  "Protessera",
 ];
 
 export function getSiteUrl(): string {
@@ -33,11 +33,11 @@ export function getSiteUrl(): string {
     process.env.NEXT_PUBLIC_APP_URL ||
     process.env.APP_URL ||
     (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null) ||
-    "https://www.forge-rp.live";
+    "https://www.protessera.com";
   return raw.replace(/\/$/, "");
 }
 
 export const SITE_CONTACT = {
   legal: "",
-  privacy: "privacy@forge-rp.live",
+  privacy: "jeramey.wilson@protessera.com",
 };

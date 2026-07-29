@@ -1,7 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
 /**
- * Browser E2E for ForgeRP.
+ * Browser E2E for Protessera.
  *
  *   npm run test:e2e
  *

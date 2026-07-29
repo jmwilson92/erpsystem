@@ -25,7 +25,7 @@ function take(key: string, limit: number, windowMs: number): RateLimitResult {
     return {
       ok: false,
       retryAfterSec,
-      message: `Demo AI limit reached. Try again in about ${Math.ceil(retryAfterSec / 60)} minute(s), or start a paid ForgeRP plan for unlimited plant AI.`,
+      message: `Demo AI limit reached. Try again in about ${Math.ceil(retryAfterSec / 60)} minute(s), or start a paid Protessera plan for unlimited plant AI.`,
     };
   }
   b.count += 1;

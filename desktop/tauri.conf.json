@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "ForgeRP",
+  "productName": "Protessera",
   "version": "0.1.0",
   "identifier": "com.forgerp.desktop",
   "build": {
@@ -11,7 +11,7 @@
   "app": {
     "windows": [
       {
-        "title": "ForgeRP",
+        "title": "Protessera",
         "width": 1440,
         "height": 900,
         "minWidth": 1024,

@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { DEMO_COOKIE, TENANT_COOKIE } from "@/lib/db";
 
 /**
- * Platform (ForgeRP dogfood) context — not a customer tenant and not an
+ * Platform (Protessera dogfood) context — not a customer tenant and not an
  * anonymous demo sandbox. Platform-only surfaces (support desk, tenant
  * registry, etc.) must call this before rendering or mutating.
  *

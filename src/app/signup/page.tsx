@@ -16,10 +16,10 @@ export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Start your free trial",
-  description: `Start a ${TRIAL_DAYS}-day free trial of ForgeRP manufacturing ERP. Full product access, secure Stripe checkout, no charge until the trial ends.`,
+  description: `Start a ${TRIAL_DAYS}-day free trial of Protessera manufacturing ERP. Full product access, secure Stripe checkout, no charge until the trial ends.`,
   alternates: { canonical: "/signup" },
   openGraph: {
-    title: "Start your ForgeRP free trial",
+    title: "Start your Protessera free trial",
     description: `${TRIAL_DAYS}-day free trial of plug-and-play manufacturing ERP. Every module included.`,
     url: "/signup",
   },
@@ -123,7 +123,7 @@ export default async function SignupPage({
             </p>
             <div className="mt-4 flex flex-wrap justify-center gap-3">
               <a
-                href="mailto:hello@forge-rp.live?subject=ForgeRP%20trial"
+                href="mailto:jeramey.wilson@protessera.com?subject=Protessera%20trial"
                 className="rounded-lg bg-teal-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-teal-400"
               >
                 Request early access

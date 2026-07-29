@@ -1,7 +1,7 @@
-# ForgeRP Launch Runbook — Phases 2 & 3
+# Protessera Launch Runbook — Phases 2 & 3
 
 This is the operator checklist for turning on the public marketing site, the
-self-destructing demo, and self-serve Stripe signup on **www.forge-rp.live**
+self-destructing demo, and self-serve Stripe signup on **www.protessera.com**
 (Vercel + Supabase). Everything below is safe for the live dogfood instance,
 which lives in the Postgres `public` schema and is never touched by demo or
 customer provisioning.
@@ -68,7 +68,7 @@ Add these:
 
 | Var | Value | Purpose |
 |-----|-------|---------|
-| `APP_URL` | `https://www.forge-rp.live` | Absolute URLs for Stripe success/cancel + webhooks |
+| `APP_URL` | `https://www.protessera.com` | Absolute URLs for Stripe success/cancel + webhooks |
 | `CRON_SECRET` | a long random string | Auth for the demo-sweep cron route |
 | `DEMO_IDLE_MINUTES` | `60` (optional) | Idle minutes before a demo is reaped |
 | `DEMO_POOL_SIZE` | `3` (optional, default 3, max 20) | Pre-warmed demo sandboxes kept ready. Cloning takes seconds against a remote DB, so the pool is what makes "Take the live demo" feel instant. `0` disables pre-warming (every visitor waits for a clone). |
@@ -100,7 +100,7 @@ Notes:
 | Var | Value | Purpose |
 |-----|-------|---------|
 | `RESEND_API_KEY` | Resend API key | Turns on **real** email delivery (invites, password resets, support notifications). Unset → messages are logged in the app's email center but never sent. |
-| `EMAIL_FROM` | e.g. `erp@forge-rp.live` | From address. The sending domain must be verified in Resend. |
+| `EMAIL_FROM` | e.g. `erp@protessera.com` | From address. The sending domain must be verified in Resend. |
 | `SUPPORT_EMAIL_FROM` | (optional) | Overrides `EMAIL_FROM` for support-desk mail only. |
 | `SUPPORT_NOTIFY_EMAILS` | comma-separated addresses (optional) | Who gets notified on a new support ticket. Unset → all active ADMINs on the public/platform instance. |
 
@@ -116,7 +116,7 @@ hosted app uses Resend.
 3. Copy the coupon **ID** into `STRIPE_COUPON_LAUNCH`.
 
 **Webhook endpoint:**
-1. Developers → Webhooks → Add endpoint: `https://www.forge-rp.live/api/stripe/webhook`.
+1. Developers → Webhooks → Add endpoint: `https://www.protessera.com/api/stripe/webhook`.
 2. Send these events:
    - `checkout.session.completed`  (provisions the customer tenant)
    - `invoice.payment_succeeded`   (day-45 charge → tenant ACTIVE)

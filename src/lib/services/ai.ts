@@ -47,7 +47,7 @@ export type AiConversationOutput = {
 };
 
 const OFF_TOPIC_REPLY =
-  "I only help with ForgeRP manufacturing ERP — production, quality, purchasing, inventory, sales, shipping, engineering, programs, accounting, HR, and how to use the app. What plant or system question can I help with?";
+  "I only help with Protessera manufacturing ERP — production, quality, purchasing, inventory, sales, shipping, engineering, programs, accounting, HR, and how to use the app. What plant or system question can I help with?";
 
 /** Loose check so we still answer plant slang; rejects pure chitchat / general web. */
 export function looksLikeErpTopic(text: string): boolean {
@@ -265,7 +265,7 @@ export async function processAiQuery(query: string): Promise<string> {
 
   // Default overview
   return [
-    `I'm the **ForgeRP Assistant** (local mode). Here's a plant snapshot:`,
+    `I'm the **Protessera Assistant** (local mode). Here's a plant snapshot:`,
     ``,
     `| Area | Status |`,
     `|---|---|`,
@@ -287,10 +287,10 @@ function buildCarinaSystem(ctx: unknown, languageName: string): string {
 
   const anchors = listCatalogForPrompt();
 
-  return `You are Carina, the ForgeRP manufacturing ERP assistant (voice + text).
+  return `You are Carina, the Protessera manufacturing ERP assistant (voice + text).
 
 STRICT SCOPE — ERP ONLY:
-- ONLY ForgeRP manufacturing ERP: production, WOs, quality/MRB, purchasing, inventory, sales/shipping, engineering, PMO, accounting, HR, navigation, live plant data.
+- ONLY Protessera manufacturing ERP: production, WOs, quality/MRB, purchasing, inventory, sales/shipping, engineering, PMO, accounting, HR, navigation, live plant data.
 - Refuse everything else in one short redirect (still in the user's language).
 - Do not say your name every turn.
 
@@ -375,7 +375,7 @@ async function callGrok(query: string): Promise<string> {
   const { grokChat } = await import("@/lib/services/grok");
   return grokChat({
     temperature: 0.35,
-    system: `You are the ForgeRP manufacturing ERP assistant. ERP topics only — production, quality, purchasing, inventory, sales, engineering, programs, accounting, HR, navigation. Refuse off-topic in one short sentence. Be concise and cite modules. Live plant context: ${JSON.stringify(ctx).slice(0, 5000)}`,
+    system: `You are the Protessera manufacturing ERP assistant. ERP topics only — production, quality, purchasing, inventory, sales, engineering, programs, accounting, HR, navigation. Refuse off-topic in one short sentence. Be concise and cite modules. Live plant context: ${JSON.stringify(ctx).slice(0, 5000)}`,
     user: query,
   });
 }
@@ -440,14 +440,14 @@ export async function processAiConversation(
     return {
       text:
         lang.code.startsWith("en")
-          ? `Sure — I'll speak English from now on. What do you need in ForgeRP?`
+          ? `Sure — I'll speak English from now on. What do you need in Protessera?`
           : lang.code.startsWith("es")
-            ? `Perfecto — a partir de ahora hablo en español. ¿En qué te ayudo en ForgeRP?`
+            ? `Perfecto — a partir de ahora hablo en español. ¿En qué te ayudo en Protessera?`
             : lang.code.startsWith("fr")
-              ? `D'accord — je parle français maintenant. Que puis-je faire dans ForgeRP ?`
+              ? `D'accord — je parle français maintenant. Que puis-je faire dans Protessera ?`
               : lang.code.startsWith("de")
-                ? `Alles klar — ich spreche ab jetzt Deutsch. Wobei kann ich im ForgeRP helfen?`
-                : `OK — I'll continue in ${lang.name}. How can I help in ForgeRP?`,
+                ? `Alles klar — ich spreche ab jetzt Deutsch. Wobei kann ich im Protessera helfen?`
+                : `OK — I'll continue in ${lang.name}. How can I help in Protessera?`,
       language: lang.code,
       pendingAction: null,
     };

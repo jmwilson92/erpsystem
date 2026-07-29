@@ -1,4 +1,4 @@
-# ForgeRP security model
+# Protessera security model
 
 ## Headers & transport
 
@@ -11,7 +11,7 @@ or reverse proxy — the app assumes HTTPS in production.
 
 ## Authentication
 
-ForgeRP supports two identity modes:
+Protessera supports two identity modes:
 
 ### Production (`DEMO_MODE=0`) — required for plant deploys
 

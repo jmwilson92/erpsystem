@@ -1,4 +1,4 @@
-# ForgeRP browser E2E (Playwright)
+# Protessera browser E2E (Playwright)
 
 ## Honest scope
 

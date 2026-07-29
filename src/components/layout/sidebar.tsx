@@ -19,7 +19,7 @@ import { useRouter } from "next/navigation";
 
 const COLLAPSED_GROUPS_KEY = "forge-nav-collapsed-groups";
 
-/** ForgeRP-staff-only destinations (never rendered for tenants or demo). */
+/** Protessera-staff-only destinations (never rendered for tenants or demo). */
 const STAFF_LINKS = [
   { href: "/admin/support", label: "Support desk", icon: LifeBuoy },
   { href: "/admin/insights", label: "Product insights", icon: BarChart3 },
@@ -38,7 +38,7 @@ export function Sidebar({
   badges?: Record<string, number>;
   company?: { name: string; tagline: string };
   disabledModules?: string[];
-  /** True only on the ForgeRP platform instance (no tenant/demo cookie). */
+  /** True only on the Protessera platform instance (no tenant/demo cookie). */
   platformSupport?: boolean;
 }) {
   const pathname = usePathname();
@@ -101,7 +101,7 @@ export function Sidebar({
         {!collapsed && (
           <div className="flex flex-col">
             <span className="max-w-[150px] truncate text-sm font-bold tracking-tight text-slate-50">
-              {company?.name || "ForgeRP"}
+              {company?.name || "Protessera"}
             </span>
             <span className="max-w-[150px] truncate text-[10px] uppercase tracking-widest text-teal-500/80">
               {company?.tagline || "Manufacturing"}
@@ -185,7 +185,7 @@ export function Sidebar({
           );
         })}
 
-        {/* ForgeRP staff portal — platform instance + ADMIN only.
+        {/* Protessera staff portal — platform instance + ADMIN only.
             `platformSupport` is false whenever a forge-tenant or forge-demo
             cookie is present, so a customer's own ADMIN and demo visitors never
             see this (and the pages themselves re-check the same guard). */}
@@ -193,7 +193,7 @@ export function Sidebar({
           <div className="mt-4 border-t border-slate-800/80 pt-3">
             {!collapsed && (
               <p className="px-2 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-600">
-                ForgeRP staff
+                Protessera staff
               </p>
             )}
             <ul className="space-y-0.5">

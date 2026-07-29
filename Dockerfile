@@ -1,4 +1,4 @@
-# ─── ForgeRP self-host image ─────────────────────────────────────
+# ─── Protessera self-host image ─────────────────────────────────────
 # Build:  docker build -t forgerp .
 # Run:    docker compose up -d      (see docker-compose.yml)
 FROM node:22-slim AS base
@@ -10,7 +10,7 @@ WORKDIR /app
 # ─── deps + build ───
 FROM base AS build
 COPY package.json package-lock.json ./
-# --omit=optional skips the SQLite native module (better-sqlite3) — ForgeRP
+# --omit=optional skips the SQLite native module (better-sqlite3) — Protessera
 # runs on PostgreSQL via the pure-JS pg driver.
 RUN npm ci --omit=optional
 COPY . .

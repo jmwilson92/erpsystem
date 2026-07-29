@@ -47,15 +47,15 @@ export const TOURS: Tour[] = [
   // ─────────────────────────────── Basics ───────────────────────────────
   {
     id: "getting-started",
-    title: "Getting started with ForgeRP",
+    title: "Getting started with Protessera",
     description: "A guided lap around the whole system — every area and how it connects.",
     category: "Basics",
     minutes: 4,
     steps: [
       {
-        title: "Welcome to ForgeRP 👋",
+        title: "Welcome to Protessera 👋",
         body: "This tour walks the whole system, area by area. Use Next/Back to move, or the X to leave anytime. Turn on the speaker to have each step read aloud.",
-        why: "ForgeRP runs your entire shop — sales, engineering, purchasing, production, quality, and accounting — as one connected flow, so data entered once follows the work everywhere.",
+        why: "Protessera runs your entire shop — sales, engineering, purchasing, production, quality, and accounting — as one connected flow, so data entered once follows the work everywhere.",
       },
       {
         selector: '[data-tour="sidebar"]',

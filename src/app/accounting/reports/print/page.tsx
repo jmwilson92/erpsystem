@@ -78,7 +78,7 @@ export default async function PrintReportsPage({
   return (
     <PrintFrame>
       <div className="mb-6 border-b border-neutral-300 pb-3 text-center">
-        <h1 className="text-lg font-bold">{company?.name || "ForgeRP"}</h1>
+        <h1 className="text-lg font-bold">{company?.name || "Protessera"}</h1>
         <p className="text-sm text-neutral-600">
           {which.length === 1 ? TITLES[which[0]] : "Financial Statements"} · as of{" "}
           {formatDate(new Date())}

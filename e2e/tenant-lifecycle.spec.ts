@@ -33,10 +33,10 @@ test("customer claims workspace and logs into their own tenant", async ({ page }
   await page.goto(`/onboard/${token}`);
   await expect(page.getByText(email)).toBeVisible();
   await page.fill('input[name="password"]', PASSWORD);
-  await page.getByRole("button", { name: /Set password & enter ForgeRP/i }).click();
+  await page.getByRole("button", { name: /Set password & enter Protessera/i }).click();
   // Lands in the guided setup wizard
   await page.waitForURL(/\/setup/, { timeout: 30_000 });
-  await expect(page.getByText(/Set up ForgeRP|company/i).first()).toBeVisible();
+  await expect(page.getByText(/Set up Protessera|company/i).first()).toBeVisible();
 
   // 2) Trial banner reflects the chosen plan, not "pick a plan"
   const bannerText = await page.locator("body").innerText();

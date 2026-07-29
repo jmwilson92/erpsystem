@@ -34,7 +34,7 @@ export async function actionStartMfa(): Promise<MfaState> {
     const enrol = await startEnrolment({
       userId: user.id,
       account: user.email,
-      issuer: company?.name || "ForgeRP",
+      issuer: company?.name || "Protessera",
     });
     if (enrol.alreadyEnabled) {
       return { kind: "error", message: "Two-factor is already on for this account" };

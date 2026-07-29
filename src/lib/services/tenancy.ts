@@ -12,7 +12,7 @@ export const DEMO_TEMPLATE_SCHEMA = "demo_template";
 
 /**
  * Schema-per-tenant provisioning. Each tenant (real customer or throwaway demo)
- * gets its own Postgres schema holding the full ForgeRP table set; the control
+ * gets its own Postgres schema holding the full Protessera table set; the control
  * plane (the `Tenant` registry + this code) lives in `public`.
  *
  * Provisioning uses a raw pg connection so `CREATE SCHEMA` + the table DDL run
@@ -48,7 +48,7 @@ function randToken(): string {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 }
 
-/** Create the schema and all ForgeRP tables inside it. Idempotent per schema. */
+/** Create the schema and all Protessera tables inside it. Idempotent per schema. */
 export async function provisionSchema(schema: string): Promise<void> {
   if (!isValidSchemaName(schema)) throw new Error(`Invalid schema name: ${schema}`);
   if (schema === "public") throw new Error("Refusing to provision over the public schema");

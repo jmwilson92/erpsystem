@@ -4,7 +4,7 @@ const CARDS = [
   {
     href: "/preview/splash",
     badge: "1 · Apex landing",
-    title: "forge-rp.live splash",
+    title: "protessera.com splash",
     body: "Rotating ring + “Starting your ERP experience”. Header/footer stay. Auto-continues into the demo hub (or Skip).",
   },
   {
@@ -16,14 +16,14 @@ const CARDS = [
   {
     href: "/preview/tenant-login",
     badge: "3 · Customer URL",
-    title: "acme.forge-rp.live",
+    title: "acme.protessera.com",
     body: "Purchased company instance login. No splash, no wait — straight to their plant.",
   },
   {
     href: "/preview/url-map",
     badge: "4 · Routing map",
     title: "URL architecture",
-    body: "How apex vs *.forge-rp.live vs demo vs signup should split so customers never sit through marketing every login.",
+    body: "How apex vs *.protessera.com vs demo vs signup should split so customers never sit through marketing every login.",
   },
 ] as const;
 
@@ -34,7 +34,7 @@ export default function PreviewHubPage() {
         Local / staging review only
       </p>
       <h1 className="mt-2 text-3xl font-bold tracking-tight">
-        ForgeRP experience mocks
+        Protessera experience mocks
       </h1>
       <p className="mt-3 max-w-xl text-slate-400">
         You&apos;re signed into the ERP, so <code className="text-teal-300">/</code>{" "}

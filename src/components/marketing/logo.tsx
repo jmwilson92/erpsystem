@@ -1,9 +1,9 @@
 /**
- * ForgeRP brand mark — a forge flame in a rounded badge. Self-contained SVG so
+ * Protessera brand mark — a flame in a rounded badge. Self-contained SVG so
  * it renders anywhere (header, footer, auth screens) without an image request.
  * The favicon at src/app/icon.svg mirrors this mark.
  */
-export function ForgeMark({ className = "h-7 w-7" }: { className?: string }) {
+export function BrandMark({ className = "h-7 w-7" }: { className?: string }) {
   return (
     <svg
       viewBox="0 0 32 32"
@@ -12,12 +12,12 @@ export function ForgeMark({ className = "h-7 w-7" }: { className?: string }) {
       aria-hidden="true"
     >
       <defs>
-        <linearGradient id="forgeMarkGrad" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+        <linearGradient id="brandMarkGrad" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
           <stop stopColor="#2dd4bf" />
           <stop offset="1" stopColor="#0891b2" />
         </linearGradient>
       </defs>
-      <rect width="32" height="32" rx="8" fill="url(#forgeMarkGrad)" />
+      <rect width="32" height="32" rx="8" fill="url(#brandMarkGrad)" />
       <path
         d="M16.4 4.2c-.5 3.1-2.2 4.6-4 6.2-1.9 1.7-4.4 3.9-4.4 8 0 4.5 3.6 7.9 8 7.9s8-3.4 8-7.9c0-2.6-1.2-4.4-2.4-6-.3 1.7-1.3 2.6-2.6 2.6 1.2-3.6-.2-8-2.6-10.8Z"
         fill="#ffffff"
@@ -31,11 +31,11 @@ export function ForgeMark({ className = "h-7 w-7" }: { className?: string }) {
 }
 
 /** Full lockup: mark + wordmark. Used in the marketing header/footer. */
-export function ForgeLogo({ className = "" }: { className?: string }) {
+export function BrandLogo({ className = "" }: { className?: string }) {
   return (
     <span className={`flex items-center gap-2 font-semibold tracking-tight ${className}`}>
-      <ForgeMark className="h-7 w-7" />
-      ForgeRP
+      <BrandMark className="h-7 w-7" />
+      Protessera
     </span>
   );
 }

@@ -113,7 +113,7 @@ export default function PreviewDemoHubPage() {
             {[
               [
                 "Do customers see “Starting your ERP experience” every time?",
-                "No. That splash is only for the public apex site (forge-rp.live). Paying customers use company.forge-rp.live and go straight to login.",
+                "No. That splash is only for the public apex site (protessera.com). Paying customers use company.protessera.com and go straight to login.",
               ],
               [
                 "What’s included in every plan?",
@@ -125,7 +125,7 @@ export default function PreviewDemoHubPage() {
               ],
               [
                 "How does the company URL work?",
-                "At checkout we assign a slug (e.g. acme) → acme.forge-rp.live. That host maps to their tenant and skips marketing.",
+                "At checkout we assign a slug (e.g. acme) → acme.protessera.com. That host maps to their tenant and skips marketing.",
               ],
             ].map(([q, a]) => (
               <details

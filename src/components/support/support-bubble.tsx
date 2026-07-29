@@ -135,7 +135,7 @@ export function SupportBubble({
     {
       role: "assistant",
       content:
-        "Hi — I'm Carina. I help with ForgeRP (production, quality, purchasing, inventory…). Ask in the chat, or enable voice and say my name from any page.",
+        "Hi — I'm Carina. I help with Protessera (production, quality, purchasing, inventory…). Ask in the chat, or enable voice and say my name from any page.",
     },
   ]);
   const [carinaInput, setCarinaInput] = useState("");

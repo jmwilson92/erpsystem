@@ -24,7 +24,7 @@ export default async function RadiatorsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-slate-50 md:text-4xl">
-            ForgeRP Live Board
+            Protessera Live Board
           </h1>
           <p className="text-slate-500">
             Discipline radiators rotate automatically · pick which show with the

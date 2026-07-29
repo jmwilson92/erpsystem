@@ -48,7 +48,7 @@ export default async function SupportPage({
     <div className="space-y-6">
       <PageHeader
         title="Help & Support"
-        description="Message the ForgeRP support desk. We'll answer as soon as we can."
+        description="Message the Protessera support desk. We'll answer as soon as we can."
         actions={
           !showNew ? (
             <Link href="/support?new=1">
@@ -68,7 +68,7 @@ export default async function SupportPage({
               Contact support
             </CardTitle>
             <p className="text-xs text-slate-500">
-              Your message goes to the ForgeRP team. Use the chat bubble anytime
+              Your message goes to the Protessera team. Use the chat bubble anytime
               too — same desk.
             </p>
           </CardHeader>

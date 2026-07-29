@@ -83,7 +83,7 @@ async function main() {
     },
   ];
 
-  console.log("ForgeRP verification suite");
+  console.log("Protessera verification suite");
   console.log("==========================");
 
   let totalFail = 0;

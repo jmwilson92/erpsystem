@@ -1,4 +1,4 @@
-// ForgeRP — Manufacturing ERP Schema
+// Protessera — Manufacturing ERP Schema
 // SQLite for zero-config local dev; switch to PostgreSQL via docker-compose
 
 generator client {
@@ -4469,7 +4469,7 @@ model ReviewPolicy {
 /// The setup wizard fills this in; the shell wears the company name.
 model CompanySettings {
   id                   String    @id @default("default")
-  name                 String    @default("ForgeRP")
+  name                 String    @default("Protessera")
   tagline              String    @default("Manufacturing")
   /// JSON [string] — departments used for org chart + charge routing
   departments          String?
@@ -5072,7 +5072,7 @@ model WorkCenterStaff {
 // SUPPORT / HELP DESK (in-app chat tickets)
 // ═══════════════════════════════════════════════════════════════
 
-/// Platform help ticket (ForgeRP dogfood / public only — never customer or
+/// Platform help ticket (Protessera dogfood / public only — never customer or
 /// demo schemas). Guests from the marketing site or signed-in dogfood users
 /// open chats; platform ADMINs answer. Internal notes are staff-only.
 model SupportTicket {

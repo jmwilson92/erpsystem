@@ -49,7 +49,7 @@ function ShellInner({
   company: ShellCompany;
   disabledModules: string[];
   breaks: ShellBreak[];
-  /** ForgeRP dogfood only — never customer tenant or demo */
+  /** Protessera dogfood only — never customer tenant or demo */
   platformSupport?: boolean;
   /** Fill parent height (demo stack with marketing header/footer) instead of h-screen */
   fill?: boolean;

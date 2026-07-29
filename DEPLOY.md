@@ -1,4 +1,4 @@
-# Deploying ForgeRP
+# Deploying Protessera
 
 Two ways to run it: **local** (your own machine, to try it out) and
 **production** (a server with a domain, login + HTTPS, for real users).
