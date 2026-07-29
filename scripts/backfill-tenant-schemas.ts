@@ -37,6 +37,7 @@
 import "dotenv/config";
 import { Pool } from "pg";
 import { TENANT_TABLES_SQL, TENANT_FKS_SQL } from "../src/lib/tenant-template";
+import { assertCheckoutCurrent } from "./lib/assert-current.mjs";
 
 const APPLY = process.argv.includes("--apply");
 const INCLUDE_DEMOS = process.argv.includes("--include-demos");
@@ -123,6 +124,13 @@ function templateForeignKeys(tables: Set<string>): string[] {
 }
 
 async function main() {
+  // The whole script is only as correct as this generated file. On a stale
+  // checkout it reports every schema "ok" and silently patches nothing.
+  assertCheckoutCurrent(
+    ["src/lib/tenant-template.ts", "prisma/schema.prisma"],
+    "The tenant backfill"
+  );
+
   const connectionString =
     process.env.DIRECT_URL || process.env.DATABASE_URL || "";
   if (!connectionString) {

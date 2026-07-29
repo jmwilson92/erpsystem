@@ -73,8 +73,6 @@ export default async function AccountPage() {
           </CardTitle>
           <p className="text-xs text-slate-500">
             A time-based code from an authenticator app, on top of your password.
-            Required by NIST 800-171 3.5.3 for anyone handling controlled
-            information, and worth turning on regardless.
           </p>
         </CardHeader>
         <CardContent>
