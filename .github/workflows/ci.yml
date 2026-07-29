@@ -11,10 +11,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Fast gate: nothing here touches a database, so a failure is always a real
+  # code problem. Kept separate from `verify` so a database hiccup can never
+  # make a type error look like infrastructure noise, or vice versa.
   check:
     name: Typecheck & lint
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v4
@@ -42,5 +45,65 @@ jobs:
       - name: Unit smoke (auth + modules)
         run: npx tsx scripts/smoke-unit.ts
 
-      - name: Service verification chunks (A–I)
+      - name: Tenant DDL is in sync with the schema
+        # src/lib/tenant-template.ts is generated. When it lags schema.prisma,
+        # every newly provisioned tenant and demo is born missing tables — which
+        # has bitten this repo. Regenerate and fail if the committed file moves.
+        run: |
+          node scripts/gen-tenant-ddl.mjs
+          if ! git diff --quiet -- src/lib/tenant-template.ts; then
+            echo "::error::src/lib/tenant-template.ts is stale. Run: node scripts/gen-tenant-ddl.mjs"
+            git diff --stat -- src/lib/tenant-template.ts
+            exit 1
+          fi
+
+  # Everything that needs a real database. Gets its own throwaway Postgres, so
+  # these checks actually run instead of all failing on ECONNREFUSED.
+  verify:
+    name: Service verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: forge
+          POSTGRES_PASSWORD: forge
+          POSTGRES_DB: forgerp_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U forge -d forgerp_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      # The verify scripts read process.env directly and never load .env, so
+      # both are set here explicitly. This is why every chunk used to fail.
+      DATABASE_URL: postgresql://forge:forge@localhost:5432/forgerp_ci?schema=public
+      DIRECT_URL: postgresql://forge:forge@localhost:5432/forgerp_ci?schema=public
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Prisma generate
+        run: npx prisma generate
+
+      - name: Push schema
+        run: npx prisma db push --accept-data-loss
+
+      - name: Seed
+        run: npm run db:seed
+
+      - name: Service verification chunks (A–I, serials, RMA)
         run: npm run verify:svc
