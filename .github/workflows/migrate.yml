@@ -35,7 +35,6 @@ jobs:
     name: Push schema + backfill tenants
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    environment: production
 
     env:
       # Must be the DIRECT (non-pooled) Supabase URL — this is DDL.
@@ -53,7 +52,7 @@ jobs:
       - name: Fail fast if DIRECT_URL is missing
         run: |
           if [ -z "${DIRECT_URL}" ]; then
-            echo "::error::DIRECT_URL secret is not set. Add it under Settings → Environments → production."
+            echo "::error::DIRECT_URL is not set. This is a GITHUB repository secret, not a Vercel one: GitHub → Settings → Secrets and variables → Actions → New repository secret, named DIRECT_URL, set to the direct (non-pooled) Supabase URL."
             exit 1
           fi
 
