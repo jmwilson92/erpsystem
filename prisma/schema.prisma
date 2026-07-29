@@ -126,6 +126,7 @@ model User {
   supportTicketsAssigned   SupportTicket[]          @relation("SupportAssignee")
   supportMessages          SupportMessage[]         @relation("SupportMessageAuthor")
   supportNotes             SupportNote[]            @relation("SupportNoteAuthor")
+  mfaCredential            MfaCredential?
 }
 
 model AuditLog {
@@ -5770,4 +5771,71 @@ model LandedCostCharge {
   updatedAt DateTime @updatedAt
 
   @@index([receiptId])
+}
+
+// ─── Multi-factor authentication ────────────────────────────────────
+// TOTP (RFC 6238). Lives beside User in each schema, so a tenant's second
+// factors are inside that tenant's boundary like the rest of their data.
+
+model MfaCredential {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// AES-256-GCM, keyed from MFA_SECRET_KEY. A TOTP secret cannot be hashed
+  /// the way a password can — it has to be recoverable to verify a code — so
+  /// a dumped database without the key still can't generate valid codes.
+  secretEnc String
+
+  /// Null until the user proves they can produce a code. An unconfirmed
+  /// credential never gates a login, so a half-finished enrolment can't lock
+  /// anyone out.
+  confirmedAt DateTime?
+
+  /// Highest TOTP step already accepted. A code is valid for its whole 30s
+  /// window, so without this the same code could be replayed inside it.
+  lastStep Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  recoveryCodes MfaRecoveryCode[]
+
+  @@index([userId])
+}
+
+/// Single-use codes for when the authenticator is lost. Hashed — unlike the
+/// TOTP secret these only ever need comparing, never regenerating.
+model MfaRecoveryCode {
+  id           String        @id @default(cuid())
+  credentialId String
+  credential   MfaCredential @relation(fields: [credentialId], references: [id], onDelete: Cascade)
+  codeHash     String
+  usedAt       DateTime?
+  createdAt    DateTime      @default(now())
+
+  @@index([credentialId])
+}
+
+/// A password check that passed, waiting on a second factor.
+///
+/// Control plane (public) on purpose: at step two the browser has no tenant
+/// cookie yet, so the challenge has to be findable without knowing which
+/// schema the user lives in. It carries no secret — only a hashed token, who
+/// it belongs to, and where they live.
+model MfaChallenge {
+  id         String  @id @default(cuid())
+  tokenHash  String  @unique
+  userId     String
+  /// Tenant schema, or null for a platform/public account.
+  schemaName String?
+  /// Carried through so the session lands with the same user agent.
+  userAgent  String?
+
+  expiresAt  DateTime
+  attempts   Int       @default(0)
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([expiresAt])
 }

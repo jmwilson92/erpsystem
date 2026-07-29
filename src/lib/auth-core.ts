@@ -30,6 +30,8 @@ import { cookies } from "next/headers";
 import { logAudit } from "./audit";
 
 export const SESSION_COOKIE = "forge-session";
+/** Short-lived, holds a passed password check waiting on its second factor. */
+export const MFA_COOKIE = "forge-mfa";
 const SESSION_DAYS = 30;
 const INVITE_DAYS = 7;
 
@@ -270,22 +272,92 @@ export async function loginWithPassword(params: {
   if (!user) fail();
 
   clearLoginFailures(email);
+
+  // Second factor, if this account has one. No session and no tenant cookie is
+  // issued here — the password alone must not produce anything that can be
+  // used, or MFA would be decorative.
+  const { requiresMfa, createChallenge } = await import("@/lib/services/mfa");
+  if (await requiresMfa(user!.id, schema)) {
+    const token = await createChallenge({
+      userId: user!.id,
+      schema,
+      userAgent: params.userAgent,
+    });
+    const jar = await cookies();
+    jar.set(MFA_COOKIE, token, {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 5 * 60,
+    });
+    await logAudit({
+      entityType: "User",
+      entityId: user!.id,
+      action: "LOGIN_MFA_PENDING",
+      userId: user!.id,
+    });
+    return { status: "mfa_required" as const, user: user! };
+  }
+
+  await finishLogin(user!.id, schema, params.userAgent);
+  return { status: "ok" as const, user: user! };
+}
+
+/** Issue the session for a verified login, routed to the right schema. */
+async function finishLogin(
+  userId: string,
+  schema: string | null,
+  userAgent?: string
+) {
   if (schema) {
-    await createTenantSession(user!.id, schema, params.userAgent);
+    await createTenantSession(userId, schema, userAgent);
   } else {
     // Dogfood/public login — clear any stale tenant cookie so routing is public.
-    await issueSession(controlPlaneClient(), user!.id, {
+    await issueSession(controlPlaneClient(), userId, {
       tenantCookie: null,
-      userAgent: params.userAgent,
+      userAgent,
     });
   }
   await logAudit({
     entityType: "User",
-    entityId: user!.id,
+    entityId: userId,
     action: "LOGIN",
-    userId: user!.id,
+    userId,
   });
-  return user!;
+}
+
+/**
+ * Step two: check the second factor against the parked challenge and, if it
+ * holds, issue the session. The challenge carries which schema the user lives
+ * in, so this works before any tenant cookie has been set.
+ */
+export async function completeMfaLogin(params: {
+  code: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const jar = await cookies();
+  const token = jar.get(MFA_COOKIE)?.value;
+  if (!token) return { ok: false, error: "That sign-in attempt expired — start again" };
+
+  const { verifyChallenge } = await import("@/lib/services/mfa");
+  const result = await verifyChallenge({ token, code: params.code });
+  if (!result.ok) return { ok: false, error: result.error };
+
+  jar.delete(MFA_COOKIE);
+  await finishLogin(result.userId, result.schema, result.userAgent ?? undefined);
+  return { ok: true };
+}
+
+/** True when a password check is parked waiting on a code. */
+export async function hasPendingMfa(): Promise<boolean> {
+  const jar = await cookies();
+  return !!jar.get(MFA_COOKIE)?.value;
+}
+
+/** Abandon a pending second-factor step (the "use a different account" link). */
+export async function cancelMfaLogin() {
+  const jar = await cookies();
+  jar.delete(MFA_COOKIE);
 }
 
 /** True when no account has a password yet — first-boot claim allowed. */
