@@ -98,7 +98,15 @@ export async function createLead(params: {
 }
 
 export async function updateLeadStatus(id: string, status: string, userId?: string) {
-  return prisma.lead.update({ where: { id }, data: { status } });
+  const lead = await prisma.lead.update({ where: { id }, data: { status } });
+  await logAudit({
+    entityType: "Lead",
+    entityId: id,
+    action: `STATUS_${status}`,
+    userId,
+    metadata: { company: lead.company },
+  });
+  return lead;
 }
 
 /**

@@ -8,6 +8,8 @@ import {
   actionClaimTenant,
   actionRequestPasswordReset,
   actionChangePassword,
+  actionVerifyMfa,
+  actionCancelMfaLogin,
 } from "@/app/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -200,5 +202,49 @@ export function ChangePasswordForm() {
         {pending ? "Saving…" : "Change password"}
       </Button>
     </form>
+  );
+}
+
+/**
+ * Step two of login. Takes a 6-digit TOTP code or a recovery code — the same
+ * field for both, because a locked-out user reaching for their recovery sheet
+ * should not also have to find the right box to type it into.
+ */
+export function MfaVerifyForm() {
+  const [state, formAction, pending] = useActionState(actionVerifyMfa, null);
+
+  return (
+    <div className="space-y-3">
+      <form action={formAction} className="space-y-3">
+        <p className="text-sm text-slate-400">
+          Enter the 6-digit code from your authenticator app.
+        </p>
+        <Input
+          name="code"
+          required
+          autoFocus
+          autoComplete="one-time-code"
+          inputMode="text"
+          placeholder="123456"
+          aria-label="Authentication code"
+          className="text-center text-lg tracking-[0.3em]"
+        />
+        <Feedback state={state} />
+        <Button type="submit" disabled={pending} className="w-full">
+          {pending ? "Verifying…" : "Verify"}
+        </Button>
+      </form>
+      <p className="text-center text-xs text-slate-500">
+        Lost your device? Enter one of your recovery codes above instead.
+      </p>
+      <form action={actionCancelMfaLogin}>
+        <button
+          type="submit"
+          className="w-full text-center text-xs text-slate-500 hover:text-slate-300"
+        >
+          Sign in as someone else
+        </button>
+      </form>
+    </div>
   );
 }

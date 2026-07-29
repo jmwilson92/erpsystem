@@ -6,6 +6,8 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ChangePasswordForm } from "@/components/auth/auth-forms";
+import { MfaSetup } from "@/components/auth/mfa-setup";
+import { getMfaStatus } from "@/lib/services/mfa";
 import { actionLogout, actionSetMyPin } from "@/app/actions";
 import { formatDate } from "@/lib/utils";
 import Link from "next/link";
@@ -18,6 +20,15 @@ export default async function AccountPage() {
   if (!user) return null;
   const sessionUser = await getSessionUser();
   const isLoggedIn = Boolean(sessionUser);
+
+  // Tolerant: an unmigrated schema simply reports MFA unavailable rather than
+  // throwing the whole account page into the error boundary.
+  const mfaStatus = await getMfaStatus(user.id).catch(() => ({
+    enabled: false,
+    pending: false,
+    recoveryRemaining: 0,
+    configured: false,
+  }));
 
   const sessions = isLoggedIn
     ? await prisma.authSession.findMany({
@@ -57,6 +68,23 @@ export default async function AccountPage() {
           </CardContent>
         </Card>
       )}
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <ShieldCheck className="h-4 w-4 text-teal-400" />
+            Two-factor authentication
+          </CardTitle>
+          <p className="text-xs text-slate-500">
+            A time-based code from an authenticator app, on top of your password.
+            Required by NIST 800-171 3.5.3 for anyone handling controlled
+            information, and worth turning on regardless.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <MfaSetup status={mfaStatus} />
+        </CardContent>
+      </Card>
 
       <Card data-tour="account-security">
         <CardHeader className="pb-2">

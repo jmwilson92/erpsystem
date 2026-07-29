@@ -74,8 +74,8 @@ const FEATURES = [
   },
   {
     icon: Shield,
-    title: "Government property & compliance",
-    body: "GFP/CAP tracking, DD-1149 gates at receiving, UID, DFARS accountability, and AS9100-shaped quality records.",
+    title: "Government property & audit records",
+    body: "GFP/CAP tracking, DD-1149 gates at receiving, UID, DFARS-style custody records, and AS9100-shaped quality records.",
   },
   {
     icon: FileBarChart,
@@ -153,8 +153,12 @@ const FAQS = [
     a: "No. ForgeRP is designed as plug-and-play manufacturing ERP: import your data, run the setup wizard, and start working. Interactive in-app tours replace the usual army of consultants.",
   },
   {
-    q: "Is ForgeRP suitable for AS9100 and government contracts?",
-    a: "Yes. Quality is AS9100-shaped (NCR, MRB, CAPA, calibration, audits), configuration management is revision-controlled, and government property (GFP/CAP), UID, and DFARS-style accountability are first-class — not bolted-on modules.",
+    q: "Is ForgeRP suitable for AS9100 and government contract work?",
+    a: "For the workflow and the records, yes — quality is AS9100-shaped (NCR, MRB, CAPA, calibration, audits), configuration management is revision-controlled, and government property (GFP/CAP), UID, and DFARS-style accountability are first-class rather than bolted on. What the hosted service is not is an enclave for controlled data: see the next question before you put CUI or export-controlled technical data anywhere near it.",
+  },
+  {
+    q: "Can I store CUI, ITAR, or export-controlled technical data in ForgeRP?",
+    a: "Not in the standard hosted service, and we would rather tell you plainly than let you find out during an assessment. DFARS 252.204-7012 requires a cloud provider handling CUI to meet FedRAMP Moderate equivalency; our hosted stack runs on commercial infrastructure that does not. ITAR technical data is stricter still — the encrypted-data carve-out in 22 CFR 120.54 requires genuine end-to-end encryption, which no ERP that queries, reports on, or searches your data can offer. If you handle CUI or ITAR, the answer is a self-hosted deployment inside your own accredited boundary, where you own the assessment and we supply the software and a shared-responsibility matrix. Talk to us and we will scope it honestly.",
   },
   {
     q: "What's included in every plan?",
@@ -499,7 +503,7 @@ export function LandingPage({
                 },
                 {
                   icon: ShieldCheck,
-                  h: "Compliance built in",
+                  h: "Audit-ready records",
                   b: "AS9100-shaped quality, government property, configuration management, and audit trails come standard, not as add-ons.",
                 },
               ].map((c) => (

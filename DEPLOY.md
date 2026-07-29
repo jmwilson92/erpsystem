@@ -84,6 +84,7 @@ Fill in:
 | `PLAID_CLIENT_ID` / `PLAID_SECRET` | From dashboard.plaid.com (blank = file import only) |
 | `PLAID_ENV` | `sandbox` to test, `production` for real banks |
 | `RESEND_API_KEY` / `EMAIL_FROM` | From resend.com, for invite emails (optional) |
+| `MFA_SECRET_KEY` | Long random string (e.g. `openssl rand -base64 48`). Encrypts two-factor secrets at rest. Without it, two-factor can't be turned on — the app refuses rather than storing secrets unprotected. **Losing or changing it locks out everyone with two-factor enabled**, so back it up with your other secrets. |
 
 ### 4. Launch
 

@@ -1519,11 +1519,13 @@ export async function actionLogin(
 ): Promise<AuthFormState> {
   const { loginWithPassword } = await import("@/lib/auth-core");
   const email = (formData.get("email") as string) || "";
+  let needsSecondFactor = false;
   try {
-    await loginWithPassword({
+    const result = await loginWithPassword({
       email,
       password: (formData.get("password") as string) || "",
     });
+    needsSecondFactor = result.status === "mfa_required";
   } catch (e) {
     return {
       ok: false,
@@ -1531,7 +1533,29 @@ export async function actionLogin(
       email,
     };
   }
+  // redirect() throws, so it has to happen outside the try.
+  redirect(needsSecondFactor ? "/login/verify" : "/");
+}
+
+/** Step two of login: the code from the authenticator (or a recovery code). */
+export async function actionVerifyMfa(
+  _prev: AuthFormState,
+  formData: FormData
+): Promise<AuthFormState> {
+  const { completeMfaLogin } = await import("@/lib/auth-core");
+  const result = await completeMfaLogin({
+    code: ((formData.get("code") as string) || "").trim(),
+  });
+  if (!result.ok) {
+    return { ok: false, message: result.error || "That code isn't right" };
+  }
   redirect("/");
+}
+
+export async function actionCancelMfaLogin(): Promise<void> {
+  const { cancelMfaLogin } = await import("@/lib/auth-core");
+  await cancelMfaLogin();
+  redirect("/login");
 }
 
 export async function actionBootstrapInstance(
