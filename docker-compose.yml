@@ -1,4 +1,4 @@
-# ForgeRP self-host stack (PostgreSQL).
+# Protessera self-host stack (PostgreSQL).
 #
 # Evaluation (demo data + persona switcher):
 #   docker compose up -d --build

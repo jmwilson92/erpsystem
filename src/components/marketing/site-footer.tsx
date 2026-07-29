@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ForgeMark } from "./logo";
+import { BrandMark } from "./logo";
 import { SITE_DESCRIPTION, SITE_NAME } from "@/lib/site";
 
 /**
@@ -49,7 +49,7 @@ export function SiteFooter() {
         <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
           <div className="sm:col-span-2 lg:col-span-1">
             <div className="flex items-center gap-2">
-              <ForgeMark className="h-6 w-6" />
+              <BrandMark className="h-6 w-6" />
               <span className="font-semibold tracking-tight text-slate-100">
                 {SITE_NAME}
               </span>

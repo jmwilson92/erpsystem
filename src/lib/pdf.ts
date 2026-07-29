@@ -26,7 +26,7 @@ export function createBrandedPdf(docType: PdfDocType, title: string) {
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(16);
   doc.setFont("helvetica", "bold");
-  doc.text("ForgeRP", margin, 32);
+  doc.text("Protessera", margin, 32);
   doc.setFontSize(10);
   doc.setFont("helvetica", "normal");
   doc.setTextColor(148, 163, 184);
@@ -91,7 +91,7 @@ export function generateWorkOrderTravelerPdf(data: {
     );
   }
   pdf.gap(16);
-  pdf.line("Configuration controlled document — ForgeRP", {
+  pdf.line("Configuration controlled document — Protessera", {
     size: 8,
     color: [148, 163, 184],
   });
@@ -117,7 +117,7 @@ export type PurchaseOrderPdfData = {
   };
   shipTo?: string;
   buyerName?: string;
-  /** Company name + address block for the letterhead (falls back to ForgeRP defaults) */
+  /** Company name + address block for the letterhead (falls back to Protessera defaults) */
   companyName?: string;
   companyAddress?: string;
   companyContact?: string;
@@ -145,7 +145,7 @@ export function generatePurchaseOrderPdf(data: PurchaseOrderPdfData) {
   doc.setFontSize(10);
   doc.setTextColor(30, 41, 59);
   doc.setFont("helvetica", "bold");
-  doc.text(data.companyName || "ForgeRP", margin, y);
+  doc.text(data.companyName || "Protessera", margin, y);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
   doc.setTextColor(100, 116, 139);
@@ -330,7 +330,7 @@ export function generatePurchaseOrderPdf(data: PurchaseOrderPdfData) {
   doc.setFontSize(8);
   doc.setTextColor(148, 163, 184);
   doc.text(
-    "Please acknowledge this PO and confirm delivery date. Configuration controlled — ForgeRP.",
+    "Please acknowledge this PO and confirm delivery date. Configuration controlled — Protessera.",
     margin,
     y
   );

@@ -1,5 +1,5 @@
 /**
- * ForgeRP Support Staff helpdesk (separate from ERP company admins).
+ * Protessera Support Staff helpdesk (separate from ERP company admins).
  *
  * - Support staff = accounts on the public/platform schema who run the
  *   unlisted /admin/support portal (today: role ADMIN on public only).
@@ -99,7 +99,7 @@ export async function notifySupportStaff(params: {
     const from =
       process.env.SUPPORT_EMAIL_FROM ||
       process.env.EMAIL_FROM ||
-      "ForgeRP Support <onboarding@resend.dev>";
+      "Protessera Support <onboarding@resend.dev>";
 
     const resp = await fetch("https://api.resend.com/emails", {
       method: "POST",

@@ -29,7 +29,7 @@ export default async function VerifyMfaPage() {
             <ShieldCheck className="h-7 w-7 text-white" />
           </div>
           <h1 className="mt-3 text-xl font-bold text-slate-50">
-            {company?.name || "ForgeRP"}
+            {company?.name || "Protessera"}
           </h1>
           <p className="text-sm text-slate-500">Two-factor verification</p>
         </div>

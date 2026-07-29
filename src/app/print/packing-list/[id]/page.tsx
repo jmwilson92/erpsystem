@@ -31,7 +31,7 @@ export default async function PrintPackingListPage({
   return (
     <PrintFrame>
       <DocHeader
-        company={company?.name || "ForgeRP"}
+        company={company?.name || "Protessera"}
         tagline={company?.tagline}
         title={isRtv ? "Return Packing List" : "Packing List"}
         number={shipment.number}

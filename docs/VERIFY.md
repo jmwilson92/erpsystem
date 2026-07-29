@@ -1,4 +1,4 @@
-# ForgeRP verification program (endgame)
+# Protessera verification program (endgame)
 
 This is how we **prove the ERP works** before putting it on the web.
 

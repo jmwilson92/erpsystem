@@ -14,6 +14,7 @@ import { getCurrentUser, listUsers } from "@/lib/auth";
 import { demoModeEnabled } from "@/lib/auth-core";
 import { prisma, DEMO_COOKIE } from "@/lib/db";
 import { getNotificationSummary } from "@/lib/services/notifications";
+import { getTabBrand } from "@/lib/tab-brand";
 import { readFlashToast } from "@/lib/flash";
 import { moduleKeyForPath } from "@/lib/modules";
 import { Analytics } from "@vercel/analytics/next";
@@ -42,52 +43,66 @@ const geistMono = Geist_Mono({
 
 const siteUrl = getSiteUrl();
 
-export const metadata: Metadata = {
-  metadataBase: new URL(siteUrl),
-  title: {
-    default: `${SITE_NAME} — ${SITE_TAGLINE}`,
-    template: `%s · ${SITE_NAME}`,
-  },
-  description: SITE_DESCRIPTION,
-  keywords: SITE_KEYWORDS,
-  applicationName: SITE_NAME,
-  authors: [{ name: "ForgeRP, LLC" }],
-  creator: SITE_NAME,
-  publisher: "ForgeRP, LLC",
-  category: "business software",
-  alternates: {
-    canonical: "/",
-  },
-  openGraph: {
-    type: "website",
-    locale: "en_US",
-    url: siteUrl,
-    siteName: SITE_NAME,
-    title: `${SITE_NAME} — Manufacturing ERP for the whole shop`,
+/**
+ * Per-request so a signed-in customer's tab reads their own company name
+ * instead of ours. Public, demo, and platform requests fall back to the
+ * product name — see getTabBrand.
+ *
+ * Only the title varies. Open Graph, Twitter, and the description stay on the
+ * product: those are for links shared publicly, where a customer's company name
+ * would be both wrong and a small privacy leak.
+ */
+export async function generateMetadata(): Promise<Metadata> {
+  const brand = await getTabBrand();
+  const isTenant = brand !== SITE_NAME;
+
+  return {
+    metadataBase: new URL(siteUrl),
+    title: {
+      default: isTenant ? brand : `${SITE_NAME} — ${SITE_TAGLINE}`,
+      template: `%s · ${brand}`,
+    },
     description: SITE_DESCRIPTION,
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: `${SITE_NAME} — Manufacturing ERP`,
-    description: SITE_DESCRIPTION,
-  },
-  robots: {
-    index: true,
-    follow: true,
-    googleBot: {
+    keywords: SITE_KEYWORDS,
+    applicationName: SITE_NAME,
+    authors: [{ name: "Protessera, LLC" }],
+    creator: SITE_NAME,
+    publisher: "Protessera, LLC",
+    category: "business software",
+    alternates: {
+      canonical: "/",
+    },
+    openGraph: {
+      type: "website",
+      locale: "en_US",
+      url: siteUrl,
+      siteName: SITE_NAME,
+      title: `${SITE_NAME} — Manufacturing ERP for the whole shop`,
+      description: SITE_DESCRIPTION,
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: `${SITE_NAME} — Manufacturing ERP`,
+      description: SITE_DESCRIPTION,
+    },
+    robots: {
       index: true,
       follow: true,
-      "max-image-preview": "large",
-      "max-snippet": -1,
-      "max-video-preview": -1,
+      googleBot: {
+        index: true,
+        follow: true,
+        "max-image-preview": "large",
+        "max-snippet": -1,
+        "max-video-preview": -1,
+      },
     },
-  },
-  formatDetection: {
-    email: false,
-    address: false,
-    telephone: false,
-  },
-};
+    formatDetection: {
+      email: false,
+      address: false,
+      telephone: false,
+    },
+  };
+}
 
 export const viewport: Viewport = {
   themeColor: [
@@ -114,7 +129,7 @@ export default async function RootLayout({
 
   // Stale forge-demo cookies (schema dropped / half-provisioned) used to 500
   // the whole layout on listUsers/getCurrentUser. Detect that and bounce to
-  // /api/demo/reset which clears the cookie so Opening the Forge can retry.
+  // /api/demo/reset which clears the cookie so Spinning up the Shop can retry.
   const [usersResult, userResult, companyRaw] = await Promise.all([
     showDemoSwitcher
       ? listUsers().then(
@@ -148,7 +163,7 @@ export default async function RootLayout({
   const company =
     companyRaw ??
     ({
-      name: "ForgeRP",
+      name: "Protessera",
       tagline: null,
       disabledModules: null,
       breaksConfig: null,
@@ -195,7 +210,7 @@ export default async function RootLayout({
   const forgeSplash = hdrs.get("x-forge-splash") === "1";
   const forgeApp = hdrs.get("x-forge-app") === "1";
 
-  // Platform support (ForgeRP dogfood + public marketing) — never customer/demo.
+  // Platform support (Protessera dogfood + public marketing) — never customer/demo.
   const platformSupport = await isPlatformSupportEnabled();
 
   // Staff desk (/admin/support) uses the same root tree as the ERP shell.
@@ -204,7 +219,7 @@ export default async function RootLayout({
   // landed on / without sidebar or the header logout menu.
 
   // Public marketing surfaces render without the ERP app shell (no sidebar).
-  // Opening the Forge is splash-only. ?app=1 always uses the full ERP shell
+  // Spinning up the Shop is splash-only. ?app=1 always uses the full ERP shell
   // (sidebar + marketing chrome for demo visitors) — never bare marketing.
   const isBareMarketing =
     !forgeApp &&

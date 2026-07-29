@@ -68,7 +68,7 @@ export default async function PrintTimesheetPage({
   return (
     <PrintFrame>
       <DocHeader
-        company={company?.name || "ForgeRP"}
+        company={company?.name || "Protessera"}
         tagline={company?.tagline}
         title="Timesheet"
         number={`${day(sheet.periodStart)} → ${day(sheet.periodEnd)}`}

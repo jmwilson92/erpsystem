@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ForgeMark } from "@/components/marketing/logo";
+import { BrandMark } from "@/components/marketing/logo";
 import { LifeBuoy } from "lucide-react";
 import { actionLogout } from "@/app/actions";
 
@@ -23,14 +23,14 @@ export function StaffDeskShell({
       <header className="sticky top-0 z-40 border-b border-slate-800/80 bg-slate-950/90 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-3.5">
           <div className="flex items-center gap-3">
-            <ForgeMark className="h-8 w-8" />
+            <BrandMark className="h-8 w-8" />
             <div>
               <p className="flex items-center gap-1.5 text-sm font-semibold tracking-tight text-slate-50">
                 <LifeBuoy className="h-3.5 w-3.5 text-teal-400" aria-hidden />
                 Support Staff Portal
               </p>
               <p className="text-[11px] text-slate-500">
-                ForgeRP support team only · not the customer ERP
+                Protessera support team only · not the customer ERP
               </p>
             </div>
           </div>

@@ -29,7 +29,7 @@ export async function sendEmail(params: {
   const apiKey = process.env.RESEND_API_KEY;
   const fromAddr =
     process.env.EMAIL_FROM ||
-    `${(company?.name || "ForgeRP").toLowerCase().replace(/[^a-z0-9]+/g, ".")}@erp.local`;
+    `${(company?.name || "Protessera").toLowerCase().replace(/[^a-z0-9]+/g, ".")}@erp.local`;
 
   const msg = await prisma.emailMessage.create({
     data: {
@@ -119,7 +119,7 @@ export async function composePoEmail(poId: string) {
     .join("\n");
   return {
     to: po.supplier.contactEmail || "",
-    subject: `Purchase Order ${po.number} — ${company?.name || "ForgeRP"}`,
+    subject: `Purchase Order ${po.number} — ${company?.name || "Protessera"}`,
     body: [
       `Hello ${po.supplier.contactName || po.supplier.name},`,
       "",
@@ -134,7 +134,7 @@ export async function composePoEmail(poId: string) {
       "",
       "Please acknowledge receipt and confirm the delivery date by replying to this e-mail.",
       "",
-      `${company?.name || "ForgeRP"} Purchasing`,
+      `${company?.name || "Protessera"} Purchasing`,
     ]
       .filter((l) => l !== null)
       .join("\n"),
@@ -167,7 +167,7 @@ export async function composeQuoteEmail(quoteId: string) {
     .join("\n");
   return {
     to: q.contactEmail || q.customer.contactEmail || "",
-    subject: `Quotation ${q.number} — ${company?.name || "ForgeRP"}`,
+    subject: `Quotation ${q.number} — ${company?.name || "Protessera"}`,
     body: [
       `Hello ${q.contactName || q.customer.contactName || q.customer.name},`,
       "",
@@ -182,7 +182,7 @@ export async function composeQuoteEmail(quoteId: string) {
       "",
       "Reply to this e-mail to accept or with any questions.",
       "",
-      `${company?.name || "ForgeRP"} Sales`,
+      `${company?.name || "Protessera"} Sales`,
     ].join("\n"),
     entityType: "Quote",
     entityId: q.id,

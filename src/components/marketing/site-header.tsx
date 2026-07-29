@@ -1,10 +1,10 @@
 import Link from "next/link";
-import { ForgeLogo } from "./logo";
+import { BrandLogo } from "./logo";
 
 /**
  * Marketing header. Product story links always go to /welcome (full marketing
  * page with cinematic backgrounds) — never into the ERP shell. "Live demo"
- * returns to the sandbox / Opening the Forge flow on /.
+ * returns to the sandbox / Spinning up the Shop flow on /.
  *
  * Using plain <a> for story links so demo→marketing is a full navigation and
  * never paints pricing/FAQ inside the app chrome.
@@ -13,8 +13,8 @@ export function SiteHeader() {
   return (
     <header className="sticky top-0 z-40 border-b border-slate-800/70 bg-slate-950/85 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3.5">
-        <Link href="/welcome" aria-label="ForgeRP home">
-          <ForgeLogo className="text-white" />
+        <Link href="/welcome" aria-label="Protessera home">
+          <BrandLogo className="text-white" />
         </Link>
         <nav
           className="hidden items-center gap-6 text-sm text-teal-200/90 sm:flex"

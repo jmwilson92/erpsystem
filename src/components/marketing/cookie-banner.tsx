@@ -7,7 +7,7 @@ import { Cookie } from "lucide-react";
 const KEY = "forge-cookie-consent";
 
 /**
- * Lightweight cookie-consent banner. ForgeRP only uses a strictly-necessary
+ * Lightweight cookie-consent banner. Protessera only uses a strictly-necessary
  * session cookie plus this consent flag, so there's nothing to gate behind
  * consent — this is the notice + acknowledgement. The choice is remembered in
  * localStorage so it shows once.

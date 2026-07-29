@@ -21,10 +21,10 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
   title: "Live demo — manufacturing ERP test drive",
   description:
-    "Try ForgeRP free in a sandboxed live demo. Explore shop floor, quality, purchasing, and accounting with sample manufacturing data — no credit card.",
+    "Try Protessera free in a sandboxed live demo. Explore shop floor, quality, purchasing, and accounting with sample manufacturing data — no credit card.",
   alternates: { canonical: "/demo" },
   openGraph: {
-    title: "ForgeRP live demo — manufacturing ERP test drive",
+    title: "Protessera live demo — manufacturing ERP test drive",
     description:
       "Spin up a free sandboxed instance and click through real manufacturing workflows.",
     url: "/demo",
@@ -90,7 +90,7 @@ export default async function DemoLandingPage({
             🔥
           </div>
           <p className="text-sm font-semibold uppercase tracking-[0.3em] text-teal-400">
-            ForgeRP
+            Protessera
           </p>
           <h1 className="mx-auto mt-3 max-w-3xl text-4xl font-bold tracking-tight sm:text-5xl">
             The manufacturing ERP that&apos;s{" "}

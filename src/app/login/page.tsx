@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Sign in",
-  description: "Sign in to your ForgeRP manufacturing ERP instance.",
+  description: "Sign in to your Protessera manufacturing ERP instance.",
   alternates: { canonical: "/login" },
   robots: { index: false, follow: true },
 };
@@ -31,7 +31,7 @@ export default async function LoginPage() {
             {(company?.name || "F").slice(0, 1)}
           </div>
           <h1 className="mt-3 text-xl font-bold text-slate-50">
-            {company?.name || "ForgeRP"}
+            {company?.name || "Protessera"}
           </h1>
           <p className="text-sm text-slate-500">
             {bootstrap

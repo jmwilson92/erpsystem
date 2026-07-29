@@ -23,7 +23,7 @@ export async function register() {
       [
         "",
         "══════════════════════════════════════════════════════════════",
-        "  FATAL: ForgeRP production requires DEMO_MODE=0",
+        "  FATAL: Protessera production requires DEMO_MODE=0",
         "",
         "  Set DEMO_MODE=0 and SEED_ON_FIRST_BOOT=0 for plant deploys.",
         "  Intentional public demo: ALLOW_DEMO_IN_PRODUCTION=1",
@@ -33,14 +33,14 @@ export async function register() {
     );
     // Throwing (not process.exit) kills startup the same way without
     // tripping Next's Edge-runtime static analysis warning.
-    throw new Error("ForgeRP production requires DEMO_MODE=0 (or ALLOW_DEMO_IN_PRODUCTION=1)");
+    throw new Error("Protessera production requires DEMO_MODE=0 (or ALLOW_DEMO_IN_PRODUCTION=1)");
   }
 
   if (demoOff) {
-    console.info("[forgerp] Production auth: DEMO_MODE=0 (login required)");
+    console.info("[protessera] Production auth: DEMO_MODE=0 (login required)");
   } else {
     console.warn(
-      "[forgerp] DEMO_MODE is ON in production (ALLOW_DEMO_IN_PRODUCTION=1)"
+      "[protessera] DEMO_MODE is ON in production (ALLOW_DEMO_IN_PRODUCTION=1)"
     );
   }
 }

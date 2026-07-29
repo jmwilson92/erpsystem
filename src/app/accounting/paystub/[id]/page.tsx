@@ -37,7 +37,7 @@ export default async function PayStubPage({
       <div className="flex items-start justify-between border-b border-neutral-300 pb-4">
         <div>
           <h1 className="text-xl font-bold">Earnings Statement</h1>
-          <p className="text-sm text-neutral-600">ForgeRP Manufacturing</p>
+          <p className="text-sm text-neutral-600">Protessera Manufacturing</p>
         </div>
         <div className="text-right text-sm">
           <p className="font-medium">

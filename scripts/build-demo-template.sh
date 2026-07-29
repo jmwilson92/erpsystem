@@ -47,4 +47,4 @@ echo "→ Building demo_template (this can take several minutes)…"
 npx tsx scripts/build-demo-template.ts
 
 echo ""
-echo "Done. Try: https://www.forge-rp.live/demo"
+echo "Done. Try: https://www.protessera.com/demo"

@@ -8,7 +8,7 @@ export default function PreviewTenantLoginPage() {
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3.5">
           <div className="flex items-center gap-2 font-bold">
             <span className="h-7 w-7 rounded-lg bg-gradient-to-br from-teal-400 to-cyan-500" />
-            ForgeRP
+            Protessera
           </div>
           <div className="flex gap-2">
             <Link
@@ -31,7 +31,7 @@ export default function PreviewTenantLoginPage() {
         <div className="w-full max-w-sm rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-2xl">
           <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-teal-500/30 bg-teal-500/10 px-3 py-1 text-xs text-teal-300">
             <span className="h-1.5 w-1.5 rounded-full bg-teal-400" />
-            acme.forge-rp.live
+            acme.protessera.com
           </div>
           <h1 className="text-2xl font-bold">Sign in</h1>
           <p className="mt-1 text-sm text-slate-400">
@@ -68,7 +68,7 @@ export default function PreviewTenantLoginPage() {
           <p className="mt-4 text-center text-xs text-slate-500">
             Need a different company?{" "}
             <Link href="/preview/splash" className="text-slate-400 underline">
-              forge-rp.live
+              protessera.com
             </Link>
           </p>
         </div>

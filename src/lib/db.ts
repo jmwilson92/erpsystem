@@ -2,7 +2,7 @@ import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 
 /**
- * ForgeRP runs on PostgreSQL (Supabase in production, any Postgres locally).
+ * Protessera runs on PostgreSQL (Supabase in production, any Postgres locally).
  * A single pooled client is cached on the global so serverless invocations and
  * dev HMR reuse one connection pool instead of opening a new one per request.
  *
@@ -48,7 +48,7 @@ function createClient(schema?: string) {
     // configured. The pg pool connects lazily, so a genuine misconfiguration
     // surfaces as a clear connection error on the first query at runtime.
     console.warn(
-      "[db] DATABASE_URL is not set — ForgeRP needs a PostgreSQL connection string at runtime"
+      "[db] DATABASE_URL is not set — Protessera needs a PostgreSQL connection string at runtime"
     );
   }
   // The `schema` option makes Prisma qualify every query to that schema, so one

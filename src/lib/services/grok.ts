@@ -111,7 +111,7 @@ export async function probeGrok(): Promise<GrokProbe> {
     const sample = await grokChat({
       temperature: 0.2,
       system: "Reply in one short friendly sentence.",
-      user: "Say hello as Carina, the ForgeRP plant assistant.",
+      user: "Say hello as Carina, the Protessera plant assistant.",
     });
     return { configured: true, model: grokModel(), ok: true, sample };
   } catch (e) {

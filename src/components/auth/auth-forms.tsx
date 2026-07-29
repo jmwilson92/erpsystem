@@ -145,7 +145,7 @@ export function ClaimTenantForm({ token }: { token: string }) {
       />
       <Feedback state={state} />
       <Button type="submit" disabled={pending} className="w-full">
-        {pending ? "Setting up…" : "Set password & enter ForgeRP"}
+        {pending ? "Setting up…" : "Set password & enter Protessera"}
       </Button>
     </form>
   );

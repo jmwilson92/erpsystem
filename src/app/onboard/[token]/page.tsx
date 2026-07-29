@@ -26,7 +26,7 @@ export default async function OnboardPage({
             🔥
           </div>
           <h1 className="mt-3 text-xl font-bold text-slate-50">
-            {tenant?.name || "Welcome to ForgeRP"}
+            {tenant?.name || "Welcome to Protessera"}
           </h1>
         </div>
 

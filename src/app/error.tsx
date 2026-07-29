@@ -11,7 +11,7 @@ export default function AppError({
   reset: () => void;
 }) {
   useEffect(() => {
-    console.error("[forgerp] route error", error.digest || error.message);
+    console.error("[protessera] route error", error.digest || error.message);
     // Report to the owner insights dashboard so a visitor hitting a broken page
     // is something we find out about, not something we hope gets emailed in.
     try {

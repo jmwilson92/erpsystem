@@ -128,7 +128,7 @@ async function buildReportEmail(report: string): Promise<{ subject: string; body
       <h2 style="margin:0 0 4px">${label}</h2>
       <p style="margin:0 0 12px;color:#64748b">As of ${new Date().toLocaleDateString()}</p>
       <table style="border-collapse:collapse;font-size:14px">${rows}</table>
-      ${appUrl ? `<p style="margin-top:16px"><a href="${appUrl}/accounting">Open the full report in ForgeRP →</a></p>` : ""}
+      ${appUrl ? `<p style="margin-top:16px"><a href="${appUrl}/accounting">Open the full report in Protessera →</a></p>` : ""}
     </div>`;
   return { subject: `${label} — ${new Date().toLocaleDateString()}`, body };
 }

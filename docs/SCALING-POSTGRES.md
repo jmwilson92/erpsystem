@@ -1,6 +1,6 @@
-# Scaling ForgeRP: SQLite → PostgreSQL
+# Scaling Protessera: SQLite → PostgreSQL
 
-ForgeRP ships on SQLite, which is perfect for a single instance (one shop,
+Protessera ships on SQLite, which is perfect for a single instance (one shop,
 dozens of users) and for the instance-per-customer beta. Move to PostgreSQL
 when you need concurrent-write throughput, network access, replication, or
 managed backups/point-in-time recovery.

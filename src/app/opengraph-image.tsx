@@ -2,7 +2,7 @@ import { ImageResponse } from "next/og";
 
 export const runtime = "edge";
 export const alt =
-  "ForgeRP — Manufacturing ERP for sales, production, quality, and accounting";
+  "Protessera — Manufacturing ERP for sales, production, quality, and accounting";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -52,7 +52,7 @@ export default function OpenGraphImage() {
               letterSpacing: "-0.02em",
             }}
           >
-            ForgeRP
+            Protessera
           </div>
         </div>
 
@@ -91,7 +91,7 @@ export default function OpenGraphImage() {
           }}
         >
           <span>AS9100-shaped · shop floor to cash · no consultants</span>
-          <span style={{ color: "#2dd4bf", fontWeight: 600 }}>forge-rp.live</span>
+          <span style={{ color: "#2dd4bf", fontWeight: 600 }}>protessera.com</span>
         </div>
       </div>
     ),

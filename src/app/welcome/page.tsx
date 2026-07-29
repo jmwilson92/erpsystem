@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { LandingPage } from "@/components/marketing/landing-page";
-import { OpeningForge } from "@/components/marketing/opening-forge";
+import { SpinningUpShop } from "@/components/marketing/spinning-up-shop";
 import { SiteHeader } from "@/components/marketing/site-header";
 import { SiteFooter } from "@/components/marketing/site-footer";
 import { SITE_DESCRIPTION, SITE_NAME, SITE_TAGLINE } from "@/lib/site";
@@ -18,7 +18,7 @@ export const metadata: Metadata = {
 
 /**
  * Marketing landing. After ending a test drive (?ended=1): ring + full story,
- * never auto-provisions a demo. User must click Live demo / Open the Forge.
+ * never auto-provisions a demo. User must click Live demo / Spin up the shop.
  */
 export default async function WelcomePage({
   searchParams,
@@ -35,7 +35,7 @@ export default async function WelcomePage({
     return (
       <div className="marketing-story min-h-screen bg-slate-950">
         <SiteHeader />
-        <OpeningForge autoStart={false} ended />
+        <SpinningUpShop autoStart={false} ended />
         <LandingPage showChrome={false} showClassicHero={false} />
         <SiteFooter />
       </div>

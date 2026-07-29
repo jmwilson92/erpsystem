@@ -1,5 +1,5 @@
 #!/bin/sh
-# Nightly SQLite backup for a Dockerized ForgeRP instance.
+# Nightly SQLite backup for a Dockerized Protessera instance.
 #
 # Install on the host:
 #   chmod +x scripts/backup-db.sh

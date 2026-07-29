@@ -1,6 +1,6 @@
-# Deploying ForgeRP
+# Deploying Protessera
 
-ForgeRP runs anywhere Node 20+ runs. Two supported paths: **self-host
+Protessera runs anywhere Node 20+ runs. Two supported paths: **self-host
 (Docker)** and **cloud Node**. Schema is created on first boot; demo
 seed is optional.
 

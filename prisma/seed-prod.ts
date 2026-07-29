@@ -1,5 +1,5 @@
 /**
- * ForgeRP PRODUCTION seed — configuration essentials only, no demo content.
+ * Protessera PRODUCTION seed — configuration essentials only, no demo content.
  *
  * Loads the reference/config data the app needs to be usable on day one
  * without shipping any fake company data:
@@ -29,7 +29,7 @@ const adapter = new PrismaPg({
 const prisma = new PrismaClient({ adapter });
 
 async function main() {
-  console.log("🏭 Seeding ForgeRP (production essentials)...");
+  console.log("🏭 Seeding Protessera (production essentials)...");
 
   // Wipe in dependency order so this is safe to re-run or to run over a
   // database that previously held the demo dataset.

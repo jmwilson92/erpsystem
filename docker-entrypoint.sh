@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-# ForgeRP runs on PostgreSQL. Sync the schema on every boot (idempotent) and
+# Protessera runs on PostgreSQL. Sync the schema on every boot (idempotent) and
 # seed only when the database is empty. Connection comes from DATABASE_URL /
 # DIRECT_URL in the environment (docker-compose points them at the bundled
 # Postgres service).

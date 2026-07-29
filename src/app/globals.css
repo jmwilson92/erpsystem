@@ -6,7 +6,7 @@ html {
 }
 
 /* ============================================================
-   ForgeERP theme system
+   Protessera theme system
    ------------------------------------------------------------
    The app is authored dark-first with slate utility classes.
    Day mode works by remapping the *entire* slate ramp (and the
@@ -307,8 +307,8 @@ html.light .shadow-black\/30 {
   animation: station-pop 0.9s ease-out;
 }
 
-/* Opening the Forge — spin the splash-ring artwork */
-@keyframes forge-ring-spin {
+/* Spinning up the Shop — spin the splash-ring artwork */
+@keyframes shop-ring-spin {
   from {
     transform: rotate(0deg);
   }
@@ -316,8 +316,8 @@ html.light .shadow-black\/30 {
     transform: rotate(360deg);
   }
 }
-.forge-ring-spin {
-  animation: forge-ring-spin 3.2s linear infinite;
+.shop-ring-spin {
+  animation: shop-ring-spin 3.2s linear infinite;
   will-change: transform;
 }
 

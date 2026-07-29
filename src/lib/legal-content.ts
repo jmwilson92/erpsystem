@@ -2,12 +2,12 @@
  * Legal document content for the hosted service.
  */
 
-export const LEGAL_COMPANY = "ForgeRP";
-export const LEGAL_ENTITY = "ForgeRP, LLC";
+export const LEGAL_COMPANY = "Protessera";
+export const LEGAL_ENTITY = "Protessera, LLC";
 export const LEGAL_JURISDICTION = "California, United States";
-export const LEGAL_CONTACT = "legal@forge-rp.live";
-export const PRIVACY_CONTACT = "privacy@forge-rp.live";
-export const LAST_UPDATED = "2026-07-23";
+export const LEGAL_CONTACT = "jeramey.wilson@protessera.com";
+export const PRIVACY_CONTACT = "jeramey.wilson@protessera.com";
+export const LAST_UPDATED = "2026-07-29";
 
 export type LegalSection = { heading: string; paragraphs: string[] };
 export type LegalDoc = {

@@ -1,5 +1,5 @@
 /**
- * ForgeRP rich seed data — demonstrates all integrated manufacturing flows.
+ * Protessera rich seed data — demonstrates all integrated manufacturing flows.
  */
 import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
@@ -28,7 +28,7 @@ function daysFromNow(n: number) {
 }
 
 async function main() {
-  console.log("🔥 Seeding ForgeRP...");
+  console.log("🔥 Seeding Protessera...");
 
   // Wipe in dependency order (SQLite)
   const tables = [
@@ -3369,7 +3369,7 @@ async function main() {
   await prisma.companySettings.create({
     data: {
       id: "default",
-      name: "ForgeRP",
+      name: "Protessera",
       tagline: "Manufacturing",
       departments: JSON.stringify([
         "Production", "Manufacturing", "Assembly", "Machining",
@@ -3747,7 +3747,7 @@ async function main() {
   }
   console.log(`  ✓ Quality programs (${qmsPrograms.length}) + ${qmsItems.length} records`);
 
-  console.log("✅ ForgeRP seed complete — all modules linked.");
+  console.log("✅ Protessera seed complete — all modules linked.");
 }
 
 main()

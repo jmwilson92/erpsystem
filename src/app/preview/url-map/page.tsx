@@ -23,7 +23,7 @@ export default function PreviewUrlMapPage() {
       <div className="mt-8 space-y-4">
         <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
           <h2 className="font-mono text-sm text-teal-300">
-            forge-rp.live · www.forge-rp.live
+            protessera.com · www.protessera.com
           </h2>
           <p className="mt-2 text-sm text-slate-400">
             Public marketing. Landing = rotating ring + “Starting your ERP
@@ -42,7 +42,7 @@ export default function PreviewUrlMapPage() {
 
         <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
           <h2 className="font-mono text-sm text-teal-300">
-            forge-rp.live/demo · demo hub
+            protessera.com/demo · demo hub
           </h2>
           <p className="mt-2 text-sm text-slate-400">
             Live test drive + sales content. Header/footer always available.
@@ -59,10 +59,10 @@ export default function PreviewUrlMapPage() {
 
         <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
           <h2 className="font-mono text-sm text-teal-300">
-            {"{slug}"}.forge-rp.live
+            {"{slug}"}.protessera.com
           </h2>
           <p className="mt-2 text-sm text-slate-400">
-            Customer plant (e.g. acme.forge-rp.live). Login / app only.{" "}
+            Customer plant (e.g. acme.protessera.com). Login / app only.{" "}
             <em>Never</em> shows the splash. Seat caps apply here.
           </p>
           <Link
@@ -76,10 +76,10 @@ export default function PreviewUrlMapPage() {
         <div className="rounded-xl border border-teal-500/30 bg-teal-500/[0.05] p-5">
           <h2 className="text-sm font-semibold">When you greenlight</h2>
           <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-slate-400">
-            <li>Wildcard DNS *.forge-rp.live → same deploy</li>
+            <li>Wildcard DNS *.protessera.com → same deploy</li>
             <li>Middleware: Host → tenant slug → schema</li>
             <li>Apex only: splash + marketing</li>
-            <li>Provision: assign slug, email https://slug.forge-rp.live</li>
+            <li>Provision: assign slug, email https://slug.protessera.com</li>
           </ul>
         </div>
       </div>

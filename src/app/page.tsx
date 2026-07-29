@@ -27,7 +27,7 @@ import { DisciplinePulseCharts } from "@/components/dashboard/discipline-pulse";
 import { getDisciplinePulse } from "@/lib/services/dashboard-pulse";
 import { DashboardPersonalize } from "@/components/dashboard/dashboard-personalize";
 import { Sparkline } from "@/components/dashboard/sparkline";
-import { OpeningForge } from "@/components/marketing/opening-forge";
+import { SpinningUpShop } from "@/components/marketing/spinning-up-shop";
 import { LandingPage } from "@/components/marketing/landing-page";
 import { SiteHeader } from "@/components/marketing/site-header";
 import { SiteFooter } from "@/components/marketing/site-footer";
@@ -83,7 +83,7 @@ function SplashShell({
     <div className="marketing-story flex min-h-screen flex-col bg-slate-950">
       <SiteHeader />
       <main className="flex-1">
-        <OpeningForge
+        <SpinningUpShop
           hasExistingDemo={hasExistingDemo}
           autoStart={autoStart && !ended}
           ended={ended}
@@ -132,7 +132,7 @@ export default async function DashboardPage({
   }
 
   // ?app=1 without a real session or demo cookie → back to forge (user must
-  // complete Opening the Forge / click Live demo), never /login.
+  // complete Spinning up the Shop / click Live demo), never /login.
   if (!sessionUser && enterApp && !hasDemoCookie) {
     const { redirect } = await import("next/navigation");
     redirect("/");

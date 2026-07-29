@@ -75,7 +75,7 @@ export async function createLinkToken(userId: string) {
     "/link/token/create",
     {
       user: { client_user_id: userId },
-      client_name: "ForgeRP",
+      client_name: "Protessera",
       products: ["transactions"],
       country_codes: ["US"],
       language: "en",

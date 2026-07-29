@@ -1,5 +1,5 @@
 /**
- * Create or update a ForgeRP **platform** (public/dogfood) ADMIN account.
+ * Create or update a Protessera **platform** (public/dogfood) ADMIN account.
  * Does NOT create a customer tenant user.
  *
  * Also removes any TenantLogin row for that email so login routes to public
@@ -110,7 +110,7 @@ async function main() {
     console.log("  Temporary password (save now):");
     console.log(`  ${password}`);
     console.log("");
-    console.log("Log in at https://www.forge-rp.live/login");
+    console.log("Log in at https://www.protessera.com/login");
     console.log("Then open /admin/support for the staff desk.");
     console.log("Change the password under My Account after first login.");
     console.log("");

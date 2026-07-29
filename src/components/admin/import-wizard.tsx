@@ -67,7 +67,7 @@ export function ImportWizard() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `forgerp-${entity}-template.csv`;
+    a.download = `protessera-${entity}-template.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

@@ -1,6 +1,6 @@
 # Planning & capacity guide
 
-ForgeERP planning is **rough-cut** (infinite capacity with working calendar), not a finite APS.
+Protessera planning is **rough-cut** (infinite capacity with working calendar), not a finite APS.
 
 ## Estimate
 

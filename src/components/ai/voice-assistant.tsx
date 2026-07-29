@@ -943,7 +943,7 @@ export function VoiceAssistant({
 
     const Ctor = getSpeechRecognition();
     if (!Ctor) {
-      setError("Use Chrome or Edge on https://www.forge-rp.live for voice.");
+      setError("Use Chrome or Edge on https://www.protessera.com for voice.");
       return;
     }
     const stored = loadStoredLang();

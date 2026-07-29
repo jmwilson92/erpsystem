@@ -22,7 +22,7 @@
 
       <div class="map-row">
         <div class="map-item">
-          <h3>forge-rp.live &nbsp;·&nbsp; www.forge-rp.live</h3>
+          <h3>protessera.com &nbsp;·&nbsp; www.protessera.com</h3>
           <p>
             <strong>Public marketing / prospect entry.</strong> Landing =
             rotating ring + “Starting your ERP experience”, header + footer
@@ -38,7 +38,7 @@
         <div class="arrow">↓ after splash / Skip</div>
 
         <div class="map-item">
-          <h3>forge-rp.live/demo &nbsp;·&nbsp; demo hub</h3>
+          <h3>protessera.com/demo &nbsp;·&nbsp; demo hub</h3>
           <p>
             <strong>Live test drive + sales content.</strong> FAQs, pricing
             plans, features. Header/footer always available so they can leave
@@ -52,10 +52,10 @@
         <div class="arrow">↓ purchase / provision</div>
 
         <div class="map-item">
-          <h3>{slug}.forge-rp.live</h3>
+          <h3>{slug}.protessera.com</h3>
           <p>
             <strong>Customer plant.</strong> Example:
-            <code>acme.forge-rp.live</code>. Host maps to tenant schema via
+            <code>acme.protessera.com</code>. Host maps to tenant schema via
             slug. Default route is <strong>login</strong> (or app if session
             cookie present). <em>Never</em> shows “Starting your ERP
             experience”. Seat caps apply to invites on this instance.
@@ -68,9 +68,9 @@
         <div class="map-item">
           <h3>Also useful</h3>
           <p>
-            <code>app.forge-rp.live</code> — optional generic app host that
+            <code>app.protessera.com</code> — optional generic app host that
             asks “which company?” or email lookup → redirect to their slug.<br />
-            <code>forge-rp.live/login</code> — apex login that resolves tenant
+            <code>protessera.com/login</code> — apex login that resolves tenant
             from email (existing directory) if no subdomain bookmark.
           </p>
         </div>
@@ -79,13 +79,13 @@
       <div class="map-item" style="border-color: rgba(20, 184, 166, 0.35)">
         <h3 style="color: #e2e8f0">Implementation notes (when you greenlight)</h3>
         <p>
-          1. Wildcard DNS <code>*.forge-rp.live</code> → same Vercel project.<br />
+          1. Wildcard DNS <code>*.protessera.com</code> → same Vercel project.<br />
           2. Middleware: read <code>Host</code>, extract subdomain, load
           tenant by <code>slug</code>, set schema cookie / rewrite.<br />
           3. Apex only: splash landing + marketing. Subdomains: no splash,
           login/app only.<br />
           4. At Stripe provision: create slug from company name (unique), store
-          on Tenant, email them <code>https://{slug}.forge-rp.live</code>.
+          on Tenant, email them <code>https://{slug}.protessera.com</code>.
         </p>
       </div>
     </div>

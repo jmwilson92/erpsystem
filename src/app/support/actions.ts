@@ -22,11 +22,11 @@ import { grokConfigured, grokTranslate } from "@/lib/services/grok";
 /** Support staff portal only — not ERP company (tenant) admins. */
 async function requireSupportStaff() {
   if (!(await isPlatformSupportEnabled())) {
-    throw new Error("Only ForgeRP support staff can do that");
+    throw new Error("Only Protessera support staff can do that");
   }
   const user = await getCurrentUser();
   if (!user || user.role !== "ADMIN") {
-    throw new Error("Only ForgeRP support staff can do that");
+    throw new Error("Only Protessera support staff can do that");
   }
   return user;
 }
@@ -91,7 +91,7 @@ export type PostMessageResult =
 
 /**
  * Open a support ticket for anyone (landing, customer ERP, demo).
- * Tickets always land in the public platform desk for ForgeRP staff.
+ * Tickets always land in the public platform desk for Protessera staff.
  *
  * - Dogfood (platform) signed-in users → ticket linked to their account
  * - Guests / customer tenants / demos → guest ticket (name + email + secret link)
@@ -169,7 +169,7 @@ function mapMessages(
     isStaff: m.isStaff,
     createdAt: m.createdAt.toISOString(),
     readAt: m.readAt ? m.readAt.toISOString() : null,
-    authorName: m.author?.name || (m.isStaff ? "ForgeRP" : guestName || "You"),
+    authorName: m.author?.name || (m.isStaff ? "Protessera" : guestName || "You"),
   }));
 }
 

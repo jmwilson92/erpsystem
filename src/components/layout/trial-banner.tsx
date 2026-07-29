@@ -56,7 +56,7 @@ export function TrialBanner({
       : `You're on the ${planDef!.name} plan${chargeDate ? `; billing begins ${chargeDate}` : ""}. No charge until then.`
     : urgent
       ? "Add a plan now to keep your data and access."
-      : "Enjoying ForgeRP? Pick a plan any time.";
+      : "Enjoying Protessera? Pick a plan any time.";
 
   return (
     <div

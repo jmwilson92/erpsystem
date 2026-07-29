@@ -1,4 +1,4 @@
-# Beta finish line — ForgeRP productionization plan
+# Beta finish line — Protessera productionization plan
 
 **Date:** 2026-07-16  
 **Goal:** Public beta-ready manufacturing ERP (SO → PR → PO → REC → WO → ship, plus CM/BOM/WI).

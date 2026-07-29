@@ -65,7 +65,7 @@ export default async function PrintStatementPage({
   return (
     <PrintFrame>
       <DocHeader
-        company={company?.name || "ForgeRP"}
+        company={company?.name || "Protessera"}
         tagline={company?.tagline}
         title="Statement of Account"
         number={customer.code}
