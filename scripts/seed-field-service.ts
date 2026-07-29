@@ -15,6 +15,7 @@
 import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { assertCheckoutCurrent } from "./lib/assert-current.mjs";
 
 function arg(flag: string): string | undefined {
   const i = process.argv.indexOf(flag);
@@ -25,6 +26,8 @@ const DAY = 86_400_000;
 const days = (n: number) => new Date(Date.now() + n * DAY);
 
 async function main() {
+  assertCheckoutCurrent(["prisma/schema.prisma"], "The field-service seed");
+
   const schema = arg("--schema") || "public";
   const connectionString =
     process.env.DIRECT_URL || process.env.DATABASE_URL || "";
