@@ -16,7 +16,7 @@ type Status = {
   enabled: boolean;
   pending: boolean;
   recoveryRemaining: number;
-  configured: boolean;
+  unavailable: null | "no_key" | "not_migrated";
 };
 
 function Note({ state }: { state: MfaState }) {
@@ -91,7 +91,7 @@ export function MfaSetup({ status }: { status: Status }) {
     );
   }
 
-  if (!status.configured) {
+  if (status.unavailable === "no_key") {
     return (
       <div className="rounded-lg border border-amber-600/40 bg-amber-500/5 p-3 text-xs text-amber-100">
         <p className="font-semibold">Two-factor isn&apos;t available yet.</p>
@@ -99,6 +99,21 @@ export function MfaSetup({ status }: { status: Status }) {
           Set <code className="rounded bg-slate-950/60 px-1">MFA_SECRET_KEY</code>{" "}
           to a long random value in this environment. Second-factor secrets are
           encrypted with it, so we refuse to store them without one.
+        </p>
+      </div>
+    );
+  }
+
+  if (status.unavailable === "not_migrated") {
+    return (
+      <div className="rounded-lg border border-amber-600/40 bg-amber-500/5 p-3 text-xs text-amber-100">
+        <p className="font-semibold">
+          Two-factor isn&apos;t set up on this instance yet.
+        </p>
+        <p className="mt-1 text-amber-200/90">
+          The feature is deployed but this instance&apos;s database is missing
+          its tables — nothing you can fix from here. Your administrator needs
+          to run the schema migration; everything else keeps working meanwhile.
         </p>
       </div>
     );

@@ -19,6 +19,7 @@ import type { PrismaClient } from "@prisma/client";
 import { prisma, controlPlaneClient, clientForSchema } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { generateSecret, otpauthUri, verifyCode } from "./totp";
+import { isMissingTableError } from "@/lib/services/module-health";
 
 /** How long a passed password check waits for its second factor. */
 const CHALLENGE_MINUTES = 5;
@@ -194,17 +195,41 @@ export async function disableMfa(params: {
   return { ok: true };
 }
 
-export async function getMfaStatus(userId: string) {
-  const cred = await prisma.mfaCredential.findUnique({
-    where: { userId },
-    include: { recoveryCodes: { where: { usedAt: null } } },
-  });
-  return {
-    enabled: !!cred?.confirmedAt,
-    pending: !!cred && !cred.confirmedAt,
-    recoveryRemaining: cred?.recoveryCodes.length ?? 0,
-    configured: mfaConfigured(),
-  };
+export type MfaStatus = {
+  enabled: boolean;
+  pending: boolean;
+  recoveryRemaining: number;
+  /**
+   * Why MFA can't be used here, or null when it can. Two very different
+   * problems with two very different fixes — collapsing them into one boolean
+   * told tenants to set an environment variable when the real issue was that
+   * their schema hadn't been migrated.
+   */
+  unavailable: null | "no_key" | "not_migrated";
+};
+
+export async function getMfaStatus(userId: string): Promise<MfaStatus> {
+  const base = { enabled: false, pending: false, recoveryRemaining: 0 };
+
+  // Check the key first: it's cheap, and it's the answer that applies to the
+  // whole deployment rather than this one schema.
+  if (!mfaConfigured()) return { ...base, unavailable: "no_key" };
+
+  try {
+    const cred = await prisma.mfaCredential.findUnique({
+      where: { userId },
+      include: { recoveryCodes: { where: { usedAt: null } } },
+    });
+    return {
+      enabled: !!cred?.confirmedAt,
+      pending: !!cred && !cred.confirmedAt,
+      recoveryRemaining: cred?.recoveryCodes.length ?? 0,
+      unavailable: null,
+    };
+  } catch (e) {
+    if (isMissingTableError(e)) return { ...base, unavailable: "not_migrated" };
+    throw e;
+  }
 }
 
 // ─── Verification ───────────────────────────────────────────────
