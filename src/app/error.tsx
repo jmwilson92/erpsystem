@@ -3,6 +3,47 @@
 import { useEffect } from "react";
 import Link from "next/link";
 
+/**
+ * Failures that mean "your browser is holding a build that no longer exists"
+ * rather than "this code is broken".
+ *
+ * Every deploy renames the JS chunks, so anyone with a tab open when one lands
+ * requests a URL that 404s. Webpack then calls `undefined` as a module factory,
+ * which surfaces as the oddly generic "Cannot read properties of undefined
+ * (reading 'call')". A reload fetches the new manifest and the page works.
+ */
+const STALE_BUILD_RE =
+  /ChunkLoadError|Loading chunk \S+ failed|Loading CSS chunk|Failed to fetch dynamically imported module|error loading dynamically imported module|Importing a module script failed|undefined \(reading 'call'\)/i;
+
+const RELOAD_KEY = "protessera:stale-build-reload";
+
+/**
+ * How long before another automatic reload is allowed.
+ *
+ * A stale chunk is fixed by the first reload, so a second failure arriving
+ * seconds later means reloading is not helping — show the error instead of
+ * spinning. A failure minutes later is a different deploy and worth retrying,
+ * which is why this is a timestamp rather than a one-shot flag: a flag would
+ * make the very first deploy of a session the only one that self-heals.
+ */
+const RELOAD_COOLDOWN_MS = 30_000;
+
+/** Returns true when it kicked off a reload and the caller should stop. */
+function tryRecoverStaleBuild(message: string): boolean {
+  if (!STALE_BUILD_RE.test(message)) return false;
+  try {
+    const last = Number(sessionStorage.getItem(RELOAD_KEY) || 0);
+    if (Date.now() - last < RELOAD_COOLDOWN_MS) return false;
+    sessionStorage.setItem(RELOAD_KEY, String(Date.now()));
+  } catch {
+    // Storage blocked (private mode, embedded webview). Without somewhere to
+    // record the attempt we cannot detect a loop, so don't start one.
+    return false;
+  }
+  window.location.reload();
+  return true;
+}
+
 export default function AppError({
   error,
   reset,
@@ -12,8 +53,14 @@ export default function AppError({
 }) {
   useEffect(() => {
     console.error("[protessera] route error", error.digest || error.message);
+    const message = error.message || "";
+    const stale = STALE_BUILD_RE.test(message);
+
     // Report to the owner insights dashboard so a visitor hitting a broken page
     // is something we find out about, not something we hope gets emailed in.
+    // Reported BEFORE any reload, and `keepalive` is what lets the request
+    // outlive the navigation — otherwise self-healing would also hide how often
+    // this happens.
     try {
       fetch("/api/telemetry", {
         method: "POST",
@@ -21,15 +68,23 @@ export default function AppError({
         body: JSON.stringify({
           kind: "ERROR",
           path: window.location.pathname,
-          label: error.message || "route error",
-          severity: "error",
-          detail: { digest: error.digest ?? null, boundary: "route" },
+          label: message || "route error",
+          // A stale chunk is expected fallout from deploying, not a defect, so
+          // it should not sit in the queue at the same weight as a real break.
+          severity: stale ? "warn" : "error",
+          detail: {
+            digest: error.digest ?? null,
+            boundary: "route",
+            staleBuild: stale,
+          },
         }),
         keepalive: true,
       }).catch(() => undefined);
     } catch {
       /* never let reporting break the error page itself */
     }
+
+    tryRecoverStaleBuild(message);
   }, [error]);
 
   return (

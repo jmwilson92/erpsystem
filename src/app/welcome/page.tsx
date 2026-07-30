@@ -4,13 +4,13 @@ import { LandingPage } from "@/components/marketing/landing-page";
 import { SpinningUpShop } from "@/components/marketing/spinning-up-shop";
 import { SiteHeader } from "@/components/marketing/site-header";
 import { SiteFooter } from "@/components/marketing/site-footer";
-import { SITE_DESCRIPTION, SITE_NAME, SITE_TAGLINE } from "@/lib/site";
+import { SITE_DESCRIPTION, SITE_NAME, SITE_TITLE_DESCRIPTOR } from "@/lib/site";
 
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: {
-    absolute: `${SITE_NAME} — ${SITE_TAGLINE}`,
+    absolute: `${SITE_NAME} — ${SITE_TITLE_DESCRIPTOR}`,
   },
   description: SITE_DESCRIPTION,
   alternates: { canonical: "/welcome" },

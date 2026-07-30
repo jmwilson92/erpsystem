@@ -23,7 +23,7 @@ import {
   SITE_DESCRIPTION,
   SITE_KEYWORDS,
   SITE_NAME,
-  SITE_TAGLINE,
+  SITE_TITLE_DESCRIPTOR,
 } from "@/lib/site";
 import { isPlatformSupportEnabled } from "@/lib/platform";
 import { SupportBubble } from "@/components/support/support-bubble";
@@ -59,7 +59,7 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     metadataBase: new URL(siteUrl),
     title: {
-      default: isTenant ? brand : `${SITE_NAME} — ${SITE_TAGLINE}`,
+      default: isTenant ? brand : `${SITE_NAME} — ${SITE_TITLE_DESCRIPTOR}`,
       template: `%s · ${brand}`,
     },
     description: SITE_DESCRIPTION,

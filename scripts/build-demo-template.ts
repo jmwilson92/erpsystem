@@ -67,24 +67,51 @@ async function main() {
   try {
     await c.query(`DROP SCHEMA IF EXISTS "${SCHEMA}" CASCADE`);
     await c.query(`CREATE SCHEMA "${SCHEMA}"`);
-    // Same-query SET search_path so transaction poolers still apply DDL in this schema
-    await c.query(`SET search_path TO "${SCHEMA}";\n${TENANT_TEMPLATE_SQL}`);
+    // Batched, and SET search_path rides along in every batch so transaction
+    // poolers still apply the DDL in this schema. Sending the whole template as
+    // one query takes a lock on all 1,123 objects at once and can exhaust the
+    // server-wide lock table ("out of shared memory") — see DDL_BATCH_SIZE in
+    // services/tenancy.ts, which this mirrors.
+    const statements = TENANT_TEMPLATE_SQL.split(/;\s*(?:\r?\n|$)/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    for (let i = 0; i < statements.length; i += 50) {
+      await c.query(
+        `SET search_path TO "${SCHEMA}";\n${statements.slice(i, i + 50).join(";\n")};`
+      );
+    }
   } finally {
     c.release();
     await pool.end();
   }
   console.log(`✓ provisioned ${SCHEMA} — seeding demo data...`);
 
-  execSync(`npx tsx prisma/seed.ts`, {
-    stdio: "inherit",
-    env: {
-      ...process.env,
-      SEED_SCHEMA: SCHEMA,
-      // Prefer reachable pooler for seed as well
-      DATABASE_URL: conn,
-      DIRECT_URL: conn,
-    },
-  });
+  const seedEnv = {
+    ...process.env,
+    SEED_SCHEMA: SCHEMA,
+    // Prefer reachable pooler for seed as well
+    DATABASE_URL: conn,
+    DIRECT_URL: conn,
+  };
+
+  execSync(`npx tsx prisma/seed.ts`, { stdio: "inherit", env: seedEnv });
+
+  // Module seeds. Without these the demo has a full sidebar but Fleet, Service,
+  // CRM, Maintenance, and Logistics open to empty pages — the worst possible
+  // impression for a prospect who clicks the module they came to evaluate.
+  //
+  // These take --schema rather than SEED_SCHEMA, and they depend on the base
+  // seed having already created users, customers, and parts to hang records off.
+  for (const script of [
+    "scripts/seed-field-service.ts",
+    "scripts/seed-crm-cmms-logistics.ts",
+  ]) {
+    console.log(`\n→ ${script}`);
+    execSync(`npx tsx ${script} --schema ${SCHEMA}`, {
+      stdio: "inherit",
+      env: seedEnv,
+    });
+  }
 
   console.log(`\n✅ demo template ready (${SCHEMA})`);
 }

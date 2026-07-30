@@ -14,7 +14,7 @@ export function SiteHeader() {
     <header className="sticky top-0 z-40 border-b border-slate-800/70 bg-slate-950/85 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3.5">
         <Link href="/welcome" aria-label="Protessera home">
-          <BrandLogo className="text-white" />
+          <BrandLogo className="text-white" tagline />
         </Link>
         <nav
           className="hidden items-center gap-6 text-sm text-teal-200/90 sm:flex"
