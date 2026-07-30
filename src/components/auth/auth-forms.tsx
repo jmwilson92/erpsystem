@@ -118,7 +118,7 @@ export function BootstrapForm() {
         type="password"
         required
         minLength={8}
-        placeholder="Choose a password (min 8 chars)"
+        placeholder="Choose a password (12+ chars, or 8+ with mixed case, numbers, symbols)"
         autoComplete="new-password"
       />
       <Feedback state={state} />
@@ -140,7 +140,7 @@ export function ClaimTenantForm({ token }: { token: string }) {
         type="password"
         required
         minLength={8}
-        placeholder="Choose a password (min 8 chars)"
+        placeholder="Choose a password (12+ chars, or 8+ with mixed case, numbers, symbols)"
         autoComplete="new-password"
       />
       <Feedback state={state} />
@@ -165,7 +165,7 @@ export function AcceptInviteForm({ token }: { token: string }) {
         type="password"
         required
         minLength={8}
-        placeholder="Choose a password (min 8 chars)"
+        placeholder="Choose a password (12+ chars, or 8+ with mixed case, numbers, symbols)"
         autoComplete="new-password"
       />
       <Feedback state={state} />
@@ -194,7 +194,7 @@ export function ChangePasswordForm() {
         type="password"
         required
         minLength={8}
-        placeholder="New password (min 8 chars)"
+        placeholder="New password (12+ chars, or 8+ with mixed case, numbers, symbols)"
         autoComplete="new-password"
       />
       <Feedback state={state} />

@@ -479,8 +479,23 @@ export async function cancelMfaLogin() {
 }
 
 /** True when no account has a password yet — first-boot claim allowed. */
+/**
+ * True when this instance has no activated account yet, so /login should offer
+ * to claim it instead of asking for a password.
+ *
+ * Pinned to the control plane rather than the request-scoped client. The proxy
+ * resolves the schema from cookies, so an anonymous visitor carrying a
+ * `forge-demo` cookie was counted against the DEMO sandbox — where seeded
+ * personas deliberately have no passwordHash. The count came back zero and
+ * /login told a prospect who had just taken the demo that this was a fresh
+ * instance waiting to be claimed.
+ *
+ * The bootstrap question is only ever about the platform instance. A customer's
+ * first admin is created through the tokened onboarding flow (claimTenant), and
+ * a demo sandbox is never claimable at all.
+ */
 export async function needsBootstrap() {
-  const activated = await prisma.user.count({
+  const activated = await controlPlaneClient().user.count({
     where: { passwordHash: { not: null } },
   });
   return activated === 0;
@@ -500,14 +515,18 @@ export async function bootstrapFirstAdmin(params: {
     throw new Error("This instance already has activated accounts — log in instead");
   }
   assertPasswordStrength(params.password);
+  // Control plane, matching needsBootstrap. Through the request-scoped proxy a
+  // visitor holding a forge-demo cookie would have created this ADMIN — and its
+  // session — inside a throwaway demo sandbox instead of the real instance.
+  const cp = controlPlaneClient();
   const email = params.email.trim().toLowerCase();
-  const existing = await prisma.user.findFirst({ where: { email } });
+  const existing = await cp.user.findFirst({ where: { email } });
   const user = existing
-    ? await prisma.user.update({
+    ? await cp.user.update({
         where: { id: existing.id },
         data: { passwordHash: hashPassword(params.password), role: "ADMIN", isActive: true },
       })
-    : await prisma.user.create({
+    : await cp.user.create({
         data: {
           email,
           name: params.name?.trim() || email.split("@")[0],
@@ -515,7 +534,9 @@ export async function bootstrapFirstAdmin(params: {
           passwordHash: hashPassword(params.password),
         },
       });
-  await createSession(user.id);
+  // Session in the platform schema, and clear any forge-tenant routing so the
+  // new admin lands on the instance they just claimed.
+  await issueSession(cp, user.id, { tenantCookie: null });
   await logAudit({
     entityType: "User",
     entityId: user.id,
