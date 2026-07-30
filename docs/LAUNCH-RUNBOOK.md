@@ -70,8 +70,8 @@ Add these:
 |-----|-------|---------|
 | `APP_URL` | `https://www.protessera.com` | Absolute URLs for Stripe success/cancel + webhooks |
 | `CRON_SECRET` | a long random string | Auth for the demo-sweep cron route |
-| `DEMO_IDLE_MINUTES` | `60` (optional) | Idle minutes before a demo is reaped |
-| `DEMO_POOL_SIZE` | `3` (optional, default 3, max 20) | Pre-warmed demo sandboxes kept ready. Cloning takes seconds against a remote DB, so the pool is what makes "Take the live demo" feel instant. `0` disables pre-warming (every visitor waits for a clone). |
+| `DEMO_IDLE_MINUTES` | `20` (optional, default 20) | Idle minutes before a claimed sandbox is reaped. An abandoned demo still holds a full schema, so a longer window multiplies steady-state catalog size. |
+| `DEMO_POOL_SIZE` | `15` (optional, default 15, max 20) | Pre-warmed demo sandboxes kept ready. Cloning takes seconds against a remote DB, so the pool is what makes "Take the live demo" feel instant. `0` disables pre-warming (every visitor waits for a clone). Each spare is a real schema (215 tables, 743 indexes) sitting in the catalogs whether or not it is claimed, so lower this on a small database. |
 | `LAUNCH_DATE` | `YYYY-MM-DD` **launch day** | Opens the 50%-off promo window |
 | `LAUNCH_PROMO_DAYS` | `60` (optional, default 60) | Length of the promo window |
 | `STRIPE_COUPON_LAUNCH` | Stripe coupon id (see §4) | The 50%-off-first-year coupon |

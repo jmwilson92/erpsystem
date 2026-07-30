@@ -334,7 +334,49 @@ export async function cloneSchema(source: string, dest: string): Promise<void> {
  */
 export function demoPoolTarget(): number {
   const n = Number(process.env.DEMO_POOL_SIZE);
-  return Number.isFinite(n) && n >= 0 ? Math.min(n, 20) : 3;
+  return Number.isFinite(n) && n >= 0 ? Math.min(n, 20) : DEFAULT_DEMO_POOL_SIZE;
+}
+
+/**
+ * Spare sandboxes kept warm by default.
+ *
+ * Sized to absorb a burst rather than to be frugal: past this many simultaneous
+ * visitors, everyone else falls through to a cold clone and queues behind the
+ * in-flight cap, which is seconds of staring at a progress bar each.
+ *
+ * It is not free. Every spare is a real schema — 215 tables and 743 indexes
+ * sitting in Postgres' catalogs whether or not anyone claims it — so this trades
+ * steady-state catalog size for burst latency. Lower it via DEMO_POOL_SIZE on a
+ * small database.
+ */
+const DEFAULT_DEMO_POOL_SIZE = 15;
+
+/**
+ * Ceiling on how many spares one refill builds.
+ *
+ * ensureDemoPool builds sequentially, so refilling a drained pool of 15 would
+ * be fifteen clones back to back — long enough to outrun the wall clock of the
+ * serverless invocation that called it. Topping up a few at a time lets
+ * successive cron runs converge on the target instead of timing out short of it.
+ */
+const MAX_REFILL_PER_RUN = 5;
+
+/**
+ * How long a claimed sandbox may sit untouched before it is reclaimed.
+ *
+ * An abandoned demo still holds a full schema, so this window multiplies
+ * steady-state catalog size by however many visitors wandered off mid-session.
+ * Kept long enough that someone reading a page for a while does not lose their
+ * sandbox underneath them.
+ *
+ * Defined here because the sweep has two callers — the cron route and the
+ * opportunistic sweep in provisionDemo — and two copies of a default drift.
+ */
+const DEFAULT_DEMO_IDLE_MINUTES = 20;
+
+export function demoIdleMinutes(): number {
+  const n = Number(process.env.DEMO_IDLE_MINUTES);
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_DEMO_IDLE_MINUTES;
 }
 
 /** Build one spare sandbox and park it as READY for the next visitor. */
@@ -396,7 +438,10 @@ export async function ensureDemoPool(): Promise<number> {
   const ready = await cp.tenant.count({ where: { isDemo: true, status: "READY" } });
   let made = 0;
   // Build sequentially: a burst of parallel clones is heavy on a small database.
-  for (let i = ready; i < target; i++) {
+  // Capped per run so a drained pool converges over successive calls rather than
+  // running past the caller's time budget — see MAX_REFILL_PER_RUN.
+  const ceiling = Math.min(target, ready + MAX_REFILL_PER_RUN);
+  for (let i = ready; i < ceiling; i++) {
     const s = await warmOneDemo();
     if (!s) break; // template/database trouble — stop rather than thrash
     made += 1;
@@ -472,8 +517,7 @@ export async function provisionDemo() {
   }
   // Opportunistic cleanup: each new demo reaps any idle ones, so stale schemas
   // get collected from organic traffic even if scheduled cron runs infrequently.
-  const maxIdle = Number(process.env.DEMO_IDLE_MINUTES) || 60;
-  void sweepIdleDemos(maxIdle).catch(() => undefined);
+  void sweepIdleDemos(demoIdleMinutes()).catch(() => undefined);
 
   // Fast path — a sandbox is already built and waiting.
   const pooled = await claimPooledDemo().catch(() => null);
