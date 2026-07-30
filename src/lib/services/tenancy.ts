@@ -340,16 +340,23 @@ export function demoPoolTarget(): number {
 /**
  * Spare sandboxes kept warm by default.
  *
- * Sized to absorb a burst rather than to be frugal: past this many simultaneous
- * visitors, everyone else falls through to a cold clone and queues behind the
- * in-flight cap, which is seconds of staring at a progress bar each.
+ * Past this many simultaneous visitors, everyone else falls through to a cold
+ * clone and queues behind the in-flight cap — seconds of progress bar each. So
+ * bigger is better for burst latency, and the ceiling is disk, not CPU.
  *
- * It is not free. Every spare is a real schema — 215 tables and 743 indexes
- * sitting in Postgres' catalogs whether or not anyone claims it — so this trades
- * steady-state catalog size for burst latency. Lower it via DEMO_POOL_SIZE on a
- * small database.
+ * A demo schema measures ~23 MB (215 tables, 743 indexes, plus seed data), and
+ * a spare costs that whether or not anyone ever claims it:
+ *
+ *     pool of  5  ~115 MB
+ *     pool of 10  ~230 MB
+ *     pool of 15  ~345 MB
+ *
+ * Supabase's free tier is 500 MB total, which also has to hold demo_template,
+ * the dogfood schema, every real tenant, and every *claimed* demo. Five leaves
+ * room for all of that. Raise DEMO_POOL_SIZE on a paid database, where 15
+ * absorbs a much larger burst.
  */
-const DEFAULT_DEMO_POOL_SIZE = 15;
+const DEFAULT_DEMO_POOL_SIZE = 5;
 
 /**
  * Ceiling on how many spares one refill builds.
