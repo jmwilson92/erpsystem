@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import {
   sweepIdleDemos,
+  demoIdleMinutes,
   ensureDemoPool,
   recycleStalePool,
   demoPoolTarget,
@@ -23,7 +24,7 @@ export async function GET(req: NextRequest) {
       return new Response("Unauthorized", { status: 401 });
     }
   }
-  const maxIdle = Number(process.env.DEMO_IDLE_MINUTES) || 60;
+  const maxIdle = demoIdleMinutes();
   const destroyed = await sweepIdleDemos(maxIdle);
   // Recycle spares that have been sitting unclaimed for a day so the pool never
   // serves stale seed data after a template rebuild.

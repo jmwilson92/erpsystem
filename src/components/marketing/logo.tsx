@@ -1,3 +1,5 @@
+import { SITE_NAME, SITE_TAGLINE } from "@/lib/site";
+
 /**
  * Protessera brand mark — a flame in a rounded badge. Self-contained SVG so
  * it renders anywhere (header, footer, auth screens) without an image request.
@@ -30,12 +32,34 @@ export function BrandMark({ className = "h-7 w-7" }: { className?: string }) {
   );
 }
 
-/** Full lockup: mark + wordmark. Used in the marketing header/footer. */
-export function BrandLogo({ className = "" }: { className?: string }) {
+/**
+ * Full lockup: mark + wordmark, with the tagline stacked under the wordmark
+ * when `tagline` is set.
+ *
+ * The tagline is hidden on the narrowest screens rather than wrapped — at that
+ * width it would push the header nav onto a second line, and a tagline is worth
+ * less than a usable nav bar.
+ */
+export function BrandLogo({
+  className = "",
+  tagline = false,
+}: {
+  className?: string;
+  tagline?: boolean;
+}) {
   return (
     <span className={`flex items-center gap-2 font-semibold tracking-tight ${className}`}>
       <BrandMark className="h-7 w-7" />
-      Protessera
+      {tagline ? (
+        <span className="flex flex-col leading-tight">
+          <span>{SITE_NAME}</span>
+          <span className="hidden text-[11px] font-normal tracking-wide text-teal-300/70 sm:block">
+            {SITE_TAGLINE}
+          </span>
+        </span>
+      ) : (
+        SITE_NAME
+      )}
     </span>
   );
 }

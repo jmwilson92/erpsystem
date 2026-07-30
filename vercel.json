@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/cron/sweep-demos",
-      "schedule": "0 * * * *"
+      "schedule": "0 3 * * *"
     }
   ]
 }

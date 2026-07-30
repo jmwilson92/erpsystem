@@ -6,7 +6,17 @@
 
 export const SITE_NAME = "Protessera";
 export const SITE_LEGAL = "Protessera, LLC";
+/** Brand tagline. Sits under the wordmark, not in the title tag. */
 export const SITE_TAGLINE = "Connecting everything";
+
+/**
+ * What follows the brand name in the <title>.
+ *
+ * Kept descriptive on purpose: the title tag is the strongest on-page SEO
+ * signal we control, and "manufacturing ERP" is the phrase we rank for. A pure
+ * brand tagline there tells a search engine nothing about what we sell.
+ */
+export const SITE_TITLE_DESCRIPTOR = "Manufacturing ERP";
 
 export const SITE_DESCRIPTION =
   "Protessera is plug-and-play manufacturing ERP: sales, engineering, purchasing, production, quality, and accounting in one connected system. 45-day free trial — no consultants required.";
