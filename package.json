@@ -30,7 +30,7 @@
     "verify": "tsx scripts/verify/run-all.ts",
     "verify:svc": "tsx scripts/verify/run-all.ts --skip-http",
     "build:airgap": "AIRGAP=1 next build",
-    "verify:airgap": "AIRGAP=1 next build && node scripts/assert-airgap-build.mjs",
+    "verify:airgap": "node -e \"require('fs').rmSync('.next',{recursive:true,force:true})\" && AIRGAP=1 next build && node scripts/assert-airgap-build.mjs",
     "verify:keys": "node scripts/verify-integrations.mjs",
     "stripe:setup-plans": "node scripts/stripe-setup-plans.mjs",
     "verify:http": "tsx scripts/verify/chunk-j-http.ts",

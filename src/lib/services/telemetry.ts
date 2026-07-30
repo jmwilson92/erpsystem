@@ -427,21 +427,119 @@ export async function setIssueStatus(params: {
   // same key the dashboard reads back.
   const fingerprint = issueFingerprint(params.fingerprint);
   const resolvedAt = params.status === "RESOLVED" ? new Date() : null;
+  const note = params.note?.trim() || null;
   const data = {
     status: params.status,
-    note: params.note?.trim() || null,
+    note,
     resolvedAt,
     updatedById: params.userId || null,
   };
   try {
-    await controlPlaneClient().telemetryIssue.upsert({
+    const cp = controlPlaneClient();
+    // Read the prior status BEFORE the upsert, or fromStatus would just be the
+    // value we are about to write and the trail would show every change as a
+    // no-op.
+    const previous = await cp.telemetryIssue
+      .findUnique({ where: { fingerprint }, select: { status: true } })
+      .catch(() => null);
+
+    const issue = await cp.telemetryIssue.upsert({
       where: { fingerprint },
       create: { fingerprint, ...data },
       update: data,
     });
+
+    // History is best-effort on purpose: losing the trail entry is bad, but
+    // refusing the status change because the history table is missing (an
+    // un-migrated deployment) would be worse. The issue row is the source of
+    // truth for current state; this is the record of how it got there.
+    await cp.telemetryIssueEvent
+      .create({
+        data: {
+          issueId: issue.id,
+          fromStatus: previous?.status ?? null,
+          toStatus: params.status,
+          note,
+          changedById: params.userId || null,
+        },
+      })
+      .catch(() => undefined);
+
     return true;
   } catch (e) {
     if (isMissingTableError(e)) return false;
+    throw e;
+  }
+}
+
+export type IssueEvent = {
+  id: string;
+  fromStatus: IssueStatus | null;
+  toStatus: IssueStatus;
+  note: string | null;
+  changedByName: string | null;
+  createdAt: Date;
+};
+
+/**
+ * Triage trails for several errors at once, each oldest-first.
+ *
+ * Batched rather than one call per row: the dashboard renders ten-plus errors,
+ * and a per-issue lookup would be thirty round trips on a page that already
+ * refreshes itself every minute.
+ *
+ * Returns an empty map rather than throwing when the table has not been
+ * migrated yet, so a deployment running ahead of its migration shows current
+ * statuses with no history instead of failing the whole dashboard.
+ */
+export async function getIssueHistories(
+  fingerprints: string[]
+): Promise<Map<string, IssueEvent[]>> {
+  const out = new Map<string, IssueEvent[]>();
+  if (fingerprints.length === 0) return out;
+  try {
+    const cp = controlPlaneClient();
+    const keys = fingerprints.map(issueFingerprint);
+    const issues = await cp.telemetryIssue.findMany({
+      where: { fingerprint: { in: keys } },
+      select: { id: true, fingerprint: true },
+    });
+    if (issues.length === 0) return out;
+
+    const fingerprintByIssueId = new Map(issues.map((i) => [i.id, i.fingerprint]));
+    const rows = await cp.telemetryIssueEvent.findMany({
+      where: { issueId: { in: issues.map((i) => i.id) } },
+      orderBy: { createdAt: "asc" },
+    });
+
+    // Names resolved separately: changedById points at a platform user, and a
+    // deleted account should degrade to "unknown" rather than drop the entry —
+    // losing an entry would misrepresent the history, which defeats the point.
+    const ids = [...new Set(rows.map((r) => r.changedById).filter(Boolean))] as string[];
+    const users = ids.length
+      ? await cp.user
+          .findMany({ where: { id: { in: ids } }, select: { id: true, name: true } })
+          .catch(() => [])
+      : [];
+    const nameById = new Map(users.map((u) => [u.id, u.name]));
+
+    for (const r of rows) {
+      const fp = fingerprintByIssueId.get(r.issueId);
+      if (!fp) continue;
+      const list = out.get(fp) ?? [];
+      list.push({
+        id: r.id,
+        fromStatus: (r.fromStatus as IssueStatus) ?? null,
+        toStatus: r.toStatus as IssueStatus,
+        note: r.note,
+        changedByName: r.changedById ? nameById.get(r.changedById) ?? null : null,
+        createdAt: r.createdAt,
+      });
+      out.set(fp, list);
+    }
+    return out;
+  } catch (e) {
+    if (isMissingTableError(e)) return out;
     throw e;
   }
 }

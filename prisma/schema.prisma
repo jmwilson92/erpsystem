@@ -5491,7 +5491,40 @@ model TelemetryIssue {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  events TelemetryIssueEvent[]
+
   @@index([status])
+}
+
+/// One row per triage change on a TelemetryIssue — the trail that says who
+/// moved an error to IN_PROGRESS, what they wrote when they put it on hold, and
+/// when it was called fixed.
+///
+/// A separate table rather than columns on the issue, because the issue only
+/// ever holds the CURRENT state: each update overwrites status and note, so
+/// without this the reasoning behind every earlier decision is lost the moment
+/// someone edits it. That history is the whole point of a triage log.
+///
+/// Append-only in practice — nothing updates or deletes these. Recorded even
+/// when the status is unchanged and only the note moved, since "we looked again
+/// and still think it's on hold" is itself worth keeping.
+model TelemetryIssueEvent {
+  id String @id @default(cuid())
+
+  issueId String
+  issue   TelemetryIssue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  /// Null on the first event: the issue had no prior state to move from.
+  fromStatus String?
+  toStatus   String
+  /// The note as it stood after this change, so the trail reads on its own
+  /// rather than needing the issue row to interpret it.
+  note       String?
+
+  changedById String?
+  createdAt   DateTime @default(now())
+
+  @@index([issueId, createdAt])
 }
 
 // ─── CMMS — plant equipment maintenance ─────────────────────────────
