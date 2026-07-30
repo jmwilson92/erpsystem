@@ -36,6 +36,31 @@ already caught one: gating `<Analytics />` in JSX stopped it rendering but still
 bundled its collector URL, because a conditional render does not drop the
 dependency.
 
+### 800-171 controls the software now implements
+
+| Control | What the software does | Where |
+|---|---|---|
+| **3.1.11** Session termination | Terminates a session after inactivity — the row is deleted, so a captured cookie cannot be replayed. Defaults to 15 minutes under `AIRGAP=1`, off otherwise. `SESSION_IDLE_MINUTES` overrides. | `src/lib/auth-core.ts` |
+| **3.3.8** Audit protection | `AuditLog` is append-only: database triggers refuse `UPDATE` and `DELETE` while still allowing `INSERT`. Applied to every schema on every provisioning path and re-applied on every container boot. | `scripts/apply-audit-hardening.ts` |
+| **3.5.3** Multi-factor auth | TOTP second factor, enrolment and challenge. | `src/lib/services/mfa.ts` |
+| **3.13.11** FIPS crypto | **Inherited.** Crypto is Node's `crypto` over OpenSSL, so this is satisfied by deploying on a FIPS-mode host — the customer's control, not ours. | — |
+
+The idle timeout and the `lastSeenAt` refresh interval are deliberately coupled:
+`lastSeenAt` is only written once per interval to avoid a database write on every
+request, so if that lag could exceed the timeout, the timeout would log out people
+who never stopped working. The refresh stays at a third of the window.
+
+**Audit immutability, scoped honestly:** the triggers stop the application and
+casual database access. A superuser or the table owner can still
+`ALTER TABLE ... DISABLE TRIGGER`, so this is not tamper-proof against a
+determined DBA. Full non-repudiation needs audit records shipped off-box to
+append-only storage, which is a customer infrastructure decision.
+
+Re-run `npx tsx scripts/apply-audit-hardening.ts` after any migration —
+recreating a table drops its triggers. `--check` reports without changing
+anything and exits non-zero if a schema is unprotected, which makes it usable as
+a compliance probe.
+
 ### What this is and is not
 
 This makes the software's behaviour **defensible and demonstrable**. It does not

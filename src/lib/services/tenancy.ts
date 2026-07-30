@@ -5,6 +5,7 @@ import {
   TENANT_TEMPLATE_SQL,
   TENANT_TABLES_SQL,
   TENANT_FKS_SQL,
+  TENANT_HARDENING_SQL,
 } from "@/lib/tenant-template";
 
 /** The pre-seeded schema that every throwaway demo is cloned from. */
@@ -104,6 +105,25 @@ async function runBatchedDdl(
   }
 }
 
+/**
+ * Apply the append-only AuditLog triggers to a schema.
+ *
+ * Sent as ONE query on purpose — the plpgsql function body contains semicolons,
+ * so runBatchedDdl's splitter would cut it in half. Idempotent, so it is safe to
+ * re-run on an existing schema and after any change that recreates the table.
+ *
+ * Runs on every provisioning path (fresh provision, clone, demo template) and is
+ * re-applied to existing schemas by scripts/backfill-tenant-schemas.ts. Missing
+ * it on one path would leave audit records quietly mutable in exactly the
+ * deployment that needs them protected.
+ */
+export async function applyHardening(
+  client: PoolClient,
+  schema: string
+): Promise<void> {
+  await client.query(`SET search_path TO "${schema}";\n${TENANT_HARDENING_SQL}`);
+}
+
 /** Create the schema and all Protessera tables inside it. Idempotent per schema. */
 export async function provisionSchema(schema: string): Promise<void> {
   if (!isValidSchemaName(schema)) throw new Error(`Invalid schema name: ${schema}`);
@@ -117,6 +137,7 @@ export async function provisionSchema(schema: string): Promise<void> {
     // pooler (Supabase 6543) every client.query() may land on a different
     // backend and a standalone SET wouldn't carry over.
     await runBatchedDdl(client, schema, splitStatements(TENANT_TEMPLATE_SQL));
+    await applyHardening(client, schema);
   } finally {
     client.release();
     await pool.end();
@@ -316,6 +337,10 @@ export async function cloneSchema(source: string, dest: string): Promise<void> {
     //    CONSTRAINT locks both the child and the referenced table, so this
     //    batches as well.
     await runBatchedDdl(client, dest, splitStatements(TENANT_FKS_SQL));
+    // 4. Append-only audit triggers. After the FKs so the clone is otherwise
+    //    complete, and never before the data copy — the copy inserts, which the
+    //    triggers allow, but ordering it last keeps the intent obvious.
+    await applyHardening(client, dest);
   } finally {
     client.release();
     await pool.end();

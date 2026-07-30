@@ -28,11 +28,49 @@ import {
 import type { PrismaClient } from "@prisma/client";
 import { cookies } from "next/headers";
 import { logAudit } from "./audit";
+import { airgapEnabled } from "./airgap";
 
 export const SESSION_COOKIE = "forge-session";
 /** Short-lived, holds a passed password check waiting on its second factor. */
 export const MFA_COOKIE = "forge-mfa";
 const SESSION_DAYS = 30;
+
+/**
+ * Inactivity timeout in minutes; 0 disables it.
+ *
+ * NIST SP 800-171 3.1.11 requires automatic session termination after a defined
+ * period of inactivity, so air-gapped (CUI) deployments get it by default.
+ * Hosted SaaS defaults to off: a 15-minute logout is miserable for someone
+ * reading a drawing or filling a long router, and hosted customers carry no CUI
+ * obligation. Either can be set explicitly with SESSION_IDLE_MINUTES.
+ */
+export function sessionIdleMinutes(): number {
+  const raw = process.env.SESSION_IDLE_MINUTES;
+  if (raw !== undefined && raw.trim() !== "") {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 0) return Math.floor(n);
+  }
+  return airgapEnabled() ? 15 : 0;
+}
+
+/**
+ * How stale `lastSeenAt` may get before a request refreshes it.
+ *
+ * This exists because the two settings are coupled and getting it wrong logs
+ * active users out. `lastSeenAt` is written at most once per interval to avoid a
+ * database write on every request — so for an actively-working user it is always
+ * somewhat behind. If that lag can exceed the idle timeout, the timeout fires on
+ * people who never stopped working.
+ *
+ * Keeping the refresh at a third of the timeout bounds the lag well inside it: a
+ * 15-minute timeout refreshes every 5 minutes, so an active session's
+ * `lastSeenAt` is never more than 5 minutes old. With the timeout off, this stays
+ * at the original hourly cadence.
+ */
+export function lastSeenRefreshMs(idleMs: number): number {
+  const HOURLY = 3_600_000;
+  return idleMs > 0 ? Math.min(HOURLY, Math.floor(idleMs / 3)) : HOURLY;
+}
 const INVITE_DAYS = 7;
 
 export function demoModeEnabled() {
@@ -183,8 +221,23 @@ export async function getSessionUser() {
     });
     if (!session || session.expiresAt < new Date()) return null;
     if (!session.user.isActive) return null;
-    // Sliding expiry — refresh at most once an hour
-    if (Date.now() - session.lastSeenAt.getTime() > 3_600_000) {
+
+    const idleMs = sessionIdleMinutes() * 60_000;
+    const idleFor = Date.now() - session.lastSeenAt.getTime();
+
+    if (idleMs > 0 && idleFor > idleMs) {
+      // Terminated, not merely refused. 3.1.11 asks for termination, and
+      // deleting the row means a cookie captured earlier cannot be replayed
+      // once the idle window has passed.
+      await prisma.authSession
+        .delete({ where: { id: session.id } })
+        .catch(() => null);
+      return null;
+    }
+
+    // Sliding expiry. The refresh interval tracks the idle timeout — see
+    // lastSeenRefreshMs for why they cannot be set independently.
+    if (idleFor > lastSeenRefreshMs(idleMs)) {
       await prisma.authSession
         .update({
           where: { id: session.id },

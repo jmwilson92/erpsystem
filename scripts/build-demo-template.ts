@@ -1,7 +1,10 @@
 import "dotenv/config";
 import { Pool } from "pg";
 import { execSync } from "node:child_process";
-import { TENANT_TEMPLATE_SQL } from "../src/lib/tenant-template";
+import {
+  TENANT_TEMPLATE_SQL,
+  TENANT_HARDENING_SQL,
+} from "../src/lib/tenant-template";
 
 /**
  * Build (or rebuild) the `demo_template` schema: the pre-seeded schema every
@@ -111,6 +114,21 @@ async function main() {
       stdio: "inherit",
       env: seedEnv,
     });
+  }
+
+  // Append-only audit triggers LAST, after seeding. The seeds wipe and reload
+  // tables, so installing a DELETE-blocking trigger first would risk failing the
+  // build on a seed that clears audit rows. Sent as ONE query — the plpgsql body
+  // contains semicolons and must not be split. Every demo cloned from this
+  // template inherits the protection.
+  const hardenPool = new Pool({ connectionString: conn, max: 1 });
+  try {
+    await hardenPool.query(
+      `SET search_path TO "${SCHEMA}";\n${TENANT_HARDENING_SQL}`
+    );
+    console.log("✓ audit log is append-only");
+  } finally {
+    await hardenPool.end();
   }
 
   console.log(`\n✅ demo template ready (${SCHEMA})`);

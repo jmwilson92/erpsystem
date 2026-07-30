@@ -113,5 +113,20 @@ jobs:
       - name: Seed
         run: npm run db:seed
 
+      - name: Audit log is append-only (800-171 3.3.8)
+        # Applies the triggers, then proves they actually refuse UPDATE and
+        # DELETE while still allowing INSERT — audit logging must keep working.
+        run: |
+          npx tsx scripts/apply-audit-hardening.ts
+          npx tsx scripts/apply-audit-hardening.ts --check
+          psql "$DATABASE_URL" -c "INSERT INTO public.\"AuditLog\" (id,\"entityType\",\"entityId\",action) VALUES ('ci-immutable','Part','p','CREATE');"
+          if psql "$DATABASE_URL" -c "UPDATE public.\"AuditLog\" SET action='X' WHERE id='ci-immutable';" 2>/dev/null; then
+            echo "FAIL: AuditLog accepted an UPDATE"; exit 1
+          fi
+          if psql "$DATABASE_URL" -c "DELETE FROM public.\"AuditLog\" WHERE id='ci-immutable';" 2>/dev/null; then
+            echo "FAIL: AuditLog accepted a DELETE"; exit 1
+          fi
+          echo "AuditLog correctly refuses UPDATE and DELETE"
+
       - name: Service verification chunks (A–I, serials, RMA)
         run: npm run verify:svc
