@@ -61,6 +61,70 @@ recreating a table drops its triggers. `--check` reports without changing
 anything and exits non-zero if a schema is unprotected, which makes it usable as
 a compliance probe.
 
+## Installing on-premise (air-gapped)
+
+```bash
+# 1. Configure. DOMAIN is the LAN name staff will use — no public DNS needed.
+cat > .env <<'ENV'
+DOMAIN=erp.internal
+POSTGRES_PASSWORD=<a long random string>
+MFA_SECRET_KEY=<openssl rand -base64 48>
+ENV
+
+# 2. Build the image with AIRGAP=1 so third-party URLs are not even bundled.
+docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+               -f docker-compose.airgap.yml build \
+               --build-arg AIRGAP=1
+
+# 3. Start.
+docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+               -f docker-compose.airgap.yml up -d
+```
+
+The airgap overlay is applied **last** so it wins. It sets `AIRGAP=1`, turns on
+the session timeout and password policy, and **explicitly blanks** every external
+integration variable — leaving them unset would let a value in `.env` fall
+through, so they are set to empty rather than omitted.
+
+Confirm what the stack will actually run before starting it:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+               -f docker-compose.airgap.yml config | grep -E 'AIRGAP|RESEND|PLAID|STRIPE|XAI'
+```
+
+### TLS on a disconnected network
+
+The production `Caddyfile` uses automatic HTTPS, which needs a public DNS name and
+a reachable ACME server — neither exists on an isolated LAN, and Caddy would retry
+issuance forever while serving nothing. `Caddyfile.airgap` makes TLS explicit:
+
+- `TLS_MODE=internal` (default) — Caddy issues from its own local CA. Trust that
+  root once per workstation and the LAN name is properly HTTPS, entirely offline.
+- `TLS_MODE="/certs/erp.crt /certs/erp.key"` — use your own internal CA; mount the
+  certificates (see the commented volume in `docker-compose.airgap.yml`).
+
+### Backup and restore
+
+```bash
+# Nightly, via cron on the host
+15 2 * * * /path/to/erpsystem/scripts/backup-db.sh
+
+# Recovery
+./scripts/restore-db.sh backups/protessera-2026-07-30-0215.sql.gz
+```
+
+Both scripts verify the archive before trusting it — gzip integrity plus a schema
+marker — because a backup job that silently writes an empty file buys false
+confidence for months and then fails on the one day it matters. `restore-db.sh`
+validates the dump *before* touching the database, refuses to overwrite a
+populated one without `--force`, stops the app during the restore, and re-applies
+the append-only audit triggers afterwards (a restore recreates the table, and
+recreating a table drops its triggers).
+
+**Rehearse a restore onto a scratch stack before you need it.** An untested backup
+is a hope, not a backup.
+
 ### What this is and is not
 
 This makes the software's behaviour **defensible and demonstrable**. It does not

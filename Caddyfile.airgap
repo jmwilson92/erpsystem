@@ -1,0 +1,28 @@
+# Caddyfile for an air-gapped / LAN deployment.
+#
+# The production Caddyfile relies on automatic HTTPS, which needs a publicly
+# resolvable name and a reachable ACME server. Neither exists on a disconnected
+# network, and Caddy would retry certificate issuance forever while serving
+# nothing — so this file makes TLS explicit instead.
+#
+# TLS_MODE=internal (default)
+#   Caddy issues from its own local CA. Trust that root once on each workstation
+#   and the LAN name is genuinely HTTPS with nothing leaving the network. Caddy
+#   logs the root certificate's path on first start; distribute it with whatever
+#   you already use for machine configuration.
+#
+# TLS_MODE="/certs/erp.crt /certs/erp.key"
+#   Use certificates from your own internal CA. Mount them into the caddy
+#   container (see the commented volume in docker-compose.airgap.yml).
+{$DOMAIN} {
+	tls {$TLS_MODE}
+
+	reverse_proxy forgerp:3000
+	encode gzip
+
+	# The application already sets its own security headers; Caddy adds HSTS.
+	# No preload directive here: preloading submits the domain to a public list,
+	# which is meaningless for an internal name and undesirable for a customer
+	# who would rather their internal hostnames not be published.
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+}

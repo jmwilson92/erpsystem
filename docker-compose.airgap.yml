@@ -1,0 +1,61 @@
+# On-premise / air-gapped overlay (ITAR, CUI, CMMC customers).
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+#                  -f docker-compose.airgap.yml up -d
+#
+# Applied LAST so it wins over the production overlay. It removes every outbound
+# integration and turns on the controls an on-premise customer is assessed
+# against.
+#
+# TLS: the production Caddyfile uses automatic HTTPS, which needs a public DNS
+# name and a reachable ACME server — neither exists on a disconnected LAN. Set
+# TLS_MODE below to match your situation. Nothing here reaches the internet.
+services:
+  forgerp:
+    environment:
+      # No third-party requests. The server REFUSES TO START if any external
+      # integration key is set, rather than starting and leaking later.
+      AIRGAP: "1"
+
+      # Explicitly blank so a value inherited from .env or the prod overlay
+      # cannot quietly re-enable egress. Leaving these unset is not the same as
+      # setting them empty: unset falls through to the other compose files.
+      RESEND_API_KEY: ""
+      EMAIL_FROM: ""
+      PLAID_CLIENT_ID: ""
+      PLAID_SECRET: ""
+      STRIPE_SECRET_KEY: ""
+      STRIPE_WEBHOOK_SECRET: ""
+      XAI_API_KEY: ""
+      GROK_API_KEY: ""
+
+      # NIST SP 800-171 3.1.11 — terminate a session after inactivity.
+      # AIRGAP already defaults this to 15; stated here so an assessor reading
+      # the compose file can see it without knowing the default.
+      SESSION_IDLE_MINUTES: "${SESSION_IDLE_MINUTES:-15}"
+
+      # 3.5.7 — minimum password complexity. 12+ characters of any composition,
+      # or 8+ using three of four character classes.
+      PASSWORD_MIN_LENGTH: "${PASSWORD_MIN_LENGTH:-12}"
+
+      # Login required; no persona switcher.
+      DEMO_MODE: "0"
+      ALLOW_DEMO_IN_PRODUCTION: "0"
+
+      # The LAN name staff will use. No public DNS involved.
+      NEXT_PUBLIC_APP_URL: "${NEXT_PUBLIC_APP_URL:-https://${DOMAIN:-erp.internal}}"
+      APP_URL: "${APP_URL:-https://${DOMAIN:-erp.internal}}"
+
+  caddy:
+    environment:
+      DOMAIN: "${DOMAIN:-erp.internal}"
+      # internal  → Caddy issues a certificate from its own local CA. Staff must
+      #             trust that CA once (Caddy prints where it lives), after which
+      #             the LAN name is properly HTTPS with no internet involved.
+      # your own  → set TLS_MODE to the container paths of your certificate and
+      #             key, e.g. "/certs/erp.crt /certs/erp.key", and mount them.
+      TLS_MODE: "${TLS_MODE:-internal}"
+    volumes:
+      - ./Caddyfile.airgap:/etc/caddy/Caddyfile:ro
+      # Uncomment and point at your own certificates if not using the local CA.
+      # - ./certs:/certs:ro
