@@ -61,6 +61,29 @@ recreating a table drops its triggers. `--check` reports without changing
 anything and exits non-zero if a schema is unprotected, which makes it usable as
 a compliance probe.
 
+## Staff portal vs tenant schemas
+
+The support portal — the Insights dashboard, error triage, and the tenant
+registry — is ours, not a customer feature. Those tables live only in the control
+plane (`public`):
+
+`TelemetryEvent` · `TelemetryIssue` · `TelemetryIssueEvent` · `Tenant` · `TenantLogin`
+
+`scripts/gen-tenant-ddl.mjs` excludes them from the tenant template, so newly
+provisioned tenants and demos never get them. For schemas provisioned before
+that:
+
+```bash
+npx tsx scripts/drop-control-plane-tables.ts          # report only
+npx tsx scripts/drop-control-plane-tables.ts --apply  # drop them
+```
+
+It only ever considers `tenant_*` and `demo_*`, refuses `public` outright, and
+reports rather than drops any table that unexpectedly holds rows — pass `--force`
+once you have looked. Nothing should ever write to these outside `public`, but a
+script that deletes data on the strength of "should" is not one to run against a
+customer's schema.
+
 ## Installing on-premise (air-gapped)
 
 ```bash
