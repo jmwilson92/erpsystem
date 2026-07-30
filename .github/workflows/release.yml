@@ -1,0 +1,128 @@
+name: Release image
+
+# Publishes the self-host image so a customer can run Protessera without ever
+# seeing the source. Until this existed, DEPLOY.md told them to `git clone` —
+# which meant handing over the repository.
+#
+# Two variants are published from the same commit:
+#   :X.Y.Z          standard self-host
+#   :X.Y.Z-airgap   built with AIRGAP=1, for ITAR/CUI customers
+#
+# The airgap variant is a separate BUILD, not a runtime flag: next.config
+# aliases the analytics package to a stub at build time, so a standard image run
+# with AIRGAP=1 would still carry the third-party collector URL in its bundle.
+# The job proves that per-variant rather than assuming it.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish, e.g. 1.0.0 (no leading v)"
+        required: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: v
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          # Refuse anything that is not X.Y.Z. A malformed tag would otherwise
+          # publish something like ":latest" as the only usable reference, and a
+          # customer pinning a version is the whole point of publishing.
+          if ! printf '%s' "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Version must be X.Y.Z, got '$VERSION'"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "minor=$(printf '%s' "$VERSION" | cut -d. -f1-2)" >> "$GITHUB_OUTPUT"
+          echo "Publishing $VERSION"
+
+      # Lowercase: GHCR rejects uppercase in a repository path, and a GitHub
+      # username may legitimately contain capitals.
+      - name: Image name
+        id: img
+        run: echo "name=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push (standard)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          build-args: AIRGAP=0
+          tags: |
+            ${{ steps.img.outputs.name }}:${{ steps.v.outputs.version }}
+            ${{ steps.img.outputs.name }}:${{ steps.v.outputs.minor }}
+            ${{ steps.img.outputs.name }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push (air-gapped)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          build-args: AIRGAP=1
+          tags: |
+            ${{ steps.img.outputs.name }}:${{ steps.v.outputs.version }}-airgap
+            ${{ steps.img.outputs.name }}:${{ steps.v.outputs.minor }}-airgap
+            ${{ steps.img.outputs.name }}:latest-airgap
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: The airgap image really is air-gapped
+        # Checked against the PUBLISHED artifact, not the working tree. A build
+        # arg that silently failed to reach next.config would otherwise ship an
+        # image labelled -airgap that still calls out, which is the one mistake
+        # this whole track cannot afford.
+        run: |
+          set -euo pipefail
+          IMG="${{ steps.img.outputs.name }}:${{ steps.v.outputs.version }}-airgap"
+          docker create --name probe "$IMG"
+          docker cp probe:/app/.next/static /tmp/airgap-static
+          docker rm probe >/dev/null
+
+          FOUND=0
+          for host in photon.komoot.io cdn.plaid.com vitals.vercel-insights.com va.vercel-scripts.com; do
+            if grep -rq "$host" /tmp/airgap-static 2>/dev/null; then
+              echo "::error::$host is present in $IMG"
+              FOUND=1
+            fi
+          done
+          [ "$FOUND" = "0" ] || exit 1
+          echo "No third-party hosts in the published air-gapped bundle."
+
+      - name: Summary
+        run: |
+          {
+            echo "### Published \`${{ steps.v.outputs.version }}\`"
+            echo ""
+            echo "| Variant | Pull |"
+            echo "|---|---|"
+            echo "| Standard | \`docker pull ${{ steps.img.outputs.name }}:${{ steps.v.outputs.version }}\` |"
+            echo "| Air-gapped | \`docker pull ${{ steps.img.outputs.name }}:${{ steps.v.outputs.version }}-airgap\` |"
+          } >> "$GITHUB_STEP_SUMMARY"

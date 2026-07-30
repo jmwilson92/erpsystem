@@ -14,11 +14,23 @@ COPY package.json package-lock.json ./
 # runs on PostgreSQL via the pure-JS pg driver.
 RUN npm ci --omit=optional
 COPY . .
+# Air-gapped images are a BUILD-time variant, not just a runtime flag: with
+# AIRGAP=1 next.config aliases the analytics package to a local stub, so the
+# third-party collector URL never enters the client bundle. Setting the flag at
+# runtime alone would leave that URL shipped, and `npm run verify:airgap` exists
+# precisely because that distinction is invisible otherwise.
+ARG AIRGAP=0
+ENV AIRGAP=$AIRGAP
 RUN npx prisma generate && npm run build
 
 # ─── runtime ───
 FROM base AS runtime
 ENV NODE_ENV=production
+# Carried into the runtime so the image is self-describing: an image built
+# air-gapped also BEHAVES air-gapped by default, instead of depending on whoever
+# runs it remembering to pass the flag.
+ARG AIRGAP=0
+ENV AIRGAP=$AIRGAP
 # DATABASE_URL / DIRECT_URL are provided by the environment (docker-compose
 # points them at the bundled Postgres service, or set them to a managed
 # Postgres like Supabase). No local database file — persistence lives in

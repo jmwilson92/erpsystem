@@ -61,6 +61,45 @@ recreating a table drops its triggers. `--check` reports without changing
 anything and exits non-zero if a schema is unprotected, which makes it usable as
 a compliance probe.
 
+## Giving it to a customer (published image)
+
+Tagging `vX.Y.Z` publishes two images to GHCR:
+
+| Tag | For |
+|---|---|
+| `:X.Y.Z` | standard self-host |
+| `:X.Y.Z-airgap` | ITAR/CUI — built with `AIRGAP=1` |
+
+The air-gapped variant is a separate **build**, not a runtime flag: `next.config`
+aliases the analytics package to a stub at build time, so a standard image run
+with `AIRGAP=1` would still carry the collector URL in its bundle. The release
+job proves this by extracting `/app/.next/static` from the *published* image and
+grepping it — a build arg that silently failed to reach `next.config` would
+otherwise ship an image labelled `-airgap` that still calls out.
+
+The customer needs two files and nothing else — no repository, no source:
+
+```bash
+# scripts/install.sh and docker-compose.release.yml, side by side
+./install.sh                    # standard
+./install.sh --airgap           # ITAR/CUI
+./install.sh --version 1.2.0    # pin a release
+```
+
+It checks Docker, generates secrets, writes `.env` at mode 600, pulls, starts,
+and waits on `/api/health` — so "installed" means usable, not merely started.
+
+**Re-running never rewrites `.env`.** That is the difference between an upgrade
+and an outage: regenerating `MFA_SECRET_KEY` would make every enrolled second
+factor undecryptable with no recovery path, and a new `POSTGRES_PASSWORD` would
+orphan the data volume. If `.env` exists but is missing either secret, the
+installer refuses to start rather than quietly generating a replacement.
+
+`docker-compose.release.yml` is standalone rather than an overlay on
+`docker-compose.yml`, because that file carries `build: .` and a customer with
+no source cannot build. Postgres is deliberately not published to the host — the
+app reaches it over the compose network.
+
 ## Staff portal vs tenant schemas
 
 The support portal — the Insights dashboard, error triage, and the tenant
