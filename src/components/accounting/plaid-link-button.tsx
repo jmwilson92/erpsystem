@@ -27,13 +27,32 @@ declare global {
   }
 }
 
-const PLAID_LINK_SRC = "https://cdn.plaid.com/link/v2/stable/link-initialize.js";
+/**
+ * Loads Plaid's Link script on demand (once) and resolves the global.
+ *
+ * The script URL comes from /api/plaid/link-src rather than a constant here, so
+ * this bundle contains no third-party hostname — which is what lets an
+ * air-gapped build assert that the shipped client cannot reach outside the
+ * customer's network (see scripts/assert-airgap-build.mjs). The endpoint
+ * declines with 204 when air-gapped or when Plaid is not configured.
+ */
+async function loadPlaid(): Promise<PlaidGlobal> {
+  if (window.Plaid) return window.Plaid;
 
-/** Loads Plaid's Link script on demand (once) and resolves the global. */
-function loadPlaid(): Promise<PlaidGlobal> {
-  return new Promise((resolve, reject) => {
+  const res = await fetch("/api/plaid/link-src");
+  if (res.status === 204 || !res.ok) {
+    throw new Error(
+      "Live bank feeds are not available on this deployment — import a statement file instead"
+    );
+  }
+  const { src } = (await res.json()) as { src?: string };
+  if (!src) {
+    throw new Error("Live bank feeds are not available on this deployment");
+  }
+
+  return new Promise<PlaidGlobal>((resolve, reject) => {
     if (window.Plaid) return resolve(window.Plaid);
-    const existing = document.querySelector(`script[src="${PLAID_LINK_SRC}"]`);
+    const existing = document.querySelector(`script[src="${src}"]`);
     const script = existing || document.createElement("script");
     const onReady = () =>
       window.Plaid
@@ -46,7 +65,7 @@ function loadPlaid(): Promise<PlaidGlobal> {
       { once: true }
     );
     if (!existing) {
-      (script as HTMLScriptElement).src = PLAID_LINK_SRC;
+      (script as HTMLScriptElement).src = src;
       document.head.appendChild(script);
     } else if (window.Plaid) {
       resolve(window.Plaid);

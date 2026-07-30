@@ -18,6 +18,7 @@ import { getTabBrand } from "@/lib/tab-brand";
 import { readFlashToast } from "@/lib/flash";
 import { moduleKeyForPath } from "@/lib/modules";
 import { Analytics } from "@vercel/analytics/next";
+import { analyticsEnabled } from "@/lib/airgap";
 import {
   getSiteUrl,
   SITE_DESCRIPTION,
@@ -267,7 +268,7 @@ export default async function RootLayout({
             />
           )}
           <CookieBanner />
-          <Analytics />
+          {analyticsEnabled() && <Analytics />}
         </body>
       </html>
     );
@@ -440,7 +441,7 @@ export default async function RootLayout({
         )}
         <CookieBanner />
         <TelemetryBeacon enabled={isAnonymousDemo} />
-        <Analytics />
+        {analyticsEnabled() && <Analytics />}
       </body>
     </html>
   );

@@ -10,6 +10,46 @@ Two deployment tracks share one codebase:
 Because every customer already runs an isolated instance with its own database,
 "self-host" is the same app pointed at the customer's infrastructure.
 
+## Air-gapped mode (`AIRGAP=1`) — the on-premise guarantee
+
+For an ITAR/CUI customer the claim is that nothing leaves their boundary. That is
+enforced, not documented:
+
+| Behaviour | Effect |
+|---|---|
+| Product analytics | Not rendered, and the collector URL is not in the bundle |
+| Address type-ahead | Disabled; `/api/geocode` returns 204 and the field is a plain textarea |
+| Plaid bank feeds | Unavailable; `/api/plaid/link-src` declines, so the CDN script is never loaded |
+| Resend / Stripe / xAI / Plaid keys | **Server refuses to start** if any are set |
+
+Build *and* run with the flag — a runtime flag alone still ships third-party URLs
+in the client bundle:
+
+```bash
+npm run build:airgap        # AIRGAP=1 next build
+AIRGAP=1 npm start
+```
+
+`npm run verify:airgap` builds and then greps the client bundle for forbidden
+hosts, so an import that reintroduces egress fails CI rather than shipping. It
+already caught one: gating `<Analytics />` in JSX stopped it rendering but still
+bundled its collector URL, because a conditional render does not drop the
+dependency.
+
+### What this is and is not
+
+This makes the software's behaviour **defensible and demonstrable**. It does not
+make a deployment *compliant* — NIST 800-171 and CMMC are assessed against the
+customer's whole environment by their C3PAO, and no application can be
+"CMMC certified" on its own. Claiming otherwise to a defense prime is a real
+liability. What you can hand them is a control matrix: what the software
+provides, what they configure, what they inherit from their environment.
+
+Still open before that matrix is honest: session inactivity timeout (3.1.11),
+audit-log immutability (3.3.8), and FIPS-validated crypto (3.13.11 — inherited
+from the host, so "deploy on a FIPS-mode host" is the correct entry).
+
+
 ## Option A — Docker self-host (available today)
 
 The repo already includes `Dockerfile` and `docker-compose.prod.yml`.

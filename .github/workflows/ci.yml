@@ -45,6 +45,14 @@ jobs:
       - name: Unit smoke (auth + modules)
         run: npx tsx scripts/smoke-unit.ts
 
+      # Builds with AIRGAP=1 and greps the client bundle for third-party hosts.
+      # Guards the on-premise claim: an import that reintroduces egress fails
+      # here instead of shipping inside an ITAR/CUI image. This caught a real
+      # miss already — gating <Analytics /> in JSX still bundled its collector
+      # URL, because a conditional render does not drop the dependency.
+      - name: Air-gapped build ships no third-party hosts
+        run: npm run verify:airgap
+
       - name: Tenant DDL is in sync with the schema
         # src/lib/tenant-template.ts is generated. When it lags schema.prisma,
         # every newly provisioned tenant and demo is born missing tables — which

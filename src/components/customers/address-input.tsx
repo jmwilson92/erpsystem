@@ -5,9 +5,10 @@ import { Textarea } from "@/components/ui/textarea";
 
 /**
  * Address textarea with type-ahead. Suggestions come from the free
- * OpenStreetMap Photon geocoder as you type the street line; selecting one
- * fills a formatted address. Fails silently offline — it's still a plain
- * textarea.
+ * OpenStreetMap Photon geocoder as you type the street line, proxied through
+ * /api/geocode; selecting one fills a formatted address. Fails silently
+ * offline, and on-premise deployments turn the lookup off entirely — either
+ * way it degrades to a plain textarea.
  */
 export function AddressInput({
   name,
@@ -43,11 +44,14 @@ export function AddressInput({
       const ctrl = new AbortController();
       abortRef.current = ctrl;
       try {
-        const res = await fetch(
-          `https://photon.komoot.io/api/?q=${encodeURIComponent(line)}&limit=5&lang=en`,
-          { signal: ctrl.signal }
-        );
-        if (!res.ok) return;
+        // Proxied through our own server rather than called directly, so the
+        // customer's address never leaves the user's browser for a third party
+        // and air-gapped deployments can refuse the lookup outright. A 204 means
+        // suggestions are switched off — stop, don't retry.
+        const res = await fetch(`/api/geocode?q=${encodeURIComponent(line)}`, {
+          signal: ctrl.signal,
+        });
+        if (!res.ok || res.status === 204) return;
         const data = (await res.json()) as {
           features?: {
             properties?: {
