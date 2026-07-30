@@ -70,7 +70,7 @@ Add these:
 |-----|-------|---------|
 | `APP_URL` | `https://www.protessera.com` | Absolute URLs for Stripe success/cancel + webhooks |
 | `CRON_SECRET` | a long random string | Auth for the demo-sweep cron route |
-| `DEMO_IDLE_MINUTES` | `20` (optional, default 20) | Idle minutes before a claimed sandbox is reaped. An abandoned demo still holds a full schema, so a longer window multiplies steady-state catalog size. |
+| `DEMO_IDLE_MINUTES` | `10` (optional, default 10) | Idle minutes before a claimed sandbox is reaped and its ~23 MB returned to the pool budget. Measures a heartbeat, not clicks: the demo pings every 60s while its tab is open, so this only reaps sandboxes whose tab is gone. |
 | `DEMO_POOL_SIZE` | `5` (optional, default 5, max 20) | Pre-warmed demo sandboxes kept ready. Cloning takes seconds against a remote DB, so the pool is what makes "Take the live demo" feel instant. `0` disables pre-warming (every visitor waits for a clone). A demo schema measures ~23 MB, and a spare costs that whether or not anyone claims it: 5 is ~115 MB, 15 is ~345 MB. Supabase free is 500 MB total, shared with demo_template, the dogfood schema, real tenants, and claimed demos -- so raise this only on a paid database. |
 | `LAUNCH_DATE` | `YYYY-MM-DD` **launch day** | Opens the 50%-off promo window |
 | `LAUNCH_PROMO_DAYS` | `60` (optional, default 60) | Length of the promo window |

@@ -371,15 +371,22 @@ const MAX_REFILL_PER_RUN = 5;
 /**
  * How long a claimed sandbox may sit untouched before it is reclaimed.
  *
- * An abandoned demo still holds a full schema, so this window multiplies
- * steady-state catalog size by however many visitors wandered off mid-session.
- * Kept long enough that someone reading a page for a while does not lose their
- * sandbox underneath them.
+ * An abandoned demo still holds ~23 MB, so this window multiplies wasted disk by
+ * however many visitors wandered off mid-session. Recycling promptly is what
+ * keeps a small pool serving a steady trickle of prospects.
+ *
+ * Short is safe here because this measures a heartbeat, not clicks:
+ * DemoLeaveBeacon pings /api/demo/ping every 60 seconds for as long as the tab
+ * is open, so someone reading one page for an hour keeps their sandbox. Reaching
+ * this window means the tab is gone. A backgrounded tab releases itself sooner
+ * still, via sendBeacon to /api/demo/leave after 5 minutes hidden — so this only
+ * has to outrun the 60-second ping, and ten minutes clears it comfortably even
+ * with a browser throttling timers.
  *
  * Defined here because the sweep has two callers — the cron route and the
  * opportunistic sweep in provisionDemo — and two copies of a default drift.
  */
-const DEFAULT_DEMO_IDLE_MINUTES = 20;
+const DEFAULT_DEMO_IDLE_MINUTES = 10;
 
 export function demoIdleMinutes(): number {
   const n = Number(process.env.DEMO_IDLE_MINUTES);
