@@ -13,7 +13,12 @@ import {
   moduleKeyForPath,
   isPathEnabled,
 } from "../src/lib/modules";
-import { demoModeEnabled } from "../src/lib/auth-core";
+import {
+  demoModeEnabled,
+  sessionIdleMinutes,
+  lastSeenRefreshMs,
+  assertPasswordStrength,
+} from "../src/lib/auth-core";
 
 function testChargeCodes() {
   assert.equal(sanitizeChargeCode("  Foo Bar!  "), "Foo-Bar");
@@ -45,8 +50,111 @@ function testDemoModeHelper() {
   console.log(`  ✓ demoModeEnabled() → ${v}`);
 }
 
+function testSessionIdleTimeout() {
+  const saved = {
+    idle: process.env.SESSION_IDLE_MINUTES,
+    airgap: process.env.AIRGAP,
+  };
+  try {
+    // Hosted default: off. An ERP that logs you out mid-drawing is worse than
+    // one that does not, and hosted customers carry no CUI obligation.
+    delete process.env.SESSION_IDLE_MINUTES;
+    delete process.env.AIRGAP;
+    assert.equal(sessionIdleMinutes(), 0);
+
+    // Air-gapped default: on, because 800-171 3.1.11 requires it.
+    process.env.AIRGAP = "1";
+    assert.equal(sessionIdleMinutes(), 15);
+
+    // Explicit always wins, in either posture.
+    process.env.SESSION_IDLE_MINUTES = "30";
+    assert.equal(sessionIdleMinutes(), 30);
+    delete process.env.AIRGAP;
+    assert.equal(sessionIdleMinutes(), 30);
+
+    // "0" must disable rather than fall through to a default — a truthiness
+    // check here would silently re-enable the timeout for someone who turned
+    // it off on purpose.
+    process.env.SESSION_IDLE_MINUTES = "0";
+    assert.equal(sessionIdleMinutes(), 0);
+
+    // Garbage falls back rather than producing NaN minutes.
+    process.env.SESSION_IDLE_MINUTES = "banana";
+    assert.equal(sessionIdleMinutes(), 0);
+
+    // THE INVARIANT THAT MATTERS: lastSeenAt is only refreshed once per
+    // interval, so for an active user it always lags. If that lag could reach
+    // the idle timeout, the timeout would fire on people who never stopped
+    // working. The refresh must stay strictly inside the window for every
+    // timeout anyone might configure.
+    for (const minutes of [1, 5, 10, 15, 20, 30, 60, 120, 480]) {
+      const idleMs = minutes * 60_000;
+      const refresh = lastSeenRefreshMs(idleMs);
+      assert.ok(
+        refresh < idleMs,
+        `refresh ${refresh}ms must be < idle ${idleMs}ms (${minutes}m)`
+      );
+      assert.ok(refresh > 0, `refresh must be positive at ${minutes}m`);
+    }
+
+    // Timeout disabled → keep the original hourly cadence, not a hot loop.
+    assert.equal(lastSeenRefreshMs(0), 3_600_000);
+
+    console.log("  \u2713 session idle timeout + refresh coupling");
+  } finally {
+    if (saved.idle === undefined) delete process.env.SESSION_IDLE_MINUTES;
+    else process.env.SESSION_IDLE_MINUTES = saved.idle;
+    if (saved.airgap === undefined) delete process.env.AIRGAP;
+    else process.env.AIRGAP = saved.airgap;
+  }
+}
+
+function testPasswordPolicy() {
+  const ok = (pw: string, why: string) =>
+    assert.doesNotThrow(() => assertPasswordStrength(pw), `should accept ${why}`);
+  const bad = (pw: string, why: string) =>
+    assert.throws(() => assertPasswordStrength(pw), `should reject ${why}`);
+
+  // Length-only path: a passphrase needs no symbol gymnastics.
+  ok("correct horse battery", "a long passphrase");
+  ok("thequickbrownfoxjumps", "21 lowercase chars");
+
+  // Complexity path: shorter is allowed with three character classes.
+  ok("Tr0ubadour", "10 chars, upper+lower+digit");
+  ok("shop-Floor9", "11 chars, three classes");
+
+  // Too short for either path.
+  bad("abc", "3 chars");
+  bad("shortpw", "7 chars");
+  // 8-11 chars with only two classes satisfies neither rule.
+  bad("lowercase1", "10 chars, only lower+digit");
+  bad("SHOUTING99", "10 chars, only upper+digit");
+  // 12 chars clears the length-only path even with one class — that is the point
+  // of preferring length over composition, so assert it rather than assume it.
+  ok("alllowercase", "12 lowercase chars");
+
+  // Passwords that satisfy a composition rule and are still guessed first.
+  bad("Password123", "a common password that passes three classes");
+  bad("Qwerty123!", "another common one");
+
+  // Respects PASSWORD_MIN_LENGTH for the length-only path.
+  const savedMin = process.env.PASSWORD_MIN_LENGTH;
+  try {
+    process.env.PASSWORD_MIN_LENGTH = "20";
+    bad("sixteencharacter", "16 chars when the floor is 20 and only one class");
+    ok("Tr0ubadour", "short-but-complex still passes with a raised floor");
+  } finally {
+    if (savedMin === undefined) delete process.env.PASSWORD_MIN_LENGTH;
+    else process.env.PASSWORD_MIN_LENGTH = savedMin;
+  }
+
+  console.log("  \u2713 password policy");
+}
+
 console.log("smoke-unit");
 testChargeCodes();
 testModules();
 testDemoModeHelper();
+testSessionIdleTimeout();
+testPasswordPolicy();
 console.log("smoke-unit: all passed");

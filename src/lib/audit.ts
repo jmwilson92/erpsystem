@@ -2,6 +2,33 @@
 
 import { prisma } from "./db";
 
+/**
+ * Source address for the audit record.
+ *
+ * NIST SP 800-171 3.3.1 expects audit records to say where an action came from,
+ * and AuditLog.ipAddress existed as a column that nothing ever wrote — so every
+ * record was missing that field silently.
+ *
+ * Prefers the left-most x-forwarded-for hop, which is the client as seen by the
+ * first proxy (Caddy on-premise, Vercel's edge hosted). Returns null outside a
+ * request scope — seeds and scripts legitimately have no source address, and a
+ * missing value is more honest than inventing one.
+ */
+async function requestIp(): Promise<string | null> {
+  try {
+    const { headers } = await import("next/headers");
+    const h = await headers();
+    const fwd = h.get("x-forwarded-for");
+    if (fwd) {
+      const first = fwd.split(",")[0]?.trim();
+      if (first) return first.slice(0, 64);
+    }
+    return h.get("x-real-ip")?.trim()?.slice(0, 64) || null;
+  } catch {
+    return null;
+  }
+}
+
 export async function logAudit(params: {
   entityType: string;
   entityId: string;
@@ -17,6 +44,7 @@ export async function logAudit(params: {
         entityId: params.entityId,
         action: params.action,
         userId: params.userId || null,
+        ipAddress: await requestIp(),
         changes: params.changes ? JSON.stringify(params.changes) : null,
         metadata: params.metadata ? JSON.stringify(params.metadata) : null,
       },

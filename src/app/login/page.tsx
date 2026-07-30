@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { prisma } from "@/lib/db";
+import { controlPlaneClient } from "@/lib/db";
 import { getSessionUser, needsBootstrap, demoModeEnabled } from "@/lib/auth-core";
 import { LoginForm, BootstrapForm } from "@/components/auth/auth-forms";
 import Link from "next/link";
@@ -18,9 +18,12 @@ export default async function LoginPage() {
   const sessionUser = await getSessionUser();
   if (sessionUser) redirect("/");
 
+  // Control plane, not the request-scoped client: an anonymous visitor carrying
+  // a forge-demo cookie would otherwise see the demo sandbox's company name on
+  // the sign-in screen for the real instance.
   const [bootstrap, company] = await Promise.all([
     needsBootstrap(),
-    prisma.companySettings.findUnique({ where: { id: "default" } }),
+    controlPlaneClient().companySettings.findUnique({ where: { id: "default" } }),
   ]);
 
   return (

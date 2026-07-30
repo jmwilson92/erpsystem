@@ -28,11 +28,49 @@ import {
 import type { PrismaClient } from "@prisma/client";
 import { cookies } from "next/headers";
 import { logAudit } from "./audit";
+import { airgapEnabled } from "./airgap";
 
 export const SESSION_COOKIE = "forge-session";
 /** Short-lived, holds a passed password check waiting on its second factor. */
 export const MFA_COOKIE = "forge-mfa";
 const SESSION_DAYS = 30;
+
+/**
+ * Inactivity timeout in minutes; 0 disables it.
+ *
+ * NIST SP 800-171 3.1.11 requires automatic session termination after a defined
+ * period of inactivity, so air-gapped (CUI) deployments get it by default.
+ * Hosted SaaS defaults to off: a 15-minute logout is miserable for someone
+ * reading a drawing or filling a long router, and hosted customers carry no CUI
+ * obligation. Either can be set explicitly with SESSION_IDLE_MINUTES.
+ */
+export function sessionIdleMinutes(): number {
+  const raw = process.env.SESSION_IDLE_MINUTES;
+  if (raw !== undefined && raw.trim() !== "") {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 0) return Math.floor(n);
+  }
+  return airgapEnabled() ? 15 : 0;
+}
+
+/**
+ * How stale `lastSeenAt` may get before a request refreshes it.
+ *
+ * This exists because the two settings are coupled and getting it wrong logs
+ * active users out. `lastSeenAt` is written at most once per interval to avoid a
+ * database write on every request — so for an actively-working user it is always
+ * somewhat behind. If that lag can exceed the idle timeout, the timeout fires on
+ * people who never stopped working.
+ *
+ * Keeping the refresh at a third of the timeout bounds the lag well inside it: a
+ * 15-minute timeout refreshes every 5 minutes, so an active session's
+ * `lastSeenAt` is never more than 5 minutes old. With the timeout off, this stays
+ * at the original hourly cadence.
+ */
+export function lastSeenRefreshMs(idleMs: number): number {
+  const HOURLY = 3_600_000;
+  return idleMs > 0 ? Math.min(HOURLY, Math.floor(idleMs / 3)) : HOURLY;
+}
 const INVITE_DAYS = 7;
 
 export function demoModeEnabled() {
@@ -101,10 +139,75 @@ export function verifyPassword(password: string, stored: string): boolean {
   );
 }
 
-function assertPasswordStrength(password: string) {
-  if (!password || password.length < 8) {
+/**
+ * Passwords that clear any composition rule and are still guessed early.
+ *
+ * Deliberately tiny and honest about it: this is not a breach-corpus check, just
+ * the handful that a "one upper, one digit, one symbol" rule actively pushes
+ * people toward. A real check means k-anonymity lookups against a breach list,
+ * which an air-gapped install cannot do.
+ */
+const OBVIOUS_PASSWORDS = new Set(
+  [
+    "password1",
+    "password1!",
+    "password123",
+    "password123!",
+    "qwerty123",
+    "qwerty123!",
+    "welcome123",
+    "welcome123!",
+    "letmein123",
+    "changeme123",
+    "protessera1",
+    "protessera123",
+  ].map((p) => p.toLowerCase())
+);
+
+/** Minimum length for the length-only path. Raise it on-premise if required. */
+function passwordMinLength(): number {
+  const n = Number(process.env.PASSWORD_MIN_LENGTH);
+  return Number.isFinite(n) && n >= 8 ? Math.floor(n) : 12;
+}
+
+/**
+ * Password policy.
+ *
+ * NIST SP 800-171 Rev 2 3.5.7 asks for a minimum complexity, which a bare
+ * 8-character floor does not meet. Rather than the classic "one of each of four
+ * character classes" rule — which reliably produces `Passw0rd!` — this accepts
+ * either genuine length or moderate length with variety, following SP 800-63B's
+ * finding that length beats composition:
+ *
+ *   - PASSWORD_MIN_LENGTH (default 12) or more, any composition — a passphrase
+ *   - or 8+ characters with at least three of: lowercase, uppercase, digit, symbol
+ *
+ * Enforced only when a password is SET, so raising the bar never locks out an
+ * existing user — they meet the new rule at their next change. That is also why
+ * this is safe to tighten on a live deployment.
+ */
+export function assertPasswordStrength(password: string) {
+  const pw = password ?? "";
+  if (pw.length < 8) {
     throw new Error("Password must be at least 8 characters");
   }
+  if (OBVIOUS_PASSWORDS.has(pw.toLowerCase())) {
+    throw new Error(
+      "That password is one of the most commonly guessed — choose something else"
+    );
+  }
+
+  const min = passwordMinLength();
+  if (pw.length >= min) return; // long enough on its own
+
+  const classes = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^A-Za-z0-9]/].filter((re) =>
+    re.test(pw)
+  ).length;
+  if (classes >= 3) return;
+
+  throw new Error(
+    `Password must be at least ${min} characters, or at least 8 characters using three of: lowercase, uppercase, numbers, symbols`
+  );
 }
 
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
@@ -183,8 +286,23 @@ export async function getSessionUser() {
     });
     if (!session || session.expiresAt < new Date()) return null;
     if (!session.user.isActive) return null;
-    // Sliding expiry — refresh at most once an hour
-    if (Date.now() - session.lastSeenAt.getTime() > 3_600_000) {
+
+    const idleMs = sessionIdleMinutes() * 60_000;
+    const idleFor = Date.now() - session.lastSeenAt.getTime();
+
+    if (idleMs > 0 && idleFor > idleMs) {
+      // Terminated, not merely refused. 3.1.11 asks for termination, and
+      // deleting the row means a cookie captured earlier cannot be replayed
+      // once the idle window has passed.
+      await prisma.authSession
+        .delete({ where: { id: session.id } })
+        .catch(() => null);
+      return null;
+    }
+
+    // Sliding expiry. The refresh interval tracks the idle timeout — see
+    // lastSeenRefreshMs for why they cannot be set independently.
+    if (idleFor > lastSeenRefreshMs(idleMs)) {
       await prisma.authSession
         .update({
           where: { id: session.id },
@@ -361,8 +479,23 @@ export async function cancelMfaLogin() {
 }
 
 /** True when no account has a password yet — first-boot claim allowed. */
+/**
+ * True when this instance has no activated account yet, so /login should offer
+ * to claim it instead of asking for a password.
+ *
+ * Pinned to the control plane rather than the request-scoped client. The proxy
+ * resolves the schema from cookies, so an anonymous visitor carrying a
+ * `forge-demo` cookie was counted against the DEMO sandbox — where seeded
+ * personas deliberately have no passwordHash. The count came back zero and
+ * /login told a prospect who had just taken the demo that this was a fresh
+ * instance waiting to be claimed.
+ *
+ * The bootstrap question is only ever about the platform instance. A customer's
+ * first admin is created through the tokened onboarding flow (claimTenant), and
+ * a demo sandbox is never claimable at all.
+ */
 export async function needsBootstrap() {
-  const activated = await prisma.user.count({
+  const activated = await controlPlaneClient().user.count({
     where: { passwordHash: { not: null } },
   });
   return activated === 0;
@@ -382,14 +515,18 @@ export async function bootstrapFirstAdmin(params: {
     throw new Error("This instance already has activated accounts — log in instead");
   }
   assertPasswordStrength(params.password);
+  // Control plane, matching needsBootstrap. Through the request-scoped proxy a
+  // visitor holding a forge-demo cookie would have created this ADMIN — and its
+  // session — inside a throwaway demo sandbox instead of the real instance.
+  const cp = controlPlaneClient();
   const email = params.email.trim().toLowerCase();
-  const existing = await prisma.user.findFirst({ where: { email } });
+  const existing = await cp.user.findFirst({ where: { email } });
   const user = existing
-    ? await prisma.user.update({
+    ? await cp.user.update({
         where: { id: existing.id },
         data: { passwordHash: hashPassword(params.password), role: "ADMIN", isActive: true },
       })
-    : await prisma.user.create({
+    : await cp.user.create({
         data: {
           email,
           name: params.name?.trim() || email.split("@")[0],
@@ -397,7 +534,9 @@ export async function bootstrapFirstAdmin(params: {
           passwordHash: hashPassword(params.password),
         },
       });
-  await createSession(user.id);
+  // Session in the platform schema, and clear any forge-tenant routing so the
+  // new admin lands on the instance they just claimed.
+  await issueSession(cp, user.id, { tenantCookie: null });
   await logAudit({
     entityType: "User",
     entityId: user.id,

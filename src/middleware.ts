@@ -37,6 +37,11 @@ const PUBLIC_PREFIXES = [
   // SEO / social previews must stay crawlable without a session
   "/robots.txt",
   "/sitemap.xml",
+  // The browser fetches the manifest while deciding whether the site is
+  // installable, before any session exists. Redirecting it to /login makes the
+  // "Install app" option quietly never appear.
+  "/manifest.webmanifest",
+  "/icons",
   "/opengraph-image",
   "/twitter-image",
   "/icon",
