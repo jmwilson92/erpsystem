@@ -22,12 +22,58 @@ const raw = execSync(
 
 // Drop the leading `CREATE SCHEMA "public"` — the provisioner creates the
 // tenant's own schema and sets search_path before running this.
-const cleaned = raw
+let cleaned = raw
   .split("\n")
   .filter((l) => !/^CREATE SCHEMA IF NOT EXISTS "public";/.test(l.trim()))
   .filter((l) => l.trim() !== "-- CreateSchema")
   .join("\n")
   .trim();
+
+/**
+ * Models that live ONLY in the control plane (the `public` schema).
+ *
+ * The staff portal's telemetry and the tenant registry are ours, not a
+ * customer's: nothing in a tenant schema ever reads them, and every one is
+ * reached through controlPlaneClient() rather than the request-scoped proxy.
+ * Provisioning them into every tenant and demo schema created hundreds of dead
+ * tables that could only mislead someone reading a customer's database.
+ *
+ * Verified safe to drop: no foreign key from a table we keep points at any of
+ * these, so removing them cannot leave a dangling reference. TelemetryIssueEvent
+ * references TelemetryIssue, and both leave together.
+ *
+ * This only affects NEWLY provisioned schemas. Schemas created before this keep
+ * the empty tables — harmless, and the backfill only ever adds, never drops.
+ */
+const CONTROL_PLANE_ONLY = new Set([
+  "TelemetryEvent",
+  "TelemetryIssue",
+  "TelemetryIssueEvent",
+  "Tenant",
+  "TenantLogin",
+]);
+
+/** The table a generated statement acts on, or null if it names none. */
+function tableOf(stmt) {
+  const m =
+    stmt.match(/CREATE TABLE\s+"([^"]+)"/) ||
+    stmt.match(/CREATE(?:\s+UNIQUE)?\s+INDEX\s+"[^"]+"\s+ON\s+"([^"]+)"/) ||
+    stmt.match(/ALTER TABLE\s+"([^"]+)"/);
+  return m ? m[1] : null;
+}
+
+const kept = cleaned
+  .split(/;\s*(?:\r?\n|$)/)
+  .map((x) => x.trim())
+  .filter(Boolean)
+  .filter((stmt) => {
+    const t = tableOf(stmt);
+    return !(t && CONTROL_PLANE_ONLY.has(t));
+  });
+
+const dropped =
+  cleaned.split(/;\s*(?:\r?\n|$)/).filter((x) => x.trim()).length - kept.length;
+cleaned = kept.join(";\n\n") + ";";
 
 const tables = (cleaned.match(/CREATE TABLE/g) || []).length;
 
@@ -99,4 +145,7 @@ export const TENANT_HARDENING_SQL = ${JSON.stringify(hardeningSql)};
 `;
 
 writeFileSync("src/lib/tenant-template.ts", out);
-console.log(`wrote src/lib/tenant-template.ts (${tables} tables, ${fkCount} FKs)`);
+console.log(
+  `wrote src/lib/tenant-template.ts (${tables} tables, ${fkCount} FKs, ` +
+    `${dropped} control-plane-only statements excluded)`
+);
