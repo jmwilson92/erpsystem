@@ -17,6 +17,7 @@ import {
   demoModeEnabled,
   sessionIdleMinutes,
   lastSeenRefreshMs,
+  assertPasswordStrength,
 } from "../src/lib/auth-core";
 
 function testChargeCodes() {
@@ -108,9 +109,52 @@ function testSessionIdleTimeout() {
   }
 }
 
+function testPasswordPolicy() {
+  const ok = (pw: string, why: string) =>
+    assert.doesNotThrow(() => assertPasswordStrength(pw), `should accept ${why}`);
+  const bad = (pw: string, why: string) =>
+    assert.throws(() => assertPasswordStrength(pw), `should reject ${why}`);
+
+  // Length-only path: a passphrase needs no symbol gymnastics.
+  ok("correct horse battery", "a long passphrase");
+  ok("thequickbrownfoxjumps", "21 lowercase chars");
+
+  // Complexity path: shorter is allowed with three character classes.
+  ok("Tr0ubadour", "10 chars, upper+lower+digit");
+  ok("shop-Floor9", "11 chars, three classes");
+
+  // Too short for either path.
+  bad("abc", "3 chars");
+  bad("shortpw", "7 chars");
+  // 8-11 chars with only two classes satisfies neither rule.
+  bad("lowercase1", "10 chars, only lower+digit");
+  bad("SHOUTING99", "10 chars, only upper+digit");
+  // 12 chars clears the length-only path even with one class — that is the point
+  // of preferring length over composition, so assert it rather than assume it.
+  ok("alllowercase", "12 lowercase chars");
+
+  // Passwords that satisfy a composition rule and are still guessed first.
+  bad("Password123", "a common password that passes three classes");
+  bad("Qwerty123!", "another common one");
+
+  // Respects PASSWORD_MIN_LENGTH for the length-only path.
+  const savedMin = process.env.PASSWORD_MIN_LENGTH;
+  try {
+    process.env.PASSWORD_MIN_LENGTH = "20";
+    bad("sixteencharacter", "16 chars when the floor is 20 and only one class");
+    ok("Tr0ubadour", "short-but-complex still passes with a raised floor");
+  } finally {
+    if (savedMin === undefined) delete process.env.PASSWORD_MIN_LENGTH;
+    else process.env.PASSWORD_MIN_LENGTH = savedMin;
+  }
+
+  console.log("  \u2713 password policy");
+}
+
 console.log("smoke-unit");
 testChargeCodes();
 testModules();
 testDemoModeHelper();
 testSessionIdleTimeout();
+testPasswordPolicy();
 console.log("smoke-unit: all passed");

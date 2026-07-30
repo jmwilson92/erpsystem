@@ -139,10 +139,75 @@ export function verifyPassword(password: string, stored: string): boolean {
   );
 }
 
-function assertPasswordStrength(password: string) {
-  if (!password || password.length < 8) {
+/**
+ * Passwords that clear any composition rule and are still guessed early.
+ *
+ * Deliberately tiny and honest about it: this is not a breach-corpus check, just
+ * the handful that a "one upper, one digit, one symbol" rule actively pushes
+ * people toward. A real check means k-anonymity lookups against a breach list,
+ * which an air-gapped install cannot do.
+ */
+const OBVIOUS_PASSWORDS = new Set(
+  [
+    "password1",
+    "password1!",
+    "password123",
+    "password123!",
+    "qwerty123",
+    "qwerty123!",
+    "welcome123",
+    "welcome123!",
+    "letmein123",
+    "changeme123",
+    "protessera1",
+    "protessera123",
+  ].map((p) => p.toLowerCase())
+);
+
+/** Minimum length for the length-only path. Raise it on-premise if required. */
+function passwordMinLength(): number {
+  const n = Number(process.env.PASSWORD_MIN_LENGTH);
+  return Number.isFinite(n) && n >= 8 ? Math.floor(n) : 12;
+}
+
+/**
+ * Password policy.
+ *
+ * NIST SP 800-171 Rev 2 3.5.7 asks for a minimum complexity, which a bare
+ * 8-character floor does not meet. Rather than the classic "one of each of four
+ * character classes" rule — which reliably produces `Passw0rd!` — this accepts
+ * either genuine length or moderate length with variety, following SP 800-63B's
+ * finding that length beats composition:
+ *
+ *   - PASSWORD_MIN_LENGTH (default 12) or more, any composition — a passphrase
+ *   - or 8+ characters with at least three of: lowercase, uppercase, digit, symbol
+ *
+ * Enforced only when a password is SET, so raising the bar never locks out an
+ * existing user — they meet the new rule at their next change. That is also why
+ * this is safe to tighten on a live deployment.
+ */
+export function assertPasswordStrength(password: string) {
+  const pw = password ?? "";
+  if (pw.length < 8) {
     throw new Error("Password must be at least 8 characters");
   }
+  if (OBVIOUS_PASSWORDS.has(pw.toLowerCase())) {
+    throw new Error(
+      "That password is one of the most commonly guessed — choose something else"
+    );
+  }
+
+  const min = passwordMinLength();
+  if (pw.length >= min) return; // long enough on its own
+
+  const classes = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^A-Za-z0-9]/].filter((re) =>
+    re.test(pw)
+  ).length;
+  if (classes >= 3) return;
+
+  throw new Error(
+    `Password must be at least ${min} characters, or at least 8 characters using three of: lowercase, uppercase, numbers, symbols`
+  );
 }
 
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
