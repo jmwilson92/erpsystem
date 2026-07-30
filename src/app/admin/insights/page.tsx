@@ -15,10 +15,12 @@ import {
   getTopPages,
   getTelemetryHealth,
   getIssueTrackingHealth,
+  getIssueHistories,
   ISSUE_STATUSES,
   type ErrorScope,
   type InsightsWindow,
   type IssueStatus,
+  type IssueEvent,
 } from "@/lib/services/telemetry";
 import { actionSetIssueStatus } from "./actions";
 import { AutoRefresh } from "@/components/admin/auto-refresh";
@@ -135,6 +137,11 @@ export default async function InsightsPage({
       getErrorGroups(days),
       getDailyStarts(days),
     ]);
+
+  // Fetched after the errors resolve, since it is keyed on which fingerprints
+  // actually made the list. Empty map when the table is not migrated yet, so
+  // the trail simply does not render rather than breaking the dashboard.
+  const histories = await getIssueHistories(errors.map((e) => e.fingerprint));
 
   const windows: { key: InsightsWindow; label: string }[] = [
     { key: 1, label: "24 hours" },
@@ -424,6 +431,8 @@ export default async function InsightsPage({
                     </p>
                   )}
 
+                  <IssueTrail events={histories.get(e.fingerprint) ?? []} />
+
                   {/* Only offered when the table exists — a control that
                       throws on click is worse than no control. */}
                   {issueHealth.ok && (
@@ -561,5 +570,60 @@ function StatusBadge({
     >
       {status.replace(/_/g, " ")}
     </span>
+  );
+}
+
+/**
+ * The triage trail for one error — who moved it where, and what they wrote.
+ *
+ * Collapsed by default. The dashboard's job is to show what is broken right
+ * now; the history matters when you are asking "didn't we already fix this?",
+ * which is a deliberate act rather than something worth spending vertical space
+ * on for every row.
+ *
+ * Renders nothing at all when there is no history, rather than an empty
+ * disclosure a reader would open expecting something. An error triaged before
+ * this table existed legitimately has none.
+ */
+function IssueTrail({ events }: { events: IssueEvent[] }) {
+  if (events.length === 0) return null;
+  return (
+    <details className="mt-2 group">
+      <summary className="cursor-pointer list-none text-[11px] text-slate-500 hover:text-slate-300">
+        <span className="underline decoration-dotted underline-offset-2">
+          History ({events.length})
+        </span>
+      </summary>
+      <ol className="mt-1.5 space-y-1.5 border-l border-slate-800 pl-3">
+        {events.map((ev) => (
+          <li key={ev.id} className="text-[11px] leading-relaxed">
+            <span className="text-slate-400">
+              {ev.fromStatus ? (
+                <>
+                  <span className="text-slate-500">
+                    {ev.fromStatus.replace(/_/g, " ")}
+                  </span>
+                  {" → "}
+                </>
+              ) : (
+                <span className="text-slate-500">filed as </span>
+              )}
+              <span className="font-semibold text-slate-300">
+                {ev.toStatus.replace(/_/g, " ")}
+              </span>
+            </span>
+            <span className="text-slate-600">
+              {" · "}
+              {ev.changedByName || "unknown"}
+              {" · "}
+              {ago(ev.createdAt)}
+            </span>
+            {ev.note && (
+              <p className="mt-0.5 italic text-slate-500">{ev.note}</p>
+            )}
+          </li>
+        ))}
+      </ol>
+    </details>
   );
 }
