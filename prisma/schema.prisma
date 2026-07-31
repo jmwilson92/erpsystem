@@ -97,6 +97,10 @@ model User {
   productMemberships       ProductMember[]
   productLifecycleEvents   ProductLifecycleEvent[]
   programsOwned            Program[]                @relation("ProgramOwner")
+  contractsOwned           Contract[]               @relation("ContractOwner")
+  contractModsExecuted     ContractMod[]            @relation("ContractModExecutor")
+  cdrlsOwned               Cdrl[]                   @relation("CdrlOwner")
+  cdrlSubmissions          CdrlSubmission[]         @relation("CdrlSubmitter")
   projectsSponsored        Project[]                @relation("ProjectSponsor")
   projectsManaged          Project[]                @relation("ProjectManager")
   wikiPagesEdited          ProjectWikiPage[]
@@ -304,6 +308,7 @@ model Part {
 
   bomHeaders          BomHeader[]
   bomLines            BomLine[]                 @relation("ComponentPart")
+  clins               Clin[]
   inventoryItems      InventoryItem[]
   poLines             PurchaseOrderLine[]
   workOrders          WorkOrder[]
@@ -1544,10 +1549,210 @@ model Program {
   updatedAt   DateTime  @updatedAt
 
   projects      Project[]
+  contracts     Contract[]
   virtualAssets VirtualAsset[]
 
   @@index([status])
   @@index([portfolio])
+}
+
+/// A customer contract — the funding and deliverable structure work actually
+/// runs against. Commercial shops can live on the header alone; government
+/// work needs the CLIN breakdown, modifications, and CDRL deliverables below.
+model Contract {
+  id                 String    @id @default(cuid())
+  number             String    @unique
+  name               String
+  description        String?
+  customerId         String?
+  customer           Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  programId          String?
+  program            Program?  @relation(fields: [programId], references: [id], onDelete: SetNull)
+  /// FFP | FFP_LOE | CPFF | CPIF | CPAF | T_AND_M | IDIQ | BOA | COMMERCIAL
+  contractType       String    @default("FFP")
+  /// DRAFT | ACTIVE | ON_HOLD | CLOSING | CLOSED | TERMINATED
+  status             String    @default("DRAFT")
+  /// Prime position decides which FAR / DFARS clauses have to flow down to
+  /// suppliers, so it is a field rather than something inferred from context.
+  isPrime            Boolean   @default(true)
+  primeContractor    String?
+  contractingOfficer String?
+  adminOffice        String?
+  /// DPAS priority rating, e.g. "DO-A1" / "DX-A7". A rated order carries a
+  /// statutory obligation to schedule ahead of unrated work.
+  dpasRating         String?
+  awardDate          DateTime?
+  startDate          DateTime?
+  endDate            DateTime?
+  /// Rolled up from the CLINs whenever a line changes — not edited directly.
+  totalValue         Float     @default(0)
+  /// Funded is deliberately separate from total: on an incrementally funded
+  /// contract you may only invoice against what has actually been obligated.
+  fundedValue        Float     @default(0)
+  ownerId            String?
+  owner              User?     @relation("ContractOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  notes              String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  clins Clin[]
+  mods  ContractMod[]
+  cdrls Cdrl[]
+
+  @@index([status])
+  @@index([customerId])
+  @@index([programId])
+}
+
+/// A contract line item — the unit a contract is funded, delivered, and
+/// invoiced against. Sub-line items (SLINs) hang off a parent through
+/// parentId rather than getting their own model, because the structure is
+/// identical and the nesting is only ever one deep in practice.
+model Clin {
+  id                String    @id @default(cuid())
+  contractId        String
+  contract          Contract  @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  /// "0001", "0001AA" — unique within its contract, not globally.
+  number            String
+  parentId          String?
+  parent            Clin?     @relation("ClinTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children          Clin[]    @relation("ClinTree")
+  description       String
+  /// A line can be priced differently from its contract's overall type — a
+  /// CPFF contract routinely carries FFP travel lines.
+  clinType          String?
+  /// SUPPLY | SERVICE | DATA | TRAVEL | ODC. DATA lines are what CDRLs bill
+  /// against when a deliverable is separately priced.
+  category          String    @default("SUPPLY")
+  partId            String?
+  part              Part?     @relation(fields: [partId], references: [id], onDelete: SetNull)
+  quantity          Float     @default(0)
+  uom               String    @default("EA")
+  unitPrice         Float     @default(0)
+  /// Held rather than derived, so a modification can restate the line without
+  /// silently rewriting what the value was before it.
+  totalValue        Float     @default(0)
+  fundedValue       Float     @default(0)
+  deliveredQty      Float     @default(0)
+  billedValue       Float     @default(0)
+  /// OPEN | PARTIAL | COMPLETE | CANCELLED
+  status            String    @default("OPEN")
+  /// Option lines are awarded but not workable until exercised.
+  isOption          Boolean   @default(false)
+  optionExercisedAt DateTime?
+  deliveryDate      DateTime?
+  fob               String?
+  notes             String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  cdrls Cdrl[]
+
+  @@unique([contractId, number])
+  @@index([contractId, status])
+  @@index([partId])
+}
+
+/// A contract modification (SF 30). Kept as its own record rather than edited
+/// into the contract in place, because "what did this contract say in March"
+/// is a question an auditor genuinely asks.
+model ContractMod {
+  id            String    @id @default(cuid())
+  contractId    String
+  contract      Contract  @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  /// "P00001", "A00002"
+  number        String
+  /// BILATERAL | UNILATERAL | ADMINISTRATIVE | FUNDING | TERMINATION
+  modType       String    @default("BILATERAL")
+  description   String
+  /// Signed deltas — a descope is negative. Recorded as what the SF 30 said;
+  /// the contract balance itself always rolls up from the CLINs.
+  valueDelta    Float     @default(0)
+  fundingDelta  Float     @default(0)
+  /// Set when the mod extends the period of performance.
+  newEndDate    DateTime?
+  effectiveDate DateTime?
+  executedAt    DateTime?
+  executedById  String?
+  executedBy    User?     @relation("ContractModExecutor", fields: [executedById], references: [id], onDelete: SetNull)
+  /// DRAFT | PENDING | EXECUTED | REJECTED
+  status        String    @default("DRAFT")
+  documentUrl   String?
+  documentName  String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([contractId, number])
+  @@index([contractId, status])
+}
+
+/// A contract data requirements list item (DD 1423) — a document the contract
+/// obliges you to deliver, on a schedule, against an approval code. Missed
+/// CDRLs are a routine cause of withheld payment, which is why they get
+/// tracked here rather than in someone's calendar.
+model Cdrl {
+  id           String    @id @default(cuid())
+  contractId   String
+  contract     Contract  @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  /// The DATA CLIN this bills against, when the deliverable is separately priced.
+  clinId       String?
+  clin         Clin?     @relation(fields: [clinId], references: [id], onDelete: SetNull)
+  /// Sequence number from the DD 1423, e.g. "A001".
+  number       String
+  title        String
+  /// Data item description, e.g. "DI-MGMT-81334D".
+  didNumber    String?
+  /// ONE_TIME | RECURRING | AS_REQUIRED | EVENT_DRIVEN
+  frequency    String    @default("ONE_TIME")
+  /// DD 1423 block 8: "A" requires customer approval, "I" is for information
+  /// only. The difference decides whether silence counts as acceptance.
+  approvalCode String    @default("A")
+  /// Days the customer has to respond before the submission is treated as
+  /// accepted by default.
+  reviewDays   Int       @default(30)
+  distribution String?
+  firstDueDate DateTime?
+  /// Next date something is owed. For RECURRING items this rolls forward as
+  /// submissions are accepted.
+  nextDueDate  DateTime?
+  /// OPEN | SUBMITTED | ACCEPTED | REJECTED | CLOSED
+  status       String    @default("OPEN")
+  ownerId      String?
+  owner        User?     @relation("CdrlOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  notes        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  submissions CdrlSubmission[]
+
+  @@unique([contractId, number])
+  @@index([contractId, status])
+  @@index([nextDueDate])
+}
+
+/// One delivery of a CDRL. A resubmission is a new revision rather than an
+/// edit, so a rejected-then-resubmitted deliverable keeps both rows — which is
+/// the history an approval-code "A" item exists to prove.
+model CdrlSubmission {
+  id            String    @id @default(cuid())
+  cdrlId        String
+  cdrl          Cdrl      @relation(fields: [cdrlId], references: [id], onDelete: Cascade)
+  /// Increments per resubmission of the same deliverable.
+  revision      Int       @default(1)
+  dueDate       DateTime?
+  submittedAt   DateTime?
+  submittedById String?
+  submittedBy   User?     @relation("CdrlSubmitter", fields: [submittedById], references: [id], onDelete: SetNull)
+  /// PENDING | SUBMITTED | ACCEPTED | REJECTED
+  status        String    @default("PENDING")
+  respondedAt   DateTime?
+  responseNotes String?
+  documentUrl   String?
+  documentName  String?
+  createdAt     DateTime  @default(now())
+
+  @@index([cdrlId, revision])
+  @@index([status])
 }
 
 model Project {
@@ -3559,6 +3764,7 @@ model Customer {
   invoices           ArInvoice[]
   salesOrders        SalesOrder[]
   quotes             Quote[]
+  contracts          Contract[]
   receivingTravelers ReceivingTraveler[]
   products           Product[]
   serialNumbers      SerialNumber[]
