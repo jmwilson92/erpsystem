@@ -14,6 +14,10 @@ import {
   isPathEnabled,
 } from "../src/lib/modules";
 import {
+  computeScorecard,
+  MIN_SCORE_SAMPLE,
+} from "../src/lib/services/supplier-portal";
+import {
   lineProgress,
   orderProgress,
   daysLate,
@@ -898,6 +902,89 @@ function testCustomerPortal() {
   console.log("  \u2713 customer portal progress");
 }
 
+
+function testSupplierScorecard() {
+  const d = (iso: string) => new Date(iso + "T00:00:00Z");
+  const r = (promised: string | null, received: string, qty = 10) => ({
+    promisedDate: promised ? d(promised) : null,
+    receivedAt: d(received),
+    quantity: qty,
+  });
+
+  // An unmeasured supplier scores null, never 100. The cached column on
+  // Supplier defaults to 100/A, and showing that to the supplier would be
+  // asserting a number nobody computed.
+  const none = computeScorecard({ receipts: [], rejectedUnits: 0 });
+  assert.equal(none.onTimePct, null);
+  assert.equal(none.qualityPpm, null, "no receipts means no ppm, not zero ppm");
+  assert.equal(none.sufficientData, false);
+
+  // Below the sample floor there is still no percentage.
+  const thin = computeScorecard({
+    receipts: [r("2026-06-01", "2026-06-05"), r("2026-06-01", "2026-05-30")],
+    rejectedUnits: 0,
+  });
+  assert.equal(thin.onTimePct, null, "two receipts is not a delivery record");
+  assert.equal(thin.receiptsScored, 2);
+  assert.ok(MIN_SCORE_SAMPLE > 2);
+
+  // Enough history: 4 on time out of 5.
+  const scored = computeScorecard({
+    receipts: [
+      r("2026-06-10", "2026-06-10"),
+      r("2026-06-10", "2026-06-09"),
+      r("2026-06-10", "2026-06-08"),
+      r("2026-06-10", "2026-06-10"),
+      r("2026-06-10", "2026-06-14"),
+    ],
+    rejectedUnits: 0,
+  });
+  assert.equal(scored.onTimePct, 80);
+  assert.equal(scored.lateReceipts, 1);
+  assert.equal(scored.sufficientData, true);
+
+  // Early is on time — a supplier is not penalised for beating the date.
+  const early = computeScorecard({
+    receipts: Array.from({ length: 5 }, () => r("2026-06-10", "2026-06-01")),
+    rejectedUnits: 0,
+  });
+  assert.equal(early.onTimePct, 100);
+
+  // Grace days shift the line.
+  const graced = computeScorecard({
+    receipts: Array.from({ length: 5 }, () => r("2026-06-10", "2026-06-12")),
+    rejectedUnits: 0,
+    graceDays: 3,
+  });
+  assert.equal(graced.onTimePct, 100);
+  const ungraced = computeScorecard({
+    receipts: Array.from({ length: 5 }, () => r("2026-06-10", "2026-06-12")),
+    rejectedUnits: 0,
+  });
+  assert.equal(ungraced.onTimePct, 0);
+
+  // A receipt with no promised date is excluded, not counted as a pass.
+  const noPromise = computeScorecard({
+    receipts: [
+      ...Array.from({ length: 5 }, () => r("2026-06-10", "2026-06-20")),
+      ...Array.from({ length: 5 }, () => r(null, "2026-06-20")),
+    ],
+    rejectedUnits: 0,
+  });
+  assert.equal(noPromise.receiptsScored, 5, "undated receipts are not scored");
+  assert.equal(noPromise.onTimePct, 0, "and do not dilute the ones that are");
+
+  // PPM arithmetic, and no divide by zero.
+  const ppm = computeScorecard({
+    receipts: Array.from({ length: 5 }, () => r("2026-06-10", "2026-06-10", 1000)),
+    rejectedUnits: 5,
+  });
+  assert.equal(ppm.unitsReceived, 5000);
+  assert.equal(ppm.qualityPpm, 1000, "5 in 5000 is 1000 ppm");
+
+  console.log("  \u2713 supplier scorecard");
+}
+
 console.log("smoke-unit");
 testChargeCodes();
 testModules();
@@ -913,4 +1000,5 @@ testEstimating();
 testFiniteScheduling();
 testScanIds();
 testCustomerPortal();
+testSupplierScorecard();
 console.log("smoke-unit: all passed");

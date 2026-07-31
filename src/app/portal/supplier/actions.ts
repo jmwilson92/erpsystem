@@ -2,7 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { acknowledgeLine, uploadDocument } from "@/lib/services/supplier-portal";
+import {
+  acknowledgeLine,
+  submitAsn,
+  uploadDocument,
+} from "@/lib/services/supplier-portal";
 
 /**
  * No requirePermission here on purpose: the caller is a supplier, not a user.
@@ -49,6 +53,36 @@ export async function actionUploadDocument(fd: FormData) {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Could not upload";
+    redirect(back(token, `error=${encodeURIComponent(message)}`));
+  }
+  revalidatePath(`/portal/supplier/${token}`);
+  redirect(back(token, "saved=1"));
+}
+
+export async function actionSubmitAsn(fd: FormData) {
+  const token = str(fd, "token");
+  const shipDate = str(fd, "shipDate");
+  const expectedDate = str(fd, "expectedDate");
+  const qty = Number(str(fd, "quantity"));
+  try {
+    await submitAsn({
+      token,
+      purchaseOrderId: str(fd, "purchaseOrderId") || null,
+      shipDate: shipDate ? new Date(shipDate) : null,
+      expectedDate: expectedDate ? new Date(expectedDate) : null,
+      carrier: str(fd, "carrier") || null,
+      trackingNumber: str(fd, "trackingNumber") || null,
+      packages: Number(str(fd, "packages")) || null,
+      lines: [
+        {
+          description: str(fd, "description"),
+          quantity: Number.isFinite(qty) ? qty : 0,
+          lotNumber: str(fd, "lotNumber") || null,
+        },
+      ],
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Could not submit";
     redirect(back(token, `error=${encodeURIComponent(message)}`));
   }
   revalidatePath(`/portal/supplier/${token}`);

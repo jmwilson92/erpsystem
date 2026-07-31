@@ -4,7 +4,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { prisma } from "@/lib/db";
-import { listTokens, pendingDateChanges } from "@/lib/services/supplier-portal";
+import {
+  inboundAsns,
+  listTokens,
+  pendingDateChanges,
+} from "@/lib/services/supplier-portal";
 import {
   actionAcceptDate,
   actionIssueToken,
@@ -27,9 +31,10 @@ export default async function SupplierPortalAdminPage({
   searchParams: Promise<{ issued?: string; error?: string; saved?: string }>;
 }) {
   const sp = await searchParams;
-  const [tokens, pending, suppliers] = await Promise.all([
+  const [tokens, pending, inbound, suppliers] = await Promise.all([
     listTokens(),
     pendingDateChanges(),
+    inboundAsns(),
     prisma.supplier.findMany({ orderBy: { name: "asc" }, take: 500 }).catch(() => []),
   ]);
 
@@ -123,6 +128,56 @@ export default async function SupplierPortalAdminPage({
             A supplier&apos;s date only becomes the promised date when a buyer
             accepts it here — the portal records what was proposed, it does not
             move the commitment.
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Inbound shipments</CardTitle>
+        </CardHeader>
+        <CardContent className="overflow-x-auto">
+          {inbound.length === 0 ? (
+            <p className="py-4 text-sm text-slate-500">
+              No advance ship notices outstanding.
+            </p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr>
+                  <th className={th}>ASN</th>
+                  <th className={th}>Supplier</th>
+                  <th className={th}>PO</th>
+                  <th className={th}>Expected</th>
+                  <th className={th}>Carrier</th>
+                  <th className={th}>Lines</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800">
+                {inbound.map((a) => (
+                  <tr key={a.id}>
+                    <td className="py-2 font-mono text-slate-200">{a.number}</td>
+                    <td className="py-2 text-slate-300">{a.supplier.name}</td>
+                    <td className="py-2 text-slate-400">
+                      {a.purchaseOrder?.number || "—"}
+                    </td>
+                    <td className="py-2 text-slate-400">{fmtDate(a.expectedDate)}</td>
+                    <td className="py-2 text-slate-400">
+                      {a.carrier || "—"}
+                      {a.trackingNumber ? ` · ${a.trackingNumber}` : ""}
+                    </td>
+                    <td className="py-2 text-slate-400">
+                      {a.lines.reduce((s, l) => s + l.quantity, 0)} units over{" "}
+                      {a.lines.length} line{a.lines.length === 1 ? "" : "s"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          <p className="mt-2 text-xs text-slate-500">
+            Quantities are the supplier&apos;s claim. Nothing touches inventory
+            until receiving counts what actually arrived.
           </p>
         </CardContent>
       </Card>

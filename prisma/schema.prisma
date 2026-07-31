@@ -3191,6 +3191,7 @@ model Supplier {
   apInvoices       ApInvoice[]
   portalTokens     SupplierPortalToken[]
   documents        SupplierDocument[]
+  asns             SupplierAsn[]
 
   @@index([isApprovedVendor, status])
 }
@@ -3380,6 +3381,7 @@ model PurchaseOrder {
   apInvoices         ApInvoice[]
   receivingTravelers ReceivingTraveler[]
   supplierDocuments  SupplierDocument[]
+  supplierAsns       SupplierAsn[]
 
   @@index([status])
   @@index([supplierId])
@@ -6395,4 +6397,45 @@ model CustomerPortalToken {
   createdAt  DateTime  @default(now())
 
   @@index([customerId])
+}
+
+/// Advance ship notice — the supplier tells you what is on the way.
+///
+/// Submitted through the portal, so receiving knows a shipment is inbound
+/// before it lands on the dock. Quantities here are the supplier's claim, not
+/// a receipt: nothing touches inventory until it is physically received.
+model SupplierAsn {
+  id              String         @id @default(cuid())
+  number          String         @unique
+  supplierId      String
+  supplier        Supplier       @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  purchaseOrderId String?
+  purchaseOrder   PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id], onDelete: SetNull)
+  /// SUBMITTED | IN_TRANSIT | RECEIVED | CANCELLED
+  status          String         @default("SUBMITTED")
+  shipDate        DateTime?
+  expectedDate    DateTime?
+  carrier         String?
+  trackingNumber  String?
+  packages        Int?
+  notes           String?
+  createdAt       DateTime       @default(now())
+
+  lines SupplierAsnLine[]
+
+  @@index([supplierId])
+  @@index([status])
+}
+
+model SupplierAsnLine {
+  id          String      @id @default(cuid())
+  asnId       String
+  asn         SupplierAsn @relation(fields: [asnId], references: [id], onDelete: Cascade)
+  /// The PO line this covers, when the supplier identified one.
+  poLineId    String?
+  description String
+  quantity    Float
+  lotNumber   String?
+
+  @@index([asnId])
 }

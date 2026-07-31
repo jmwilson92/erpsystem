@@ -4,9 +4,15 @@ import { Input } from "@/components/ui/input";
 import {
   DOC_TYPES,
   DOC_TYPE_LABELS,
+  portalAsns,
   portalOrders,
+  portalScorecard,
 } from "@/lib/services/supplier-portal";
-import { actionAcknowledge, actionUploadDocument } from "../actions";
+import {
+  actionAcknowledge,
+  actionSubmitAsn,
+  actionUploadDocument,
+} from "../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +38,11 @@ export default async function SupplierPortalPage({
 }) {
   const { token } = await params;
   const sp = await searchParams;
-  const data = await portalOrders(token);
+  const [data, scorecard, asns] = await Promise.all([
+    portalOrders(token),
+    portalScorecard(token),
+    portalAsns(token),
+  ]);
 
   if (!data) {
     return (
@@ -187,6 +197,149 @@ export default async function SupplierPortalPage({
           </Card>
         ))
       )}
+
+      {scorecard && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Your performance with us</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div>
+                <p className="text-2xl font-semibold text-slate-100">
+                  {scorecard.onTimePct == null
+                    ? "—"
+                    : `${scorecard.onTimePct.toFixed(0)}%`}
+                </p>
+                <p className="text-xs text-slate-500">
+                  on-time delivery
+                  {scorecard.sufficientData
+                    ? ` · ${scorecard.receiptsScored} receipts`
+                    : " · not enough history yet"}
+                </p>
+              </div>
+              <div>
+                <p className="text-2xl font-semibold text-slate-100">
+                  {scorecard.qualityPpm == null
+                    ? "—"
+                    : Math.round(scorecard.qualityPpm).toLocaleString()}
+                </p>
+                <p className="text-xs text-slate-500">
+                  quality ppm · {scorecard.rejectedUnits} rejection
+                  {scorecard.rejectedUnits === 1 ? "" : "s"}
+                </p>
+              </div>
+              <div>
+                <p className="text-2xl font-semibold text-slate-100">
+                  {scorecard.unitsReceived.toLocaleString()}
+                </p>
+                <p className="text-xs text-slate-500">units received</p>
+              </div>
+            </div>
+            <p className="mt-3 text-xs text-slate-500">
+              Measured against the promised date on each line. Early deliveries
+              count as on time, and lines with no promised date are left out
+              rather than counted as a pass.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Advance ship notices</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {asns.length > 0 && (
+            <table className="mb-4 w-full text-sm">
+              <thead>
+                <tr>
+                  <th className={th}>Number</th>
+                  <th className={th}>PO</th>
+                  <th className={th}>Shipped</th>
+                  <th className={th}>Expected</th>
+                  <th className={th}>Carrier</th>
+                  <th className={th}>Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800">
+                {asns.map((a) => (
+                  <tr key={a.id}>
+                    <td className="py-2 font-mono text-slate-200">{a.number}</td>
+                    <td className="py-2 text-slate-400">
+                      {a.purchaseOrder?.number || "—"}
+                    </td>
+                    <td className="py-2 text-slate-400">{fmtDate(a.shipDate)}</td>
+                    <td className="py-2 text-slate-400">{fmtDate(a.expectedDate)}</td>
+                    <td className="py-2 text-slate-400">
+                      {a.carrier || "—"}
+                      {a.trackingNumber ? ` · ${a.trackingNumber}` : ""}
+                    </td>
+                    <td className="py-2 text-slate-300">{a.status}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          <form
+            action={actionSubmitAsn}
+            className="grid gap-3 border-t border-slate-800 pt-4 sm:grid-cols-4"
+          >
+            <input type="hidden" name="token" value={token} />
+            <label className="text-sm text-slate-400">
+              Against PO
+              <select name="purchaseOrderId" className={selectClass} defaultValue="">
+                <option value="">— none</option>
+                {orders.map((po) => (
+                  <option key={po.id} value={po.id}>
+                    {po.number}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-sm text-slate-400 sm:col-span-2">
+              What is shipping *
+              <Input name="description" required placeholder="Part / description" />
+            </label>
+            <label className="text-sm text-slate-400">
+              Quantity *
+              <Input name="quantity" type="number" step="any" required />
+            </label>
+            <label className="text-sm text-slate-400">
+              Ship date
+              <Input name="shipDate" type="date" />
+            </label>
+            <label className="text-sm text-slate-400">
+              Expected arrival
+              <Input name="expectedDate" type="date" />
+            </label>
+            <label className="text-sm text-slate-400">
+              Carrier
+              <Input name="carrier" placeholder="UPS" />
+            </label>
+            <label className="text-sm text-slate-400">
+              Tracking
+              <Input name="trackingNumber" />
+            </label>
+            <label className="text-sm text-slate-400">
+              Lot
+              <Input name="lotNumber" />
+            </label>
+            <label className="text-sm text-slate-400">
+              Packages
+              <Input name="packages" type="number" min="1" />
+            </label>
+            <div className="sm:col-span-2 sm:self-end">
+              <Button type="submit">Notify shipment</Button>
+              <span className="ml-3 text-xs text-slate-500">
+                Tells receiving it is coming; nothing is counted until it
+                arrives.
+              </span>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

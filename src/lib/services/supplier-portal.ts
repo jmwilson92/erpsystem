@@ -291,3 +291,209 @@ export async function pendingDateChanges() {
     },
   });
 }
+
+// ------------------------------------------------------- scorecard and ASN
+
+/**
+ * Minimum receipts before a delivery score means anything. Below this the
+ * portal reports "not enough data" rather than a percentage — two late
+ * deliveries out of three is 33%, and showing that beside a supplier with two
+ * hundred receipts invites a conversation neither side can win.
+ */
+export const MIN_SCORE_SAMPLE = 5;
+
+export type Scorecard = {
+  /** Null when there is not enough history to say anything. */
+  onTimePct: number | null;
+  receiptsScored: number;
+  lateReceipts: number;
+  /** Defective parts per million, null when nothing was received. */
+  qualityPpm: number | null;
+  unitsReceived: number;
+  rejectedUnits: number;
+  sufficientData: boolean;
+};
+
+export type ScoreInput = {
+  receipts: { promisedDate: Date | null; receivedAt: Date; quantity: number }[];
+  rejectedUnits: number;
+  /** Days a delivery may slip and still count as on time. */
+  graceDays?: number;
+};
+
+/**
+ * Compute a supplier's numbers from what actually happened.
+ *
+ * Deliberately not read from Supplier.onTimeDeliveryPct: those columns default
+ * to 100 and rating A, so a supplier nobody has ever measured would be shown —
+ * in a portal they can see — a perfect score that no one computed. An unmeasured
+ * supplier gets null here instead.
+ *
+ * A line with no promised date is excluded rather than counted as on time.
+ * There is no commitment to be late against, and counting it as a pass would
+ * quietly inflate every score for shops that do not fill the field in.
+ */
+export function computeScorecard(input: ScoreInput): Scorecard {
+  const grace = input.graceDays ?? 0;
+  const scored = input.receipts.filter((r) => r.promisedDate != null);
+  const late = scored.filter((r) => {
+    const promised = r.promisedDate!.getTime() + grace * 86400000;
+    // Early is on time. A supplier is not penalised for beating the date.
+    return r.receivedAt.getTime() > promised;
+  });
+
+  const unitsReceived = input.receipts.reduce((s, r) => s + Math.max(0, r.quantity), 0);
+  const sufficient = scored.length >= MIN_SCORE_SAMPLE;
+
+  return {
+    onTimePct: sufficient
+      ? ((scored.length - late.length) / scored.length) * 100
+      : null,
+    receiptsScored: scored.length,
+    lateReceipts: late.length,
+    qualityPpm: unitsReceived > 0 ? (input.rejectedUnits / unitsReceived) * 1e6 : null,
+    unitsReceived,
+    rejectedUnits: input.rejectedUnits,
+    sufficientData: sufficient,
+  };
+}
+
+/** The scorecard for the supplier a portal token resolves to. */
+export async function portalScorecard(rawToken: string) {
+  const check = await resolveToken(rawToken);
+  if (!check.ok) return null;
+
+  const receiptLines = await prisma.receiptLine.findMany({
+    where: {
+      receipt: { purchaseOrder: { supplierId: check.supplierId } },
+    },
+    select: {
+      quantityReceived: true,
+      poLineId: true,
+      receipt: { select: { receivedAt: true } },
+    },
+    take: 1000,
+  });
+
+  const poLineIds = receiptLines
+    .map((r) => r.poLineId)
+    .filter((v): v is string => Boolean(v));
+  const poLines = poLineIds.length
+    ? await prisma.purchaseOrderLine.findMany({
+        where: { id: { in: poLineIds } },
+        select: { id: true, promisedDate: true },
+      })
+    : [];
+  const promisedById = new Map(poLines.map((l) => [l.id, l.promisedDate]));
+
+  const ncrs = await prisma.nonConformance.count({
+    where: { supplierId: check.supplierId },
+  });
+
+  return computeScorecard({
+    receipts: receiptLines.map((r) => ({
+      promisedDate: r.poLineId ? (promisedById.get(r.poLineId) ?? null) : null,
+      receivedAt: r.receipt.receivedAt,
+      quantity: r.quantityReceived,
+    })),
+    // One NCR is one rejection event; the quantity on it is not modelled per
+    // line, so this is a count and the label says so.
+    rejectedUnits: ncrs,
+  });
+}
+
+async function nextAsnNumber() {
+  const year = new Date().getFullYear();
+  const like = `ASN-${year}-`;
+  const last = await prisma.supplierAsn.findFirst({
+    where: { number: { startsWith: like } },
+    orderBy: { number: "desc" },
+    select: { number: true },
+  });
+  const seq = last ? parseInt(last.number.slice(like.length), 10) + 1 : 1;
+  return `${like}${String(seq).padStart(4, "0")}`;
+}
+
+/**
+ * Record an advance ship notice. Quantities are the supplier's claim and never
+ * touch inventory — receiving still counts what arrives.
+ */
+export async function submitAsn(input: {
+  token: string;
+  purchaseOrderId?: string | null;
+  shipDate?: Date | null;
+  expectedDate?: Date | null;
+  carrier?: string | null;
+  trackingNumber?: string | null;
+  packages?: number | null;
+  notes?: string | null;
+  lines: { poLineId?: string | null; description: string; quantity: number; lotNumber?: string | null }[];
+}) {
+  const check = await resolveToken(input.token);
+  if (!check.ok) throw new Error("This link is no longer valid");
+
+  const lines = input.lines.filter((l) => l.description.trim() && l.quantity > 0);
+  if (lines.length === 0) {
+    throw new Error("An advance ship notice needs at least one line with a quantity");
+  }
+
+  let purchaseOrderId: string | null = null;
+  if (input.purchaseOrderId) {
+    const po = await prisma.purchaseOrder.findUnique({
+      where: { id: input.purchaseOrderId },
+      select: { id: true, supplierId: true },
+    });
+    if (po && po.supplierId === check.supplierId) purchaseOrderId = po.id;
+  }
+
+  return prisma.supplierAsn.create({
+    data: {
+      number: await nextAsnNumber(),
+      supplierId: check.supplierId,
+      purchaseOrderId,
+      shipDate: input.shipDate ?? null,
+      expectedDate: input.expectedDate ?? null,
+      carrier: (input.carrier || "").trim() || null,
+      trackingNumber: (input.trackingNumber || "").trim() || null,
+      packages: input.packages ?? null,
+      notes: (input.notes || "").trim() || null,
+      lines: {
+        create: lines.map((l) => ({
+          poLineId: l.poLineId || null,
+          description: l.description.trim(),
+          quantity: l.quantity,
+          lotNumber: (l.lotNumber || "").trim() || null,
+        })),
+      },
+    },
+    include: { lines: true },
+  });
+}
+
+export async function portalAsns(rawToken: string) {
+  const check = await resolveToken(rawToken);
+  if (!check.ok) return [];
+  return prisma.supplierAsn.findMany({
+    where: { supplierId: check.supplierId },
+    orderBy: { createdAt: "desc" },
+    take: 25,
+    include: {
+      lines: true,
+      purchaseOrder: { select: { number: true } },
+    },
+  });
+}
+
+/** Inbound shipments for the buyer's receiving desk. */
+export async function inboundAsns() {
+  return prisma.supplierAsn.findMany({
+    where: { status: { in: ["SUBMITTED", "IN_TRANSIT"] } },
+    orderBy: { expectedDate: "asc" },
+    take: 100,
+    include: {
+      lines: true,
+      supplier: { select: { name: true } },
+      purchaseOrder: { select: { id: true, number: true } },
+    },
+  });
+}
