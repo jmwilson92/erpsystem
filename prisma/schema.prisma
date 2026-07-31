@@ -6184,3 +6184,84 @@ model DeviationUnit {
   @@index([serial])
   @@index([lotNumber])
 }
+
+/// An indirect cost pool — fringe, overhead, G&A, material handling.
+///
+/// Pools are applied in `sequence`, and the order is the whole game: fringe
+/// burdens labour, overhead burdens labour plus its fringe, and G&A burdens
+/// total cost input. Treating them as independent percentages that simply add
+/// up understates the wrap rate, which is the arithmetic error that shows up
+/// as an under-recovery at year end.
+model RatePool {
+  id             String  @id @default(cuid())
+  code           String  @unique // FRINGE, OH, GA, MH
+  name           String
+  /// FRINGE | OVERHEAD | G_AND_A | MATERIAL_HANDLING | OTHER
+  poolType       String  @default("OVERHEAD")
+  /// What the pool is divided by to produce a rate.
+  /// TOTAL_LABOR | DIRECT_LABOR_PLUS_FRINGE | TOTAL_COST_INPUT | DIRECT_MATERIAL
+  allocationBase String  @default("DIRECT_LABOR_PLUS_FRINGE")
+  /// Application order. Lower applies first; G&A is normally last.
+  sequence       Int     @default(10)
+  description    String?
+  isActive       Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  years       RatePoolYear[]
+  costCenters CostCenter[]
+
+  @@index([isActive])
+  @@index([sequence])
+}
+
+/// A pool's rates for one fiscal year.
+///
+/// Three rates are kept apart on purpose. The provisional rate is what may be
+/// billed during the year, the actual rate is what the books support, and the
+/// final rate is what the government has negotiated. Collapsing them loses the
+/// ability to compute the year-end true-up, which is the point of tracking
+/// indirect rates at all.
+model RatePoolYear {
+  id         String   @id @default(cuid())
+  ratePoolId String
+  ratePool   RatePool @relation(fields: [ratePoolId], references: [id], onDelete: Cascade)
+  fiscalYear Int
+
+  /// Billing rate approved for the year, as a decimal (0.32 = 32%).
+  provisionalRate Float   @default(0)
+  /// Booked pool and base for the year; actualRate is derived from these.
+  poolAmount      Float   @default(0)
+  baseAmount      Float   @default(0)
+  /// Negotiated final rate, once settled.
+  finalRate       Float?
+  /// PROVISIONAL | ACTUALS_BOOKED | FINAL_NEGOTIATED
+  status          String  @default("PROVISIONAL")
+  notes           String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([ratePoolId, fiscalYear])
+  @@index([fiscalYear])
+}
+
+/// A cost centre. Direct centres charge contracts; indirect centres collect
+/// into the pool named by ratePoolId.
+model CostCenter {
+  id         String    @id @default(cuid())
+  code       String    @unique
+  name       String
+  /// DIRECT | INDIRECT
+  kind       String    @default("DIRECT")
+  /// Which pool an INDIRECT centre's costs land in.
+  ratePoolId String?
+  ratePool   RatePool? @relation(fields: [ratePoolId], references: [id], onDelete: SetNull)
+  isActive   Boolean   @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([kind])
+}

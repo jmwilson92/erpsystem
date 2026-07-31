@@ -14,6 +14,12 @@ import {
   isPathEnabled,
 } from "../src/lib/modules";
 import {
+  burden,
+  wrapRate,
+  actualRate,
+  rateFor,
+} from "../src/lib/services/rate-pools";
+import {
   hasBound,
   forceState,
   isInForce,
@@ -270,6 +276,73 @@ function testDeviations() {
   console.log("  \u2713 deviations and waivers");
 }
 
+
+function testRatePools() {
+  const round = (n: number) => Math.round(n * 100) / 100;
+
+  // A conventional 30 / 50 / 12 stack.
+  const stack = [
+    { code: "FRINGE", poolType: "FRINGE", allocationBase: "DIRECT_LABOR", sequence: 10, rate: 0.3 },
+    { code: "OH", poolType: "OVERHEAD", allocationBase: "DIRECT_LABOR_PLUS_FRINGE", sequence: 20, rate: 0.5 },
+    { code: "GA", poolType: "G_AND_A", allocationBase: "TOTAL_COST_INPUT", sequence: 90, rate: 0.12 },
+  ];
+
+  const labourOnly = burden({ directLabor: 100000 }, stack);
+  assert.equal(round(labourOnly.lines[0].amount), 30000, "fringe on labour");
+  assert.equal(
+    round(labourOnly.lines[1].amount),
+    65000,
+    "overhead burdens labour PLUS the fringe already applied, not labour alone"
+  );
+  assert.equal(round(labourOnly.totalCostInput), 195000);
+  assert.equal(round(labourOnly.lines[2].amount), 23400, "G&A on total cost input");
+  assert.equal(round(labourOnly.totalCost), 218400);
+
+  // The compounding is the point: additive rates would give 1.92.
+  assert.equal(round(labourOnly.wrapRate), 2.18);
+  assert.notEqual(round(labourOnly.wrapRate), 1.92, "rates compound, they do not add");
+  assert.equal(round(wrapRate(stack)), 2.18);
+
+  // Material handling rides its own base and still lands inside G&A's base.
+  const withMaterial = burden(
+    { directLabor: 100000, directMaterial: 50000, otherDirect: 10000 },
+    [
+      ...stack,
+      { code: "MH", poolType: "MATERIAL_HANDLING", allocationBase: "DIRECT_MATERIAL", sequence: 30, rate: 0.1 },
+    ]
+  );
+  assert.equal(round(withMaterial.totalDirect), 160000);
+  assert.equal(round(withMaterial.totalCostInput), 260000, "TCI excludes G&A itself");
+  assert.equal(round(withMaterial.totalCost), 291200);
+
+  // G&A never burdens itself.
+  const ga = withMaterial.lines.find((l) => l.code === "GA")!;
+  assert.equal(round(ga.base), 260000);
+
+  // Order is honoured regardless of the order pools arrive in.
+  const shuffled = burden({ directLabor: 100000 }, [stack[2], stack[0], stack[1]]);
+  assert.equal(round(shuffled.totalCost), 218400, "sequence sorts, input order does not matter");
+
+  // No labour must not divide by zero.
+  assert.equal(burden({ directMaterial: 1000 }, stack).wrapRate, 0);
+  assert.equal(actualRate({ poolAmount: 100, baseAmount: 0 }), 0, "unbooked base is not Infinity");
+  assert.equal(actualRate({ poolAmount: 60, baseAmount: 200 }), 0.3);
+
+  // Basis selection, including the fallback for an unnegotiated year.
+  const year = { provisionalRate: 0.32, poolAmount: 60, baseAmount: 200, finalRate: null };
+  assert.equal(rateFor(year, "PROVISIONAL"), 0.32);
+  assert.equal(rateFor(year, "ACTUAL"), 0.3);
+  assert.equal(rateFor(year, "FINAL"), 0.3, "falls back to actual when unnegotiated");
+  assert.equal(
+    rateFor({ provisionalRate: 0.32, poolAmount: 0, baseAmount: 0, finalRate: null }, "FINAL"),
+    0.32,
+    "an unbooked year prices at provisional, not zero"
+  );
+  assert.equal(rateFor({ ...year, finalRate: 0.28 }, "FINAL"), 0.28);
+
+  console.log("  \u2713 indirect rate pools");
+}
+
 console.log("smoke-unit");
 testChargeCodes();
 testModules();
@@ -278,4 +351,5 @@ testSessionIdleTimeout();
 testPasswordPolicy();
 testExportControl();
 testDeviations();
+testRatePools();
 console.log("smoke-unit: all passed");
