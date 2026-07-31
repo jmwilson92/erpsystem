@@ -61,6 +61,105 @@ recreating a table drops its triggers. `--check` reports without changing
 anything and exits non-zero if a schema is unprotected, which makes it usable as
 a compliance probe.
 
+## Licensing (offline)
+
+An air-gapped site cannot phone home, so a licence is a self-contained artifact:
+a small JSON payload signed with an Ed25519 key you hold, verified against a
+public key compiled into the build.
+
+**Once, ever:**
+
+```bash
+node scripts/license-keygen.mjs
+# paste the printed public key into src/lib/services/license.ts, commit, rebuild
+```
+
+Back the private key up somewhere off that machine. Losing it means every future
+licence needs a new key, which means a new build, which means every existing
+customer needs a new image.
+
+**Per customer:**
+
+```bash
+node scripts/license-issue.mjs --customer "Acme Machining" --months 12
+```
+
+Give them the printed `LICENSE_KEY=` line for their `.env` and restart.
+
+### What happens as it expires
+
+| State | Behaviour |
+|---|---|
+| Valid | Nothing |
+| Within 30 days of expiry | Warned at boot |
+| Expired, inside grace (30 days, `LICENSE_GRACE_DAYS`) | Warned harder; **everything still works** |
+| Past grace | The server refuses to start |
+
+Refusing to **start**, rather than blocking writes at runtime, is deliberate.
+Blocking writes would mean intercepting server actions in middleware, which
+returns HTML to a `next-action` POST and surfaces as *"an unexpected response was
+received from the server"* — a broken ERP with a baffling error is worse for a
+manufacturer than a stopped one with a clear log line. A stopped container is
+diagnosable in seconds; the boot log names the customer and the expiry date.
+
+The grace window exists because a shop's ERP going dark stops production, and the
+likeliest cause of an expired licence is an invoice in someone's inbox.
+
+**Data is never touched.** Nothing is deleted, locked, or degraded — an expired
+deployment that gets a new key starts straight back up.
+
+### Scope, honestly
+
+Local enforcement is a clear contractual line and a speed bump, **not DRM**.
+Anyone with the container image can patch the check out. That is true of every
+on-premise licensing scheme, and pretending otherwise leads to hostile designs
+that punish honest customers. The value is that running past expiry becomes a
+deliberate act rather than something that happens by drift.
+
+Two things it does not defend against, both by choice: a customer setting the
+system clock back, and sharing a key between sites. Both are contract matters,
+and the alternatives (hardware binding, mandatory check-ins) break air-gapped
+installs and generate support calls when a server is replaced.
+
+## Giving it to a customer (published image)
+
+Tagging `vX.Y.Z` publishes two images to GHCR:
+
+| Tag | For |
+|---|---|
+| `:X.Y.Z` | standard self-host |
+| `:X.Y.Z-airgap` | ITAR/CUI — built with `AIRGAP=1` |
+
+The air-gapped variant is a separate **build**, not a runtime flag: `next.config`
+aliases the analytics package to a stub at build time, so a standard image run
+with `AIRGAP=1` would still carry the collector URL in its bundle. The release
+job proves this by extracting `/app/.next/static` from the *published* image and
+grepping it — a build arg that silently failed to reach `next.config` would
+otherwise ship an image labelled `-airgap` that still calls out.
+
+The customer needs two files and nothing else — no repository, no source:
+
+```bash
+# scripts/install.sh and docker-compose.release.yml, side by side
+./install.sh                    # standard
+./install.sh --airgap           # ITAR/CUI
+./install.sh --version 1.2.0    # pin a release
+```
+
+It checks Docker, generates secrets, writes `.env` at mode 600, pulls, starts,
+and waits on `/api/health` — so "installed" means usable, not merely started.
+
+**Re-running never rewrites `.env`.** That is the difference between an upgrade
+and an outage: regenerating `MFA_SECRET_KEY` would make every enrolled second
+factor undecryptable with no recovery path, and a new `POSTGRES_PASSWORD` would
+orphan the data volume. If `.env` exists but is missing either secret, the
+installer refuses to start rather than quietly generating a replacement.
+
+`docker-compose.release.yml` is standalone rather than an overlay on
+`docker-compose.yml`, because that file carries `build: .` and a customer with
+no source cannot build. Postgres is deliberately not published to the host — the
+app reaches it over the compose network.
+
 ## Staff portal vs tenant schemas
 
 The support portal — the Insights dashboard, error triage, and the tenant
