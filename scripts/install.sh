@@ -110,6 +110,10 @@ HTTP_PORT=$PORT
 # 1 = make no third-party request, and refuse to start if an outbound
 # integration key is configured.
 AIRGAP=$AIRGAP
+
+# Licence key supplied by Protessera. Verified offline — nothing is contacted.
+# Leave blank on a build where licensing is not enforced.
+LICENSE_KEY=${LICENSE_KEY:-}
 ENV
   say "Wrote .env (contains secrets — back it up, keep it private)"
 fi

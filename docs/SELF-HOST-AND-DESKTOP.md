@@ -61,6 +61,66 @@ recreating a table drops its triggers. `--check` reports without changing
 anything and exits non-zero if a schema is unprotected, which makes it usable as
 a compliance probe.
 
+## Licensing (offline)
+
+An air-gapped site cannot phone home, so a licence is a self-contained artifact:
+a small JSON payload signed with an Ed25519 key you hold, verified against a
+public key compiled into the build.
+
+**Once, ever:**
+
+```bash
+node scripts/license-keygen.mjs
+# paste the printed public key into src/lib/services/license.ts, commit, rebuild
+```
+
+Back the private key up somewhere off that machine. Losing it means every future
+licence needs a new key, which means a new build, which means every existing
+customer needs a new image.
+
+**Per customer:**
+
+```bash
+node scripts/license-issue.mjs --customer "Acme Machining" --months 12
+```
+
+Give them the printed `LICENSE_KEY=` line for their `.env` and restart.
+
+### What happens as it expires
+
+| State | Behaviour |
+|---|---|
+| Valid | Nothing |
+| Within 30 days of expiry | Warned at boot |
+| Expired, inside grace (30 days, `LICENSE_GRACE_DAYS`) | Warned harder; **everything still works** |
+| Past grace | The server refuses to start |
+
+Refusing to **start**, rather than blocking writes at runtime, is deliberate.
+Blocking writes would mean intercepting server actions in middleware, which
+returns HTML to a `next-action` POST and surfaces as *"an unexpected response was
+received from the server"* — a broken ERP with a baffling error is worse for a
+manufacturer than a stopped one with a clear log line. A stopped container is
+diagnosable in seconds; the boot log names the customer and the expiry date.
+
+The grace window exists because a shop's ERP going dark stops production, and the
+likeliest cause of an expired licence is an invoice in someone's inbox.
+
+**Data is never touched.** Nothing is deleted, locked, or degraded — an expired
+deployment that gets a new key starts straight back up.
+
+### Scope, honestly
+
+Local enforcement is a clear contractual line and a speed bump, **not DRM**.
+Anyone with the container image can patch the check out. That is true of every
+on-premise licensing scheme, and pretending otherwise leads to hostile designs
+that punish honest customers. The value is that running past expiry becomes a
+deliberate act rather than something that happens by drift.
+
+Two things it does not defend against, both by choice: a customer setting the
+system clock back, and sharing a key between sites. Both are contract matters,
+and the alternatives (hardware binding, mandatory check-ins) break air-gapped
+installs and generate support calls when a server is replaced.
+
 ## Giving it to a customer (published image)
 
 Tagging `vX.Y.Z` publishes two images to GHCR:

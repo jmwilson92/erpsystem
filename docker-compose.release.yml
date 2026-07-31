@@ -37,6 +37,12 @@ services:
       # recovery path. The installer generates it once and never rewrites it.
       MFA_SECRET_KEY: ${MFA_SECRET_KEY:?MFA_SECRET_KEY is required}
 
+      # Offline licence. Signed by us, verified locally — an air-gapped site
+      # cannot phone home, so there is nothing to call. Past expiry plus its
+      # grace window the server refuses to start; short of that it only warns.
+      LICENSE_KEY: ${LICENSE_KEY:-}
+      LICENSE_GRACE_DAYS: ${LICENSE_GRACE_DAYS:-}
+
       NEXT_PUBLIC_APP_URL: ${APP_URL:-http://localhost:3000}
       APP_URL: ${APP_URL:-http://localhost:3000}
 
