@@ -14,6 +14,14 @@ import {
   isPathEnabled,
 } from "../src/lib/modules";
 import {
+  isValidUsml,
+  isValidEccn,
+  normalizeUsml,
+  normalizeEccn,
+  usmlCategoryOf,
+  isExportControlled,
+} from "../src/lib/services/export-control";
+import {
   demoModeEnabled,
   sessionIdleMinutes,
   lastSeenRefreshMs,
@@ -151,10 +159,59 @@ function testPasswordPolicy() {
   console.log("  \u2713 password policy");
 }
 
+
+function testExportControl() {
+  // A USML designation is a category I-XXI plus optional paragraphs.
+  assert.equal(isValidUsml("XI"), true);
+  assert.equal(isValidUsml("XI(c)"), true);
+  assert.equal(isValidUsml("xi(c)(4)"), true);
+  assert.equal(isValidUsml(" XI (c) "), true, "whitespace is stripped");
+  assert.equal(isValidUsml("VIII"), true);
+  assert.equal(isValidUsml("XXI"), true);
+
+  // The category is whitelisted, so numeral-shaped non-categories are out.
+  assert.equal(isValidUsml("XXII"), false, "there is no USML category XXII");
+  assert.equal(isValidUsml("IIII"), false);
+  assert.equal(isValidUsml("9A610"), false, "that is an ECCN, not a category");
+
+  // Category uppercases, paragraphs lowercase — "xi(C)" is the same article.
+  assert.equal(normalizeUsml("xi(C)"), "XI(c)");
+  assert.equal(usmlCategoryOf("XI(c)(4)"), "XI");
+  assert.equal(usmlCategoryOf(null), null);
+
+  // ECCN: digit, group letter A-E, three digits, optional paragraphs.
+  assert.equal(isValidEccn("9A610"), true);
+  assert.equal(isValidEccn("3A001.b.1"), true);
+  assert.equal(isValidEccn("EAR99"), true);
+  assert.equal(isValidEccn("ear99"), true);
+  assert.equal(normalizeEccn("3a001.B.1"), "3A001.b.1");
+  assert.equal(isValidEccn("9Z610"), false, "Z is not a CCL group");
+  assert.equal(isValidEccn("9A61"), false, "three digits required");
+
+  // EAR99 is EAR jurisdiction but unlisted, so it is not "controlled".
+  assert.equal(isExportControlled({ exportJurisdiction: "ITAR" }), true);
+  assert.equal(
+    isExportControlled({ exportJurisdiction: "EAR", eccn: "9A610" }),
+    true
+  );
+  assert.equal(
+    isExportControlled({ exportJurisdiction: "EAR", eccn: "EAR99" }),
+    false
+  );
+  assert.equal(
+    isExportControlled({ exportJurisdiction: "UNDETERMINED" }),
+    false,
+    "unclassified is not the same as cleared"
+  );
+
+  console.log("  \u2713 export control classification");
+}
+
 console.log("smoke-unit");
 testChargeCodes();
 testModules();
 testDemoModeHelper();
 testSessionIdleTimeout();
 testPasswordPolicy();
+testExportControl();
 console.log("smoke-unit: all passed");

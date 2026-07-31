@@ -101,6 +101,7 @@ model User {
   contractModsExecuted     ContractMod[]            @relation("ContractModExecutor")
   cdrlsOwned               Cdrl[]                   @relation("CdrlOwner")
   cdrlSubmissions          CdrlSubmission[]         @relation("CdrlSubmitter")
+  partsExportClassified    Part[]                   @relation("PartExportClassifier")
   projectsSponsored        Project[]                @relation("ProjectSponsor")
   projectsManaged          Project[]                @relation("ProjectManager")
   wikiPagesEdited          ProjectWikiPage[]
@@ -302,6 +303,23 @@ model Part {
   /// estimates and landed-cost allocation by weight.
   unitWeight                Float?
   weightUom                 String?        @default("LB") // optional shelf life for lot expiry
+  /// Export control jurisdiction — UNDETERMINED | ITAR | EAR | NOT_CONTROLLED.
+  /// Defaults to UNDETERMINED on purpose: defaulting to EAR99 or
+  /// NOT_CONTROLLED would assert a classification decision that nobody
+  /// actually made, for every part already in the system.
+  exportJurisdiction        String         @default("UNDETERMINED")
+  /// USML category when jurisdiction is ITAR, e.g. "XI(c)".
+  usmlCategory              String?
+  /// ECCN when jurisdiction is EAR, e.g. "9A610.a", or "EAR99" for
+  /// EAR items that fall on no Commerce Control List entry.
+  eccn                      String?
+  /// ISO-3166 alpha-2 country of origin — trade compliance and duty.
+  countryOfOrigin           String?
+  /// Basis for the determination: the drawing, CJ ruling or advisory relied on.
+  exportNotes               String?
+  exportClassifiedById      String?
+  exportClassifiedBy        User?          @relation("PartExportClassifier", fields: [exportClassifiedById], references: [id], onDelete: SetNull)
+  exportClassifiedAt        DateTime?
   notes                     String?
   createdAt                 DateTime       @default(now())
   updatedAt                 DateTime       @updatedAt
@@ -342,6 +360,7 @@ model Part {
   @@index([partType])
   @@index([isActive])
   @@index([isKanban])
+  @@index([exportJurisdiction])
 }
 
 // Vendor catalog lines for purchasable items
