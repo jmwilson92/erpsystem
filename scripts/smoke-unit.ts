@@ -14,6 +14,12 @@ import {
   isPathEnabled,
 } from "../src/lib/modules";
 import {
+  encodeScanId,
+  parseScan,
+  isTypedScanId,
+  SCAN_PREFIXES,
+} from "../src/lib/scan-ids";
+import {
   sequence,
   sortByRule,
   compareRules,
@@ -720,6 +726,65 @@ function testFiniteScheduling() {
   console.log("  \u2713 finite-capacity scheduling");
 }
 
+
+function testScanIds() {
+  // Round trip.
+  assert.equal(encodeScanId("PART", "ABC-123"), "PN-ABC-123");
+  assert.equal(encodeScanId("BIN", "WH1-A01"), "BIN-WH1-A01");
+  assert.equal(encodeScanId("WORK_ORDER", "SWO-1001"), "WO-SWO-1001");
+  assert.throws(() => encodeScanId("PART", "  "), /empty/i);
+
+  // A typed scan resolves unambiguously even when the value itself has dashes.
+  const part = parseScan("PN-ABC-123");
+  assert.equal(part.ok && part.typed, true);
+  assert.equal(part.ok && part.type, "PART");
+  assert.equal(part.ok && part.value, "ABC-123", "only the first dash splits");
+
+  const bin = parseScan("BIN-WH1-A01");
+  assert.equal(bin.ok && bin.type, "BIN");
+  assert.equal(bin.ok && bin.value, "WH1-A01");
+
+  // Hardware wedges append Enter and may be configured lower case.
+  const wedged = parseScan("  pn-abc-123\r\n");
+  assert.equal(wedged.ok && wedged.type, "PART");
+  assert.equal(wedged.ok && wedged.value, "ABC-123");
+
+  // Legacy bare labels parse, but as explicitly untyped — never as a guess
+  // dressed up as a fact.
+  const legacy = parseScan("WH1-A01");
+  assert.equal(legacy.ok && legacy.typed, false);
+  assert.equal(legacy.ok && legacy.type, null, "no confident type without a prefix");
+  assert.ok(
+    legacy.ok && !legacy.typed && legacy.candidates.includes("BIN"),
+    "a dash-joined code is plausibly a bin"
+  );
+  assert.ok(
+    legacy.ok && !legacy.typed && legacy.candidates.includes("PART"),
+    "but it could equally be a part number"
+  );
+
+  const legacyWo = parseScan("SWO-1001");
+  assert.ok(legacyWo.ok && !legacyWo.typed && legacyWo.candidates.includes("WORK_ORDER"));
+
+  // An unknown prefix is not silently accepted as a type.
+  const unknown = parseScan("ZZZ-999");
+  assert.equal(unknown.ok && unknown.typed, false);
+
+  assert.equal(isTypedScanId("PN-ABC"), true);
+  assert.equal(isTypedScanId("ABC"), false);
+  assert.equal(parseScan("").ok, false);
+
+  // Prefixes must stay distinct, or one label type shadows another.
+  const prefixes = Object.values(SCAN_PREFIXES);
+  assert.equal(new Set(prefixes).size, prefixes.length, "prefixes must be unique");
+  // Code 39 encodes uppercase alphanumerics and a few symbols; ':' is not one.
+  for (const p of prefixes) {
+    assert.match(p, /^[A-Z0-9]+$/, `${p} must be Code 39 safe`);
+  }
+
+  console.log("  \u2713 scan identifiers");
+}
+
 console.log("smoke-unit");
 testChargeCodes();
 testModules();
@@ -733,4 +798,5 @@ testClinRollup();
 testSpc();
 testEstimating();
 testFiniteScheduling();
+testScanIds();
 console.log("smoke-unit: all passed");

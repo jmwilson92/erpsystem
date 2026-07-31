@@ -81,6 +81,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/", label: "Dashboard", icon: LayoutDashboard, keywords: ["home", "kpi", "command center"] },
       { href: "/floor", label: "Production Floor", icon: Factory, keywords: ["shop floor", "live"] },
+      { href: "/scan", label: "Scan", icon: ScanBarcode, keywords: ["scan", "barcode", "scanner", "gun", "wedge", "qr", "label", "bin", "lookup", "mobile", "warehouse", "badge"] },
       { href: "/radiators", label: "Info Radiators", icon: Monitor, keywords: ["wall display", "big screen"] },
       { href: "/value-stream", label: "Value Stream", icon: Network, keywords: ["vsm", "flow", "constraint"] },
       { href: "/approvals", label: "My Approvals", icon: ClipboardCheck, keywords: ["pending", "pto", "timesheet", "expense", "manager"] },

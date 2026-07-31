@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { encodeScanId } from "@/lib/scan-ids";
 import { PrintFrame } from "@/components/print/print-frame";
 import { Barcode } from "@/components/print/barcode";
 
@@ -28,7 +29,7 @@ async function buildLabels(
     return {
       heading: "Bin / Location Labels",
       labels: locations.map((l) => ({
-        barcode: `${l.warehouse.code}-${l.code}`,
+        barcode: encodeScanId("BIN", `${l.warehouse.code}-${l.code}`),
         title: `${l.warehouse.code}-${l.code}`,
         sub: `${l.name || l.type}`,
       })),
@@ -45,7 +46,7 @@ async function buildLabels(
     return {
       heading: "Work Order Traveler Labels",
       labels: wos.map((w) => ({
-        barcode: w.number,
+        barcode: encodeScanId("WORK_ORDER", w.number),
         title: w.number,
         sub: `${w.part?.partNumber || w.type} · qty ${w.quantity}`,
       })),
@@ -61,7 +62,7 @@ async function buildLabels(
   return {
     heading: "Item / Part Labels",
     labels: parts.map((p) => ({
-      barcode: p.partNumber,
+      barcode: encodeScanId("PART", p.partNumber),
       title: p.partNumber,
       sub: p.description,
     })),
