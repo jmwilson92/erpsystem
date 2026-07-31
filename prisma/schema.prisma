@@ -5278,6 +5278,10 @@ model WorkCenter {
   department          String?
   capacityHoursPerDay Float    @default(16)
   efficiency          Float    @default(0.85)
+  /// Direct labour cost per hour at this centre, before any indirect burden.
+  /// Estimating multiplies by hours and then hands the result to the rate
+  /// stack, so this must stay unburdened or the wrap gets applied twice.
+  laborRate           Float    @default(0)
   isActive            Boolean  @default(true)
   isDefault           Boolean  @default(false) // default station when routing by area only
   sortOrder           Int      @default(0)

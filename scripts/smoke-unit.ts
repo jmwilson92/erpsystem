@@ -14,6 +14,13 @@ import {
   isPathEnabled,
 } from "../src/lib/modules";
 import {
+  rollMaterial,
+  rollLabor,
+  priceFromCost,
+  assembleEstimate,
+  unitCost,
+} from "../src/lib/services/estimating";
+import {
   parseMeasurement,
   mean,
   stdDev,
@@ -493,6 +500,108 @@ function testSpc() {
   console.log("  \u2713 SPC control charts and capability");
 }
 
+
+function testEstimating() {
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const r4 = (n: number) => Math.round(n * 10000) / 10000;
+
+  const part = (id: string, cost: number) => ({
+    id,
+    partNumber: id,
+    standardCost: cost,
+    lastBuyCost: cost * 2,
+    averageCost: cost * 1.5,
+    sourcingMethod: "PURCHASE",
+  });
+
+  const parts = new Map([
+    ["TOP", part("TOP", 0)],
+    ["SUB", part("SUB", 0)],
+    ["RAW", part("RAW", 10)],
+  ]);
+
+  assert.equal(unitCost(parts.get("RAW")!, "STANDARD"), 10);
+  assert.equal(unitCost(parts.get("RAW")!, "LAST_BUY"), 20);
+  assert.equal(unitCost(parts.get("RAW")!, "AVERAGE"), 15);
+
+  // Scrap compounds down the levels: 1 x 1.05 x 1.05 = 1.1025, not 1.10.
+  const bom = new Map([
+    ["TOP", [{ componentPartId: "SUB", quantity: 1, scrapFactor: 0.05 }]],
+    ["SUB", [{ componentPartId: "RAW", quantity: 1, scrapFactor: 0.05 }]],
+  ]);
+  const rolled = rollMaterial("TOP", { parts, bom, basis: "STANDARD" });
+  assert.equal(rolled.length, 1, "a made sub-assembly contributes its components");
+  assert.equal(r4(rolled[0].effectiveQty), 1.1025, "scrap multiplies, it does not add");
+  assert.notEqual(r4(rolled[0].effectiveQty), 1.1);
+  assert.equal(r2(rolled[0].extended), 11.03);
+
+  // A BOM that references itself must terminate.
+  const cyclic = new Map([
+    ["TOP", [{ componentPartId: "SUB", quantity: 1, scrapFactor: 0 }]],
+    ["SUB", [{ componentPartId: "TOP", quantity: 1, scrapFactor: 0 }]],
+  ]);
+  const cyc = rollMaterial("TOP", { parts, bom: cyclic, basis: "STANDARD" });
+  assert.ok(Array.isArray(cyc), "cyclic BOM returns rather than hanging");
+
+  // Efficiency DIVIDES: 60 standard minutes at 85% is 1.176 paid hours.
+  const centers = new Map([
+    ["CNC", { code: "CNC", laborRate: 100, efficiency: 0.85 }],
+    ["ASSY", { code: "ASSY", laborRate: 50, efficiency: 1 }],
+  ]);
+  const labor = rollLabor(
+    [
+      { estimatedMinutes: 30, workCenter: "CNC" },
+      { estimatedMinutes: 30, workCenter: "CNC" },
+      { estimatedMinutes: 60, workCenter: "ASSY" },
+    ],
+    centers
+  );
+  const cnc = labor.find((l) => l.workCenter === "CNC")!;
+  assert.equal(cnc.standardMinutes, 60, "steps at the same centre accumulate");
+  assert.equal(r4(cnc.paidHours), 1.1765);
+  assert.ok(cnc.paidHours > 1, "efficiency below 1 costs MORE time, not less");
+  assert.equal(r2(cnc.extended), 117.65);
+
+  // An unknown work centre must not silently make labour free of time.
+  const orphan = rollLabor([{ estimatedMinutes: 60, workCenter: "NOPE" }], centers, 40);
+  assert.equal(orphan[0].paidHours, 1, "missing efficiency falls back to 1");
+  assert.equal(orphan[0].extended, 40, "fallback rate is used");
+
+  // Margin is taken out of price; markup is added to cost.
+  assert.equal(r2(priceFromCost(100, { margin: 0.3 })), 142.86);
+  assert.equal(r2(priceFromCost(100, { markup: 0.3 })), 130);
+  assert.notEqual(
+    r2(priceFromCost(100, { margin: 0.3 })),
+    r2(priceFromCost(100, { markup: 0.3 }))
+  );
+  assert.equal(priceFromCost(100, {}), 100);
+  assert.throws(() => priceFromCost(100, { margin: 1 }), /no finite price/);
+
+  // Full assembly, with the rate stack applied to the whole job.
+  const est = assembleEstimate({
+    quantity: 10,
+    material: [{ partNumber: "RAW", effectiveQty: 1, unitCost: 10, extended: 10, level: 0 }],
+    labor: [{ workCenter: "ASSY", standardMinutes: 60, paidHours: 1, rate: 50, extended: 50 }],
+    pools: [
+      { code: "OH", poolType: "OVERHEAD", allocationBase: "DIRECT_LABOR", sequence: 10, rate: 1 },
+    ],
+    pricing: { margin: 0.25 },
+  });
+  assert.equal(est.burdened.directLabor, 500, "per-unit labour times quantity");
+  assert.equal(est.burdened.directMaterial, 100);
+  assert.equal(est.totalCost, 1100, "500 labour + 500 overhead + 100 material");
+  assert.equal(est.unitCost, 110);
+  assert.equal(r2(est.totalPrice), 1466.67);
+  assert.equal(r2(est.unitPrice), 146.67);
+
+  // Zero quantity must not divide by zero.
+  const none = assembleEstimate({ quantity: 0, material: [], labor: [], pools: [] });
+  assert.equal(none.unitCost, 0);
+  assert.equal(none.unitPrice, 0);
+
+  console.log("  \u2713 estimating engine");
+}
+
 console.log("smoke-unit");
 testChargeCodes();
 testModules();
@@ -504,4 +613,5 @@ testDeviations();
 testRatePools();
 testClinRollup();
 testSpc();
+testEstimating();
 console.log("smoke-unit: all passed");

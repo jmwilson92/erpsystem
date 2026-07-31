@@ -20,7 +20,7 @@ export const MODULES: ModuleDef[] = [
     key: "sales",
     label: "Sales & Customers",
     description: "Quotes, sales orders, customers, shipping",
-    prefixes: ["/sales", "/customers", "/shipping"],
+    prefixes: ["/sales", "/customers", "/shipping", "/estimating"],
   },
   {
     key: "manufacturing",
