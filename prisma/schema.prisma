@@ -3189,6 +3189,8 @@ model Supplier {
   partVendors      PartVendor[]
   certifications   SupplierCertification[]
   apInvoices       ApInvoice[]
+  portalTokens     SupplierPortalToken[]
+  documents        SupplierDocument[]
 
   @@index([isApprovedVendor, status])
 }
@@ -3377,6 +3379,7 @@ model PurchaseOrder {
   inspections        Inspection[]
   apInvoices         ApInvoice[]
   receivingTravelers ReceivingTraveler[]
+  supplierDocuments  SupplierDocument[]
 
   @@index([status])
   @@index([supplierId])
@@ -3451,18 +3454,19 @@ model ReceivingTravelerLine {
 }
 
 model PurchaseOrderLine {
-  id               String        @id @default(cuid())
+  id               String             @id @default(cuid())
   purchaseOrderId  String
-  purchaseOrder    PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  purchaseOrder    PurchaseOrder      @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
   partId           String?
-  part             Part?         @relation(fields: [partId], references: [id])
+  part             Part?              @relation(fields: [partId], references: [id])
   description      String
   quantity         Float
-  quantityReceived Float         @default(0)
-  unitCost         Float         @default(0)
-  uom              String        @default("EA")
+  quantityReceived Float              @default(0)
+  unitCost         Float              @default(0)
+  uom              String             @default("EA")
   promisedDate     DateTime?
-  lineNumber       Int           @default(1)
+  lineNumber       Int                @default(1)
+  acknowledgement  PoAcknowledgement?
 }
 
 model Receipt {
@@ -6307,4 +6311,67 @@ model SpcCharacteristic {
 
   @@unique([partId, name])
   @@index([isActive])
+}
+
+/// A supplier's access token for the external portal.
+///
+/// Only the hash is stored, matching how every other token in this schema is
+/// held: a leaked database must not yield working portal links. The token is
+/// bound to exactly one supplier, and every portal query filters by the
+/// supplier resolved from it rather than by anything in the request.
+model SupplierPortalToken {
+  id         String    @id @default(cuid())
+  tokenHash  String    @unique
+  supplierId String
+  supplier   Supplier  @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  label      String?
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([supplierId])
+}
+
+/// A supplier's response to a purchase order line.
+///
+/// Kept separate from PurchaseOrderLine.promisedDate rather than overwriting
+/// it. The buyer's required date and the supplier's committed date are
+/// different facts, and collapsing them destroys the evidence that a date was
+/// ever pushed — which is the whole point of asking for an acknowledgement.
+model PoAcknowledgement {
+  id                String            @id @default(cuid())
+  lineId            String            @unique
+  line              PurchaseOrderLine @relation(fields: [lineId], references: [id], onDelete: Cascade)
+  /// ACKNOWLEDGED | DATE_PROPOSED | REJECTED
+  status            String            @default("ACKNOWLEDGED")
+  /// The date the supplier commits to, which may differ from what was asked.
+  confirmedDate     DateTime?
+  quantityConfirmed Float?
+  supplierNote      String?
+  acknowledgedAt    DateTime          @default(now())
+  /// Set when a buyer accepts a proposed date, moving it onto the line.
+  acceptedAt        DateTime?
+  acceptedById      String?
+
+  @@index([status])
+}
+
+/// A certificate or document uploaded by a supplier against a PO.
+model SupplierDocument {
+  id              String         @id @default(cuid())
+  supplierId      String
+  supplier        Supplier       @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  purchaseOrderId String?
+  purchaseOrder   PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id], onDelete: SetNull)
+  /// COC | MATERIAL_CERT | TEST_REPORT | RoHS | OTHER
+  docType         String         @default("COC")
+  fileName        String
+  /// Stored URL or data URI, following how attachments are held elsewhere.
+  fileUrl         String
+  notes           String?
+  uploadedAt      DateTime       @default(now())
+
+  @@index([supplierId])
+  @@index([purchaseOrderId])
 }

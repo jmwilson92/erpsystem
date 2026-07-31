@@ -140,6 +140,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/purchasing/pr/new", label: "New PR", icon: FileInput, keywords: ["purchase request", "standalone pr", "buy", "requisition"] },
       { href: "/receiving", label: "Receiving", icon: PackageCheck, keywords: ["dock", "inspection", "gfp", "traveler"] },
       { href: "/suppliers", label: "Suppliers / ASL", icon: Award, keywords: ["vendor", "scorecard", "approved supplier"] },
+      { href: "/suppliers/portal", label: "Supplier Portal", icon: Handshake, keywords: ["supplier portal", "po acknowledgement", "acknowledge", "date confirmation", "confirm date", "cert upload", "coc", "certificate of conformance", "vendor portal", "external"] },
       { href: "/inventory", label: "Inventory", icon: Package, keywords: ["stock", "bins", "kanban", "quarantine"] },
       { href: "/inventory/expiring", label: "Expiring Stock", icon: Hourglass, keywords: ["shelf life", "expiry", "expiration", "expired", "lot", "perishable", "adhesive", "sealant", "resin", "cure date", "use by"] },
       { href: "/government-property", label: "Gov Property", icon: Shield, keywords: ["gfp", "cap", "uid", "dfars"] },

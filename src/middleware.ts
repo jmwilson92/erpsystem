@@ -26,6 +26,10 @@ const PUBLIC_PREFIXES = [
   "/api/demo", // includes /api/demo/end, /api/demo/reset
   // Guest support chat thread (secret token in path)
   "/support/t",
+  // Supplier portal — suppliers are not users, so the secret token in the
+  // path is the access control. Without this the portal redirects to /login
+  // and no supplier can ever reach it.
+  "/portal/supplier",
   "/_next",
   "/favicon",
   "/api/health",
