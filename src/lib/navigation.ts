@@ -155,6 +155,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/rma", label: "RMA", icon: RotateCcw, keywords: ["return", "warranty", "repair", "customer return"] },
       { href: "/trace/serials", label: "Serial trace", icon: ScanBarcode, keywords: ["as-built", "genealogy", "serial number", "sn tree"] },
       { href: "/export-control", label: "Export Control", icon: Shield, keywords: ["itar", "ear", "eccn", "usml", "export", "classification", "jurisdiction", "ear99", "commerce control list", "ccl", "state department", "trade compliance", "country of origin"] },
+      { href: "/deviations", label: "Deviations & Waivers", icon: FileSignature, keywords: ["deviation", "waiver", "departure", "concession", "use as is", "nonconforming", "authorisation", "authorization", "sdr", "request for waiver", "rfd", "rfw"] },
       { href: "/quality/programs", label: "Quality Programs", icon: Shield, keywords: ["qms", "program", "compliance", "as9100", "calibration", "gage", "tool control", "toolbox", "hazmat", "sds", "esd", "humidity", "fod", "safety", "ehs", "internal audit", "as9101", "ncr", "ofi", "counterfeit", "as5553", "as6174", "policy"] },
     ],
   },
