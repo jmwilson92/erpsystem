@@ -87,8 +87,54 @@ Widening the moat once the base is real.
 
 - **DPAS rated orders** — the one defense-specific gap I could not find in the codebase. Priority-rated orders (DO/DX) change scheduling obligations, and primes ask about it.
 - **Supplier portal** — suppliers acknowledging POs and uploading certs directly. Turns the ERP into something the customer's *suppliers* touch, which is very sticky.
-- **Shop floor on a tablet** — the floor is where adoption succeeds or fails, and a desk-shaped UI on a shop tablet is a real objection.
 - **Tauri desktop client** — a native window pointed at their on-prem server. Small, and a good answer to "can we have an app?"
+
+Mobile used to be a bullet here. It got big enough to need its own section — below.
+
+---
+
+## Mobile — warehouse and shop floor
+
+The floor is where ERP adoption succeeds or fails. A desk-shaped UI on a shop tablet is a real objection, and "does it work on a phone?" is a question every prospect asks. This is the one feature area worth building ahead of demand, because it is *demonstrable* — it makes the difference between a demo that looks like software and one that looks like their Tuesday.
+
+**Scope: warehousing end to end, plus scanning in and out of jobs.** Not the whole ERP on a small screen — nobody approves a budget on a phone.
+
+### Build it as an installable web app, not a native binary
+
+The recommendation, and the reasoning, because this decision is easy to get wrong:
+
+- **Real warehouses run rugged Android scanners** (Zebra TC-series and equivalents), not personal phones. Those devices have hardware scan triggers that emit keystrokes — a web input box already receives them, with no camera and no SDK.
+- **Distribution is the killer for native on-prem.** Our moat is "runs entirely inside your boundary." An App Store binary that only talks to a customer's private server is friction at review time and friction at install time. A web app is just the local address they already use.
+- **Many defense shops ban personal phones on the floor outright.** Building for company-issued devices is building for the actual customer.
+- `src/app/manifest.ts` already declares `display: standalone`, so the site is installable today on both platforms. The gap is screens, not packaging.
+
+Revisit native only if a customer needs iOS camera scanning specifically, or app-store presence is a procurement checkbox. Wrapping the same screens in a shell later is days of work; guessing wrong now costs months.
+
+### What already exists
+
+More than expected. Worth knowing before scoping:
+
+- **Warehouse model is complete** — `Warehouse`, `Location` (STORAGE / RECEIVING / QUARANTINE / SHIPPING / WIP / STAGING / GFP), `InventoryItem` with lot, serial, ownership and quarantine quantities, `Lot`, `CycleCount` / `CycleCountLine`. Kitting, receiving and shipping all have working desktop flows.
+- **Label printing works** — Code 39 generation in `src/lib/barcode.ts`, QR in `src/lib/qr.ts`, a print sheet at `/print/labels` covering bins, work orders and parts.
+- **Labor tracking works** — `TimeEntry` already carries `workOrderId` and a `type` discriminator, with timesheets and approvals on top. `clockOutAllActiveWork` already exists.
+
+### What is actually missing
+
+The honest gap list, from reading the code:
+
+- **No ID convention on labels.** `/print/labels` encodes bare values — `WH-LOC` for bins, the raw WO number, the raw part number (`src/app/print/labels/page.tsx:31,48,64`). One scan box cannot tell a part number from a bin code. A type prefix has to land *before* anything scans, because reprinting every label in a warehouse later is not a small ask.
+- **No scan primitive.** One component that takes a scan — from a hardware wedge, or the camera as a fallback — resolves it to a part, lot, serial, bin, work order or employee badge, and routes to the right action. This is the keystone; everything else hangs off it.
+- **Job scanning is bound to the wrong model.** `WorkTimeScan` (open/closed, hours filled on scan-out) is exactly the right shape, but it relates to `EngTask` — engineering tasks, not floor work. Floor scanning needs the same pattern against a work order and operation, landing in `TimeEntry`.
+- **Station scanning records no labor.** `actionScanWorkOrderToStation` moves a work order between stations but never records *who* worked or for how long.
+- **No token-authed API.** Everything is cookie sessions and server actions — fine for a web app, a hard blocker for native. Another reason the sequencing above is the cheap one.
+
+### Staging
+
+**Stage A — make it demo-able.** Label ID prefixes, the scan primitive, and mobile-shaped screens for the highest-frequency transactions: receive against a PO, putaway, pick/issue to a work order, bin-to-bin move, cycle count. Plus job scan in/out writing real `TimeEntry` rows. Sized to be worth doing during Phase 0/1 — it kills a live sales objection.
+
+**Stage B — make it survive a real warehouse.** Offline queue. This is the genuinely hard part and should not be hand-waved: inventory transactions are not idempotent, so replaying a queue after a dead zone needs client-generated idempotency keys and a server that honours them. Get this wrong and you double-count inventory, which is worse than being offline.
+
+**Stage C — make it usable on shared hardware.** A floor scanner is passed between people. Badge scan for identity rather than a password per transaction, and a session policy of its own — the 15-minute air-gap idle timeout is correct for a desk and wrong for a scanner in a picker's hand. Narrow mobile roles too: a warehouse clerk should not reach financials through a scan gun.
 
 ---
 
@@ -98,6 +144,7 @@ Written down so it stays decided:
 
 - **More modules.** Fifteen is already more than a 20-person shop uses. Depth in what exists beats breadth.
 - **A native bundled `.exe`.** Weeks of work, fragile, and wrong-shaped: a multi-user shop's ERP cannot live on one person's laptop. The Docker on-prem stack plus a thin client covers the real need.
+- **A native phone binary, for now.** The phone app itself is on — see the mobile section. Shipping it as an App Store / Play Store binary is what's deferred, until a customer needs iOS camera scanning or procurement demands a store listing.
 - **Chasing NetSuite feature parity.** Losing game. Win on "inside your boundary, provable, no consultants."
 - **Anything before a customer asks.** The last stretch built genuinely necessary infrastructure. The next stretch must be earned by demand.
 
@@ -123,3 +170,5 @@ Review monthly. For every proposed feature ask, in order:
 2. **Does it unblock a sale in progress?** Yes → do it now, regardless of phase.
 3. **Does it widen the on-premise compliance moat?** Yes → strong candidate.
 4. **Is it here because it is fun to build?** Be honest. Sometimes the answer is fine — just know that is the reason.
+
+Mobile Stage A is the one deliberate exception to rule 1. It is allowed ahead of demand because it is demonstrable during a sale rather than after one. If it stops being demo-able and turns into a six-week rebuild, it has failed its own justification — stop and go back to Phase 0.
