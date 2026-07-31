@@ -16,7 +16,7 @@ services:
     # IMAGE_TAG picks the variant. Use a -airgap tag for an ITAR/CUI site: that
     # is a different BUILD, not a runtime switch, because the analytics package
     # is aliased away at build time.
-    image: ${PROTESSERA_IMAGE:-ghcr.io/jmwilson92/erpsystem}:${IMAGE_TAG:-latest}
+    image: ${PROTESSERA_IMAGE:-ghcr.io/jmwilson92/protessera}:${IMAGE_TAG:-latest}
     container_name: protessera
     depends_on:
       postgres:

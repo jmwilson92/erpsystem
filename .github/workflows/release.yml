@@ -54,11 +54,15 @@ jobs:
           echo "minor=$(printf '%s' "$VERSION" | cut -d. -f1-2)" >> "$GITHUB_OUTPUT"
           echo "Publishing $VERSION"
 
-      # Lowercase: GHCR rejects uppercase in a repository path, and a GitHub
-      # username may legitimately contain capitals.
+      # Named for the PRODUCT, not the repository. GHCR only requires the owner
+      # to match, so `erpsystem` (an internal repo name) never has to appear in
+      # a command a customer runs. Lowercased because GHCR rejects uppercase and
+      # a GitHub username may legitimately contain capitals.
       - name: Image name
         id: img
-        run: echo "name=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+        run: |
+          OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')
+          echo "name=ghcr.io/$OWNER/protessera" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@v3
 

@@ -16,7 +16,7 @@
 # volume.
 set -eu
 
-IMAGE="${PROTESSERA_IMAGE:-ghcr.io/jmwilson92/erpsystem}"
+IMAGE="${PROTESSERA_IMAGE:-ghcr.io/jmwilson92/protessera}"
 VERSION="latest"
 AIRGAP=0
 PORT="${HTTP_PORT:-3000}"
