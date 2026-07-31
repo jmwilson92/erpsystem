@@ -105,6 +105,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/estimating", label: "Estimating", icon: FileSpreadsheet, keywords: ["estimate", "cost roll", "should cost", "bid", "quote cost", "bom roll", "rollup", "margin", "markup", "wrap", "burden", "scrap factor"] },
       { href: "/sales", label: "Sales Orders", icon: ShoppingBag, keywords: ["so", "order entry", "booking"] },
       { href: "/customers", label: "Customers", icon: Building2, keywords: ["crm", "accounts", "credit"] },
+      { href: "/customers/portal", label: "Customer Portal", icon: Monitor, keywords: ["customer portal", "order status", "open order report", "customer link", "order tracking", "progress", "external", "share status"] },
       { href: "/shipping", label: "Shipping", icon: Truck, keywords: ["pack", "ship", "logistics", "delivery"] },
     ],
   },

@@ -30,6 +30,8 @@ const PUBLIC_PREFIXES = [
   // path is the access control. Without this the portal redirects to /login
   // and no supplier can ever reach it.
   "/portal/supplier",
+  // Customer order portal — same reasoning as the supplier portal.
+  "/portal/customer",
   "/_next",
   "/favicon",
   "/api/health",

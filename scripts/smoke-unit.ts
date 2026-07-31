@@ -14,6 +14,11 @@ import {
   isPathEnabled,
 } from "../src/lib/modules";
 import {
+  lineProgress,
+  orderProgress,
+  daysLate,
+} from "../src/lib/services/customer-portal";
+import {
   encodeScanId,
   parseScan,
   isTypedScanId,
@@ -785,6 +790,114 @@ function testScanIds() {
   console.log("  \u2713 scan identifiers");
 }
 
+
+function testCustomerPortal() {
+  // Nothing started.
+  const fresh = lineProgress({ quantity: 10, quantityShipped: 0, quantityBuilt: 0 });
+  assert.equal(fresh.builtPct, 0);
+  assert.equal(fresh.stage, "ORDERED");
+
+  // A work order running with nothing finished still reads as in production.
+  const started = lineProgress({
+    quantity: 10,
+    quantityShipped: 0,
+    quantityBuilt: 0,
+    workOrderStatuses: ["IN_PROGRESS"],
+  });
+  assert.equal(started.stage, "IN_PRODUCTION");
+  assert.equal(started.builtPct, 0, "in production is not the same as built");
+
+  const half = lineProgress({ quantity: 10, quantityShipped: 0, quantityBuilt: 5 });
+  assert.equal(half.builtPct, 50);
+  assert.equal(half.shippedPct, 0);
+  assert.equal(half.stage, "IN_PRODUCTION");
+
+  // Shipping from stock with no work order must not read as 0% built.
+  const fromStock = lineProgress({
+    quantity: 10,
+    quantityShipped: 10,
+    quantityBuilt: 0,
+  });
+  assert.equal(fromStock.shippedPct, 100);
+  assert.equal(fromStock.builtPct, 100, "built is floored at shipped");
+  assert.equal(fromStock.stage, "SHIPPED");
+  assert.equal(fromStock.isComplete, true);
+
+  const partial = lineProgress({ quantity: 10, quantityShipped: 4, quantityBuilt: 8 });
+  assert.equal(partial.stage, "PARTIALLY_SHIPPED");
+  assert.equal(partial.isComplete, false);
+
+  // Over-delivery must not produce a bar past the end of its track.
+  const over = lineProgress({ quantity: 10, quantityShipped: 12, quantityBuilt: 15 });
+  assert.equal(over.shippedPct, 100);
+  assert.equal(over.builtPct, 100);
+
+  // Divide-by-zero.
+  const zero = lineProgress({ quantity: 0, quantityShipped: 0, quantityBuilt: 0 });
+  assert.equal(zero.builtPct, 0);
+  assert.equal(zero.shippedPct, 0);
+
+  // Holds, in precedence order.
+  assert.equal(
+    lineProgress({
+      quantity: 10, quantityShipped: 0, quantityBuilt: 0,
+      workOrderStatuses: ["WAITING_MATERIAL"],
+    }).hold,
+    "MATERIAL"
+  );
+  assert.equal(
+    lineProgress({
+      quantity: 10, quantityShipped: 0, quantityBuilt: 5,
+      hasOpenQualityIssue: true,
+    }).hold,
+    "QUALITY"
+  );
+  assert.equal(
+    lineProgress({
+      quantity: 10, quantityShipped: 0, quantityBuilt: 0,
+      workOrderStatuses: ["WAITING_MATERIAL"], creditHold: true,
+    }).hold,
+    "CREDIT",
+    "credit outranks material — nothing moves until it clears"
+  );
+
+  // A delivered line must never be shown as blocked.
+  assert.equal(
+    lineProgress({
+      quantity: 10, quantityShipped: 10, quantityBuilt: 10,
+      workOrderStatuses: ["WAITING_MATERIAL"], hasOpenQualityIssue: true,
+    }).hold,
+    "NONE",
+    "a shipped line cannot be on hold"
+  );
+
+  // Order rollup weights by quantity, not by line count.
+  const rollup = orderProgress([
+    { quantity: 90, builtPct: 100, shippedPct: 100, stage: "SHIPPED", hold: "NONE", isComplete: true },
+    { quantity: 10, builtPct: 0, shippedPct: 0, stage: "ORDERED", hold: "NONE", isComplete: false },
+  ]);
+  assert.equal(rollup.shippedPct, 90, "a 90-unit line outweighs a 10-unit line");
+  assert.notEqual(rollup.shippedPct, 50, "not an average of the two lines");
+  assert.equal(rollup.isComplete, false, "one open line keeps the order open");
+
+  // One blocked line blocks the order.
+  const blocked = orderProgress([
+    { quantity: 5, builtPct: 50, shippedPct: 0, stage: "IN_PRODUCTION", hold: "NONE", isComplete: false },
+    { quantity: 5, builtPct: 0, shippedPct: 0, stage: "ORDERED", hold: "QUALITY", isComplete: false },
+  ]);
+  assert.equal(blocked.hold, "QUALITY");
+
+  assert.equal(orderProgress([]).shippedPct, 0);
+
+  // Lateness.
+  const now = new Date("2026-06-15T12:00:00Z");
+  assert.equal(daysLate(new Date("2026-06-10T00:00:00Z"), now), 5);
+  assert.equal(daysLate(new Date("2026-06-20T00:00:00Z"), now), -5, "still in hand");
+  assert.equal(daysLate(null, now), null);
+
+  console.log("  \u2713 customer portal progress");
+}
+
 console.log("smoke-unit");
 testChargeCodes();
 testModules();
@@ -799,4 +912,5 @@ testSpc();
 testEstimating();
 testFiniteScheduling();
 testScanIds();
+testCustomerPortal();
 console.log("smoke-unit: all passed");

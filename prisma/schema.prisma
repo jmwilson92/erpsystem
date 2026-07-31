@@ -3804,6 +3804,7 @@ model Customer {
   products           Product[]
   serialNumbers      SerialNumber[]
   rmas               Rma[]
+  portalTokens       CustomerPortalToken[]
 }
 
 model ArInvoice {
@@ -6374,4 +6375,24 @@ model SupplierDocument {
 
   @@index([supplierId])
   @@index([purchaseOrderId])
+}
+
+/// A customer's access token for the external order portal.
+///
+/// Same shape and same reasoning as SupplierPortalToken: only the hash is
+/// stored, the token is bound to exactly one customer, and every portal query
+/// filters by the customer it resolves to rather than by anything the request
+/// supplies.
+model CustomerPortalToken {
+  id         String    @id @default(cuid())
+  tokenHash  String    @unique
+  customerId String
+  customer   Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  label      String?
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([customerId])
 }
