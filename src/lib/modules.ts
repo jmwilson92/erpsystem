@@ -82,6 +82,7 @@ export const MODULES: ModuleDef[] = [
       "/mrb",
       "/rma",
       "/trace",
+      "/export-control",
     ],
   },
   {
