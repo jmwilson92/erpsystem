@@ -16,6 +16,14 @@ import {
 import Link from "next/link";
 import { listApprovedSuppliers } from "@/lib/services/items";
 import { getLotsForPart, EXPIRY_WARNING_DAYS } from "@/lib/services/shelf-life";
+import {
+  EXPORT_JURISDICTIONS,
+  JURISDICTION_LABELS,
+  isExportControlled,
+  USML_CATEGORY_TITLES,
+  usmlCategoryOf,
+} from "@/lib/services/export-control";
+import { actionClassifyPart } from "@/app/export-control/actions";
 import { ActivityTimeline } from "@/components/shared/activity-timeline";
 import { AddBomLineForm } from "@/components/bom/add-bom-line-form";
 
@@ -98,6 +106,7 @@ export default async function ItemDetailPage({
     { id: "accounting", label: "Accounting" },
     { id: "vendors", label: "Vendors" },
     { id: "receiving", label: "Receiving" },
+    { id: "export", label: "Export control" },
     { id: "bom", label: "BOMs" },
   ] as const;
 
@@ -742,6 +751,122 @@ export default async function ItemDetailPage({
               <Button type="submit" size="sm">
                 Save flags
               </Button>
+            </form>
+          </CardContent>
+        </Card>
+      )}
+
+      {tab === "export" && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Export control</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {sp.error && (
+              <div className="rounded-md border border-rose-800/60 bg-rose-950/30 px-3 py-2 text-sm text-rose-200">
+                {Array.isArray(sp.error) ? sp.error[0] : sp.error}
+              </div>
+            )}
+
+            <div className="rounded-md border border-slate-800 bg-slate-950/40 p-3 text-sm">
+              <p className="text-slate-300">
+                {part.exportJurisdiction === "ITAR" ? (
+                  <>
+                    <span className="text-amber-300">ITAR</span> — USML{" "}
+                    {part.usmlCategory}
+                    {usmlCategoryOf(part.usmlCategory) && (
+                      <span className="text-slate-500">
+                        {" "}
+                        ({USML_CATEGORY_TITLES[usmlCategoryOf(part.usmlCategory)!]})
+                      </span>
+                    )}
+                  </>
+                ) : part.exportJurisdiction === "EAR" ? (
+                  <>
+                    <span
+                      className={
+                        part.eccn === "EAR99" ? "text-slate-300" : "text-amber-300"
+                      }
+                    >
+                      EAR
+                    </span>{" "}
+                    — {part.eccn}
+                  </>
+                ) : (
+                  JURISDICTION_LABELS[part.exportJurisdiction]
+                )}
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                {part.exportClassifiedAt
+                  ? `Determined ${new Date(part.exportClassifiedAt).toLocaleDateString()}`
+                  : "No determination on record — this part has not been ruled on."}
+                {part.countryOfOrigin ? ` · origin ${part.countryOfOrigin}` : ""}
+                {isExportControlled(part)
+                  ? " · licence question applies before export or foreign-person access"
+                  : ""}
+              </p>
+              {part.exportNotes && (
+                <p className="mt-2 text-xs text-slate-400">{part.exportNotes}</p>
+              )}
+            </div>
+
+            <form action={actionClassifyPart} className="grid gap-3 sm:grid-cols-4">
+              <input type="hidden" name="partId" value={part.id} />
+              <input
+                type="hidden"
+                name="returnTo"
+                value={`/items/${part.id}?tab=export`}
+              />
+              <label className="text-sm text-slate-400">
+                Jurisdiction
+                <select
+                  name="jurisdiction"
+                  defaultValue={part.exportJurisdiction}
+                  className="mt-1 w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 text-sm text-slate-200"
+                >
+                  {EXPORT_JURISDICTIONS.map((j) => (
+                    <option key={j} value={j}>
+                      {JURISDICTION_LABELS[j]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-sm text-slate-400">
+                USML category
+                <Input
+                  name="usmlCategory"
+                  defaultValue={part.usmlCategory || ""}
+                  placeholder="XI(c)"
+                />
+              </label>
+              <label className="text-sm text-slate-400">
+                ECCN
+                <Input
+                  name="eccn"
+                  defaultValue={part.eccn || ""}
+                  placeholder="9A610 or EAR99"
+                />
+              </label>
+              <label className="text-sm text-slate-400">
+                Country of origin
+                <Input
+                  name="countryOfOrigin"
+                  defaultValue={part.countryOfOrigin || ""}
+                  placeholder="US"
+                />
+              </label>
+              <label className="text-sm text-slate-400 sm:col-span-3">
+                Basis for the determination
+                <Textarea
+                  name="exportNotes"
+                  defaultValue={part.exportNotes || ""}
+                  rows={2}
+                  placeholder="Drawing, CJ ruling or advisory opinion relied on"
+                />
+              </label>
+              <div className="sm:self-end">
+                <Button type="submit">Record determination</Button>
+              </div>
             </form>
           </CardContent>
         </Card>
