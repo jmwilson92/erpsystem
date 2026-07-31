@@ -120,7 +120,7 @@ export default async function SupplierPortalAdminPage({
             </table>
           )}
           <p className="mt-2 text-xs text-slate-500">
-            A supplier's date only becomes the promised date when a buyer
+            A supplier&apos;s date only becomes the promised date when a buyer
             accepts it here — the portal records what was proposed, it does not
             move the commitment.
           </p>

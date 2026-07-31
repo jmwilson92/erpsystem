@@ -297,7 +297,7 @@ export default async function EstimatingPage({
                 </table>
               )}
               <p className="mt-2 text-xs text-slate-500">
-                Paid hours divide standard time by the centre's efficiency — 60
+                Paid hours divide standard time by the centre&apos;s efficiency — 60
                 minutes at 85% costs 1.176 hours, not 0.85.
               </p>
             </CardContent>
