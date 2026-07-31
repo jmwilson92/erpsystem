@@ -106,8 +106,9 @@ export const MODULES: ModuleDef[] = [
   {
     key: "pmo",
     label: "Programs & PMO",
-    description: "Programs, PMO, PI planning, leadership, project budgets",
-    prefixes: ["/pmo", "/leadership", "/budgets"],
+    description:
+      "Programs, contracts and CLINs, PMO, PI planning, leadership, project budgets",
+    prefixes: ["/pmo", "/contracts", "/leadership", "/budgets"],
   },
   {
     key: "fieldservice",
