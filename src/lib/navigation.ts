@@ -180,6 +180,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/pmo/alerts", label: "PM Alerts", icon: AlertTriangle, keywords: ["program alerts", "risk"] },
       { href: "/budgets", label: "Budgets", icon: Landmark, keywords: ["budget", "charge code", "direct", "indirect", "enact"] },
       { href: "/accounting", label: "Accounting", icon: Landmark, keywords: ["gl", "gaap", "p&l", "balance sheet", "ar", "ap", "payroll", "banking", "reconcile"] },
+      { href: "/rates", label: "Indirect Rates", icon: Wallet, keywords: ["indirect", "rate", "overhead", "fringe", "g&a", "ga", "wrap rate", "dcaa", "cost pool", "allocation base", "provisional", "true-up", "cost center", "cost centre", "burden"] },
       { href: "/accounting/banking", label: "Bank Connections", icon: CreditCard, keywords: ["plaid", "bank", "connect account", "feed", "transactions", "reconcile", "link"] },
       { href: "/accounting/payroll", label: "Payroll", icon: Users2, keywords: ["pay run", "net pay", "withholding", "w-4", "paystub", "wages"] },
       { href: "/hr", label: "HR / Workforce", icon: Users2, keywords: ["time", "pto", "expenses", "reviews", "recruiting", "ats", "hiring", "candidate", "requisition", "applicant", "job", "pipeline", "recruiter", "onboarding", "new hire", "i-9", "w-4", "background check", "orientation"] },

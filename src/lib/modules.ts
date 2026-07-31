@@ -97,7 +97,7 @@ export const MODULES: ModuleDef[] = [
     key: "accounting",
     label: "Accounting",
     description: "General ledger, AR / AP, payroll, banking",
-    prefixes: ["/accounting"],
+    prefixes: ["/accounting", "/rates"],
   },
   {
     key: "hr",
