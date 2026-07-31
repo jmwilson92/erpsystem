@@ -32,6 +32,7 @@ export const MODULES: ModuleDef[] = [
       "/workcenters",
       "/kitting",
       "/planning",
+      "/scheduling",
     ],
   },
   {

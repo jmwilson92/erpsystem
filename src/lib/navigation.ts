@@ -115,6 +115,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/test-center", label: "Test Center", icon: FlaskConical, keywords: ["ate", "burn-in", "test station"] },
       { href: "/kitting", label: "Kitting", icon: Boxes, keywords: ["pick", "stage", "shortage"] },
       { href: "/planning", label: "Planning & MRP", icon: LineChart, keywords: ["forecast", "mrs", "capacity", "demand"] },
+      { href: "/scheduling", label: "Finite Scheduling", icon: CalendarRange, keywords: ["finite capacity", "sequencing", "dispatch", "edd", "spt", "critical ratio", "schedule", "late", "queue", "shop load", "sequence"] },
       { href: "/maintenance", label: "Maintenance (CMMS)", icon: Cog, keywords: ["cmms", "equipment", "machine", "preventive maintenance", "pm", "downtime", "breakdown", "oee", "availability", "calibration", "meter", "run hours", "spindle", "uptime"] },
     ],
   },

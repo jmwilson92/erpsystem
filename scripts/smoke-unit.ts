@@ -14,6 +14,13 @@ import {
   isPathEnabled,
 } from "../src/lib/modules";
 import {
+  sequence,
+  sortByRule,
+  compareRules,
+  dayDiff,
+  isWeekend,
+} from "../src/lib/services/finite-scheduling";
+import {
   rollMaterial,
   rollLabor,
   priceFromCost,
@@ -602,6 +609,117 @@ function testEstimating() {
   console.log("  \u2713 estimating engine");
 }
 
+
+function testFiniteScheduling() {
+  const d = (iso: string) => new Date(iso + "T00:00:00Z");
+  // 2026-06-01 is a Monday.
+  const start = d("2026-06-01");
+  const centers = [{ code: "CNC", minutesPerDay: 480 }];
+
+  assert.equal(isWeekend(d("2026-06-06")), true, "Saturday");
+  assert.equal(isWeekend(d("2026-06-01")), false, "Monday");
+  assert.equal(dayDiff(d("2026-06-05"), d("2026-06-01")), 4);
+
+  // THE invariant: a centre never gets more minutes in a day than it has.
+  const many = Array.from({ length: 12 }, (_, i) => ({
+    id: `J${i}`,
+    label: `J${i}`,
+    workCenter: "CNC",
+    minutes: 300,
+    dueDate: d("2026-06-30"),
+    sequence: i,
+  }));
+  const r = sequence(many, centers, { start, rule: "FIFO" });
+  const perDay = new Map<number, number>();
+  for (const j of r.scheduled) {
+    for (const day of j.days) {
+      const k = day.date.getTime();
+      perDay.set(k, (perDay.get(k) || 0) + day.minutes);
+    }
+  }
+  for (const [k, mins] of perDay) {
+    assert.ok(mins <= 480, `day ${new Date(k).toISOString()} booked ${mins} > 480`);
+  }
+  assert.equal(r.scheduled.length, 12, "everything placed");
+
+  // Weekends are skipped entirely.
+  for (const j of r.scheduled) {
+    for (const day of j.days) {
+      assert.equal(isWeekend(day.date), false, "no work booked on a weekend");
+    }
+  }
+
+  // A job larger than one day spans days rather than being crammed in.
+  const big = sequence(
+    [{ id: "B", label: "B", workCenter: "CNC", minutes: 1200, dueDate: d("2026-06-30") }],
+    centers,
+    { start }
+  );
+  assert.equal(big.scheduled[0].days.length, 3, "1200 min over 480/day is three days");
+  assert.equal(big.scheduled[0].days[2].minutes, 240, "remainder on the last day");
+
+  // Finite capacity finds lateness that the infinite view cannot see.
+  const overload = [
+    { id: "A", label: "A", workCenter: "CNC", minutes: 480, dueDate: d("2026-06-01"), sequence: 0 },
+    { id: "B", label: "B", workCenter: "CNC", minutes: 480, dueDate: d("2026-06-01"), sequence: 1 },
+    { id: "C", label: "C", workCenter: "CNC", minutes: 480, dueDate: d("2026-06-01"), sequence: 2 },
+  ];
+  const finite = sequence(overload, centers, { start, rule: "FIFO" });
+  assert.equal(finite.lateCount, 2, "only one of three can finish on the due date");
+  assert.equal(finite.maxLatenessDays, 2);
+
+  // EDD beats SPT on worst-case lateness for a set where the long job is due first.
+  const mixed = [
+    { id: "LONG", label: "LONG", workCenter: "CNC", minutes: 1440, dueDate: d("2026-06-03"), sequence: 0 },
+    { id: "S1", label: "S1", workCenter: "CNC", minutes: 240, dueDate: d("2026-06-30"), sequence: 1 },
+    { id: "S2", label: "S2", workCenter: "CNC", minutes: 240, dueDate: d("2026-06-30"), sequence: 2 },
+  ];
+  const edd = sequence(mixed, centers, { start, rule: "EDD" });
+  const spt = sequence(mixed, centers, { start, rule: "SPT" });
+  assert.ok(
+    edd.maxLatenessDays <= spt.maxLatenessDays,
+    "earliest due date should not do worse on worst-case lateness"
+  );
+
+  // Sorting rules actually reorder.
+  const sorted = sortByRule(mixed, "SPT", start).map((j) => j.id);
+  assert.deepEqual(sorted, ["S1", "S2", "LONG"], "shortest first");
+  assert.deepEqual(sortByRule(mixed, "EDD", start)[0].id, "LONG", "earliest due first");
+
+  // A centre with no capacity reports unschedulable rather than looping.
+  const dead = sequence(
+    [{ id: "X", label: "X", workCenter: "CNC", minutes: 60, dueDate: d("2026-06-10") }],
+    [{ code: "CNC", minutesPerDay: 0 }],
+    { start }
+  );
+  assert.equal(dead.scheduled.length, 0);
+  assert.equal(dead.unschedulable.length, 1);
+
+  // An unknown work centre is reported, not silently dropped.
+  const unknown = sequence(
+    [{ id: "Y", label: "Y", workCenter: "NOPE", minutes: 60, dueDate: d("2026-06-10") }],
+    centers,
+    { start }
+  );
+  assert.equal(unknown.unschedulable.length, 1);
+  assert.match(unknown.unschedulable[0].reason, /No work centre/);
+
+  // Work past the horizon is reported rather than compressed.
+  const tooMuch = sequence(
+    [{ id: "Z", label: "Z", workCenter: "CNC", minutes: 480 * 40, dueDate: d("2026-06-10") }],
+    centers,
+    { start, horizonDays: 5 }
+  );
+  assert.equal(tooMuch.unschedulable.length, 1);
+
+  // Every rule runs and returns comparable numbers.
+  const cmp = compareRules(mixed, centers, { start });
+  assert.equal(cmp.length, 5);
+  assert.ok(cmp.every((c) => typeof c.maxLatenessDays === "number"));
+
+  console.log("  \u2713 finite-capacity scheduling");
+}
+
 console.log("smoke-unit");
 testChargeCodes();
 testModules();
@@ -614,4 +732,5 @@ testRatePools();
 testClinRollup();
 testSpc();
 testEstimating();
+testFiniteScheduling();
 console.log("smoke-unit: all passed");
