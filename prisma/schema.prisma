@@ -102,6 +102,8 @@ model User {
   cdrlsOwned               Cdrl[]                   @relation("CdrlOwner")
   cdrlSubmissions          CdrlSubmission[]         @relation("CdrlSubmitter")
   partsExportClassified    Part[]                   @relation("PartExportClassifier")
+  deviationsRequested      Deviation[]              @relation("DeviationRequester")
+  deviationsApproved       Deviation[]              @relation("DeviationApprover")
   projectsSponsored        Project[]                @relation("ProjectSponsor")
   projectsManaged          Project[]                @relation("ProjectManager")
   wikiPagesEdited          ProjectWikiPage[]
@@ -327,6 +329,7 @@ model Part {
   bomHeaders          BomHeader[]
   bomLines            BomLine[]                 @relation("ComponentPart")
   clins               Clin[]
+  deviations          Deviation[]
   inventoryItems      InventoryItem[]
   poLines             PurchaseOrderLine[]
   workOrders          WorkOrder[]
@@ -1614,9 +1617,10 @@ model Contract {
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
-  clins Clin[]
-  mods  ContractMod[]
-  cdrls Cdrl[]
+  clins      Clin[]
+  mods       ContractMod[]
+  cdrls      Cdrl[]
+  deviations Deviation[]
 
   @@index([status])
   @@index([customerId])
@@ -2758,7 +2762,8 @@ model NonConformance {
   updatedAt    DateTime    @updatedAt
   closedAt     DateTime?
 
-  mrbCases MrbCase[]
+  mrbCases   MrbCase[]
+  deviations Deviation[]
 }
 
 model MrbCase {
@@ -6096,4 +6101,86 @@ model MfaChallenge {
   createdAt  DateTime  @default(now())
 
   @@index([expiresAt])
+}
+
+/// A written, bounded authorisation to depart from a requirement.
+///
+/// A DEVIATION is granted before the affected units are made; a WAIVER accepts
+/// units that already depart from requirement. The lifecycle is identical, so
+/// one model carries both, but the distinction is stored rather than inferred:
+/// the approval authority and the customer's appetite differ between asking
+/// permission and asking forgiveness.
+model Deviation {
+  id            String @id @default(cuid())
+  number        String @unique
+  kind          String @default("DEVIATION") // DEVIATION | WAIVER
+  title         String
+  /// The requirement departed from — drawing note, spec paragraph, ATP step.
+  requirement   String
+  description   String
+  justification String
+  /// DRAFT | SUBMITTED | INTERNAL_APPROVED | CUSTOMER_SUBMITTED | APPROVED |
+  /// REJECTED | EXPIRED | CLOSED
+  status        String @default("DRAFT")
+
+  partId           String?
+  part             Part?           @relation(fields: [partId], references: [id], onDelete: SetNull)
+  contractId       String?
+  contract         Contract?       @relation(fields: [contractId], references: [id], onDelete: SetNull)
+  /// Waivers usually originate from a nonconformance already written up.
+  nonConformanceId String?
+  nonConformance   NonConformance? @relation(fields: [nonConformanceId], references: [id], onDelete: SetNull)
+
+  /// Bounds. At least one of quantity, date window or an explicit unit list
+  /// must be set — an open-ended departure is the classic audit finding, so
+  /// the service refuses to approve one.
+  quantityLimit Int?
+  quantityUsed  Int       @default(0)
+  effectiveFrom DateTime?
+  effectiveTo   DateTime?
+
+  /// Most defense deviations need the customer's countersignature; the flag
+  /// exists because internal-only departures (from an internal standard the
+  /// contract never invoked) genuinely do not.
+  customerApprovalRequired Boolean   @default(true)
+  customerApprovedAt       DateTime?
+  /// The customer's own approval letter or SDR number.
+  customerReference        String?
+
+  requestedById  String?
+  requestedBy    User?     @relation("DeviationRequester", fields: [requestedById], references: [id], onDelete: SetNull)
+  approvedById   String?
+  approvedBy     User?     @relation("DeviationApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  approvedAt     DateTime?
+  rejectedReason String?
+  closedAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  units DeviationUnit[]
+
+  @@index([status])
+  @@index([kind])
+  @@index([partId])
+}
+
+/// A serial or lot the authorisation is bound to.
+///
+/// Serial and lot are plain strings rather than relations on purpose: a
+/// deviation is routinely written for units that have not been built yet, and
+/// requiring an existing SerialNumber row would make it impossible to record
+/// the authorisation at the moment it is actually granted.
+model DeviationUnit {
+  id          String    @id @default(cuid())
+  deviationId String
+  deviation   Deviation @relation(fields: [deviationId], references: [id], onDelete: Cascade)
+  serial      String?
+  lotNumber   String?
+  note        String?
+  addedAt     DateTime  @default(now())
+
+  @@index([deviationId])
+  @@index([serial])
+  @@index([lotNumber])
 }

@@ -14,6 +14,11 @@ import {
   isPathEnabled,
 } from "../src/lib/modules";
 import {
+  hasBound,
+  forceState,
+  isInForce,
+} from "../src/lib/services/deviations";
+import {
   isValidUsml,
   isValidEccn,
   normalizeUsml,
@@ -207,6 +212,64 @@ function testExportControl() {
   console.log("  \u2713 export control classification");
 }
 
+
+function testDeviations() {
+  const day = 86400000;
+  const now = new Date("2026-06-15T12:00:00Z");
+  const past = new Date(now.getTime() - 30 * day);
+  const future = new Date(now.getTime() + 30 * day);
+
+  // An authorisation must be limited in at least one dimension.
+  assert.equal(hasBound({}), false, "no bound at all");
+  assert.equal(hasBound({ quantityLimit: 10 }), true);
+  assert.equal(hasBound({ effectiveTo: future }), true);
+  assert.equal(hasBound({ units: [{ id: "u1" }] }), true);
+  assert.equal(hasBound({ quantityLimit: 0 }), false, "zero is not a bound");
+  assert.equal(
+    hasBound({ effectiveFrom: past }),
+    false,
+    "a start date alone leaves it open-ended"
+  );
+
+  // Only APPROVED can be in force.
+  assert.equal(forceState({ status: "DRAFT", quantityLimit: 5 }, now), "NOT_APPROVED");
+  assert.equal(forceState({ status: "CLOSED", quantityLimit: 5 }, now), "CLOSED");
+  assert.equal(
+    forceState({ status: "INTERNAL_APPROVED", quantityLimit: 5 }, now),
+    "NOT_APPROVED",
+    "internal approval alone is not authorisation"
+  );
+
+  // The window and the counter are evaluated against the clock, not stored.
+  assert.equal(
+    forceState({ status: "APPROVED", effectiveTo: past }, now),
+    "EXPIRED",
+    "an approved row past its window must not read as usable"
+  );
+  assert.equal(
+    forceState({ status: "APPROVED", effectiveFrom: future }, now),
+    "NOT_YET_EFFECTIVE"
+  );
+  assert.equal(
+    forceState({ status: "APPROVED", quantityLimit: 5, quantityUsed: 5 }, now),
+    "EXHAUSTED"
+  );
+  assert.equal(
+    forceState({ status: "APPROVED", quantityLimit: 5, quantityUsed: 4 }, now),
+    "IN_FORCE"
+  );
+  assert.equal(
+    forceState(
+      { status: "APPROVED", effectiveFrom: past, effectiveTo: future },
+      now
+    ),
+    "IN_FORCE"
+  );
+  assert.equal(isInForce({ status: "APPROVED", effectiveTo: future }, now), true);
+
+  console.log("  \u2713 deviations and waivers");
+}
+
 console.log("smoke-unit");
 testChargeCodes();
 testModules();
@@ -214,4 +277,5 @@ testDemoModeHelper();
 testSessionIdleTimeout();
 testPasswordPolicy();
 testExportControl();
+testDeviations();
 console.log("smoke-unit: all passed");
