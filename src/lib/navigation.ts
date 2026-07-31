@@ -150,6 +150,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/qa", label: "QA Inspection", icon: ClipboardCheck, keywords: ["visual", "gd&t", "first article"] },
       { href: "/quality", label: "NCR / Quality", icon: AlertTriangle, keywords: ["nonconformance", "yield", "trend"] },
+      { href: "/spc", label: "SPC / Control Charts", icon: LineChart, keywords: ["spc", "statistical process control", "control chart", "cpk", "cp", "ppk", "capability", "x-bar", "xbar", "moving range", "nelson", "western electric", "variation", "sigma"] },
       { href: "/mrb", label: "MRB", icon: FileWarning, keywords: ["material review board", "disposition"] },
       { href: "/mrb?view=cars", label: "CAR", icon: FileWarning, keywords: ["corrective action", "8d", "root cause"] },
       { href: "/rma", label: "RMA", icon: RotateCcw, keywords: ["return", "warranty", "repair", "customer return"] },

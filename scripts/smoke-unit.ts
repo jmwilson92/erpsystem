@@ -14,6 +14,16 @@ import {
   isPathEnabled,
 } from "../src/lib/modules";
 import {
+  parseMeasurement,
+  mean,
+  stdDev,
+  movingRanges,
+  subgroups,
+  controlChart,
+  capability,
+  violations,
+} from "../src/lib/services/spc";
+import {
   rollupTotals,
   countsTowardValue,
   isValidSlinNumber,
@@ -412,6 +422,77 @@ function testClinRollup() {
   console.log("  \u2713 CLIN/SLIN rollup");
 }
 
+
+function testSpc() {
+  const r3 = (n: number) => Math.round(n * 1000) / 1000;
+
+  // Measurements arrive as free text; a non-measurement must not become NaN.
+  assert.equal(parseMeasurement("0.5005"), 0.5005);
+  assert.equal(parseMeasurement(" 12.7 mm "), 12.7);
+  assert.equal(parseMeasurement("-3"), -3);
+  assert.equal(parseMeasurement("PASS"), null, "text is not a measurement");
+  assert.equal(parseMeasurement(null), null);
+  assert.equal(parseMeasurement(""), null);
+
+  assert.equal(mean([1, 2, 3]), 2);
+  assert.equal(stdDev([2]), 0, "one point has no spread");
+  assert.equal(r3(stdDev([2, 4, 4, 4, 5, 5, 7, 9])), 2.138);
+  assert.deepEqual(movingRanges([1, 4, 2]), [3, 2]);
+  assert.deepEqual(subgroups([1, 2, 3, 4, 5], 2), [[1, 2], [3, 4]], "short tail dropped");
+
+  // Individuals chart: limits come from the moving range, not from any spec.
+  const vals = [10, 12, 11, 13, 10, 12, 11, 12];
+  const chart = controlChart(vals, 1);
+  assert.equal(chart.chartType, "I_MR");
+  const mrBar = mean(movingRanges(vals));
+  assert.equal(r3(chart.centerLine), r3(mean(vals)));
+  assert.equal(r3(chart.ucl), r3(mean(vals) + 2.66 * mrBar));
+  assert.equal(r3(chart.sigmaWithin), r3(mrBar / 1.128));
+
+  // X-bar/R with a known subgroup size uses the Shewhart constants.
+  const xbar = controlChart([2, 4, 6, 8, 10, 12], 3);
+  assert.equal(xbar.chartType, "XBAR_R");
+  assert.deepEqual(xbar.points, [4, 10], "subgroup means");
+  assert.deepEqual(xbar.ranges, [4, 4]);
+  assert.equal(r3(xbar.ucl), r3(7 + 1.023 * 4));
+  assert.equal(r3(xbar.rangeUcl), r3(2.574 * 4));
+
+  // Capability: Cpk takes the NEARER limit, so an off-centre process scores
+  // worse than Cp alone would suggest.
+  const centred = capability([9, 10, 11, 10, 9, 11, 10, 10], { usl: 13, lsl: 7 });
+  const off = capability([11, 12, 13, 12, 11, 13, 12, 12], { usl: 13, lsl: 7 });
+  assert.ok(centred.cpk !== null && off.cpk !== null);
+  assert.equal(r3(centred.cp!), r3(off.cp!), "same spread gives the same Cp");
+  assert.ok(off.cpk! < centred.cpk!, "off-centre must lower Cpk but not Cp");
+
+  // A one-sided spec has no Cp but still has Cpk.
+  const oneSided = capability([9, 10, 11, 10], { usl: 13 });
+  assert.equal(oneSided.cp, null, "Cp needs both limits");
+  assert.ok(oneSided.cpk !== null);
+
+  // No variation must not divide by zero.
+  const flat = capability([5, 5, 5, 5], { usl: 6, lsl: 4 });
+  assert.equal(flat.cp, null, "zero sigma yields no index rather than Infinity");
+  assert.equal(flat.cpk, null);
+
+  // Within and overall sigma are different numbers and both are reported.
+  const drifting = capability([1, 1, 1, 9, 9, 9], { usl: 12, lsl: 0, subgroupSize: 3 });
+  assert.ok(
+    drifting.sigmaOverall > drifting.sigmaWithin,
+    "drift between subgroups shows up in overall sigma, not within"
+  );
+
+  // Nelson rule 1 fires on a point outside the limits.
+  const spike = controlChart([10, 10, 10, 10, 10, 10, 10, 40], 1);
+  assert.ok(violations(spike).some((v) => v.rule === 1), "beyond a control limit");
+
+  // Rule 3 catches a steady trend that never leaves the limits.
+  const trend = controlChart([1, 2, 3, 4, 5, 6, 7], 1);
+  assert.ok(violations(trend).some((v) => v.rule === 3), "six-point trend");
+
+  console.log("  \u2713 SPC control charts and capability");
+}
+
 console.log("smoke-unit");
 testChargeCodes();
 testModules();
@@ -422,4 +503,5 @@ testExportControl();
 testDeviations();
 testRatePools();
 testClinRollup();
+testSpc();
 console.log("smoke-unit: all passed");

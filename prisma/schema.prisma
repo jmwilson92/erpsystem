@@ -330,6 +330,7 @@ model Part {
   bomLines            BomLine[]                 @relation("ComponentPart")
   clins               Clin[]
   deviations          Deviation[]
+  spcCharacteristics  SpcCharacteristic[]
   inventoryItems      InventoryItem[]
   poLines             PurchaseOrderLine[]
   workOrders          WorkOrder[]
@@ -6270,4 +6271,36 @@ model CostCenter {
   updatedAt DateTime @updatedAt
 
   @@index([kind])
+}
+
+/// A characteristic put under statistical control.
+///
+/// Spec limits live here as numbers because InspectionResult stores the
+/// specification as free text ("0.500 +/- 0.005") and the measurement as a
+/// string. SPC needs both as numbers, and guessing them out of prose at
+/// analysis time would silently mis-scale a capability index.
+model SpcCharacteristic {
+  id     String  @id @default(cuid())
+  partId String?
+  part   Part?   @relation(fields: [partId], references: [id], onDelete: SetNull)
+  /// Matches InspectionResult.characteristic.
+  name   String
+  unit   String?
+
+  /// Upper and lower spec limits from the drawing. One-sided specs are normal,
+  /// so both are optional — Cp needs both, Cpk needs only the nearer one.
+  usl    Float?
+  lsl    Float?
+  target Float?
+
+  /// 1 means individuals and moving range; 2-10 uses X-bar and R.
+  subgroupSize Int     @default(1)
+  isActive     Boolean @default(true)
+  notes        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([partId, name])
+  @@index([isActive])
 }
