@@ -1640,6 +1640,12 @@ model Clin {
   parentId          String?
   parent            Clin?     @relation("ClinTree", fields: [parentId], references: [id], onDelete: SetNull)
   children          Clin[]    @relation("ClinTree")
+  /// An informational SLIN subdivides its parent for funding or accounting —
+  /// a second ACRN against the same work — and carries no price of its own.
+  /// A non-informational SLIN is separately priced, and then the parent is a
+  /// header whose own value is not counted. Either way exactly one level
+  /// carries the money, which is what keeps the rollup from double-counting.
+  isInformational   Boolean   @default(false)
   description       String
   /// A line can be priced differently from its contract's overall type — a
   /// CPFF contract routinely carries FFP travel lines.

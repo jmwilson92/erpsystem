@@ -75,6 +75,8 @@ export async function actionAddClin(formData: FormData) {
     unitPrice: num(formData, "unitPrice"),
     fundedValue: num(formData, "fundedValue"),
     isOption: str(formData, "isOption") === "1",
+    isInformational: str(formData, "isInformational") === "1",
+    parentId: str(formData, "parentId") || null,
     deliveryDate: date(formData, "deliveryDate"),
     userId: user.id,
   });

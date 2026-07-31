@@ -14,6 +14,11 @@ import {
   isPathEnabled,
 } from "../src/lib/modules";
 import {
+  rollupTotals,
+  countsTowardValue,
+  isValidSlinNumber,
+} from "../src/lib/services/contracts";
+import {
   burden,
   wrapRate,
   actualRate,
@@ -343,6 +348,70 @@ function testRatePools() {
   console.log("  \u2713 indirect rate pools");
 }
 
+
+function testClinRollup() {
+  // A header CLIN with two priced SLINs beneath it. The header's own value
+  // must not be counted or the contract rolls up at double.
+  const priced = [
+    { id: "p", parentId: null, totalValue: 1000000, fundedValue: 500000 },
+    { id: "a", parentId: "p", totalValue: 500000, fundedValue: 250000 },
+    { id: "b", parentId: "p", totalValue: 500000, fundedValue: 250000 },
+  ];
+  const r1 = rollupTotals(priced);
+  assert.equal(r1.totalValue, 1000000, "SLINs count, the header does not");
+  assert.equal(r1.fundedValue, 500000);
+  assert.equal(countsTowardValue(priced[0], priced), false, "header is skipped");
+  assert.equal(countsTowardValue(priced[1], priced), true);
+
+  // Informational SLINs subdivide funding only — the parent keeps the money.
+  const info = [
+    { id: "p", parentId: null, totalValue: 1000000, fundedValue: 400000 },
+    { id: "a", parentId: "p", isInformational: true, totalValue: 0, fundedValue: 200000 },
+    { id: "b", parentId: "p", isInformational: true, totalValue: 0, fundedValue: 200000 },
+  ];
+  const r2 = rollupTotals(info);
+  assert.equal(r2.totalValue, 1000000, "parent still carries the price");
+  assert.equal(
+    r2.fundedValue,
+    400000,
+    "informational SLIN funding is a breakdown, not an addition"
+  );
+
+  // Unexercised options stay out, at any level.
+  const opts = [
+    { id: "p", parentId: null, totalValue: 100, fundedValue: 100 },
+    { id: "o", parentId: null, totalValue: 900, fundedValue: 0, isOption: true },
+  ];
+  assert.equal(rollupTotals(opts).totalValue, 100);
+  assert.equal(
+    rollupTotals([
+      opts[0],
+      { ...opts[1], optionExercisedAt: new Date() },
+    ]).totalValue,
+    1000,
+    "once exercised it counts"
+  );
+
+  // A flat contract is unaffected by any of this.
+  assert.equal(
+    rollupTotals([
+      { id: "a", parentId: null, totalValue: 10, fundedValue: 5 },
+      { id: "b", parentId: null, totalValue: 20, fundedValue: 5 },
+    ]).totalValue,
+    30
+  );
+
+  // SLIN numbering extends the parent by two digits or two letters.
+  assert.equal(isValidSlinNumber("0001", "000101"), true);
+  assert.equal(isValidSlinNumber("0001", "0001AA"), true);
+  assert.equal(isValidSlinNumber("0001", "0001a1"), false, "no mixed suffix");
+  assert.equal(isValidSlinNumber("0001", "000201"), false, "different parent");
+  assert.equal(isValidSlinNumber("0001", "0001001"), false, "three characters");
+  assert.equal(isValidSlinNumber("0001", "0001"), false, "a CLIN is not its own SLIN");
+
+  console.log("  \u2713 CLIN/SLIN rollup");
+}
+
 console.log("smoke-unit");
 testChargeCodes();
 testModules();
@@ -352,4 +421,5 @@ testPasswordPolicy();
 testExportControl();
 testDeviations();
 testRatePools();
+testClinRollup();
 console.log("smoke-unit: all passed");

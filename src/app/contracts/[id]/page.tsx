@@ -55,6 +55,19 @@ export default async function ContractDetailPage({
 
   // Only DATA lines carry a separately priced deliverable, so the CDRL form
   // offers those rather than every line on the contract.
+  // Order parents first with their SLINs directly beneath, so the numbering
+  // reads down the page the way it reads on an invoice.
+  const topLevel = contract.clins.filter((c) => !c.parentId);
+  const orderedClins = topLevel.flatMap((p) => [
+    p,
+    ...contract.clins.filter((c) => c.parentId === p.id),
+  ]);
+  // A SLIN whose parent is missing still has to appear somewhere.
+  const orphans = contract.clins.filter(
+    (c) => !orderedClins.some((o) => o.id === c.id)
+  );
+  const clinRows = [...orderedClins, ...orphans];
+
   const dataClins = contract.clins.filter((c) => c.category === "DATA");
   const unexercised = contract.clins.filter((c) => c.isOption && !c.optionExercisedAt);
   const optionValue = unexercised.reduce((s, c) => s + c.totalValue, 0);
@@ -176,9 +189,17 @@ export default async function ContractDetailPage({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800">
-                {contract.clins.map((c) => (
+                {clinRows.map((c) => (
                   <tr key={c.id}>
-                    <td className="py-2 font-mono text-slate-200">{c.number}</td>
+                    <td className="py-2 font-mono text-slate-200">
+                      {c.parentId && <span className="mr-1 text-slate-600">└</span>}
+                      {c.number}
+                      {c.isInformational && (
+                        <span className="ml-2 rounded bg-slate-800 px-1 text-[10px] uppercase text-slate-400">
+                          info
+                        </span>
+                      )}
+                    </td>
                     <td className="py-2 text-slate-300">{c.description}</td>
                     <td className="py-2 text-slate-400">{c.category}</td>
                     <td className="py-2 font-mono text-slate-400">
@@ -270,6 +291,24 @@ export default async function ContractDetailPage({
               <select name="isOption" className={selectClass} defaultValue="0">
                 <option value="0">No</option>
                 <option value="1">Yes</option>
+              </select>
+            </label>
+            <label className="text-sm text-slate-400">
+              Sub-line of
+              <select name="parentId" className={selectClass} defaultValue="">
+                <option value="">— top-level CLIN</option>
+                {topLevel.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.number}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-sm text-slate-400">
+              SLIN kind
+              <select name="isInformational" className={selectClass} defaultValue="0">
+                <option value="0">Separately priced</option>
+                <option value="1">Informational (funding only)</option>
               </select>
             </label>
             <div className="sm:col-span-2 sm:self-end">

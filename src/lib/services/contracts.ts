@@ -44,10 +44,66 @@ export const CDRL_APPROVAL_CODES = ["A", "I"] as const;
  * Unexercised options are excluded. An option is priced but not obligated, so
  * counting it as contract value overstates both backlog and what can be billed.
  */
+export type RollupClin = {
+  id: string;
+  parentId?: string | null;
+  isInformational?: boolean;
+  totalValue: number;
+  fundedValue: number;
+  isOption?: boolean;
+  optionExercisedAt?: Date | null;
+};
+
+/**
+ * Which lines carry the money.
+ *
+ * A contract's value must be counted at exactly one level of the CLIN tree or
+ * it is counted twice. An informational SLIN is a funding subdivision of its
+ * parent, so it never contributes. A separately priced SLIN does contribute,
+ * and then its parent is a header whose own value must be skipped — otherwise
+ * a 0001 header holding $1M with two $500k SLINs beneath it rolls up as $2M.
+ */
+export function countsTowardValue(c: RollupClin, all: RollupClin[]): boolean {
+  if (c.isOption && !c.optionExercisedAt) return false;
+  if (c.isInformational) return false;
+  const hasPricedChild = all.some(
+    (x) => x.parentId === c.id && !x.isInformational
+  );
+  return !hasPricedChild;
+}
+
+export function rollupTotals(clins: RollupClin[]) {
+  let totalValue = 0;
+  let fundedValue = 0;
+  for (const c of clins) {
+    if (!countsTowardValue(c, clins)) continue;
+    totalValue += c.totalValue;
+    fundedValue += c.fundedValue;
+  }
+  return { totalValue: round2(totalValue), fundedValue: round2(fundedValue) };
+}
+
+/**
+ * A SLIN number extends its parent's: 0001 gives 000101 or 0001AA. Rejecting
+ * anything else keeps the tree readable from the numbers alone, which is how
+ * the numbering is used on an invoice or a receiving report.
+ */
+export function isValidSlinNumber(parentNumber: string, slinNumber: string) {
+  const p = parentNumber.trim().toUpperCase();
+  const s = slinNumber.trim().toUpperCase();
+  if (!p || !s) return false;
+  if (!s.startsWith(p)) return false;
+  const suffix = s.slice(p.length);
+  return /^([0-9]{2}|[A-Z]{2})$/.test(suffix);
+}
+
 export async function recomputeContractTotals(contractId: string) {
   const clins = await prisma.clin.findMany({
     where: { contractId, status: { not: "CANCELLED" } },
     select: {
+      id: true,
+      parentId: true,
+      isInformational: true,
       totalValue: true,
       fundedValue: true,
       isOption: true,
@@ -55,17 +111,11 @@ export async function recomputeContractTotals(contractId: string) {
     },
   });
 
-  let totalValue = 0;
-  let fundedValue = 0;
-  for (const c of clins) {
-    if (c.isOption && !c.optionExercisedAt) continue;
-    totalValue += c.totalValue;
-    fundedValue += c.fundedValue;
-  }
+  const { totalValue, fundedValue } = rollupTotals(clins);
 
   return prisma.contract.update({
     where: { id: contractId },
-    data: { totalValue: round2(totalValue), fundedValue: round2(fundedValue) },
+    data: { totalValue, fundedValue },
   });
 }
 
@@ -181,6 +231,7 @@ export async function addClin(params: {
   unitPrice?: number;
   fundedValue?: number;
   isOption?: boolean;
+  isInformational?: boolean;
   parentId?: string | null;
   deliveryDate?: Date | null;
   userId?: string;
@@ -188,6 +239,26 @@ export async function addClin(params: {
   const number = params.number.trim().toUpperCase();
   if (!number) throw new Error("CLIN number is required");
   if (!params.description.trim()) throw new Error("CLIN description is required");
+
+  // A SLIN has to extend its parent's number and belong to the same contract.
+  if (params.parentId) {
+    const parent = await prisma.clin.findUnique({
+      where: { id: params.parentId },
+      select: { number: true, contractId: true, parentId: true },
+    });
+    if (!parent) throw new Error("Parent CLIN not found");
+    if (parent.contractId !== params.contractId) {
+      throw new Error("A SLIN must sit under a CLIN on the same contract");
+    }
+    if (parent.parentId) {
+      throw new Error("SLINs do not nest — 000101 cannot itself carry sub-lines");
+    }
+    if (!isValidSlinNumber(parent.number, number)) {
+      throw new Error(
+        `${number} is not a sub-line of ${parent.number} — a SLIN extends its parent with two digits or two letters, such as ${parent.number}01`
+      );
+    }
+  }
 
   const quantity = params.quantity ?? 0;
   const unitPrice = params.unitPrice ?? 0;
@@ -211,6 +282,7 @@ export async function addClin(params: {
       totalValue,
       fundedValue,
       isOption: params.isOption ?? false,
+      isInformational: params.isInformational ?? false,
       deliveryDate: params.deliveryDate ?? null,
     },
   });
