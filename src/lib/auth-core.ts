@@ -495,10 +495,19 @@ export async function cancelMfaLogin() {
  * a demo sandbox is never claimable at all.
  */
 export async function needsBootstrap() {
-  const activated = await controlPlaneClient().user.count({
-    where: { passwordHash: { not: null } },
-  });
-  return activated === 0;
+  const cp = controlPlaneClient();
+  const [activated, tenants, tenantLogins] = await Promise.all([
+    cp.user.count({ where: { passwordHash: { not: null } } }),
+    cp.tenant.count(),
+    cp.tenantLogin.count(),
+  ]);
+  // A hosted instance authenticates its customers through TenantLogin against
+  // tenant_* schemas, so `public."User"` can be legitimately empty of
+  // passworded accounts while the platform is fully in production. Counting
+  // only that table answered "has the dogfood schema got an admin", not "is
+  // this deployment unclaimed" — and reported a live instance serving tenants
+  // as awaiting first boot.
+  return activated === 0 && tenants === 0 && tenantLogins === 0;
 }
 
 /**

@@ -36,16 +36,31 @@ export default async function LoginPage() {
           <h1 className="mt-3 text-xl font-bold text-slate-50">
             {company?.name || "Protessera"}
           </h1>
-          <p className="text-sm text-slate-500">
-            {bootstrap
-              ? "First boot — claim this instance by creating the admin account."
-              : "Sign in to your team's ERP"}
-          </p>
+          <p className="text-sm text-slate-500">Sign in to your team&apos;s ERP</p>
         </div>
 
         <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-xl shadow-black/30">
-          {bootstrap ? <BootstrapForm /> : <LoginForm />}
+          <LoginForm />
         </div>
+
+        {/*
+          Claiming is offered ALONGSIDE signing in, never instead of it.
+          Replacing the form left anyone with a real account no way in — and
+          because needsBootstrap() only sees the `public` schema, that is what
+          a live instance serving tenants was showing its own customers.
+        */}
+        {bootstrap && (
+          <details className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
+            <summary className="cursor-pointer text-xs text-slate-400">
+              Setting this instance up for the first time?
+            </summary>
+            <p className="mt-2 mb-4 text-[11px] text-slate-500">
+              No account on this instance has a password yet. Create the first
+              administrator to claim it.
+            </p>
+            <BootstrapForm />
+          </details>
+        )}
 
         <p className="text-center text-[11px] text-slate-600">
           By signing in you accept the{" "}
