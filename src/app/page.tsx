@@ -110,10 +110,14 @@ export default async function DashboardPage({
   const sessionUser = await getSessionUser().catch(() => null);
   const jar = await cookies();
   const demoCookie = jar.get(DEMO_COOKIE)?.value;
-  const hasDemoCookie =
-    !!demoCookie &&
-    demoCookie !== "demo_template" &&
-    /^demo_[a-z0-9]{6,40}$/.test(demoCookie);
+  // Verified, not just well-formed. The cookie outlives the sandbox: the sweep
+  // drops idle demo schemas while `forge-demo` stays in the browser for hours,
+  // so a returning visitor presents a valid-looking name for a schema that is
+  // gone. Treating that as a live demo showed "re-entering your plant" and then
+  // pointed every query at a dropped schema, which renders as a blank page.
+  // Failing the check instead falls through to provisioning a fresh sandbox.
+  const { demoSchemaIsLive } = await import("@/lib/services/tenancy");
+  const hasDemoCookie = await demoSchemaIsLive(demoCookie);
 
   // Anonymous apex without ?app=1: marketing / forge. Never treat as ERP.
   // After end-drive users land on /welcome?ended=1 (see /api/demo/end).
