@@ -25,7 +25,7 @@ export function TelemetryBeacon({ enabled }: { enabled: boolean }) {
 
     const body = JSON.stringify({ kind: "PAGE", path: pathname });
     try {
-      fetch("/api/telemetry", {
+      fetch("/api/e", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body,

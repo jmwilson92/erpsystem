@@ -12,7 +12,7 @@ import { ArrowRight } from "lucide-react";
 export function ConvertCta() {
   function report() {
     try {
-      fetch("/api/telemetry", {
+      fetch("/api/e", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
