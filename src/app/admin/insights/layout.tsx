@@ -22,7 +22,11 @@ export default async function AdminInsightsLayout({
 
   const jar = await cookies();
   if (jar.get(TENANT_COOKIE)?.value || jar.get(DEMO_COOKIE)?.value) {
-    redirect("/");
+    // Staff pages must run on the public schema, so a demo/tenant routing
+    // cookie still disqualifies this render. Bouncing to "/" stranded the
+    // owner for the cookie's lifetime with no explanation; drop the routing
+    // cookie and come straight back instead.
+    redirect("/api/staff/enter?next=/admin/insights");
   }
 
   const user = await getCurrentUser();
