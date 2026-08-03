@@ -239,6 +239,31 @@ export async function sweepIdleDemos(maxIdleMinutes = 60): Promise<number> {
   return n;
 }
 
+/**
+ * Is the demo named by a browser cookie still alive?
+ *
+ * The cookie outlives the sandbox. sweepIdleDemos drops the schema after the
+ * idle window, but `forge-demo` sits in the browser for its full maxAge, so a
+ * visitor returning inside that window still presents a name for a schema that
+ * no longer exists. Trusting the cookie's *shape* — which is all a regex can
+ * check — then hands every query a dropped schema, and the page renders empty.
+ *
+ * Checked against the control-plane Tenant row rather than information_schema:
+ * one indexed read on a connection we already hold, versus opening a DDL pool
+ * on every anonymous page view.
+ */
+export async function demoSchemaIsLive(schema: string | undefined | null): Promise<boolean> {
+  if (!schema || schema === DEMO_TEMPLATE_SCHEMA) return false;
+  if (!/^demo_[a-z0-9]{6,40}$/.test(schema)) return false;
+  const row = await controlPlaneClient()
+    .tenant.findFirst({
+      where: { schemaName: schema, isDemo: true, status: "ACTIVE" },
+      select: { id: true },
+    })
+    .catch(() => null);
+  return !!row;
+}
+
 /** A Prisma client bound to a tenant's schema (thin re-export for callers). */
 export function tenantClient(schema: string) {
   return clientForSchema(schema);
