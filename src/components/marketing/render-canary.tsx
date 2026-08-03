@@ -46,30 +46,76 @@ export function RenderCanary() {
     } catch (e) {}
   }
 
-  function visibleHeight() {
+  /**
+   * Hidden by anything in the chain from this element up to <html>.
+   *
+   * Height alone is not enough: visibility:hidden and opacity:0 leave the box
+   * exactly the size it was, so a page blanked that way measures as perfectly
+   * healthy while showing nothing.
+   */
+  function hiddenByChain(el) {
+    var node = el;
+    while (node && node.nodeType === 1) {
+      var cs = window.getComputedStyle(node);
+      if (
+        cs.display === "none" ||
+        cs.visibility === "hidden" ||
+        cs.visibility === "collapse" ||
+        parseFloat(cs.opacity) === 0
+      ) {
+        return true;
+      }
+      node = node.parentNode;
+    }
+    return false;
+  }
+
+  function isBlank() {
     var main = document.querySelector("main") || document.body;
-    if (!main) return 0;
-    var r = main.getBoundingClientRect();
-    return r.height;
+    if (!main) return true;
+    if (hiddenByChain(main)) return true;
+    return main.getBoundingClientRect().height < 40;
+  }
+
+  function force(node, display) {
+    var s = node.style;
+    if (display) s.setProperty("display", display, "important");
+    s.setProperty("visibility", "visible", "important");
+    s.setProperty("opacity", "1", "important");
+    s.setProperty("height", "auto", "important");
+    s.setProperty("max-height", "none", "important");
+    s.setProperty("overflow", "visible", "important");
   }
 
   function reveal(reason) {
     var el = document.getElementById("fallback-content");
     if (!el) return;
-    // Beat !important rules from injected stylesheets.
-    var s = el.style;
-    s.setProperty("display", "block", "important");
-    s.setProperty("visibility", "visible", "important");
-    s.setProperty("opacity", "1", "important");
-    s.setProperty("position", "static", "important");
-    s.setProperty("height", "auto", "important");
+
+    // Un-hide the fallback itself, beating the !important rules an injected
+    // stylesheet uses.
+    force(el, "block");
     el.removeAttribute("hidden");
+
+    // Then walk up to <html>. Forcing only the fallback is not enough: a rule
+    // like "body > * { display: none !important }" hides its ANCESTORS, and a
+    // visible element inside a hidden parent is still invisible. Each ancestor
+    // is only overridden when it is actually hidden, so a healthy page is
+    // never restyled.
+    var node = el.parentNode;
+    while (node && node.nodeType === 1) {
+      var cs = window.getComputedStyle(node);
+      if (cs.display === "none" || cs.visibility === "hidden" || cs.opacity === "0") {
+        force(node, cs.display === "none" ? "block" : "");
+      }
+      node = node.parentNode;
+    }
+
     report(reason);
   }
 
   function check() {
     try {
-      if (visibleHeight() < 40) reveal("main collapsed");
+      if (isBlank()) reveal("main not visible");
     } catch (e) {
       reveal("canary threw");
     }
