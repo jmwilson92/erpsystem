@@ -62,7 +62,7 @@ export default function AppError({
     // outlive the navigation — otherwise self-healing would also hide how often
     // this happens.
     try {
-      fetch("/api/telemetry", {
+      fetch("/api/e", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

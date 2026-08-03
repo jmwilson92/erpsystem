@@ -17,7 +17,7 @@ export default function GlobalError({
     // The root layout crashed — the worst kind of failure, so make sure it
     // still reaches the insights dashboard.
     try {
-      fetch("/api/telemetry", {
+      fetch("/api/e", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

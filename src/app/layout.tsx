@@ -9,6 +9,7 @@ import { TrialBanner } from "@/components/layout/trial-banner";
 import { FlashToast } from "@/components/layout/flash-toast";
 import { CookieBanner } from "@/components/marketing/cookie-banner";
 import { TelemetryBeacon } from "@/components/telemetry/telemetry-beacon";
+import { RenderCanary } from "@/components/marketing/render-canary";
 import { getSubscriptionState } from "@/lib/services/subscription";
 import { getCurrentUser, listUsers } from "@/lib/auth";
 import { demoModeEnabled } from "@/lib/auth-core";
@@ -269,6 +270,7 @@ export default async function RootLayout({
           )}
           <CookieBanner />
           {analyticsEnabled() && <Analytics />}
+          <RenderCanary />
         </body>
       </html>
     );
@@ -442,6 +444,7 @@ export default async function RootLayout({
         <CookieBanner />
         <TelemetryBeacon enabled={isAnonymousDemo} />
         {analyticsEnabled() && <Analytics />}
+        <RenderCanary />
       </body>
     </html>
   );
