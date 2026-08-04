@@ -610,6 +610,13 @@ export async function createInvite(params: {
   kind?: "INVITE" | "RESET";
   invitedById?: string;
   baseUrl?: string;
+  /**
+   * Schema that owns the account, when the caller already knows it. A reset
+   * from /login must not inherit the browser's routing cookie: with a stale
+   * forge-demo set, the invite was created inside the sandbox and destroyed
+   * with it, so the emailed link 404'd for reasons nobody could see.
+   */
+  schemaName?: string | null;
 }) {
   const email = params.email.trim().toLowerCase();
   if (!/.+@.+\..+/.test(email)) throw new Error("Valid e-mail required");
@@ -619,8 +626,11 @@ export async function createInvite(params: {
   // Which schema owns this invite? An admin inviting from inside a tenant is
   // already routed there; a logged-out password reset resolves the tenant from
   // the login directory by email. Otherwise it's a public/dogfood invite.
-  let schemaName = await currentRequestSchema();
-  if (schemaName === "public") {
+  let schemaName =
+    params.schemaName === undefined
+      ? await currentRequestSchema()
+      : params.schemaName ?? "public";
+  if (params.schemaName === undefined && schemaName === "public") {
     // Same precedence as login: a platform/dogfood account with this address
     // owns the reset, even if the address also appears in the tenant directory
     // (owner testing a signup). Otherwise route to the customer's schema.
@@ -693,6 +703,7 @@ export async function createInvite(params: {
       ].join("\n"),
       entityType: "UserInvite",
       entityLabel: email,
+      schemaName,
       userId: params.invitedById,
     });
   } catch {

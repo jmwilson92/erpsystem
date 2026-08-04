@@ -7,7 +7,7 @@
  * whole flow (compose → send → log → entity link) still works and invite
  * links can be copied from there.
  */
-import { prisma } from "@/lib/db";
+import { prisma, clientForSchema, controlPlaneClient } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { formatCurrency } from "@/lib/utils";
 
@@ -19,11 +19,28 @@ export async function sendEmail(params: {
   entityId?: string | null;
   entityLabel?: string | null;
   userId?: string;
+  /**
+   * Which mailbox this message belongs in. Omit for ordinary in-app mail,
+   * which should follow the sender's own routing. Pass null (or "public") for
+   * platform mail, or an explicit tenant schema.
+   */
+  schemaName?: string | null;
 }) {
   if (!params.to?.trim()) throw new Error("Recipient e-mail required");
   if (!params.subject?.trim()) throw new Error("Subject required");
 
-  const company = await prisma.companySettings.findUnique({
+  // Auth mail is not "wherever the browser happens to be routed". A password
+  // reset requested from /login while a forge-demo cookie was still set went
+  // into that sandbox's mailbox — and was destroyed with the sandbox when it
+  // was swept. The caller knows which schema owns the account, so it says.
+  const db =
+    params.schemaName === undefined
+      ? prisma
+      : params.schemaName === null || params.schemaName === "public"
+        ? controlPlaneClient()
+        : clientForSchema(params.schemaName);
+
+  const company = await db.companySettings.findUnique({
     where: { id: "default" },
   });
   const apiKey = process.env.RESEND_API_KEY;
@@ -31,7 +48,7 @@ export async function sendEmail(params: {
     process.env.EMAIL_FROM ||
     `${(company?.name || "Protessera").toLowerCase().replace(/[^a-z0-9]+/g, ".")}@erp.local`;
 
-  const msg = await prisma.emailMessage.create({
+  const msg = await db.emailMessage.create({
     data: {
       direction: "OUTBOUND",
       status: apiKey ? "QUEUED" : "SENT",
@@ -65,14 +82,14 @@ export async function sendEmail(params: {
       if (!resp.ok) {
         throw new Error(`Resend ${resp.status}: ${(await resp.text()).slice(0, 300)}`);
       }
-      await prisma.emailMessage.update({
+      await db.emailMessage.update({
         where: { id: msg.id },
         data: { status: "SENT", sentAt: new Date() },
       });
     } catch (err) {
       // Delivery failure never breaks the calling flow — the message stays
       // in the Email Center with the error, links can be shared manually.
-      await prisma.emailMessage.update({
+      await db.emailMessage.update({
         where: { id: msg.id },
         data: {
           status: "FAILED",

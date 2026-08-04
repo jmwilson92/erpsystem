@@ -1714,6 +1714,11 @@ export async function actionRequestPasswordReset(
   // tenant directory.
   const { controlPlaneClient, clientForSchema } = await import("@/lib/db");
   const cp = controlPlaneClient();
+  // Remember WHERE the account was found, not just that it was. The invite and
+  // its e-mail both have to be written to that schema; inheriting the browser's
+  // routing cookie instead filed a platform reset inside a demo sandbox, which
+  // was then swept along with the only copy of the link.
+  let ownerSchema: string | null = null;
   let existing = await cp.user
     .findFirst({ where: { email } })
     .catch(() => null);
@@ -1725,6 +1730,7 @@ export async function actionRequestPasswordReset(
       existing = await clientForSchema(dir.schemaName)
         .user.findFirst({ where: { email } })
         .catch(() => null);
+      if (existing) ownerSchema = dir.schemaName;
     }
   }
 
@@ -1738,6 +1744,7 @@ export async function actionRequestPasswordReset(
         kind: "RESET",
         role: existing.role,
         baseUrl: `${proto}://${host}`,
+        schemaName: ownerSchema,
       });
     } catch (err) {
       // Still answer uniformly to the visitor, but make the failure findable
