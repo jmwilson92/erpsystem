@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { DEMO_COOKIE } from "@/lib/db";
 import { publicUrlFromRequest } from "@/lib/request-origin";
+import { recordEvent } from "@/lib/services/telemetry";
 
 /**
  * Clear a broken/stale forge-demo cookie and land on marketing (no auto-start).
@@ -21,6 +22,17 @@ export async function GET(req: Request) {
       .then((m) => m.destroyTenant(schema))
       .catch(() => undefined);
   }
+
+  await recordEvent({
+    kind: "ERROR",
+    source: "DEMO",
+    label: "demo.stale_sandbox_reset",
+    severity: "error",
+    path: "/api/demo/reset",
+    sessionId: schema ?? null,
+    schemaName: schema ?? null,
+    detail: { reason: "broken_or_stale_forge_demo_cookie" },
+  });
 
   return NextResponse.redirect(publicUrlFromRequest(req, "/welcome?ended=1"), 303);
 }

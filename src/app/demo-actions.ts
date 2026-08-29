@@ -3,7 +3,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { DEMO_COOKIE } from "@/lib/db";
-import { trackEvent } from "@/lib/services/telemetry";
+import { recordEvent } from "@/lib/services/telemetry";
 
 /**
  * Demo start / re-enter only. Ending a drive uses GET /api/demo/end
@@ -28,7 +28,7 @@ export async function actionStartTestDrive(): Promise<void> {
   );
   if (!(await demoTemplateExists())) {
     console.error("[demo] demo_template schema missing — run build-demo-template");
-    trackEvent({
+    await recordEvent({
       kind: "ERROR",
       source: "DEMO",
       label: "demo_template schema missing",
@@ -45,15 +45,21 @@ export async function actionStartTestDrive(): Promise<void> {
     schemaName = tenant.schemaName;
   } catch (err) {
     console.error("[demo] provisionDemo failed:", err);
-    trackEvent({
-      kind: "ERROR",
-      source: "DEMO",
-      label: `provisionDemo failed: ${err instanceof Error ? err.message : String(err)}`,
-      severity: "error",
-      path: "/demo",
-      detail: { stage: "provision" },
-    });
-    redirect("/welcome?error=warming");
+    try {
+      const tenant = await provisionDemo();
+      schemaName = tenant.schemaName;
+    } catch (err2) {
+      console.error("[demo] provisionDemo retry failed:", err2);
+      await recordEvent({
+        kind: "ERROR",
+        source: "DEMO",
+        label: `provisionDemo failed: ${err2 instanceof Error ? err2.message : String(err2)}`,
+        severity: "error",
+        path: "/demo",
+        detail: { stage: "provision", retried: true },
+      });
+      redirect("/welcome?error=warming");
+    }
   }
 
   try {
@@ -62,7 +68,7 @@ export async function actionStartTestDrive(): Promise<void> {
     if (n < 1) throw new Error("cloned demo has zero users");
   } catch (err) {
     console.error("[demo] clone validation failed:", err);
-    trackEvent({
+    await recordEvent({
       kind: "ERROR",
       source: "DEMO",
       label: `clone validation failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -83,7 +89,7 @@ export async function actionStartTestDrive(): Promise<void> {
     maxAge: 60 * 60 * 4,
   });
   jar.delete("forge-demo-user");
-  trackEvent({
+  await recordEvent({
     kind: "DEMO_START",
     source: "DEMO",
     sessionId: schemaName,

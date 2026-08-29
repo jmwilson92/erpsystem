@@ -47,7 +47,7 @@ export default async function WelcomePage({
       {warming && (
         <div className="border-b border-amber-500/40 bg-amber-100 px-4 py-3 text-center text-sm text-black">
           The demo plant is warming up. Browse pricing below, or{" "}
-          <Link href="/" className="font-semibold underline">
+          <Link href="/demo" className="font-semibold underline">
             try Live demo again
           </Link>
           .
