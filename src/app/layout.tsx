@@ -307,7 +307,24 @@ export default async function RootLayout({
   // Subscription gate: once the trial ends with no paid plan, wall the app off
   // (production only — the demo instance is never gated). Billing, auth, and a
   // few utility routes stay reachable so the customer can upgrade or leave.
-  const subscription = await getSubscriptionState();
+  const subscription = await getSubscriptionState().catch((err) => {
+    console.error("[layout] getSubscriptionState failed:", err);
+    return {
+      plan: "TRIAL",
+      status: "TRIALING",
+      trialEndsAt: null,
+      currentPeriodEnd: null,
+      seats: null,
+      billingEmail: null,
+      billingProvider: null,
+      isPaid: false,
+      isTrialing: false,
+      trialDaysLeft: null,
+      hasAccess: true,
+      isExpired: false,
+      enforced: false,
+    };
+  });
   const billingAllowlist = [
     "/billing",
     "/login",

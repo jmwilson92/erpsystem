@@ -80,8 +80,9 @@ export async function recordEvent(input: TelemetryInput): Promise<void> {
         severity: input.severity ?? null,
       },
     });
-  } catch {
+  } catch (e) {
     // Telemetry is best-effort by design — never surface or rethrow.
+    console.error("[telemetry] recordEvent failed:", e instanceof Error ? e.message : e);
   }
 }
 
