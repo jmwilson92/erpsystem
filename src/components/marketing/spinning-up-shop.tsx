@@ -5,15 +5,15 @@ import Link from "next/link";
 import { actionStartTestDrive, actionEnterExistingDemo } from "@/app/demo-actions";
 
 const MIN_SPLASH_MS = 3200;
-const BG_SRC = "/marketing/E-splash-bg.jpg";
+const BG_SRC = "/marketing/product-inventory.png";
 
 /**
- * Apex hero: static factory scene + spinning SVG ring.
- * Copy sits on a light plaque with black text for maximum contrast.
+ * Apex hero. Default is explore-first: real product screenshot, no auto-provision.
+ * autoStart is only used if a caller explicitly opts in.
  */
 export function SpinningUpShop({
   hasExistingDemo = false,
-  autoStart = true,
+  autoStart = false,
   ended = false,
 }: {
   hasExistingDemo?: boolean;
@@ -51,9 +51,6 @@ export function SpinningUpShop({
       );
       setPct(95);
       formRef.current?.requestSubmit();
-      // Sandboxes are pre-warmed, so the redirect is normally immediate. On a
-      // cold start (empty pool) the clone can take a few seconds — keep easing
-      // toward 99 so the bar never looks frozen while we wait.
       creep = window.setInterval(() => {
         setPct((p) => (p >= 99 ? 99 : p + 1));
       }, 700);
@@ -66,127 +63,139 @@ export function SpinningUpShop({
     };
   }, [autoStart, ended, hasExistingDemo]);
 
+  const idle = ended || !autoStart;
+
   return (
-    <div className="relative flex min-h-[min(100vh,720px)] flex-col items-center justify-center overflow-hidden px-6 py-16">
+    <div className="relative flex min-h-[min(100vh,780px)] flex-col items-center justify-center overflow-hidden px-6 py-16">
       <div
-        className="pointer-events-none absolute inset-0 bg-cover bg-center"
+        className="pointer-events-none absolute inset-0 bg-cover bg-top"
         style={{ backgroundImage: `url(${BG_SRC})` }}
         aria-hidden
       />
+      <div
+        className="pointer-events-none absolute inset-0 bg-gradient-to-b from-slate-950/55 via-slate-950/35 to-slate-950/75"
+        aria-hidden
+      />
 
-      <div className="relative z-10 flex w-full max-w-xl flex-col items-center text-center">
-        <div className="relative flex h-[min(300px,70vw)] w-[min(300px,70vw)] items-center justify-center">
-          <div
-            className="absolute inset-[8%] rounded-full blur-2xl"
-            style={{
-              background:
-                "radial-gradient(circle, rgba(45,212,191,0.35) 0%, transparent 68%)",
-            }}
-            aria-hidden
-          />
-          <svg
-            viewBox="0 0 120 120"
-            className="shop-ring-spin relative h-full w-full drop-shadow-[0_0_24px_rgba(45,212,191,0.55)]"
-            aria-hidden
-          >
-            <defs>
-              <linearGradient id="shop-ring-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#5eead4" />
-                <stop offset="55%" stopColor="#2dd4bf" />
-                <stop offset="100%" stopColor="#22d3ee" />
-              </linearGradient>
-              <filter id="shop-ring-glow" x="-40%" y="-40%" width="180%" height="180%">
-                <feGaussianBlur stdDeviation="1.6" result="b" />
-                <feMerge>
-                  <feMergeNode in="b" />
-                  <feMergeNode in="SourceGraphic" />
-                </feMerge>
-              </filter>
-            </defs>
-            <circle
-              cx="60"
-              cy="60"
-              r="46"
-              fill="none"
-              stroke="rgba(45,212,191,0.18)"
-              strokeWidth="5"
+      <div className="relative z-10 flex w-full max-w-2xl flex-col items-center text-center">
+        {!idle && (
+          <div className="relative flex h-[min(220px,55vw)] w-[min(220px,55vw)] items-center justify-center">
+            <div
+              className="absolute inset-[8%] rounded-full blur-2xl"
+              style={{
+                background:
+                  "radial-gradient(circle, rgba(45,212,191,0.35) 0%, transparent 68%)",
+              }}
+              aria-hidden
             />
-            <circle
-              cx="60"
-              cy="60"
-              r="46"
-              fill="none"
-              stroke="url(#shop-ring-grad)"
-              strokeWidth="6"
-              strokeLinecap="round"
-              strokeDasharray="190 100"
-              strokeDashoffset="20"
-              filter="url(#shop-ring-glow)"
-            />
-            <circle
-              cx="60"
-              cy="60"
-              r="52"
-              fill="none"
-              stroke="rgba(34,211,238,0.25)"
-              strokeWidth="1.5"
-              strokeDasharray="3 7"
-            />
-          </svg>
-        </div>
-
-        {/* White tile + forced black type via .marketing-story (beats light-mode wash) */}
-        <div className="marketing-story mt-6 w-full max-w-md">
-          <div className="tile rounded-2xl px-6 py-5 shadow-[0_16px_48px_rgba(0,0,0,0.55)]">
-            <p
-              className="font-mono text-4xl font-bold tracking-tight tabular-nums sm:text-5xl"
-              aria-live="polite"
+            <svg
+              viewBox="0 0 120 120"
+              className="shop-ring-spin relative h-full w-full drop-shadow-[0_0_24px_rgba(45,212,191,0.55)]"
+              aria-hidden
             >
-              {pct}
-              <span className="muted text-2xl sm:text-3xl">%</span>
-            </p>
-            <div className="mx-auto mt-3 h-1.5 w-44 overflow-hidden rounded-full bg-slate-200">
-              <div
-                className="h-full rounded-full bg-teal-600 transition-[width] duration-100"
-                style={{ width: `${pct}%` }}
+              <defs>
+                <linearGradient id="shop-ring-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#5eead4" />
+                  <stop offset="55%" stopColor="#2dd4bf" />
+                  <stop offset="100%" stopColor="#22d3ee" />
+                </linearGradient>
+              </defs>
+              <circle
+                cx="60"
+                cy="60"
+                r="46"
+                fill="none"
+                stroke="rgba(45,212,191,0.18)"
+                strokeWidth="5"
               />
-            </div>
+              <circle
+                cx="60"
+                cy="60"
+                r="46"
+                fill="none"
+                stroke="url(#shop-ring-grad)"
+                strokeWidth="6"
+                strokeLinecap="round"
+                strokeDasharray="190 100"
+                strokeDashoffset="20"
+              />
+            </svg>
+          </div>
+        )}
 
-            <p className="eyebrow mt-5 text-xs font-semibold uppercase tracking-[0.28em]">
+        <div className="marketing-story mt-2 w-full max-w-xl">
+          <div className="tile rounded-2xl px-6 py-6 shadow-[0_16px_48px_rgba(0,0,0,0.55)] sm:px-8">
+            {!idle && (
+              <>
+                <p
+                  className="font-mono text-4xl font-bold tracking-tight tabular-nums sm:text-5xl"
+                  aria-live="polite"
+                >
+                  {pct}
+                  <span className="muted text-2xl sm:text-3xl">%</span>
+                </p>
+                <div className="mx-auto mt-3 h-1.5 w-44 overflow-hidden rounded-full bg-slate-200">
+                  <div
+                    className="h-full rounded-full bg-teal-600 transition-[width] duration-100"
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+              </>
+            )}
+
+            <p className="eyebrow mt-1 text-xs font-semibold uppercase tracking-[0.28em]">
               Protessera
             </p>
             <h1 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">
-              {status}
+              {idle
+                ? ended
+                  ? "Test drive ended"
+                  : hasExistingDemo
+                    ? "Your sandbox is still warm"
+                    : "See the real shop \u2014 then take it for a drive"
+                : status}
             </h1>
             <p className="muted mx-auto mt-3 max-w-md text-sm leading-relaxed sm:text-base">
               {ended
-                ? "Your sandbox is gone — scroll for pricing, FAQ, and features, or spin the shop up again when you’re ready."
-                : hasExistingDemo
-                  ? "Your sandbox is still warm — taking you back onto the floor."
-                  : "Building a private sandbox with a live demo factory — sales, floor, quality, and accounting already talking."}
+                ? "Your sandbox is gone. Scroll for pricing, FAQ, and features, or spin a new plant when you\u2019re ready."
+                : idle && hasExistingDemo
+                  ? "Pick up where you left off, or scroll the product first. Nothing provisions until you click."
+                  : idle
+                    ? "Screens below are the live product \u2014 inventory, value stream, work orders, test center. Explore first. A private sandbox only starts when you ask."
+                    : hasExistingDemo
+                      ? "Your sandbox is still warm \u2014 taking you back onto the floor."
+                      : "Building a private sandbox with a live demo factory \u2014 sales, floor, quality, and accounting already talking."}
             </p>
 
-            {ended || !autoStart ? (
+            {idle ? (
               <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-                <form action={actionStartTestDrive}>
+                <form
+                  action={
+                    hasExistingDemo && !ended
+                      ? actionEnterExistingDemo
+                      : actionStartTestDrive
+                  }
+                >
                   <button
                     type="submit"
                     className="btn-green rounded-xl px-5 py-3 text-sm font-semibold"
                   >
-                    Spin the shop up again
+                    {hasExistingDemo && !ended
+                      ? "Re-enter your plant"
+                      : "Start live demo"}
                   </button>
                 </form>
+                <Link
+                  href="/signup"
+                  className="btn-outline-black rounded-xl px-4 py-2.5 text-sm font-semibold"
+                >
+                  Start free trial
+                </Link>
                 <a
                   href="#pricing"
                   className="btn-outline-black rounded-xl px-4 py-2.5 text-sm font-semibold"
                 >
                   See pricing
-                </a>
-                <a
-                  href="#faq"
-                  className="btn-outline-black rounded-xl px-4 py-2.5 text-sm font-semibold"
-                >
-                  Read FAQ
                 </a>
               </div>
             ) : (
