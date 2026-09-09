@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { actionStartTestDrive, actionEnterExistingDemo } from "@/app/demo-actions";
+import "./photo-tiles.css";
 
 const MIN_SPLASH_MS = 3200;
 const BG_SRC = "/marketing/product-inventory.png";
@@ -124,7 +125,7 @@ export function SpinningUpShop({
         )}
 
         <div className="marketing-story mt-2 w-full max-w-xl">
-          <div className="tile rounded-2xl px-6 py-6 shadow-[0_16px_48px_rgba(0,0,0,0.55)] sm:px-8">
+          <div className="tile tile-on-photo rounded-2xl px-6 py-6 shadow-[0_16px_48px_rgba(0,0,0,0.55)] sm:px-8">
             {!idle && (
               <>
                 <p
@@ -134,9 +135,9 @@ export function SpinningUpShop({
                   {pct}
                   <span className="muted text-2xl sm:text-3xl">%</span>
                 </p>
-                <div className="mx-auto mt-3 h-1.5 w-44 overflow-hidden rounded-full bg-slate-200">
+                <div className="mx-auto mt-3 h-1.5 w-44 overflow-hidden rounded-full bg-slate-700">
                   <div
-                    className="h-full rounded-full bg-teal-600 transition-[width] duration-100"
+                    className="h-full rounded-full bg-teal-400 transition-[width] duration-100"
                     style={{ width: `${pct}%` }}
                   />
                 </div>
