@@ -1,8 +1,13 @@
-/* Navy glass plaques on product-screenshot sections.
-   Overrides .marketing-story .tile white force so light-mode
-   Inventory / Value Stream shots do not swallow the cards. */
+/* Navy glass ONLY on light (day) product shots + the explore hero.
+   Dark Work Orders / Test Center sections keep the original white tiles. */
 .marketing-story .tile-on-photo,
-.marketing-story section.relative.overflow-hidden .tile {
+.marketing-story section:has(img[src*="product-inventory"]),
+.marketing-story section:has(img[src*="product-value-stream"]) {
+}
+
+.marketing-story .tile-on-photo,
+.marketing-story section:has(img[src*="product-inventory"]) .tile,
+.marketing-story section:has(img[src*="product-value-stream"]) .tile {
   background-color: rgba(11, 18, 32, 0.94) !important;
   color: #f8fafc !important;
   border: 1px solid rgba(45, 212, 191, 0.45) !important;
@@ -17,33 +22,46 @@
 .marketing-story .tile-on-photo li,
 .marketing-story .tile-on-photo summary,
 .marketing-story .tile-on-photo a:not(.btn-green),
-.marketing-story section.relative.overflow-hidden .tile h1,
-.marketing-story section.relative.overflow-hidden .tile h2,
-.marketing-story section.relative.overflow-hidden .tile h3,
-.marketing-story section.relative.overflow-hidden .tile h4,
-.marketing-story section.relative.overflow-hidden .tile p,
-.marketing-story section.relative.overflow-hidden .tile span,
-.marketing-story section.relative.overflow-hidden .tile li,
-.marketing-story section.relative.overflow-hidden .tile summary,
-.marketing-story section.relative.overflow-hidden .tile a:not(.btn-green) {
+.marketing-story section:has(img[src*="product-inventory"]) .tile h1,
+.marketing-story section:has(img[src*="product-inventory"]) .tile h2,
+.marketing-story section:has(img[src*="product-inventory"]) .tile h3,
+.marketing-story section:has(img[src*="product-inventory"]) .tile h4,
+.marketing-story section:has(img[src*="product-inventory"]) .tile p,
+.marketing-story section:has(img[src*="product-inventory"]) .tile span,
+.marketing-story section:has(img[src*="product-inventory"]) .tile li,
+.marketing-story section:has(img[src*="product-inventory"]) .tile summary,
+.marketing-story section:has(img[src*="product-inventory"]) .tile a:not(.btn-green),
+.marketing-story section:has(img[src*="product-value-stream"]) .tile h1,
+.marketing-story section:has(img[src*="product-value-stream"]) .tile h2,
+.marketing-story section:has(img[src*="product-value-stream"]) .tile h3,
+.marketing-story section:has(img[src*="product-value-stream"]) .tile h4,
+.marketing-story section:has(img[src*="product-value-stream"]) .tile p,
+.marketing-story section:has(img[src*="product-value-stream"]) .tile span,
+.marketing-story section:has(img[src*="product-value-stream"]) .tile li,
+.marketing-story section:has(img[src*="product-value-stream"]) .tile summary,
+.marketing-story section:has(img[src*="product-value-stream"]) .tile a:not(.btn-green) {
   color: #f8fafc !important;
 }
 .marketing-story .tile-on-photo .muted,
-.marketing-story section.relative.overflow-hidden .tile .muted {
+.marketing-story section:has(img[src*="product-inventory"]) .tile .muted,
+.marketing-story section:has(img[src*="product-value-stream"]) .tile .muted {
   color: #cbd5e1 !important;
 }
 .marketing-story .tile-on-photo .eyebrow,
-.marketing-story section.relative.overflow-hidden .tile .eyebrow {
+.marketing-story section:has(img[src*="product-inventory"]) .tile .eyebrow,
+.marketing-story section:has(img[src*="product-value-stream"]) .tile .eyebrow {
   color: #2dd4bf !important;
 }
 .marketing-story .tile-on-photo .btn-outline-black,
-.marketing-story section.relative.overflow-hidden .tile .btn-outline-black {
+.marketing-story section:has(img[src*="product-inventory"]) .tile .btn-outline-black,
+.marketing-story section:has(img[src*="product-value-stream"]) .tile .btn-outline-black {
   background-color: transparent !important;
   color: #f8fafc !important;
   border: 2px solid #f8fafc !important;
 }
 .marketing-story .tile-on-photo .btn-outline-black:hover,
-.marketing-story section.relative.overflow-hidden .tile .btn-outline-black:hover {
+.marketing-story section:has(img[src*="product-inventory"]) .tile .btn-outline-black:hover,
+.marketing-story section:has(img[src*="product-value-stream"]) .tile .btn-outline-black:hover {
   background-color: rgba(248, 250, 252, 0.1) !important;
   color: #ffffff !important;
 }
