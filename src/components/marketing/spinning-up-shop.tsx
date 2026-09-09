@@ -5,12 +5,11 @@ import Link from "next/link";
 import { actionStartTestDrive, actionEnterExistingDemo } from "@/app/demo-actions";
 import "./photo-tiles.css";
 
-const MIN_SPLASH_MS = 3200;
 const BG_SRC = "/marketing/product-inventory.png";
 
 /**
- * Apex hero. Default is explore-first: real product screenshot, no auto-provision.
- * autoStart is only used if a caller explicitly opts in.
+ * Apex hero. Explore-first until the visitor clicks Start / Re-enter.
+ * Then the ring runs while provision (cold) or re-entry (warm) happens.
  */
 export function SpinningUpShop({
   hasExistingDemo = false,
@@ -21,6 +20,7 @@ export function SpinningUpShop({
   autoStart?: boolean;
   ended?: boolean;
 }) {
+  const [spinning, setSpinning] = useState(Boolean(autoStart) && !ended);
   const [pct, setPct] = useState(ended ? 100 : 0);
   const [status, setStatus] = useState(
     ended ? "Test drive ended" : "Spinning up the Shop"
@@ -29,42 +29,46 @@ export function SpinningUpShop({
   const started = useRef(false);
 
   useEffect(() => {
-    if (ended || !autoStart) return;
+    if (ended || !spinning) return;
     if (started.current) return;
     started.current = true;
 
+    setStatus(
+      hasExistingDemo
+        ? "Re-entering your plant…"
+        : "Spinning up your private plant…"
+    );
+
     const begin = Date.now();
+    const visualMs = hasExistingDemo ? 900 : 2400;
     let raf = 0;
     const tick = () => {
       const t = Date.now() - begin;
-      const p = Math.min(94, Math.round((t / MIN_SPLASH_MS) * 94));
+      const p = Math.min(94, Math.round((t / visualMs) * 94));
       setPct(p);
-      if (t < MIN_SPLASH_MS) raf = requestAnimationFrame(tick);
+      if (t < visualMs) raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
 
-    let creep = 0;
+    // Kick provision immediately so the ring covers the wait, instead of
+    // waiting out the animation and THEN cloning the schema.
     const kickoff = window.setTimeout(() => {
-      setStatus(
-        hasExistingDemo
-          ? "Re-entering your plant…"
-          : "Spinning up your private plant…"
-      );
-      setPct(95);
+      setPct((p) => Math.max(p, 95));
       formRef.current?.requestSubmit();
-      creep = window.setInterval(() => {
-        setPct((p) => (p >= 99 ? 99 : p + 1));
-      }, 700);
-    }, MIN_SPLASH_MS);
+    }, hasExistingDemo ? 280 : 120);
+
+    const creep = window.setInterval(() => {
+      setPct((p) => (p >= 99 ? 99 : p + 1));
+    }, hasExistingDemo ? 180 : 700);
 
     return () => {
       cancelAnimationFrame(raf);
       window.clearTimeout(kickoff);
-      if (creep) window.clearInterval(creep);
+      window.clearInterval(creep);
     };
-  }, [autoStart, ended, hasExistingDemo]);
+  }, [spinning, ended, hasExistingDemo]);
 
-  const idle = ended || !autoStart;
+  const idle = ended || !spinning;
 
   return (
     <div className="relative flex min-h-[min(100vh,780px)] flex-col items-center justify-center overflow-hidden px-6 py-16">
@@ -170,22 +174,15 @@ export function SpinningUpShop({
 
             {idle ? (
               <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-                <form
-                  action={
-                    hasExistingDemo && !ended
-                      ? actionEnterExistingDemo
-                      : actionStartTestDrive
-                  }
+                <button
+                  type="button"
+                  onClick={() => setSpinning(true)}
+                  className="btn-green rounded-xl px-5 py-3 text-sm font-semibold"
                 >
-                  <button
-                    type="submit"
-                    className="btn-green rounded-xl px-5 py-3 text-sm font-semibold"
-                  >
-                    {hasExistingDemo && !ended
-                      ? "Re-enter your plant"
-                      : "Start live demo"}
-                  </button>
-                </form>
+                  {hasExistingDemo && !ended
+                    ? "Re-enter your plant"
+                    : "Start live demo"}
+                </button>
                 <Link
                   href="/signup"
                   className="btn-outline-black rounded-xl px-4 py-2.5 text-sm font-semibold"
@@ -214,7 +211,9 @@ export function SpinningUpShop({
                 </form>
                 <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
                   <p className="muted text-xs font-medium">
-                    This only takes a moment
+                    {hasExistingDemo
+                      ? "Warm plant — almost there"
+                      : "This only takes a moment"}
                   </p>
                   <Link
                     href="/welcome#pricing"
