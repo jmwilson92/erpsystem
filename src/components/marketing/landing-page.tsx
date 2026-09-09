@@ -1,1 +1,2 @@
-SEE_FILE
+import Link from "next/link";
+import Image from "next/image";
