@@ -1,11 +1,11 @@
 import { NextRequest } from "next/server";
 import {
-  sweepIdleDemos,
   demoIdleMinutes,
   ensureDemoPool,
   recycleStalePool,
   demoPoolTarget,
 } from "@/lib/services/tenancy";
+import { reapAbandonedDemos } from "@/lib/services/demo-reaper";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,15 +25,13 @@ export async function GET(req: NextRequest) {
     }
   }
   const maxIdle = demoIdleMinutes();
-  const destroyed = await sweepIdleDemos(maxIdle);
-  // Recycle spares that have been sitting unclaimed for a day so the pool never
-  // serves stale seed data after a template rebuild.
+  const reaped = await reapAbandonedDemos(maxIdle);
   const recycled = await recycleStalePool(24);
-  // Then refill so the next visitor gets an instant sandbox.
   const warmed = await ensureDemoPool().catch(() => 0);
   return Response.json({
     ok: true,
-    destroyed,
+    destroyed: reaped.idle + reaped.stuck + reaped.extraReady,
+    reaped,
     recycled,
     warmed,
     poolTarget: demoPoolTarget(),

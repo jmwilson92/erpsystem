@@ -24,10 +24,10 @@ export async function GET(req: Request) {
   }
 
   await recordEvent({
-    kind: "ERROR",
+    kind: "ACTION",
     source: "DEMO",
     label: "demo.stale_sandbox_reset",
-    severity: "error",
+    severity: "warn",
     path: "/api/demo/reset",
     sessionId: schema ?? null,
     schemaName: schema ?? null,

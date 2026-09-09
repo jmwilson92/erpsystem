@@ -1,0 +1,25 @@
+name: Sweep demo sandboxes
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Hit Vercel sweep endpoint
+        env:
+          SWEEP_URL: ${{ secrets.DEMO_SWEEP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$SWEEP_URL" ]; then
+            SWEEP_URL="https://erpsystem-nine-drab.vercel.app/api/cron/sweep-demos"
+          fi
+          AUTH=()
+          if [ -n "$CRON_SECRET" ]; then
+            AUTH=(-H "Authorization: Bearer $CRON_SECRET")
+          fi
+          curl -fsS --max-time 120 "${AUTH[@]}" "$SWEEP_URL"
