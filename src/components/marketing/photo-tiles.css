@@ -1,0 +1,49 @@
+/* Navy glass plaques on product-screenshot sections.
+   Overrides .marketing-story .tile white force so light-mode
+   Inventory / Value Stream shots do not swallow the cards. */
+.marketing-story .tile-on-photo,
+.marketing-story section.relative.overflow-hidden .tile {
+  background-color: rgba(11, 18, 32, 0.94) !important;
+  color: #f8fafc !important;
+  border: 1px solid rgba(45, 212, 191, 0.45) !important;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45) !important;
+}
+.marketing-story .tile-on-photo h1,
+.marketing-story .tile-on-photo h2,
+.marketing-story .tile-on-photo h3,
+.marketing-story .tile-on-photo h4,
+.marketing-story .tile-on-photo p,
+.marketing-story .tile-on-photo span,
+.marketing-story .tile-on-photo li,
+.marketing-story .tile-on-photo summary,
+.marketing-story .tile-on-photo a:not(.btn-green),
+.marketing-story section.relative.overflow-hidden .tile h1,
+.marketing-story section.relative.overflow-hidden .tile h2,
+.marketing-story section.relative.overflow-hidden .tile h3,
+.marketing-story section.relative.overflow-hidden .tile h4,
+.marketing-story section.relative.overflow-hidden .tile p,
+.marketing-story section.relative.overflow-hidden .tile span,
+.marketing-story section.relative.overflow-hidden .tile li,
+.marketing-story section.relative.overflow-hidden .tile summary,
+.marketing-story section.relative.overflow-hidden .tile a:not(.btn-green) {
+  color: #f8fafc !important;
+}
+.marketing-story .tile-on-photo .muted,
+.marketing-story section.relative.overflow-hidden .tile .muted {
+  color: #cbd5e1 !important;
+}
+.marketing-story .tile-on-photo .eyebrow,
+.marketing-story section.relative.overflow-hidden .tile .eyebrow {
+  color: #2dd4bf !important;
+}
+.marketing-story .tile-on-photo .btn-outline-black,
+.marketing-story section.relative.overflow-hidden .tile .btn-outline-black {
+  background-color: transparent !important;
+  color: #f8fafc !important;
+  border: 2px solid #f8fafc !important;
+}
+.marketing-story .tile-on-photo .btn-outline-black:hover,
+.marketing-story section.relative.overflow-hidden .tile .btn-outline-black:hover {
+  background-color: rgba(248, 250, 252, 0.1) !important;
+  color: #ffffff !important;
+}
