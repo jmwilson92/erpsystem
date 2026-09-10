@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   periodPriceForPlan,
   planSeatsLabel,
@@ -20,9 +20,22 @@ type Props = {
   promoOn: boolean;
 };
 
-/**
- * Self-serve plan picker with a live seat stepper for Shop (per-user monthly).
- */
+function pingLead(payload: {
+  email: string;
+  company: string;
+  plan: string;
+  seats: number | null;
+  stage: "typed" | "submitted";
+}) {
+  if (!payload.email.includes("@")) return;
+  void fetch("/api/leads", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    keepalive: true,
+  }).catch(() => undefined);
+}
+
 export function SignupPlanForm({
   plans,
   defaultPlan,
@@ -39,6 +52,7 @@ export function SignupPlanForm({
     const max = selected?.maxSeats ?? 10;
     return Math.min(max, Math.max(min, defaultSeats));
   });
+  const lastTyped = useRef("");
 
   const periodTotal = useMemo(
     () => periodPriceForPlan(planKey, isShop ? seats : null),
@@ -55,8 +69,25 @@ export function SignupPlanForm({
     }
   }
 
+  function collect(form: HTMLFormElement) {
+    const fd = new FormData(form);
+    return {
+      email: String(fd.get("email") || "").trim(),
+      company: String(fd.get("company") || "").trim(),
+      plan: String(fd.get("plan") || planKey),
+      seats: isShop ? seats : null,
+    };
+  }
+
   return (
-    <form action={action} className="mt-6">
+    <form
+      action={action}
+      className="mt-6"
+      onSubmit={(e) => {
+        const fields = collect(e.currentTarget);
+        pingLead({ ...fields, stage: "submitted" });
+      }}
+    >
       <fieldset>
         <legend className="text-sm font-semibold uppercase tracking-wide text-slate-400">
           Choose your plan
@@ -151,6 +182,15 @@ export function SignupPlanForm({
             required
             autoComplete="email"
             placeholder="you@company.com"
+            onBlur={(e) => {
+              const form = e.currentTarget.form;
+              if (!form) return;
+              const fields = collect(form);
+              const key = fields.email.toLowerCase();
+              if (!key || key === lastTyped.current) return;
+              lastTyped.current = key;
+              pingLead({ ...fields, stage: "typed" });
+            }}
             className="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2.5 text-sm text-slate-100 placeholder:text-slate-600 focus:border-teal-500 focus:outline-none"
           />
         </label>
@@ -173,7 +213,7 @@ export function SignupPlanForm({
         Continue to secure checkout →
       </button>
       <p className="mt-3 text-center text-xs text-slate-500">
-        You&apos;ll add a card on Stripe&apos;s secure page. No charge for{" "}
+        You'll add a card on Stripe's secure page. No charge for{" "}
         {trialDays} days
         {promoOn
           ? " — the 50%-off-first-year launch offer is applied automatically."
