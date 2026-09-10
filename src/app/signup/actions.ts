@@ -9,14 +9,10 @@ import {
   isPerSeatPlan,
   normalizeSeats,
 } from "@/lib/services/subscription";
+import { captureSignupLead } from "@/lib/services/signup-lead";
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
-/**
- * Kick off a self-serve trial: validate the form, create a Stripe Checkout
- * Session (card up front, 45-day trial), and hand off to Stripe's hosted page.
- * On any problem we bounce back to /signup with an ?error= the page renders.
- */
 export async function actionStartTrial(formData: FormData) {
   const plan = String(formData.get("plan") || "").toUpperCase();
   const email = String(formData.get("email") || "").trim();
@@ -26,11 +22,20 @@ export async function actionStartTrial(formData: FormData) {
   const selectable = PLANS.some((p) => p.key === plan && p.key !== "ENTERPRISE");
   if (!selectable) redirect(`/signup?error=plan`);
   if (!EMAIL_RE.test(email)) redirect(`/signup?error=email&plan=${plan}`);
-  if (!stripeEnabled()) redirect(`/signup?error=unavailable&plan=${plan}`);
 
   const seats = isPerSeatPlan(plan)
     ? normalizeSeats(plan, Number(seatsRaw))
     : null;
+
+  void captureSignupLead({
+    email,
+    company,
+    plan,
+    seats,
+    stage: "submitted",
+  });
+
+  if (!stripeEnabled()) redirect(`/signup?error=unavailable&plan=${plan}`);
 
   const h = await headers();
   const appUrl =
