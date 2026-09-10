@@ -1,17 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 
-/**
- * Route guard for production (DEMO_MODE=0): anything but the auth
- * screens requires a session cookie. Cookie *presence* is checked here
- * (edge runtime — no DB); the session itself is validated server-side
- * in getCurrentUser / getSessionUser on every request.
- *
- * With DEMO_MODE on (default / evaluation), everything stays open so
- * prospects can use the persona switcher and /demo test-drive.
- *
- * Production hosts must set DEMO_MODE=0 (enforced at boot by
- * src/instrumentation.ts unless ALLOW_DEMO_IN_PRODUCTION=1).
- */
 const PUBLIC_PREFIXES = [
   "/login",
   "/signup",
@@ -23,6 +11,7 @@ const PUBLIC_PREFIXES = [
   "/preview",
   "/marketing-preview",
   "/api/demo",
+  "/api/leads",
   "/support/t",
   "/_next",
   "/favicon",
@@ -50,8 +39,6 @@ function withPathname(req: NextRequest) {
   const enterApp = req.nextUrl.searchParams.get("app") === "1";
   const hasSession = !!req.cookies.get("forge-session")?.value;
   const hasDemo = !!req.cookies.get("forge-demo")?.value;
-  // In-plant (password session or live sandbox) keeps the ERP shell on /.
-  // Only true anonymous visitors get the marketing splash chrome.
   if (isApex && (enterApp || hasSession || hasDemo)) {
     headers.set("x-forge-app", "1");
   } else if (isApex && !enterApp && !hasSession && !hasDemo) {
