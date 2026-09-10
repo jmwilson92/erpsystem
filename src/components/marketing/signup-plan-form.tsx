@@ -121,7 +121,7 @@ export function SignupPlanForm({
                   </span>
                   {p.pricing === "per_seat" && (
                     <span className="mt-0.5 block text-[11px] text-slate-600">
-                      billed monthly · set quantity for seats (max {p.maxSeats})
+                      billed monthly \u00b7 set quantity for seats (max {p.maxSeats})
                     </span>
                   )}
                 </span>
