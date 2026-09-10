@@ -121,7 +121,7 @@ export function SignupPlanForm({
                   </span>
                   {p.pricing === "per_seat" && (
                     <span className="mt-0.5 block text-[11px] text-slate-600">
-                      billed monthly \u00b7 set quantity for seats (max {p.maxSeats})
+                      billed monthly, set quantity for seats (max {p.maxSeats})
                     </span>
                   )}
                 </span>
@@ -139,7 +139,7 @@ export function SignupPlanForm({
             </span>
             <span className="mt-0.5 block text-xs text-slate-500">
               Each seat is {money(selected.pricePerSeatMonthly ?? 30)}/month.
-              Quantity can also be adjusted on Stripe Checkout (1–
+              Quantity can also be adjusted on Stripe Checkout (1-
               {selected.maxSeats}). Need more than {selected.maxSeats}? Choose
               Starter or above.
             </span>
@@ -165,7 +165,7 @@ export function SignupPlanForm({
                 </span>
                 <span className="text-slate-500">/mo</span>
                 <span className="ml-2 text-xs text-slate-500">
-                  ({seats} × {money(selected.pricePerSeatMonthly ?? 30)})
+                  ({seats} x {money(selected.pricePerSeatMonthly ?? 30)})
                 </span>
               </p>
             </div>
@@ -210,13 +210,13 @@ export function SignupPlanForm({
         type="submit"
         className="mt-6 w-full rounded-xl bg-gradient-to-r from-teal-500 to-cyan-500 px-6 py-3.5 text-base font-semibold text-slate-950 shadow-lg shadow-teal-500/20 transition-transform hover:scale-[1.01]"
       >
-        Continue to secure checkout →
+        Continue to secure checkout
       </button>
       <p className="mt-3 text-center text-xs text-slate-500">
-        You'll add a card on Stripe's secure page. No charge for{" "}
+        {"You will add a card on Stripe checkout. No charge for "}
         {trialDays} days
         {promoOn
-          ? " — the 50%-off-first-year launch offer is applied automatically."
+          ? ". The 50% off first-year launch offer is applied automatically."
           : "."}
       </p>
     </form>
