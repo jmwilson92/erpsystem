@@ -6,11 +6,7 @@ import { Input } from "@/components/ui/input";
 import { ActionLoadingForm } from "@/components/layout/action-loading";
 import { actionBackfillStockSerials } from "@/app/serial-backfill-actions";
 
-export async function BackfillStockSerialsCard({
-  partId,
-}: {
-  partId?: string;
-}) {
+export async function BackfillStockSerialsCard() {
   const parts = await prisma.part.findMany({
     where: { isActive: true },
     orderBy: { partNumber: "asc" },
@@ -19,21 +15,31 @@ export async function BackfillStockSerialsCard({
       partNumber: true,
       description: true,
       isSerialized: true,
-      inventoryItems: { select: { quantity: true } },
-      _count: { select: { serialNumbers: true } },
+      inventoryItems: {
+        select: {
+          quantityOnHand: true,
+          quantityAvailable: true,
+          quantityQuarantine: true,
+        },
+      },
+      _count: { select: { serials: true } },
     },
     take: 400,
   });
   const rows = parts.map((p) => {
-    const onHand = p.inventoryItems.reduce((s, i) => s + (i.quantity || 0), 0);
+    const onHand = p.inventoryItems.reduce((s, i) => s + (i.quantityOnHand || 0), 0);
+    const available = p.inventoryItems.reduce((s, i) => s + (i.quantityAvailable || 0), 0);
+    const quarantined = p.inventoryItems.reduce((s, i) => s + (i.quantityQuarantine || 0), 0);
     return {
       ...p,
       onHand,
-      serials: p._count.serialNumbers,
-      gap: Math.max(0, Math.round(onHand) - p._count.serialNumbers),
+      available,
+      quarantined,
+      serials: p._count.serials,
+      gap: Math.max(0, Math.round(available) - p._count.serials),
     };
   });
-  const selected = partId ? rows.find((p) => p.id === partId) : rows.find((p) => p.gap > 0 && p.isSerialized);
+  const selected = rows.find((p) => p.gap > 0);
 
   return (
     <Card className="border-amber-900/40">
@@ -59,9 +65,8 @@ export async function BackfillStockSerialsCard({
             </option>
             {rows.map((p) => (
               <option key={p.id} value={p.id}>
-                {p.partNumber} — on hand {p.onHand} · serials {p.serials}
-                {p.gap > 0 ? ` · need ${p.gap}` : ""}
-                {p.isSerialized ? "" : " (will mark serialized)"}
+                {p.partNumber} — on hand {p.onHand} · avail {p.available} · Q {p.quarantined} · serials {p.serials}
+                {p.gap > 0 ? ` · need {p.gap}` : ""}
               </option>
             ))}
           </select>
@@ -77,16 +82,6 @@ export async function BackfillStockSerialsCard({
             Add serials to stock
           </Button>
         </ActionLoadingForm>
-        {rows.some((r) => r.gap > 0) && (
-          <p className="mt-2 text-[11px] text-amber-400">
-            Gaps (on-hand qty with no serial yet):{" "}
-            {rows
-              .filter((r) => r.gap > 0)
-              .slice(0, 8)
-              .map((r) => `${r.partNumber} ×${r.gap}`)
-              .join(", ")}
-          </p>
-        )}
       </CardContent>
     </Card>
   );
