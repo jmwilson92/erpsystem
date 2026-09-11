@@ -21,6 +21,7 @@ export async function WorkOrderSerialSection({
     },
   });
   if (!wo) return null;
+  if (!wo.part?.isSerialized) return null;
 
   const units = await ensureWorkOrderUnits({ workOrderId: wo.id });
   const kitSerialPlan = await listKitSerialPlan(wo.id);
@@ -30,12 +31,10 @@ export async function WorkOrderSerialSection({
       id: l.componentPart.id,
       partNumber: l.componentPart.partNumber,
       description: l.componentPart.description,
-      qty: Math.max(1, l.quantity || 1),
+      qty: Math.max(1, (l as { quantity?: number }).quantity || 1),
     }));
   const stockSerials = (
-    await listStockSerialsForParts([
-      ...serializedComponents.map((c) => c.id),
-    ])
+    await listStockSerialsForParts(serializedComponents.map((c) => c.id))
   ).map((s) => ({
     serial: s.serial,
     partId: s.partId,
