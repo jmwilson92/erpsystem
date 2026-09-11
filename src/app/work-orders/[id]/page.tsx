@@ -1,1 +1,1657 @@
-PLACEHOLDER_USE_FILE
+import { prisma } from "@/lib/db";
+import { notFound } from "next/navigation";
+import { PageHeader } from "@/components/shared/page-header";
+import { StatusBadge } from "@/components/shared/status-badge";
+import { workOrderHoldProvenance, workOrderMrbProvenance } from "@/lib/provenance";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
+import { formatDate, formatCurrency } from "@/lib/utils";
+import {
+  actionUpdateWoStatus,
+  actionCheckWoMaterials,
+  actionCreateKit,
+  actionCompleteKit,
+  actionStartProduction,
+  actionCompleteWoToStock,
+  actionSendWoToReceivingPutaway,
+  actionReassignStepStation,
+  actionCreateProductionEngIssue,
+  actionAlignBusinessPriority,
+  actionFinishPrototypeWo,
+  actionRefreshWoEstimate,
+  actionRescheduleWorkOrder,
+  actionAssignKitSerialToUnit,
+  actionInstallSerialOnWo,
+  actionRemoveSerialInstall,
+  actionSetWorkOrderDueDate,
+  actionMoveWorkOrder,
+} from "@/app/actions";
+import { checkBomMaterialAvailability } from "@/lib/services/order-fulfillment";
+import { ensureWorkOrderTravelerSteps } from "@/lib/services/work-orders";
+import {
+  ensureWorkOrderUnits,
+  listKitSerialPlan,
+  getSerialTree,
+} from "@/lib/services/serials";
+import {
+  listWorkCenters,
+  resolveStepStation,
+} from "@/lib/services/workcenters";
+import { isWorkArea, WORK_AREA_MOVE_LABELS } from "@/lib/work-areas";
+import { SignOffStepForm } from "@/components/work-orders/sign-off-form";
+import { StationHandoffBanner } from "@/components/work-orders/station-handoff-banner";
+import { WorkOrderQrLabel } from "@/components/work-orders/qr-label";
+import {
+  StationReassignForm,
+  MoveMaterialFromQuery,
+} from "@/components/work-orders/station-reassign-form";
+import { generateQrDataUrl, workOrderQrPayload } from "@/lib/qr";
+import { CheckCircle2, Circle, FlaskConical, FileDown, MapPin } from "lucide-react";
+import { ActionLoadingForm } from "@/components/layout/action-loading";
+import Link from "next/link";
+import { Textarea } from "@/components/ui/textarea";
+import { ActivityTimeline } from "@/components/shared/activity-timeline";
+import { StationNextGuideBanner } from "@/components/receiving/station-next-guide";
+import {
+  MaterialGenealogyCard,
+  TraceChainCard,
+} from "@/components/shared/trace-chain";
+import {
+  getWoMaterialGenealogy,
+  getTraceChain,
+} from "@/lib/services/traceability";
+import { PrototypeWiStepForm } from "@/components/work-orders/prototype-wi-step-form";
+
+export const dynamic = "force-dynamic";
+
+function parseStepPhotos(attachmentUrls: string | null | undefined): string[] {
+  if (!attachmentUrls) return [];
+  try {
+    const parsed = JSON.parse(attachmentUrls);
+    return Array.isArray(parsed)
+      ? parsed.filter((u): u is string => typeof u === "string" && !!u)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+const stepInclude = {
+  workInstruction: {
+    include: {
+      steps: {
+        orderBy: { stepNumber: "asc" as const },
+        include: {
+          testProcedure: {
+            select: {
+              id: true,
+              number: true,
+              revision: true,
+              title: true,
+              status: true,
+            },
+          },
+        },
+      },
+    },
+  },
+};
+
+export default async function WorkOrderDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+
+  // Seed WI traveler steps before load if missing
+  await ensureWorkOrderTravelerSteps({ workOrderId: id }).catch(() => null);
+
+  const [wo, workCenters, priorities, measureUoms, testProcedures, moveLocations] =
+    await Promise.all([
+      prisma.workOrder.findUnique({
+        where: { id },
+        include: {
+          part: true,
+          bomHeader: {
+            include: { lines: { include: { componentPart: true } } },
+          },
+          assignee: true,
+          createdBy: true,
+          project: true,
+          salesOrder: true,
+          currentLocation: { include: { workCenter: true } },
+          wipInventory: {
+            include: { part: { select: { partNumber: true } } },
+          },
+          materialRequisition: true,
+          businessPriority: true,
+          instructions: {
+            include: stepInclude,
+            orderBy: { sequence: "asc" },
+          },
+          stepCompletions: true,
+          statusHistory: { orderBy: { createdAt: "asc" } },
+          mrbCase: { select: { id: true, number: true } },
+          rma: {
+            select: { id: true, number: true, coverage: true, status: true },
+          },
+          ncrs: true,
+          kitOrders: {
+            include: { lines: { include: { part: true } } },
+            orderBy: { createdAt: "desc" },
+          },
+          purchaseRequests: {
+            include: { lines: true },
+            orderBy: { createdAt: "desc" },
+          },
+          materialIssues: { orderBy: { createdAt: "desc" }, take: 30 },
+          traceEvents: { orderBy: { createdAt: "desc" }, take: 40 },
+        },
+      }),
+      listWorkCenters({ activeOnly: true }),
+      prisma.businessPriority.findMany({
+        where: { status: "PUBLISHED" },
+        orderBy: { priority: "asc" },
+      }),
+      prisma.uomUnit.findMany({
+        where: { isActive: true },
+        orderBy: { code: "asc" },
+        take: 100,
+      }),
+      prisma.testProcedure.findMany({
+        where: {
+          status: { in: ["DRAFT", "CM_REVIEW", "RELEASED"] },
+        },
+        orderBy: [{ number: "asc" }, { revision: "desc" }],
+        take: 80,
+        select: {
+          id: true,
+          number: true,
+          revision: true,
+          title: true,
+          status: true,
+          partId: true,
+        },
+      }),
+      // Locations a kit can move to: staging, WIP, and work-center floor spots
+      prisma.location.findMany({
+        where: {
+          OR: [
+            { type: { in: ["STAGING", "WIP", "SHIPPING"] } },
+            { workCenterId: { not: null } },
+          ],
+        },
+        include: { warehouse: { select: { code: true } }, workCenter: true },
+        orderBy: [{ type: "asc" }, { code: "asc" }],
+      }),
+    ]);
+  if (!wo) notFound();
+
+  const testProcsForForm = testProcedures.filter(
+    (tp) => !wo.partId || !tp.partId || tp.partId === wo.partId
+  );
+
+  const qrPayload = workOrderQrPayload(wo.id, wo.number);
+  const qrDataUrl = await generateQrDataUrl(qrPayload);
+
+  const genealogy = await getWoMaterialGenealogy(wo.id);
+  const traceChain = await getTraceChain({
+    workOrderId: wo.id,
+    lotNumbers: [
+      ...new Set(
+        genealogy.map((g) => g.lotNumber).filter((x): x is string => !!x)
+      ),
+    ],
+  });
+
+  const units = await ensureWorkOrderUnits({ workOrderId: wo.id });
+  const kitSerialPlan = await listKitSerialPlan(wo.id);
+  const unitTrees = await Promise.all(
+    units
+      .filter((u) => u.serialId)
+      .map(async (u) => ({
+        unitIndex: u.unitIndex,
+        serial: u.serial!.serial,
+        tree: await getSerialTree(u.serialId!, { includeRemoved: true }),
+      }))
+  );
+
+  const selectClass =
+    "flex h-8 w-full min-w-0 max-w-full rounded-md border border-slate-700 bg-slate-950 px-2 text-xs text-slate-200";
+
+  const material = await checkBomMaterialAvailability(wo.id);
+  const openKit = wo.kitOrders.find((k) =>
+    ["OPEN", "PICKING", "SHORT"].includes(k.status)
+  );
+  const completeKit = wo.kitOrders.find((k) => k.status === "COMPLETE");
+
+  const completionMap = Object.fromEntries(
+    wo.stepCompletions.map((c) => [c.stepId, c])
+  );
+  const total = wo.stepCompletions.length;
+  const done = wo.stepCompletions.filter((s) =>
+    ["SIGNED", "PASSED", "SKIPPED"].includes(s.status)
+  ).length;
+  const failedStepCount = wo.stepCompletions.filter(
+    (s) => s.status === "FAILED"
+  ).length;
+  const openStepCount = wo.stepCompletions.filter((s) =>
+    ["PENDING", "IN_PROGRESS"].includes(s.status)
+  ).length;
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  // All traveler steps signed (or no steps on a task-only WO)
+  const allStepsComplete =
+    failedStepCount === 0 &&
+    (total === 0 || (done === total && openStepCount === 0));
+  // Sign-off only while production is running
+  const canSign = wo.status === "IN_PROGRESS";
+  const canStartProduction =
+    !allStepsComplete &&
+    !["IN_PROGRESS", "READY_FOR_PUTAWAY", "COMPLETED", "CLOSED"].includes(
+      wo.status
+    ) &&
+    (["KITTED", "RELEASED", "READY_TO_KIT"].includes(wo.status) ||
+      wo.kitStatus === "KITTED");
+  const readyForReceivingPutaway =
+    wo.status === "READY_FOR_PUTAWAY" ||
+    (allStepsComplete &&
+      wo.status === "IN_PROGRESS" &&
+      failedStepCount === 0 &&
+      total > 0);
+  const canCompleteToStock = wo.status === "READY_FOR_PUTAWAY";
+  const materialShorts = material.requirements.filter((r) => r.short > 0);
+
+  // Next open step → handoff guide when station/area differs from last signed
+  const allStepsFlat = wo.instructions.flatMap((link) =>
+    link.workInstruction.steps.map((step) => ({
+      step,
+      comp: completionMap[step.id],
+    }))
+  );
+  const openStepEntries = allStepsFlat
+    .filter(
+      ({ comp }) =>
+        !comp || ["PENDING", "IN_PROGRESS"].includes(comp.status)
+    )
+    .sort((a, b) => a.step.stepNumber - b.step.stepNumber);
+  const signedStepEntries = allStepsFlat
+    .filter(
+      ({ comp }) =>
+        comp && ["SIGNED", "PASSED", "SKIPPED"].includes(comp.status)
+    )
+    .sort((a, b) => b.step.stepNumber - a.step.stepNumber);
+
+  let serverHandoff: {
+    area: string | null;
+    areaLabel: string;
+    workCenter: string | null;
+    stepTitle: string | null;
+    stepNumber: number | null;
+    href?: string;
+  } | null = null;
+
+  if (
+    wo.status === "IN_PROGRESS" &&
+    openStepEntries.length > 0 &&
+    !readyForReceivingPutaway
+  ) {
+    const next = openStepEntries[0];
+    const prev = signedStepEntries[0];
+    const nextRes = await resolveStepStation({
+      stepWorkCenter: next.comp?.assignedWorkCenter || next.step.workCenter,
+      requiredArea: next.step.requiredArea,
+      isTestStep: next.step.isTestStep,
+      stepType: next.step.stepType,
+    });
+    let prevArea: string | null = null;
+    if (prev) {
+      const prevRes = await resolveStepStation({
+        stepWorkCenter: prev.comp?.assignedWorkCenter || prev.step.workCenter,
+        requiredArea: prev.step.requiredArea,
+        isTestStep: prev.step.isTestStep,
+        stepType: prev.step.stepType,
+      });
+      prevArea = prevRes.area;
+    } else if (wo.workCenter) {
+      const wc = workCenters.find((c) => c.code === wo.workCenter);
+      prevArea = wc?.area || null;
+    }
+    const nextArea = nextRes.area;
+    const areaChanged =
+      nextArea &&
+      prevArea &&
+      nextArea !== prevArea;
+    const codeChanged =
+      nextRes.code &&
+      wo.workCenter &&
+      nextRes.code.toUpperCase() !== wo.workCenter.toUpperCase() &&
+      nextArea &&
+      nextArea !== "MANUFACTURING";
+
+    if (areaChanged || codeChanged || (nextArea && nextArea !== "MANUFACTURING" && prevArea === "MANUFACTURING")) {
+      const areaLabel =
+        nextArea && isWorkArea(nextArea)
+          ? WORK_AREA_MOVE_LABELS[nextArea]
+          : nextRes.code || "next station";
+      serverHandoff = {
+        area: nextArea,
+        areaLabel,
+        workCenter: nextRes.code || next.comp?.assignedWorkCenter || null,
+        stepTitle: next.step.title,
+        stepNumber: next.step.stepNumber,
+        href:
+          nextArea === "QA"
+            ? "/qa"
+            : nextArea === "TEST"
+              ? "/test-center"
+              : undefined,
+      };
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title={wo.number}
+        description={wo.description || wo.part?.description || "Digital traveler"}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <WorkOrderQrLabel
+              workOrderId={wo.id}
+              number={wo.number}
+              description={wo.description || wo.part?.description}
+              partNumber={wo.part?.partNumber}
+              lotHint={
+                wo.salesOrder?.number ||
+                wo.materialRequisition?.number ||
+                wo.project?.number ||
+                null
+              }
+              qrDataUrl={qrDataUrl}
+              qrPayload={qrPayload}
+            />
+            <Link href={`/print/labels?kind=wo&ids=${wo.id}`}>
+              <Button size="sm" variant="outline">
+                Barcode label
+              </Button>
+            </Link>
+            {wo.bomHeader && (
+              <>
+                <ActionLoadingForm theme="planning" action={actionCheckWoMaterials}>
+                  <input type="hidden" name="workOrderId" value={wo.id} />
+                  <Button type="submit" size="sm" variant="outline">
+                    Check material
+                  </Button>
+                </ActionLoadingForm>
+                {materialShorts.length > 0 && (
+                  <Link href={`/print/material-shortage/${wo.id}`}>
+                    <Button size="sm" variant="outline">
+                      <FileDown className="mr-1.5 h-3.5 w-3.5" />
+                      Print shortage list
+                    </Button>
+                  </Link>
+                )}
+              </>
+            )}
+            {(wo.status === "READY_TO_KIT" || wo.kitStatus === "READY_TO_KIT") &&
+              !openKit && (
+                <ActionLoadingForm theme="kitting" action={actionCreateKit}>
+                  <input type="hidden" name="workOrderId" value={wo.id} />
+                  <Button type="submit" size="sm">
+                    Create kit
+                  </Button>
+                </ActionLoadingForm>
+              )}
+            {openKit && (
+              <ActionLoadingForm theme="kitting" action={actionCompleteKit}>
+                <input type="hidden" name="kitOrderId" value={openKit.id} />
+                <Button type="submit" size="sm">
+                  Complete kit pick
+                </Button>
+              </ActionLoadingForm>
+            )}
+            {canStartProduction && (
+              <ActionLoadingForm theme="manufacturing" action={actionStartProduction}>
+                <input type="hidden" name="workOrderId" value={wo.id} />
+                <Button type="submit" size="sm">
+                  Start production
+                </Button>
+              </ActionLoadingForm>
+            )}
+            {wo.status === "BACKLOG" && (
+              <ActionLoadingForm theme="planning" action={actionUpdateWoStatus}>
+                <input type="hidden" name="workOrderId" value={wo.id} />
+                <input type="hidden" name="toStatus" value="PLANNED" />
+                <Button type="submit" size="sm" variant="outline">
+                  Move to Planned
+                </Button>
+              </ActionLoadingForm>
+            )}
+            {(wo.status === "PLANNED" || wo.status === "BACKLOG") && (
+              <ActionLoadingForm theme="planning" action={actionUpdateWoStatus}>
+                <input type="hidden" name="workOrderId" value={wo.id} />
+                <input type="hidden" name="toStatus" value="RELEASED" />
+                <Button type="submit" size="sm" variant="secondary">
+                  Release
+                </Button>
+              </ActionLoadingForm>
+            )}
+            {wo.status === "IN_PROGRESS" && (
+              <>
+                <form action={actionUpdateWoStatus}>
+                  <input type="hidden" name="workOrderId" value={wo.id} />
+                  <input type="hidden" name="toStatus" value="ON_HOLD" />
+                  <Button type="submit" size="sm" variant="amber">
+                    Hold
+                  </Button>
+                </form>
+                {allStepsComplete && failedStepCount === 0 ? (
+                  <ActionLoadingForm
+                    theme="receiving"
+                    action={actionSendWoToReceivingPutaway}
+                  >
+                    <input type="hidden" name="workOrderId" value={wo.id} />
+                    <Button type="submit" size="sm">
+                      Send to Receiving
+                    </Button>
+                  </ActionLoadingForm>
+                ) : (
+                  <span
+                    className="inline-flex items-center rounded-md border border-slate-700 px-2.5 py-1.5 text-xs text-slate-500"
+                    title={
+                      failedStepCount > 0
+                        ? "Resolve failed steps / NCR first"
+                        : `${openStepCount || total - done} step(s) still open`
+                    }
+                  >
+                    {failedStepCount > 0
+                      ? "Steps failed — hold / NCR"
+                      : `Sign off steps (${done}/${total})`}
+                  </span>
+                )}
+              </>
+            )}
+            {canCompleteToStock && (
+              <Link href="/receiving?tab=putaway">
+                <Button size="sm" variant="secondary">
+                  Open Receiving putaway
+                </Button>
+              </Link>
+            )}
+            {wo.status === "ON_HOLD" && (
+              <form action={actionUpdateWoStatus}>
+                <input type="hidden" name="workOrderId" value={wo.id} />
+                <input type="hidden" name="toStatus" value="IN_PROGRESS" />
+                <Button type="submit" size="sm">
+                  Resume
+                </Button>
+              </form>
+            )}
+          </div>
+        }
+      />
+
+      <MoveMaterialFromQuery
+        workOrderNumber={wo.number}
+        currentWorkCenter={wo.workCenter}
+        stations={workCenters.map((c) => ({
+          code: c.code,
+          name: c.name,
+          area: c.area,
+        }))}
+      />
+
+      {/* MH handoff when next step is a different station/area (e.g. Mfg → QA) */}
+      {(serverHandoff || wo.status === "IN_PROGRESS") && (
+        <StationHandoffBanner
+          workOrderId={wo.id}
+          workOrderNumber={wo.number}
+          serverHandoff={serverHandoff}
+        />
+      )}
+
+      {readyForReceivingPutaway && (
+        <div className="space-y-2">
+          <StationNextGuideBanner
+            guide={{
+              kind: "TO_DOCK",
+              title:
+                wo.status === "READY_FOR_PUTAWAY"
+                  ? `At ${wo.workCenter || "RCV-01"} — put away from Receiving queue`
+                  : "Take finished unit to Receiving (RCV-01)",
+              detail:
+                wo.status === "READY_FOR_PUTAWAY"
+                  ? `${wo.number} is parked at the Receiving workcenter. Open the WO putaway queue and put away to stock there — not from the build line.`
+                  : `All traveler steps are signed. Deliver ${wo.number} to RCV-01. Stocking only happens on the Receiving putaway board after the unit is there.`,
+              href: "/receiving?tab=putaway",
+              label: "Receiving putaway queue",
+              travelerNumber: wo.number,
+              travelerId: wo.id,
+            }}
+          />
+          <div className="flex flex-wrap gap-2">
+            {wo.status !== "READY_FOR_PUTAWAY" ? (
+              <ActionLoadingForm
+                theme="receiving"
+                action={actionSendWoToReceivingPutaway}
+              >
+                <input type="hidden" name="workOrderId" value={wo.id} />
+                <Button type="submit" size="sm">
+                  <MapPin className="mr-1.5 h-3.5 w-3.5" />
+                  Deliver to RCV-01
+                </Button>
+              </ActionLoadingForm>
+            ) : (
+              <Link href="/receiving?tab=putaway">
+                <Button size="sm">
+                  <MapPin className="mr-1.5 h-3.5 w-3.5" />
+                  Open RCV-01 putaway queue
+                </Button>
+              </Link>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-wrap gap-2">
+        <StatusBadge status={wo.status} {...workOrderHoldProvenance(wo)} />
+        {wo.mrbCase && (
+          <StatusBadge
+            status={`FROM ${wo.mrbCase.number}`}
+            {...workOrderMrbProvenance(wo)}
+          />
+        )}
+        <StatusBadge status={wo.kitStatus} />
+        <StatusBadge status={wo.type} />
+        <StatusBadge status={wo.sourceType || "OTHER"} />
+        <StatusBadge status={wo.priority} />
+        <StatusBadge
+          status={
+            wo.businessPriority
+              ? wo.businessPriority.number
+              : "UNRATED"
+          }
+        />
+        {wo.bomHeader?.isPrototype && <StatusBadge status="PROTOTYPE" />}
+        {wo.salesOrder && (
+          <Link
+            href={`/sales/${wo.salesOrder.id}`}
+            className="rounded border border-sky-500/40 px-2 py-0.5 text-xs font-medium text-sky-300 hover:bg-sky-500/10"
+          >
+            Sales order {wo.salesOrder.number}
+          </Link>
+        )}
+        {wo.materialRequisition && (
+          <Link
+            href={`/planning/mrs/${wo.materialRequisition.id}`}
+            className="rounded border border-violet-500/40 px-2 py-0.5 text-xs font-medium text-violet-300 hover:bg-violet-500/10"
+          >
+            MRS {wo.materialRequisition.number}
+          </Link>
+        )}
+      </div>
+
+      <Card className="border-slate-800">
+        <CardContent className="flex flex-wrap items-end gap-3 p-4">
+          <form
+            action={actionAlignBusinessPriority}
+            className="flex flex-wrap items-end gap-2"
+          >
+            <input type="hidden" name="entityType" value="WorkOrder" />
+            <input type="hidden" name="entityId" value={wo.id} />
+            <div>
+              <label className="text-[10px] uppercase text-slate-500">
+                Business priority
+              </label>
+              <select
+                name="businessPriorityId"
+                defaultValue={wo.businessPriorityId || "UNRATED"}
+                className={`${selectClass} mt-1 min-w-[14rem]`}
+              >
+                <option value="UNRATED">Unrated</option>
+                {priorities.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    P{p.priority} · {p.number} — {p.title}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <Button type="submit" size="sm" variant="outline">
+              Align priority
+            </Button>
+          </form>
+          {wo.businessPriority && (
+            <p className="text-xs text-slate-400">
+              Aligned to{" "}
+              <span className="text-slate-200">
+                {wo.businessPriority.number}: {wo.businessPriority.title}
+              </span>
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Origin banner — SO vs MRS vs project */}
+      {wo.salesOrder && !wo.projectId && (
+        <Card className="border-sky-900/40 bg-sky-500/5">
+          <CardContent className="p-3 text-sm text-sky-100">
+            <p className="font-medium">
+              Sales-order work order ({wo.number})
+            </p>
+            <p className="mt-0.5 text-xs text-sky-200/80">
+              Referenced to{" "}
+              <Link
+                href={`/sales/${wo.salesOrder.id}`}
+                className="font-mono underline"
+              >
+                {wo.salesOrder.number}
+              </Link>
+              {wo.salesOrderRef && wo.salesOrderRef !== wo.salesOrder.number
+                ? ` (${wo.salesOrderRef})`
+                : ""}
+              . Project / WBS not applied — this is commercial demand, not
+              project work.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+      {wo.materialRequisition && (
+        <Card className="border-violet-900/40 bg-violet-500/5">
+          <CardContent className="p-3 text-sm text-violet-100">
+            <p className="font-medium">
+              Material-requisition work order ({wo.number})
+            </p>
+            <p className="mt-0.5 text-xs text-violet-200/80">
+              Created from forecast planning via{" "}
+              <Link
+                href={`/planning/mrs/${wo.materialRequisition.id}`}
+                className="font-mono underline"
+              >
+                {wo.materialRequisition.number}
+              </Link>
+              . Traveler references this MRS unique number.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {wo.travelerNotes && (
+        <Card className="border-teal-900/40 bg-teal-950/20">
+          <CardContent className="p-4">
+            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-teal-500">
+              Digital traveler
+            </p>
+            <pre className="whitespace-pre-wrap font-sans text-sm text-slate-300">
+              {wo.travelerNotes}
+            </pre>
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="grid min-w-0 gap-4 lg:grid-cols-4">
+        <Card className="min-w-0">
+          <CardContent className="p-4">
+            <p className="text-xs text-slate-500">Part / BOM</p>
+            <p className="font-medium text-slate-200">
+              {wo.part?.partNumber || "—"}
+              {wo.bomHeader ? ` Rev ${wo.bomHeader.revision}` : ""}
+            </p>
+            {wo.bomHeader && (
+              <Link href={`/bom/${wo.bomHeader.id}`} className="text-xs text-teal-400">
+                View BOM ({wo.bomHeader.status})
+              </Link>
+            )}
+          </CardContent>
+        </Card>
+        <Card className="min-w-0 overflow-hidden">
+          <CardContent className="space-y-2 p-4">
+            <p className="text-xs text-slate-500">Qty / Station</p>
+            <p className="font-medium text-slate-200">
+              {wo.quantityCompleted}/{wo.quantity} ·{" "}
+              <span className="font-mono text-teal-400">
+                {wo.workCenter || "—"}
+              </span>
+            </p>
+            <p className="truncate text-xs text-slate-500">
+              {wo.assignee?.name || "Unassigned"}
+            </p>
+            <StationReassignForm
+              workOrderId={wo.id}
+              workOrderNumber={wo.number}
+              currentWorkCenter={wo.workCenter}
+              selectClass={selectClass}
+              stations={workCenters.map((c) => ({
+                code: c.code,
+                name: c.name,
+                area: c.area,
+              }))}
+            />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="space-y-2 p-4">
+            <p className="text-xs text-slate-500">Due / schedule</p>
+            <p className="font-medium text-slate-200">{formatDate(wo.dueDate)}</p>
+            <form
+              action={actionSetWorkOrderDueDate}
+              className="flex items-end gap-1.5"
+            >
+              <input type="hidden" name="workOrderId" value={wo.id} />
+              <label className="text-[10px] uppercase text-slate-500">
+                Set due date
+                <input
+                  name="dueDate"
+                  type="date"
+                  defaultValue={
+                    wo.dueDate ? wo.dueDate.toISOString().slice(0, 10) : ""
+                  }
+                  className="mt-0.5 block h-8 rounded-md border border-slate-700 bg-slate-950 px-2 text-xs text-slate-200"
+                />
+              </label>
+              <Button type="submit" size="sm" variant="outline" className="h-8 text-xs">
+                Save
+              </Button>
+            </form>
+            <p className="text-xs text-slate-500">
+              Plan {formatDate(wo.plannedStart)} → {formatDate(wo.plannedEnd)}
+              {wo.estimatedMinutes != null
+                ? ` · ${wo.estimatedMinutes} min est`
+                : ""}
+              {wo.scheduleMode ? ` · ${wo.scheduleMode}` : ""}
+            </p>
+            {wo.scheduleRisk && wo.scheduleRisk !== "OK" && (
+              <p className="text-xs font-medium text-amber-400">
+                Risk: {wo.scheduleRisk}
+              </p>
+            )}
+            {wo.parentWorkOrderId && (
+              <p className="text-[11px] text-violet-400">
+                Pegged to parent WO
+                {wo.scheduleOffsetMinutes != null
+                  ? ` · finish ${wo.scheduleOffsetMinutes} min before parent`
+                  : ""}
+              </p>
+            )}
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              <ActionLoadingForm theme="planning" action={actionRefreshWoEstimate}>
+                <input type="hidden" name="workOrderId" value={wo.id} />
+                <Button type="submit" size="sm" variant="outline">
+                  Recalc estimate
+                </Button>
+              </ActionLoadingForm>
+              <ActionLoadingForm theme="planning" action={actionRescheduleWorkOrder}>
+                <input type="hidden" name="workOrderId" value={wo.id} />
+                <input type="hidden" name="mode" value="BACK" />
+                <Button type="submit" size="sm" variant="secondary">
+                  Back from due
+                </Button>
+              </ActionLoadingForm>
+              <ActionLoadingForm theme="planning" action={actionRescheduleWorkOrder}>
+                <input type="hidden" name="workOrderId" value={wo.id} />
+                <input type="hidden" name="mode" value="FORWARD" />
+                <Button type="submit" size="sm" variant="outline">
+                  Forward from today
+                </Button>
+              </ActionLoadingForm>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="min-w-0 overflow-hidden">
+          <CardContent className="space-y-2 p-4">
+            <p className="text-xs text-slate-500">Kit location (WIP)</p>
+            <p className="font-medium text-slate-200">
+              {wo.currentLocation ? (
+                <span className="font-mono text-teal-400">
+                  {wo.currentLocation.code}
+                </span>
+              ) : (
+                <span className="text-slate-500">Not staged yet</span>
+              )}
+              {wo.currentLocation?.workCenter && (
+                <span className="ml-1 text-xs text-slate-500">
+                  · {wo.currentLocation.workCenter.name}
+                </span>
+              )}
+            </p>
+            {wo.wipInventory.length > 0 && (
+              <p className="text-[11px] text-slate-500">
+                {wo.wipInventory.length} kit line(s) staged here
+              </p>
+            )}
+            {moveLocations.length > 0 ? (
+              <form
+                action={actionMoveWorkOrder}
+                className="flex items-end gap-1.5"
+              >
+                <input type="hidden" name="workOrderId" value={wo.id} />
+                <label className="text-[10px] uppercase text-slate-500">
+                  Move kit to
+                  <select
+                    name="locationId"
+                    defaultValue=""
+                    className="mt-0.5 block h-8 rounded-md border border-slate-700 bg-slate-950 px-2 text-xs text-slate-200"
+                  >
+                    <option value="" disabled>
+                      Location / work center…
+                    </option>
+                    {moveLocations.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.code}
+                        {l.workCenter ? ` — ${l.workCenter.name}` : ` (${l.type})`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <Button type="submit" size="sm" variant="outline" className="h-8 text-xs">
+                  Move
+                </Button>
+              </form>
+            ) : (
+              <p className="text-[11px] text-slate-500">
+                Add work-center or staging locations in Inventory to track kit
+                movement.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-slate-500">Origin / reference</p>
+            {wo.salesOrder ? (
+              <>
+                <p className="font-medium text-sky-300">Sales order</p>
+                <Link
+                  href={`/sales/${wo.salesOrder.id}`}
+                  className="font-mono text-sm text-sky-400 hover:underline"
+                >
+                  {wo.salesOrder.number}
+                </Link>
+              </>
+            ) : wo.materialRequisition ? (
+              <>
+                <p className="font-medium text-violet-300">Material requisition</p>
+                <Link
+                  href={`/planning/mrs/${wo.materialRequisition.id}`}
+                  className="font-mono text-sm text-violet-400 hover:underline"
+                >
+                  {wo.materialRequisition.number}
+                </Link>
+              </>
+            ) : wo.projectId && wo.project ? (
+              <>
+                <p className="font-medium text-slate-200">Project</p>
+                <Link
+                  href={`/projects/${wo.project.id}`}
+                  className="font-mono text-sm text-teal-400 hover:underline"
+                >
+                  {wo.project.number}
+                </Link>
+                {wo.wbsElementId && (
+                  <p className="text-[11px] text-slate-500">WBS linked</p>
+                )}
+              </>
+            ) : (
+              <>
+                <p className="font-medium text-slate-200">
+                  {wo.sourceType === "BOM" ? "BOM production" : "Standalone"}
+                </p>
+                <p className="text-xs text-slate-500">No SO / MRS / project</p>
+              </>
+            )}
+            {wo.type !== "TASK_ONLY" && total > 0 && (
+              <>
+                <p className="mt-3 text-xs text-slate-500">WI sign-off</p>
+                <p className="font-medium text-teal-400">{pct}%</p>
+                <Progress value={pct} className="mt-1 h-1.5" />
+                <p className="mt-1 text-[10px] text-slate-600">
+                  {done}/{total} steps
+                </p>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        {wo.type !== "TASK_ONLY" && (
+          <Card>
+            <CardContent className="p-4">
+              <p className="text-xs text-slate-500">Standard cost (BOM roll-up)</p>
+              <p className="font-medium text-slate-200">
+                {formatCurrency(wo.standardCost || 0)}
+              </p>
+              {(wo.actualCost || 0) > 0 ? (
+                <p className="mt-1 text-xs text-slate-500">
+                  Actual labor/material {formatCurrency(wo.actualCost)}
+                </p>
+              ) : (
+                <p className="mt-1 text-[10px] text-slate-600">
+                  Actual cost updates as time &amp; materials post
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        )}
+      </div>
+
+      {/* Material readiness — shortage visibility only; PRs from SO / MRS plan */}
+      {material.requirements.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center justify-between">
+              <span>Material for kitting</span>
+              {/* Once the kit pulled stock, live-stock-vs-BOM reads short —
+                  that's the kit, not a shortage. */}
+              {["KITTED", "IN_PROGRESS", "COMPLETED", "CLOSED"].includes(
+                wo.status
+              ) ? (
+                <StatusBadge status="KITTED" />
+              ) : material.allAvailable ? (
+                <StatusBadge status="READY_TO_KIT" />
+              ) : (
+                <StatusBadge status="WAITING_MATERIAL" />
+              )}
+            </CardTitle>
+            <p className="text-xs text-slate-500">
+              Live stock vs BOM. Purchase requests are planned from the sales
+              order (or MRS), not from this traveler — use{" "}
+              <strong className="font-medium text-slate-400">Check material</strong>{" "}
+              above to refresh readiness.
+              {wo.salesOrder && (
+                <>
+                  {" "}
+                  <Link
+                    href={`/sales/${wo.salesOrder.id}`}
+                    className="text-sky-400 hover:underline"
+                  >
+                    Open {wo.salesOrder.number}
+                  </Link>
+                </>
+              )}
+            </p>
+          </CardHeader>
+          <CardContent>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-slate-500">
+                  <th className="pb-2">Part</th>
+                  <th className="pb-2 text-right">Required</th>
+                  <th className="pb-2 text-right">Available</th>
+                  <th className="pb-2 text-right">Short</th>
+                </tr>
+              </thead>
+              <tbody>
+                {material.requirements.map((r) => (
+                  <tr key={r.bomLineId} className="border-t border-slate-800/60">
+                    <td className="py-2">
+                      <span className="font-mono text-xs text-teal-400">{r.partNumber}</span>
+                      <span className="ml-2 text-xs text-slate-500">{r.description}</span>
+                    </td>
+                    <td className="py-2 text-right tabular-nums">{r.required}</td>
+                    <td className="py-2 text-right tabular-nums text-emerald-400">
+                      {r.available}
+                    </td>
+                    <td
+                      className={`py-2 text-right tabular-nums ${
+                        r.short > 0 ? "text-amber-400" : "text-slate-600"
+                      }`}
+                    >
+                      {r.short || "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {wo.purchaseRequests.length > 0 && (
+              <div className="mt-3 border-t border-slate-800 pt-3">
+                <p className="mb-1 text-xs font-medium text-amber-400">Linked purchase requests</p>
+                {wo.purchaseRequests.map((pr) => (
+                  <Link
+                    key={pr.id}
+                    href="/purchasing"
+                    className="mr-3 text-sm text-sky-400 hover:underline"
+                  >
+                    {pr.number} ({pr.status}) — {pr.lines.length} line(s)
+                  </Link>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Kit */}
+      {wo.kitOrders.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Kit orders (travel with WO)</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {wo.kitOrders.map((kit) => (
+              <div key={kit.id} className="rounded border border-slate-800 p-3">
+                <div className="mb-2 flex items-center gap-2">
+                  <span className="font-mono text-teal-400">{kit.number}</span>
+                  <StatusBadge status={kit.status} />
+                  <Link href="/kitting" className="text-xs text-sky-400">
+                    Kitting board
+                  </Link>
+                </div>
+                <ul className="text-xs text-slate-400">
+                  {kit.lines.map((l) => (
+                    <li key={l.id}>
+                      {l.part.partNumber}: {l.quantityPicked}/{l.quantityRequired}
+                      {l.lotNumber ? ` · Lot ${l.lotNumber}` : ""}{" "}
+                      <StatusBadge status={l.status} />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Traveler / Work Instruction steps */}
+      {wo.instructions.map((link) => (
+        <Card key={link.id}>
+          <CardHeader>
+            <CardTitle className="flex items-center justify-between">
+              <span>
+                Traveler steps: {link.workInstruction.documentNumber} Rev{" "}
+                {link.workInstruction.revision}
+              </span>
+              <Link
+                href={`/work-instructions/${link.workInstruction.id}`}
+                className="text-xs font-normal text-teal-400"
+              >
+                Open WI
+              </Link>
+            </CardTitle>
+            <p className="text-sm text-slate-500">{link.workInstruction.title}</p>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {link.workInstruction.steps.map((step) => {
+              const comp = completionMap[step.id];
+              const signed =
+                comp && ["SIGNED", "PASSED", "SKIPPED"].includes(comp.status);
+              const failed = comp?.status === "FAILED";
+              return (
+                <div
+                  key={step.id}
+                  id={`wo-step-${step.id}`}
+                  className={`rounded-lg border p-4 ${
+                    failed
+                      ? "border-red-500/40 bg-red-500/5"
+                      : signed
+                        ? "border-emerald-500/20 bg-emerald-500/5"
+                        : "border-slate-800 bg-slate-900/40"
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    {signed ? (
+                      <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-400" />
+                    ) : failed ? (
+                      <FlaskConical className="mt-0.5 h-5 w-5 shrink-0 text-red-400" />
+                    ) : (
+                      <Circle className="mt-0.5 h-5 w-5 shrink-0 text-slate-600" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono text-xs text-slate-500">
+                          Step {step.stepNumber}
+                        </span>
+                        <span className="font-medium text-slate-200">{step.title}</span>
+                        {step.isTestStep && <StatusBadge status="TEST" />}
+                        {step.requiredArea && (
+                          <StatusBadge status={step.requiredArea} />
+                        )}
+                        {step.routeLock && (
+                          <span className="text-[10px] text-amber-500">locked</span>
+                        )}
+                        {comp && <StatusBadge status={comp.status} />}
+                      </div>
+                      <p className="mt-1 text-sm text-slate-400">{step.instructions}</p>
+                      {(step.isTestStep ||
+                        step.passFailRequired ||
+                        step.testCriteria ||
+                        step.expectedValue) && (
+                        <p className="mt-1 text-xs text-amber-400/80">
+                          {step.testCriteria
+                            ? `Criteria: ${step.testCriteria}`
+                            : "Test / QA step"}
+                          {step.expectedValue
+                            ? ` · Expected: ${step.expectedValue}`
+                            : ""}
+                          {step.minValue != null || step.maxValue != null
+                            ? ` · Range: ${step.minValue ?? "—"}…${step.maxValue ?? "—"}`
+                            : ""}
+                          {step.measureUom ? ` ${step.measureUom}` : ""}
+                        </p>
+                      )}
+                      {(() => {
+                        const photos = parseStepPhotos(step.attachmentUrls);
+                        if (!photos.length) return null;
+                        return (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {photos.map((url, i) => (
+                              <a
+                                key={i}
+                                href={url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="block overflow-hidden rounded border border-slate-700"
+                              >
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={url}
+                                  alt={`Step ${step.stepNumber} photo ${i + 1}`}
+                                  className="h-16 w-16 object-cover"
+                                />
+                              </a>
+                            ))}
+                          </div>
+                        );
+                      })()}
+                      {step.testProcedure && (
+                        <div className="mt-2 rounded border border-violet-500/30 bg-violet-500/5 px-2.5 py-2 text-xs">
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-violet-400">
+                            Functional / test procedure
+                          </p>
+                          <Link
+                            href={`/test-procedures/${step.testProcedure.id}`}
+                            className="mt-0.5 inline-flex flex-wrap items-center gap-1.5 font-mono text-violet-300 hover:underline"
+                          >
+                            {step.testProcedure.number} Rev{" "}
+                            {step.testProcedure.revision}
+                            <span className="font-sans text-slate-300">
+                              — {step.testProcedure.title}
+                            </span>
+                          </Link>
+                          <StatusBadge
+                            status={step.testProcedure.status}
+                            className="ml-1.5"
+                          />
+                        </div>
+                      )}
+                      {comp && (
+                        <form
+                          action={actionReassignStepStation}
+                          className="mt-2 flex flex-wrap items-center gap-1"
+                        >
+                          <input type="hidden" name="workOrderId" value={wo.id} />
+                          <input type="hidden" name="stepId" value={step.id} />
+                          <span className="text-[10px] uppercase text-slate-600">
+                            Station
+                          </span>
+                          <select
+                            name="workCenterCode"
+                            className={selectClass}
+                            defaultValue={
+                              comp.assignedWorkCenter ||
+                              step.workCenter ||
+                              wo.workCenter ||
+                              ""
+                            }
+                            required
+                          >
+                            {workCenters.map((c) => (
+                              <option key={c.id} value={c.code}>
+                                {c.code} ({c.area})
+                              </option>
+                            ))}
+                          </select>
+                          <label className="flex items-center gap-1 text-[10px] text-slate-500">
+                            <input
+                              type="checkbox"
+                              name="force"
+                              className="rounded border-slate-600"
+                            />
+                            Force
+                          </label>
+                          <Button type="submit" size="sm" variant="ghost">
+                            Route step
+                          </Button>
+                        </form>
+                      )}
+                      {signed && (
+                        <p className="mt-1 text-xs text-emerald-500/80">
+                          Signed {formatDate(comp.signedAt, "MMM d HH:mm")}
+                          {comp.measuredValue ? ` · Measured: ${comp.measuredValue}` : ""}
+                        </p>
+                      )}
+
+                      {!signed && !failed && canSign && (
+                        <div className="mt-3 max-w-sm">
+                          <SignOffStepForm
+                            workOrderId={wo.id}
+                            stepId={step.id}
+                            isTestStep={step.isTestStep}
+                            passFailRequired={step.passFailRequired}
+                            measureUom={step.measureUom}
+                            expectedValue={step.expectedValue}
+                            stepAnchorId={`wo-step-${step.id}`}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      ))}
+
+      {wo.type === "PROTOTYPE" && (
+        <Card className="border-violet-900/40 bg-violet-500/5">
+          <CardHeader>
+            <CardTitle className="text-base text-violet-200">
+              Prototype — build work instructions as you build
+            </CardTitle>
+            <p className="text-xs text-slate-500">
+              Capture build, QA, and test steps with photos during the
+              prototype. Test steps can include pass/fail criteria, limits, and
+              an optional link to a test procedure. When finished, the system
+              submits the WI to CM as an ECR. After CM releases the WI, you can
+              certify the BOM for production.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <PrototypeWiStepForm
+              workOrderId={wo.id}
+              testProcedures={testProcsForForm}
+              measureUoms={measureUoms}
+            />
+            <ActionLoadingForm
+              action={actionFinishPrototypeWo}
+              className="flex flex-wrap items-end gap-2 border-t border-violet-900/40 pt-3"
+            >
+              <input type="hidden" name="workOrderId" value={wo.id} />
+              <div className="min-w-[12rem] flex-1">
+                <label className="text-[10px] uppercase text-slate-500">
+                  Finish notes (optional)
+                </label>
+                <Input
+                  name="notes"
+                  className="mt-1"
+                  placeholder="Prototype complete…"
+                />
+              </div>
+              <Button type="submit" size="sm">
+                Finish prototype → CM + Receiving
+              </Button>
+            </ActionLoadingForm>
+          </CardContent>
+        </Card>
+      )}
+
+      {wo.instructions.length === 0 && wo.type !== "PROTOTYPE" && (
+        <Card>
+          <CardContent className="space-y-2 py-8 text-center text-slate-500">
+            <p>No work instructions linked to this traveler yet.</p>
+            <p className="text-xs">
+              Attach a released WI for part{" "}
+              <span className="font-mono text-teal-400">
+                {wo.part?.partNumber || "—"}
+              </span>{" "}
+              under Work Instructions, then refresh — steps will seed
+              automatically.
+            </p>
+            <Link href="/work-instructions">
+              <Button size="sm" variant="outline" className="mt-2">
+                Open work instructions
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
+      )}
+
+      {wo.instructions.length > 0 && canStartProduction && (
+          <Card className="border-teal-900/40 bg-teal-500/5">
+            <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+              <div>
+                <p className="text-sm font-semibold text-teal-200">
+                  Ready to run traveler steps
+                </p>
+                <p className="text-xs text-slate-400">
+                  {total} step(s) from work instructions
+                  {done > 0 ? ` · ${done} already signed` : ""}. Start production
+                  to unlock sign-off on the floor.
+                </p>
+              </div>
+              <ActionLoadingForm theme="manufacturing" action={actionStartProduction}>
+                <input type="hidden" name="workOrderId" value={wo.id} />
+                <Button type="submit" size="sm">
+                  Start production
+                </Button>
+              </ActionLoadingForm>
+            </CardContent>
+          </Card>
+        )}
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Material transactions (trace)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ol className="max-h-80 space-y-2 overflow-y-auto">
+              {wo.materialIssues.map((t) => (
+                <li key={t.id} className="text-xs text-slate-400">
+                  <span className="font-mono text-teal-500">{t.type}</span> qty {t.quantity}
+                  {t.lotNumber ? ` lot ${t.lotNumber}` : ""}
+                  {t.fromLocation || t.toLocation
+                    ? ` · ${t.fromLocation || "?"}→${t.toLocation || "?"}`
+                    : ""}
+                  <span className="text-slate-600">
+                    {" "}
+                    · {formatDate(t.createdAt, "MMM d HH:mm")}
+                  </span>
+                </li>
+              ))}
+              {wo.materialIssues.length === 0 && (
+                <p className="text-sm text-slate-500">No material txns yet.</p>
+              )}
+            </ol>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Status + process trail</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ol className="mb-4 space-y-3">
+              {wo.statusHistory.map((h) => (
+                <li key={h.id} className="flex gap-3 text-sm">
+                  <div className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-teal-500" />
+                  <div>
+                    <p className="text-slate-300">
+                      {h.fromStatus ? `${h.fromStatus} → ` : ""}
+                      <span className="font-medium text-teal-400">{h.toStatus}</span>
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {formatDate(h.createdAt, "MMM d, yyyy HH:mm")}
+                      {h.notes ? ` · ${h.notes}` : ""}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+            {wo.traceEvents.length > 0 && (
+              <div className="border-t border-slate-800 pt-3">
+                <p className="mb-2 text-xs font-medium text-slate-500">Trace events</p>
+                <ol className="max-h-48 space-y-1 overflow-y-auto">
+                  {wo.traceEvents.map((e) => (
+                    <li key={e.id} className="text-xs text-slate-400">
+                      <span className="font-mono text-sky-500">{e.eventType}</span>
+                      {e.notes ? ` — ${e.notes}` : ""}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
+            {wo.ncrs.length > 0 && (
+              <div className="mt-4 border-t border-slate-800 pt-4">
+                <p className="mb-2 text-xs font-medium text-amber-400">Linked NCRs</p>
+                {wo.ncrs.map((n) => (
+                  <Link
+                    key={n.id}
+                    href="/quality"
+                    className="block text-sm text-slate-300 hover:text-teal-400"
+                  >
+                    {n.number}: {n.title}
+                  </Link>
+                ))}
+              </div>
+            )}
+
+            <div className="mt-4 border-t border-slate-800 pt-4">
+              <p className="mb-2 text-xs font-medium text-orange-400">
+                Request Manufacturing Engineering help
+              </p>
+              <p className="mb-2 text-[11px] text-slate-500">
+                Hardware, process, or document issue? ME picks this up on the{" "}
+                <Link
+                  href="/engineering/mfg_eng?tab=prod"
+                  className="text-teal-400 underline"
+                >
+                  MFG_ENG board
+                </Link>
+                .
+              </p>
+              <form
+                action={actionCreateProductionEngIssue}
+                className="space-y-2"
+              >
+                <input type="hidden" name="workOrderId" value={wo.id} />
+                {wo.partId && (
+                  <input type="hidden" name="partId" value={wo.partId} />
+                )}
+                {wo.projectId && (
+                  <input type="hidden" name="projectId" value={wo.projectId} />
+                )}
+                {wo.workCenter && (
+                  <input type="hidden" name="workCenter" value={wo.workCenter} />
+                )}
+                <input type="hidden" name="sourceArea" value="STATION" />
+                <input
+                  type="hidden"
+                  name="returnTo"
+                  value={`/work-orders/${wo.id}`}
+                />
+                <Input
+                  name="title"
+                  required
+                  placeholder="Short description of the problem"
+                  className="text-sm"
+                />
+                <Textarea
+                  name="description"
+                  rows={2}
+                  placeholder="What you need ME to clarify or fix…"
+                  className="text-sm"
+                />
+                <select
+                  name="category"
+                  className="flex h-9 w-full rounded-md border border-slate-700 bg-slate-950 px-2 text-sm text-slate-200"
+                  defaultValue="PROCESS"
+                >
+                  <option value="HARDWARE">Hardware</option>
+                  <option value="PROCESS">Process</option>
+                  <option value="DOCUMENT">Document / drawing</option>
+                  <option value="BOM">BOM</option>
+                  <option value="TOOLING">Tooling</option>
+                  <option value="OTHER">Other</option>
+                </select>
+                <select
+                  name="priority"
+                  className="flex h-9 w-full rounded-md border border-slate-700 bg-slate-950 px-2 text-sm text-slate-200"
+                  defaultValue="NORMAL"
+                >
+                  <option value="LOW">Low</option>
+                  <option value="NORMAL">Normal</option>
+                  <option value="HIGH">High</option>
+                  <option value="CRITICAL">Critical</option>
+                </select>
+                <Button type="submit" size="sm" variant="outline">
+                  Send to MFG_ENG
+                </Button>
+              </form>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* As-built / kit serial plan — multi-qty unit map for assembler + QA */}
+      <Card className="border-teal-900/40">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base text-teal-200">
+            As-built &amp; kit serial plan
+          </CardTitle>
+          <p className="text-xs text-slate-500">
+            WO quantity {wo.quantity}: each unit has its own serial tree. When
+            kit is issued, assign serials to units so assemblers know what to
+            install and QA knows what to verify.
+            {wo.rma && (
+              <span className="ml-1 text-amber-400">
+                RMA {wo.rma.number} ({wo.rma.coverage}) — tear-down removes SN
+                to MRB; reinstall updates the same top serial.
+              </span>
+            )}
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {units.map((u) => (
+              <div
+                key={u.id}
+                className="rounded border border-slate-800 bg-slate-950/40 p-2 text-xs"
+              >
+                <p className="font-semibold text-slate-200">
+                  Unit {u.unitIndex}{" "}
+                  <StatusBadge status={u.status} />
+                </p>
+                <p className="mt-1 font-mono text-teal-400">
+                  {u.serial?.serial || "— no top SN —"}
+                </p>
+                <ul className="mt-2 space-y-0.5 text-slate-400">
+                  {kitSerialPlan
+                    .filter((a) => a.unitIndex === u.unitIndex)
+                    .map((a) => (
+                      <li key={a.id}>
+                        <span className="font-mono text-amber-300">
+                          {a.serial.serial}
+                        </span>{" "}
+                        → {a.serial.part.partNumber}{" "}
+                        <StatusBadge status={a.status} />
+                      </li>
+                    ))}
+                  {!kitSerialPlan.some((a) => a.unitIndex === u.unitIndex) && (
+                    <li className="text-slate-600">No kit SNs assigned yet</li>
+                  )}
+                </ul>
+              </div>
+            ))}
+          </div>
+
+          <div className="grid gap-3 lg:grid-cols-2">
+            <ActionLoadingForm
+              action={actionAssignKitSerialToUnit}
+              className="grid gap-2 rounded border border-slate-800 p-3"
+            >
+              <p className="text-[10px] font-semibold uppercase text-slate-500">
+                Kit issue: assign serial → unit
+              </p>
+              <input type="hidden" name="workOrderId" value={wo.id} />
+              {openKit && (
+                <input type="hidden" name="kitOrderId" value={openKit.id} />
+              )}
+              <select
+                name="unitIndex"
+                className="flex h-9 rounded-md border border-slate-700 bg-slate-950 px-2 text-sm"
+                defaultValue="1"
+              >
+                {units.map((u) => (
+                  <option key={u.id} value={u.unitIndex}>
+                    Unit {u.unitIndex}
+                  </option>
+                ))}
+              </select>
+              <Input name="serial" required placeholder="Component SN" className="font-mono" />
+              <Button type="submit" size="sm" variant="secondary">
+                Assign to unit
+              </Button>
+            </ActionLoadingForm>
+
+            <ActionLoadingForm
+              action={actionInstallSerialOnWo}
+              className="grid gap-2 rounded border border-slate-800 p-3"
+            >
+              <p className="text-[10px] font-semibold uppercase text-slate-500">
+                Install on as-built tree
+              </p>
+              <input type="hidden" name="workOrderId" value={wo.id} />
+              {wo.rmaId && (
+                <input type="hidden" name="rmaId" value={wo.rmaId} />
+              )}
+              <select
+                name="unitIndex"
+                className="flex h-9 rounded-md border border-slate-700 bg-slate-950 px-2 text-sm"
+                defaultValue="1"
+              >
+                {units.map((u) => (
+                  <option key={u.id} value={u.unitIndex}>
+                    Unit {u.unitIndex}
+                  </option>
+                ))}
+              </select>
+              <Input
+                name="parentSerial"
+                required
+                placeholder="Top / parent SN"
+                className="font-mono"
+                defaultValue={units[0]?.serial?.serial || ""}
+              />
+              <Input
+                name="childSerial"
+                required
+                placeholder="Component SN to install"
+                className="font-mono"
+              />
+              <Button type="submit" size="sm">
+                Record install
+              </Button>
+            </ActionLoadingForm>
+          </div>
+
+          {unitTrees.map((ut) => (
+            <div key={ut.unitIndex} className="text-xs">
+              <p className="mb-1 font-medium text-slate-300">
+                Unit {ut.unitIndex} tree · {ut.serial}
+              </p>
+              {ut.tree?.children.map((c) => (
+                <div
+                  key={c.installId}
+                  className="ml-2 flex flex-wrap items-center gap-2 border-l border-slate-800 py-0.5 pl-2"
+                >
+                  <StatusBadge status={c.status} />
+                  <span className="font-mono text-teal-400">{c.serial}</span>
+                  <span className="text-slate-500">{c.partNumber}</span>
+                  {c.installId && c.status === "INSTALLED" && (
+                    <ActionLoadingForm
+                      action={actionRemoveSerialInstall}
+                      className="inline"
+                    >
+                      <input type="hidden" name="workOrderId" value={wo.id} />
+                      <input type="hidden" name="installId" value={c.installId} />
+                      {wo.rmaId && (
+                        <input type="hidden" name="rmaId" value={wo.rmaId} />
+                      )}
+                      <input type="hidden" name="quarantine" value="true" />
+                      <Button type="submit" size="sm" variant="ghost" className="h-6 text-[10px] text-rose-400">
+                        Remove → quarantine
+                      </Button>
+                    </ActionLoadingForm>
+                  )}
+                </div>
+              ))}
+              {ut.tree && !ut.tree.children.length && (
+                <p className="ml-2 text-slate-600">No installs yet</p>
+              )}
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      <MaterialGenealogyCard rows={genealogy} />
+
+      <TraceChainCard events={traceChain} title="Everything that touched this WO" />
+
+      <ActivityTimeline entityType="WorkOrder" entityId={id} />
+    </div>
+  );
+}
