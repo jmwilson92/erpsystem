@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { Paperclip, FileText, X, Layers } from "lucide-react";
 
 type ProductFolder = {
@@ -35,7 +34,6 @@ type DocHit = {
   } | null;
 };
 
-/** Assigned numbers from CM master list (RESERVED / ACTIVE) for new ECRs */
 type AssignedNumber = {
   id: string;
   number: string;
@@ -48,6 +46,18 @@ type AssignedNumber = {
 const selectClass =
   "flex h-9 w-full rounded-md border border-slate-700 bg-slate-950 px-2 text-sm text-slate-200";
 
+const DOC_KINDS: { key: string; label: string }[] = [
+  { key: "BOM", label: "BOM" },
+  { key: "DRAWING", label: "Drawing" },
+  { key: "TP", label: "Test procedure" },
+  { key: "FORM", label: "Form" },
+  { key: "POLICY", label: "Policy" },
+  { key: "SCHEMATIC", label: "Schematic" },
+  { key: "FAB", label: "Fab file" },
+  { key: "CONSTRAINTS", label: "Constraints drawing" },
+  { key: "OTHER", label: "Other" },
+];
+
 export function DocumentEcrForm({
   productFolders,
   adminFolderId,
@@ -58,13 +68,9 @@ export function DocumentEcrForm({
 }: {
   productFolders: ProductFolder[];
   adminFolderId: string | null;
-  /** Preloaded released docs for client-side typeahead */
   libraryDocs: DocHit[];
-  /** Controlled numbers from master list available for new ECRs */
   assignedNumbers?: AssignedNumber[];
-  /** Buildable items selectable when the drawing includes a BOM */
   bomParts?: { id: string; partNumber: string; description: string }[];
-  /** Programs/projects this ECR can be tied to (optional) */
   projects?: { id: string; number: string; name: string }[];
 }) {
   const router = useRouter();
@@ -75,33 +81,42 @@ export function DocumentEcrForm({
   const [sourceId, setSourceId] = useState("");
   const [title, setTitle] = useState("");
   const [revision, setRevision] = useState("A");
-  const [docType, setDocType] = useState("DRAWING");
+  const [docKinds, setDocKinds] = useState<string[]>(["DRAWING"]);
   const [fileUrl, setFileUrl] = useState("");
   const [fileName, setFileName] = useState("");
   const [description, setDescription] = useState("");
   const [productFolderId, setProductFolderId] = useState("");
-  const [includesBom, setIncludesBom] = useState(false);
   const [bomPartId, setBomPartId] = useState("");
   const [attachments, setAttachments] = useState<
     { url: string; fileName: string; caption: string }[]
   >([]);
 
+  const includesBom = docKinds.includes("BOM");
+  const docType =
+    docKinds.find((k) => k !== "BOM") || (includesBom ? "BOM" : "DRAWING");
+
+  function toggleKind(key: string) {
+    setDocKinds((prev) => {
+      if (prev.includes(key)) {
+        const next = prev.filter((k) => k !== key);
+        return next.length ? next : prev;
+      }
+      return [...prev, key];
+    });
+  }
+
   const matches = useMemo(() => {
     const q = docNumber.trim().toUpperCase();
     if (q.length < 1) return [];
-    return libraryDocs
-      .filter((d) => d.number.includes(q))
-      .slice(0, 8);
+    return libraryDocs.filter((d) => d.number.includes(q)).slice(0, 8);
   }, [docNumber, libraryDocs]);
 
   const reservedMatches = useMemo(() => {
     const q = docNumber.trim().toUpperCase();
-    // Only suggest after the user starts typing — never pin a permanent list open
     if (q.length < 1) return [];
     return assignedNumbers
       .filter(
-        (n) =>
-          n.number.includes(q) || n.title.toUpperCase().includes(q)
+        (n) => n.number.includes(q) || n.title.toUpperCase().includes(q)
       )
       .slice(0, 8);
   }, [docNumber, assignedNumbers]);
@@ -111,14 +126,13 @@ export function DocumentEcrForm({
     setDocNumber(n.number);
     setTitle(n.title);
     setRevision("A");
-    // Map category → document type
     const cat = n.category.toUpperCase();
-    if (cat === "DRAWING") setDocType("DRAWING");
-    else if (cat === "POLICY" || cat === "PROCEDURE") setDocType("PROCEDURE");
-    else if (cat === "FORM") setDocType("FORM");
-    else if (cat === "TEST") setDocType("TP");
-    else if (cat === "SPEC") setDocType("SPEC");
-    else setDocType("OTHER");
+    if (cat === "DRAWING") setDocKinds(["DRAWING"]);
+    else if (cat === "POLICY" || cat === "PROCEDURE") setDocKinds(["POLICY"]);
+    else if (cat === "FORM") setDocKinds(["FORM"]);
+    else if (cat === "TEST") setDocKinds(["TP"]);
+    else if (cat === "BOM") setDocKinds(["BOM"]);
+    else setDocKinds(["OTHER"]);
     if (n.productName?.toLowerCase().includes("admin")) {
       setCompanyInternal(true);
       if (adminFolderId) setProductFolderId(adminFolderId);
@@ -129,11 +143,10 @@ export function DocumentEcrForm({
     setSourceId(d.id);
     setDocNumber(d.number);
     setTitle(d.title);
-    setDocType(d.docType || "DRAWING");
+    setDocKinds([d.docType || "DRAWING"]);
     setFileUrl(d.fileUrl || "");
     setFileName(d.fileName || "");
     setDescription(d.description || "");
-    // Next rev
     if (/^[A-Z]$/i.test(d.revision)) {
       setRevision(
         String.fromCharCode(d.revision.toUpperCase().charCodeAt(0) + 1)
@@ -194,7 +207,6 @@ export function DocumentEcrForm({
       fd.set(`att_name_${i}`, a.fileName);
       if (a.caption) fd.set(`att_caption_${i}`, a.caption);
     });
-    // If only files (no URL), primary comes from first attachment
     if (!((fd.get("documentFileUrl") as string) || "").trim() && attachments[0]) {
       fd.set("documentFileUrl", attachments[0].url);
       if (!((fd.get("documentFileName") as string) || "").trim()) {
@@ -235,16 +247,11 @@ export function DocumentEcrForm({
               />
               Company internal / policy (Admin)
             </label>
-            <p className="mt-0.5 text-[11px] text-slate-500">
-              Creator must know the product destination (or Admin for policies).
-            </p>
           </div>
 
           {!companyInternal && (
             <div className="sm:col-span-2">
-              <label className="text-[10px] uppercase text-slate-500">
-                Product *
-              </label>
+              <label className="text-[10px] uppercase text-slate-500">Product *</label>
               <select
                 name="productFolderId"
                 className={`${selectClass} mt-1`}
@@ -252,7 +259,7 @@ export function DocumentEcrForm({
                 value={productFolderId}
                 onChange={(e) => setProductFolderId(e.target.value)}
               >
-                <option value="">— Select product —</option>
+                <option value="">Select product</option>
                 {productFolders.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.productName || p.name}
@@ -263,8 +270,7 @@ export function DocumentEcrForm({
                 type="hidden"
                 name="productName"
                 value={
-                  productFolders.find((p) => p.id === productFolderId)
-                    ?.productName ||
+                  productFolders.find((p) => p.id === productFolderId)?.productName ||
                   productFolders.find((p) => p.id === productFolderId)?.name ||
                   ""
                 }
@@ -277,10 +283,10 @@ export function DocumentEcrForm({
                 Program / project (optional)
               </label>
               <select name="projectId" className={`${selectClass} mt-1`} defaultValue="">
-                <option value="">— None —</option>
+                <option value="">None</option>
                 {projects.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.number} — {p.name}
+                    {p.number} - {p.name}
                   </option>
                 ))}
               </select>
@@ -289,21 +295,12 @@ export function DocumentEcrForm({
           {companyInternal && adminFolderId && (
             <>
               <input type="hidden" name="productFolderId" value={adminFolderId} />
-              <input
-                type="hidden"
-                name="productName"
-                value="Admin / company internal"
-              />
+              <input type="hidden" name="productName" value="Admin / company internal" />
             </>
           )}
 
           <div className="relative z-10 sm:col-span-2">
-            <label className="text-[10px] uppercase text-slate-500">
-              Document number *{" "}
-              <span className="normal-case text-slate-600">
-                (type to find reserved / master-list or existing library numbers)
-              </span>
-            </label>
+            <label className="text-[10px] uppercase text-slate-500">Document number *</label>
             <Input
               name="documentNumber"
               required
@@ -313,91 +310,46 @@ export function DocumentEcrForm({
                 setDocNumber(e.target.value.toUpperCase());
                 setSourceId("");
               }}
-              placeholder="Start typing e.g. DWG…"
+              placeholder="Start typing e.g. DWG"
               autoComplete="off"
             />
             {!sourceId &&
               docNumber.trim().length >= 1 &&
               (reservedMatches.length > 0 || matches.length > 0) && (
                 <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-48 overflow-y-auto rounded-md border border-slate-700 bg-slate-950 shadow-lg">
-                  {reservedMatches.length > 0 && (
-                    <>
-                      <p className="border-b border-slate-800 px-3 py-1 text-[10px] uppercase text-violet-400/80">
-                        Reserved / master list
-                      </p>
-                      {reservedMatches.map((n) => (
-                        <button
-                          key={n.id}
-                          type="button"
-                          className="flex w-full flex-col items-start border-b border-slate-800 px-3 py-2 text-left text-xs hover:bg-slate-900"
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => pickAssigned(n)}
-                        >
-                          <span className="font-mono text-violet-300">
-                            {n.number}{" "}
-                            <span className="text-[10px] text-slate-500">
-                              {n.status}
-                            </span>
-                          </span>
-                          <span className="text-slate-300">{n.title}</span>
-                        </button>
-                      ))}
-                    </>
-                  )}
-                  {matches.length > 0 && (
-                    <>
-                      <p className="border-b border-slate-800 px-3 py-1 text-[10px] uppercase text-teal-500/80">
-                        Existing CM library (revise)
-                      </p>
-                      {matches.map((d) => (
-                        <button
-                          key={d.id}
-                          type="button"
-                          className="flex w-full flex-col items-start border-b border-slate-800 px-3 py-2 text-left text-xs hover:bg-slate-900"
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => pickSource(d)}
-                        >
-                          <span className="font-mono text-teal-400">
-                            {d.number} Rev {d.revision}
-                          </span>
-                          <span className="text-slate-300">{d.title}</span>
-                          <span className="text-[10px] text-slate-500">
-                            {d.folder?.productName ||
-                              d.folder?.name ||
-                              d.folder?.kind ||
-                              "CM library"}
-                          </span>
-                        </button>
-                      ))}
-                    </>
-                  )}
+                  {reservedMatches.map((n) => (
+                    <button
+                      key={n.id}
+                      type="button"
+                      className="flex w-full flex-col items-start border-b border-slate-800 px-3 py-2 text-left text-xs hover:bg-slate-900"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => pickAssigned(n)}
+                    >
+                      <span className="font-mono text-violet-300">{n.number}</span>
+                      <span className="text-slate-300">{n.title}</span>
+                    </button>
+                  ))}
+                  {matches.map((d) => (
+                    <button
+                      key={d.id}
+                      type="button"
+                      className="flex w-full flex-col items-start border-b border-slate-800 px-3 py-2 text-left text-xs hover:bg-slate-900"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => pickSource(d)}
+                    >
+                      <span className="font-mono text-teal-400">
+                        {d.number} Rev {d.revision}
+                      </span>
+                      <span className="text-slate-300">{d.title}</span>
+                    </button>
+                  ))}
                 </div>
               )}
-            {sourceId && (
-              <p className="mt-1 text-[11px] text-sky-400">
-                Updating existing CM document — working copy loaded. New rev:{" "}
-                {revision}
-              </p>
-            )}
-            {!sourceId && (
-              <p className="mt-1 text-[11px] text-slate-500">
-                Need a new number?{" "}
-                <a
-                  href="/cm?tab=numbers&panel=request"
-                  className="text-violet-400 underline hover:text-violet-300"
-                >
-                  Request one from CM
-                </a>{" "}
-                first — then type it here after assignment.
-              </p>
-            )}
             <input type="hidden" name="sourceDocumentId" value={sourceId} />
           </div>
 
           <div className="sm:col-span-2">
-            <label className="text-[10px] uppercase text-slate-500">
-              Title *
-            </label>
+            <label className="text-[10px] uppercase text-slate-500">Title *</label>
             <Input
               name="documentTitle"
               required
@@ -407,9 +359,7 @@ export function DocumentEcrForm({
             />
           </div>
           <div>
-            <label className="text-[10px] uppercase text-slate-500">
-              Revision *
-            </label>
+            <label className="text-[10px] uppercase text-slate-500">Revision *</label>
             <Input
               name="documentRevision"
               required
@@ -418,72 +368,65 @@ export function DocumentEcrForm({
               onChange={(e) => setRevision(e.target.value)}
             />
           </div>
-          <div>
-            <label className="text-[10px] uppercase text-slate-500">Type</label>
-            <select
-              name="documentDocType"
-              className={`${selectClass} mt-1`}
-              value={docType}
-              onChange={(e) => setDocType(e.target.value)}
-            >
-              <option value="DRAWING">Drawing</option>
-              <option value="SPEC">Spec</option>
-              <option value="PROCEDURE">Policy / procedure</option>
-              <option value="FORM">Form</option>
-              <option value="FAT">FAT</option>
-              <option value="ATP">ATP</option>
-              <option value="TP">TP</option>
-              <option value="TR">TR</option>
-              <option value="CERT">Certificate</option>
-              <option value="OTHER">Other</option>
-            </select>
+
+          <div className="sm:col-span-2">
+            <label className="text-[10px] uppercase text-slate-500">
+              What is in this package
+            </label>
+            <p className="mt-0.5 text-[11px] text-slate-500">
+              Pick every kind that applies. BOM still requires an item.
+            </p>
+            <input type="hidden" name="documentDocType" value={docType} />
+            <input type="hidden" name="includesBom" value={includesBom ? "true" : ""} />
+            <div className="mt-2 flex flex-wrap gap-2">
+              {DOC_KINDS.map((k) => {
+                const on = docKinds.includes(k.key);
+                return (
+                  <button
+                    key={k.key}
+                    type="button"
+                    onClick={() => toggleKind(k.key)}
+                    className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                      on
+                        ? "border-teal-400 bg-teal-500/15 text-teal-200"
+                        : "border-slate-700 bg-slate-950 text-slate-400 hover:border-slate-500"
+                    }`}
+                  >
+                    {k.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
-          {docType === "DRAWING" && (
+          {includesBom && (
             <div className="sm:col-span-2 rounded-xl border border-violet-900/40 bg-violet-500/5 p-3">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 text-sm text-violet-200">
                 <Layers className="h-4 w-4 text-violet-400" />
-                <ToggleSwitch
-                  checked={includesBom}
-                  onChange={(v) => setIncludesBom(v)}
-                  label="Drawing includes a BOM"
-                />
+                BOM package
               </div>
-              <input
-                type="hidden"
-                name="includesBom"
-                value={includesBom ? "true" : ""}
-              />
-              {includesBom && (
-                <div className="mt-2">
-                  <label className="text-[10px] uppercase text-slate-500">
-                    Item this BOM builds *
-                  </label>
-                  <select
-                    name="bomPartId"
-                    required
-                    className={`${selectClass} mt-1`}
-                    value={bomPartId}
-                    onChange={(e) => setBomPartId(e.target.value)}
-                  >
-                    <option value="">— Select item —</option>
-                    {bomParts.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.partNumber} — {p.description}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="mt-1 text-[11px] text-slate-500">
-                    An in-work BOM is created (or linked) for this item. The
-                    drawing cannot be released into the library until that BOM
-                    is certified.
-                  </p>
-                </div>
-              )}
+              <div className="mt-2">
+                <label className="text-[10px] uppercase text-slate-500">
+                  Item this BOM builds *
+                </label>
+                <select
+                  name="bomPartId"
+                  required
+                  className={`${selectClass} mt-1`}
+                  value={bomPartId}
+                  onChange={(e) => setBomPartId(e.target.value)}
+                >
+                  <option value="">Select item</option>
+                  {bomParts.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.partNumber} - {p.description}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
           )}
 
-          {/* Attach drawing files */}
           <div className="sm:col-span-2 rounded-md border border-slate-800 bg-slate-950/40 p-3">
             <label className="inline-flex cursor-pointer items-center gap-1.5 text-sm text-slate-200">
               <Paperclip className="h-4 w-4 text-sky-400" />
@@ -496,10 +439,6 @@ export function DocumentEcrForm({
                 onChange={(e) => onFiles(e.target.files)}
               />
             </label>
-            <p className="mt-1 text-[11px] text-slate-500">
-              First file is the primary drawing released into the CM library.
-              You can add more files later on the board as the ECR moves.
-            </p>
             {attachments.length > 0 && (
               <ul className="mt-2 space-y-1">
                 {attachments.map((a, i) => (
@@ -510,19 +449,11 @@ export function DocumentEcrForm({
                     <span className="flex min-w-0 items-center gap-1.5 text-slate-300">
                       <FileText className="h-3.5 w-3.5 shrink-0 text-sky-400" />
                       <span className="truncate">{a.fileName}</span>
-                      {i === 0 && (
-                        <span className="shrink-0 text-[9px] uppercase text-amber-400">
-                          primary
-                        </span>
-                      )}
                     </span>
                     <button
                       type="button"
                       className="text-slate-500 hover:text-rose-400"
-                      onClick={() =>
-                        setAttachments((p) => p.filter((_, j) => j !== i))
-                      }
-                      aria-label="Remove"
+                      onClick={() => setAttachments((p) => p.filter((_, j) => j !== i))}
                     >
                       <X className="h-3.5 w-3.5" />
                     </button>
@@ -533,49 +464,37 @@ export function DocumentEcrForm({
           </div>
 
           <div>
-            <label className="text-[10px] uppercase text-slate-500">
-              File name{" "}
-              <span className="normal-case text-slate-600">(optional override)</span>
-            </label>
+            <label className="text-[10px] uppercase text-slate-500">File name</label>
             <Input
               name="documentFileName"
               className="mt-1"
               value={fileName}
               onChange={(e) => setFileName(e.target.value)}
-              placeholder="Filled from upload"
             />
           </div>
           <div>
-            <label className="text-[10px] uppercase text-slate-500">
-              Or paste URL / path
-            </label>
+            <label className="text-[10px] uppercase text-slate-500">Or paste URL / path</label>
             <Input
               name="documentFileUrl"
               className="mt-1"
               value={fileUrl}
               onChange={(e) => setFileUrl(e.target.value)}
-              placeholder="https://… or /shared/drawings/…"
             />
           </div>
           <div className="sm:col-span-2">
-            <label className="text-[10px] uppercase text-slate-500">
-              Change description
-            </label>
+            <label className="text-[10px] uppercase text-slate-500">Change description</label>
             <Textarea
               name="description"
               rows={2}
               className="mt-1"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Why this create/update is needed…"
             />
           </div>
-          {error && (
-            <p className="sm:col-span-2 text-xs text-rose-400">{error}</p>
-          )}
+          {error && <p className="sm:col-span-2 text-xs text-rose-400">{error}</p>}
           <div className="sm:col-span-2">
             <Button type="submit" size="sm" disabled={pending}>
-              {pending ? "Submitting…" : "Submit document ECR"}
+              {pending ? "Submitting" : "Submit document ECR"}
             </Button>
           </div>
         </form>
