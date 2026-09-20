@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import { useFormStatus } from "react-dom";
 import {
   periodPriceForPlan,
   planSeatsLabel,
@@ -34,6 +35,21 @@ function pingLead(payload: {
     body: JSON.stringify(payload),
     keepalive: true,
   }).catch(() => undefined);
+}
+
+function SubmitButton({ trialDays }: { trialDays: number }) {
+  const { pending } = useFormStatus();
+  return (
+    <button
+      type="submit"
+      disabled={pending}
+      className="mt-6 w-full rounded-xl bg-gradient-to-r from-teal-500 to-cyan-500 px-6 py-3.5 text-base font-semibold text-slate-950 shadow-lg shadow-teal-500/20 transition-transform hover:scale-[1.01] disabled:cursor-wait disabled:opacity-80 disabled:hover:scale-100"
+    >
+      {pending
+        ? "Opening your plant…"
+        : `Enter your ERP — ${trialDays}-day free trial`}
+    </button>
+  );
 }
 
 export function SignupPlanForm({
@@ -139,9 +155,8 @@ export function SignupPlanForm({
             </span>
             <span className="mt-0.5 block text-xs text-slate-500">
               Each seat is {money(selected.pricePerSeatMonthly ?? 30)}/month.
-              Quantity can also be adjusted on Stripe Checkout (1-
-              {selected.maxSeats}). Need more than {selected.maxSeats}? Choose
-              Starter or above.
+              1–{selected.maxSeats} seats on Shop. Need more? Choose Starter or
+              above.
             </span>
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <input
@@ -206,17 +221,12 @@ export function SignupPlanForm({
         </label>
       </div>
 
-      <button
-        type="submit"
-        className="mt-6 w-full rounded-xl bg-gradient-to-r from-teal-500 to-cyan-500 px-6 py-3.5 text-base font-semibold text-slate-950 shadow-lg shadow-teal-500/20 transition-transform hover:scale-[1.01]"
-      >
-        Continue to secure checkout
-      </button>
+      <SubmitButton trialDays={trialDays} />
       <p className="mt-3 text-center text-xs text-slate-500">
-        {"You will add a card on Stripe checkout. No charge for "}
+        No credit card. Takes about 20 seconds to open your plant. Free for{" "}
         {trialDays} days
         {promoOn
-          ? ". The 50% off first-year launch offer is applied automatically."
+          ? ". The 50% off first-year launch offer applies when you subscribe."
           : "."}
       </p>
     </form>
