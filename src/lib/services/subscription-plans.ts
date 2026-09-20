@@ -100,7 +100,7 @@ export const PLANS: readonly PlanDef[] = [
   },
 ];
 
-export const TRIAL_DAYS = 45;
+export const TRIAL_DAYS = 60;
 
 export function getPlan(key: string): PlanDef | undefined {
   return PLANS.find((p) => p.key === key.toUpperCase());
