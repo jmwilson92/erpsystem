@@ -48,13 +48,6 @@ export async function actionStartTrial(formData: FormData) {
     });
     const issued = await issueOnboardingLink(tenant.id);
     onboardUrl = issued.url || null;
-    void captureSignupLead({
-      email,
-      company,
-      plan,
-      seats,
-      stage: "provisioned",
-    });
   } catch {
     redirect(`/signup?error=provision&plan=${plan}`);
   }
