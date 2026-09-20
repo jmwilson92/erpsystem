@@ -1,8 +1,6 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { headers } from "next/headers";
-import { createTrialCheckoutSession, stripeEnabled } from "@/lib/services/stripe";
 import {
   PLANS,
   TRIAL_DAYS,
@@ -10,6 +8,10 @@ import {
   normalizeSeats,
 } from "@/lib/services/subscription";
 import { captureSignupLead } from "@/lib/services/signup-lead";
+import {
+  issueOnboardingLink,
+  provisionCustomerTenant,
+} from "@/lib/services/tenancy";
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
@@ -35,25 +37,28 @@ export async function actionStartTrial(formData: FormData) {
     stage: "submitted",
   });
 
-  if (!stripeEnabled()) redirect(`/signup?error=unavailable&plan=${plan}`);
-
-  const h = await headers();
-  const appUrl =
-    process.env.APP_URL ||
-    `${h.get("x-forwarded-proto") || "https"}://${h.get("host")}`;
-
-  let url: string;
+  let onboardUrl: string | null = null;
   try {
-    url = await createTrialCheckoutSession({
+    const tenant = await provisionCustomerTenant({
       plan,
       seats,
+      billingEmail: email,
+      companyName: company || null,
       trialDays: TRIAL_DAYS,
-      customerEmail: email,
-      companyName: company || undefined,
-      appUrl,
+    });
+    const issued = await issueOnboardingLink(tenant.id);
+    onboardUrl = issued.url || null;
+    void captureSignupLead({
+      email,
+      company,
+      plan,
+      seats,
+      stage: "provisioned",
     });
   } catch {
-    redirect(`/signup?error=stripe&plan=${plan}`);
+    redirect(`/signup?error=provision&plan=${plan}`);
   }
-  redirect(url);
+
+  if (!onboardUrl) redirect(`/signup?error=provision&plan=${plan}`);
+  redirect(onboardUrl);
 }
