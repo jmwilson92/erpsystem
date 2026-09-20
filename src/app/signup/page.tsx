@@ -6,17 +6,16 @@ import { SignupPlanForm } from "@/components/marketing/signup-plan-form";
 import {
   PLANS,
   TRIAL_DAYS,
-  periodPriceForPlan,
   planSeatsLabel,
 } from "@/lib/services/subscription";
-import { launchPromoActive, stripeEnabled } from "@/lib/services/stripe";
+import { launchPromoActive } from "@/lib/services/stripe";
 import { actionStartTrial } from "./actions";
 
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Start your free trial",
-  description: `Start a ${TRIAL_DAYS}-day free trial of Protessera manufacturing ERP. Full product access, secure Stripe checkout, no charge until the trial ends.`,
+  description: `Start a ${TRIAL_DAYS}-day free trial of Protessera manufacturing ERP. No credit card. Full product access. Pay only if you keep the plant after the trial.`,
   alternates: { canonical: "/signup" },
   openGraph: {
     title: "Start your Protessera free trial",
@@ -39,6 +38,7 @@ const ERRORS: Record<string, string> = {
   unavailable:
     "Self-serve checkout isn't switched on yet. Please reach out and we'll set you up.",
   stripe: "We couldn't start checkout just now. Please try again in a moment.",
+  provision: "We couldn't open your plant just now. Please try again.",
 };
 
 export default async function SignupPage({
@@ -55,7 +55,6 @@ export default async function SignupPage({
   const errorMsg = ERRORS[errorKey];
   const cancelled =
     (Array.isArray(sp.checkout) ? sp.checkout[0] : sp.checkout) === "cancel";
-  const canCheckout = stripeEnabled();
   const promoOn = launchPromoActive();
   const paidPlans = PLANS.filter((p) => p.key !== "ENTERPRISE");
   const defaultPlan =
@@ -67,7 +66,7 @@ export default async function SignupPage({
       : selected.pricing === "custom"
         ? `You're interested in ${selected.name} — contact sales after trial setup, or pick a self-serve plan below.`
         : `You're starting on the ${selected.name} plan (${money(selected.price)}/year, ${planSeatsLabel(selected)}).`
-    : "Pick a plan and get the full product for 45 days, free. Small shops start at $30/user/mo.";
+    : `Pick a plan and get the full product for ${TRIAL_DAYS} days, free. No card. Small shops start at $30/user/mo.`;
 
   return (
     <MarketingShell>
@@ -83,10 +82,10 @@ export default async function SignupPage({
           </h2>
           <ul className="mt-3 space-y-2 text-sm text-slate-300">
             {[
-              "Full access to every module for 45 days — no feature locked.",
-              "A card is required to start, but you're not charged until day 45.",
-              "Cancel anytime during the trial and you're never billed.",
-              "After the charge, you have 15 days to request a full refund.",
+              `Full access to every module for ${TRIAL_DAYS} days — no feature locked.`,
+              "No credit card to start. Set a password and walk into your plant.",
+              `On day ${TRIAL_DAYS} we ask you to pay for the suite you picked. Until then, nothing is billed.`,
+              "If you do not subscribe, the plant stays but the floor locks until you add a card.",
               "Launch offer: 50% off your first year for a limited time.",
             ].map((x) => (
               <li key={x} className="flex items-start gap-2">
@@ -104,39 +103,14 @@ export default async function SignupPage({
           </div>
         )}
 
-        {canCheckout ? (
-          <SignupPlanForm
-            plans={[...paidPlans]}
-            defaultPlan={defaultPlan}
-            defaultSeats={3}
-            action={actionStartTrial}
-            trialDays={TRIAL_DAYS}
-            promoOn={promoOn}
-          />
-        ) : (
-          /* Stripe not configured yet — stay honest and route to a human. */
-          <div className="mt-8 rounded-2xl border border-teal-500/30 bg-teal-500/[0.06] p-6 text-center">
-            <p className="text-sm text-slate-200">
-              Self-serve checkout opens at launch. Want in early, or have
-              questions about a plan? Shop starts at{" "}
-              {money(periodPriceForPlan("SHOP", 1))}/month for one user.
-            </p>
-            <div className="mt-4 flex flex-wrap justify-center gap-3">
-              <a
-                href="mailto:jeramey.wilson@protessera.com?subject=Protessera%20trial"
-                className="rounded-lg bg-teal-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-teal-400"
-              >
-                Request early access
-              </a>
-              <Link
-                href="/demo"
-                className="rounded-lg border border-slate-700 px-4 py-2.5 text-sm font-semibold hover:border-teal-500/50"
-              >
-                Take the demo instead
-              </Link>
-            </div>
-          </div>
-        )}
+        <SignupPlanForm
+          plans={[...paidPlans]}
+          defaultPlan={defaultPlan}
+          defaultSeats={3}
+          action={actionStartTrial}
+          trialDays={TRIAL_DAYS}
+          promoOn={promoOn}
+        />
 
         <p className="mt-6 text-center text-xs text-slate-600">
           By starting a trial you agree to our{" "}
@@ -153,7 +127,7 @@ export default async function SignupPage({
           >
             Privacy Policy
           </Link>
-          . Free for {TRIAL_DAYS} days.
+          . Free for {TRIAL_DAYS} days. No card required.
         </p>
       </div>
     </MarketingShell>
