@@ -52,6 +52,12 @@ export function StaffDeskShell({
             >
               Insights
             </Link>
+            <Link
+              href="/admin/tenants"
+              className="text-slate-400 hover:text-slate-200"
+            >
+              Signups
+            </Link>
             {/* Full page load — not Next <Link> — so AppShell remounts with
                 sidebar. The lint rule wants <Link>, but a soft nav is exactly
                 what breaks the shell here, so the plain anchor is deliberate. */}
