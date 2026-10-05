@@ -19,6 +19,8 @@ import {
   lastSeenRefreshMs,
   assertPasswordStrength,
 } from "../src/lib/auth-core";
+import { redactSecrets } from "../src/lib/redact-secrets";
+import { deriveClaim } from "../src/lib/services/tenant-activity";
 
 function testChargeCodes() {
   assert.equal(sanitizeChargeCode("  Foo Bar!  "), "Foo-Bar");
@@ -151,10 +153,55 @@ function testPasswordPolicy() {
   console.log("  \u2713 password policy");
 }
 
+function testSecretRedaction() {
+  const token = "ab".repeat(24);
+  assert.equal(token.length, 48);
+  const claimUrl = `https://www.protessera.com/onboard/${token}`;
+  const redacted = redactSecrets(
+    `[onboarding] tenant tenant_sjcsa9pe1kib (a@b.co) — claim link: ${claimUrl}`
+  );
+  assert.equal(redacted.includes(token), false);
+  assert.equal(redacted.includes(claimUrl), false);
+  assert.equal(redactSecrets(`/invite/${token}`), "/invite/[redacted]");
+  assert.equal(redactSecrets(`/support/t/${token}`), "/support/t/[redacted]");
+  assert.equal(redactSecrets(`Bearer ${token}`), "Bearer [redacted]");
+  assert.equal(
+    redactSecrets("password=hunter2"),
+    "password=[redacted]"
+  );
+  // Ordinary routes and short ids stay readable.
+  assert.equal(redactSecrets("/work-orders/clxyz"), "/work-orders/clxyz");
+  assert.equal(redactSecrets("/admin/tenants"), "/admin/tenants");
+  console.log("  ✓ secret redaction");
+}
+
+function testClaimDerivation() {
+  const claimedAt = new Date("2026-03-01T00:00:00Z");
+  assert.deepEqual(
+    deriveClaim({ isDemo: true, setupTokenHash: "abc", instanceClaimedAt: claimedAt }),
+    { claimed: false, claimReason: "demo", claimedAt: null }
+  );
+  assert.deepEqual(
+    deriveClaim({ isDemo: false, setupTokenHash: "abc", instanceClaimedAt: claimedAt }),
+    { claimed: true, claimReason: "audit", claimedAt }
+  );
+  assert.deepEqual(
+    deriveClaim({ isDemo: false, setupTokenHash: null, instanceClaimedAt: null }),
+    { claimed: true, claimReason: "token_consumed", claimedAt: null }
+  );
+  assert.deepEqual(
+    deriveClaim({ isDemo: false, setupTokenHash: "abc", instanceClaimedAt: null }),
+    { claimed: false, claimReason: "pending", claimedAt: null }
+  );
+  console.log("  ✓ tenant claim derivation");
+}
+
 console.log("smoke-unit");
 testChargeCodes();
 testModules();
 testDemoModeHelper();
 testSessionIdleTimeout();
 testPasswordPolicy();
+testSecretRedaction();
+testClaimDerivation();
 console.log("smoke-unit: all passed");

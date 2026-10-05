@@ -1748,13 +1748,17 @@ export async function actionRequestPasswordReset(
       });
     } catch (err) {
       // Still answer uniformly to the visitor, but make the failure findable
-      // instead of vanishing into a .catch(() => null).
-      console.error("[auth] password reset failed for", email, err);
+      // instead of vanishing into a .catch(() => null). The message is
+      // redacted: a delivery error can echo the reset URL, and that URL is a
+      // bearer token.
+      const { redactError } = await import("@/lib/redact-secrets");
+      const detail = redactError(err);
+      console.error("[auth] password reset failed for", email, detail);
       const { trackEvent } = await import("@/lib/services/telemetry");
       trackEvent({
         kind: "ERROR",
         source: "PLATFORM",
-        label: `password reset failed: ${err instanceof Error ? err.message : String(err)}`,
+        label: `password reset failed: ${detail}`,
         severity: "error",
         path: "/login",
       });
