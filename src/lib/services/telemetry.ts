@@ -15,6 +15,7 @@
  * session id (the throwaway demo schema name), a route, and a short label.
  */
 import { controlPlaneClient } from "@/lib/db";
+import { redactSecrets } from "@/lib/redact-secrets";
 import { checkModuleHealth, isMissingTableError } from "@/lib/services/module-health";
 
 export type TelemetryKind =
@@ -46,12 +47,17 @@ function clip(v: string | null | undefined, max: number): string | null {
   return s.length > max ? s.slice(0, max) : s;
 }
 
-/** Strip the query string so paths group cleanly (and can't carry tokens). */
+/**
+ * Strip the query string so paths group cleanly, then drop credential path
+ * segments (`/onboard/<token>`, `/invite/<token>`, `/support/t/<token>`) and
+ * any other raw token the client may have put on the path.
+ */
 function cleanPath(p: string | null | undefined): string | null {
   const s = clip(p, 300);
   if (!s) return null;
   const q = s.indexOf("?");
-  return q === -1 ? s : s.slice(0, q);
+  const path = (q === -1 ? s : s.slice(0, q)).split("#")[0];
+  return clip(redactSecrets(path), 300);
 }
 
 /**
@@ -63,7 +69,7 @@ export async function recordEvent(input: TelemetryInput): Promise<void> {
     let detail: string | null = null;
     if (input.detail) {
       try {
-        detail = clip(JSON.stringify(input.detail), 2000);
+        detail = clip(redactSecrets(JSON.stringify(input.detail)), 2000);
       } catch {
         detail = null;
       }
@@ -75,7 +81,7 @@ export async function recordEvent(input: TelemetryInput): Promise<void> {
         sessionId: clip(input.sessionId, 100),
         schemaName: clip(input.schemaName, 100),
         path: cleanPath(input.path),
-        label: clip(input.label, 500),
+        label: clip(input.label ? redactSecrets(input.label) : null, 500),
         detail,
         severity: input.severity ?? null,
       },

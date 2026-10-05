@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
+import { redactSecrets } from "@/lib/redact-secrets";
 
 /**
  * Records a PAGE event on every route change so we can see which parts of the
@@ -23,7 +24,7 @@ export function TelemetryBeacon({ enabled }: { enabled: boolean }) {
     if (lastSent.current === pathname) return;
     lastSent.current = pathname;
 
-    const body = JSON.stringify({ kind: "PAGE", path: pathname });
+    const body = JSON.stringify({ kind: "PAGE", path: redactSecrets(pathname) });
     try {
       fetch("/api/e", {
         method: "POST",

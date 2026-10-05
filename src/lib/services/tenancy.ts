@@ -735,16 +735,21 @@ export async function provisionCustomerTenant(params: {
     data: { status: "ACTIVE" },
   });
 
-  // Onboarding: register the admin's login and mint a claim link. Emails are on
-  // hold (Phase 4), so log the URL for the owner to relay from the tenants page.
+  // Onboarding: register the admin's login and mint a claim link. The raw token
+  // and claim URL are returned only to the caller that must hand them to the
+  // customer (the success page, or the owner's re-issue action). Never log them —
+  // production runtime logs are not a secret store. The tenants page re-issues
+  // a link the owner can copy.
   await registerTenantLogin(params.billingEmail, schemaName, tenant.id);
   try {
-    const { url } = await issueOnboardingLink(tenant.id);
-    console.log(
-      `[onboarding] tenant ${schemaName} (${params.billingEmail}) — claim link: ${url}`
+    await issueOnboardingLink(tenant.id);
+    console.info(
+      `[onboarding] claim link issued for ${schemaName} (token withheld from logs)`
     );
   } catch {
-    /* the owner can re-issue from the tenants page */
+    console.error(
+      `[onboarding] claim link issue failed for ${schemaName} (token withheld from logs)`
+    );
   }
 
   return active;
@@ -773,7 +778,9 @@ export async function registerTenantLogin(
 
 /**
  * Issue a one-time onboarding token for a tenant and return the claim URL. The
- * raw token is only returned here (we store just its hash), so surface it now.
+ * raw token is only returned here (we store just its hash). Callers must show
+ * it to the customer or the platform owner — never write the token or the full
+ * claim URL to logs, telemetry, or error text.
  */
 export async function issueOnboardingLink(
   tenantId: string,

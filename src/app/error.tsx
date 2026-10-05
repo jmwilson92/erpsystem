@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import Link from "next/link";
+import { redactSecrets } from "@/lib/redact-secrets";
 
 /**
  * Failures that mean "your browser is holding a build that no longer exists"
@@ -52,7 +53,13 @@ export default function AppError({
   reset: () => void;
 }) {
   useEffect(() => {
-    console.error("[protessera] route error", error.digest || error.message);
+    // digest is a Next reference, not a credential. The message can still
+    // contain a claim or reset URL if a page threw with one interpolated, so
+    // redact before it hits the browser console (which production captures).
+    console.error(
+      "[protessera] route error",
+      redactSecrets(error.digest || error.message || "")
+    );
     const message = error.message || "";
     const stale = STALE_BUILD_RE.test(message);
 
@@ -67,8 +74,8 @@ export default function AppError({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           kind: "ERROR",
-          path: window.location.pathname,
-          label: message || "route error",
+          path: redactSecrets(window.location.pathname),
+          label: redactSecrets(message || "route error"),
           // A stale chunk is expected fallout from deploying, not a defect, so
           // it should not sit in the queue at the same weight as a real break.
           severity: stale ? "warn" : "error",

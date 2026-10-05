@@ -2,6 +2,14 @@
 
 import { useEffect } from "react";
 
+/** Local copy so this boundary stays free of app imports if the graph is broken. */
+function redactPath(value: string): string {
+  return value.replace(
+    /\/(?:onboard|invite)\/[^/?#\s]+|\/support\/t\/[^/?#\s]+/gi,
+    (match) => `${match.slice(0, match.lastIndexOf("/") + 1)}[redacted]`
+  );
+}
+
 /**
  * Root-level error UI (replaces root layout when it crashes).
  * Keep styling self-contained — layout may not mount.
@@ -22,8 +30,8 @@ export default function GlobalError({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           kind: "ERROR",
-          path: window.location.pathname,
-          label: error.message || "root layout error",
+          path: redactPath(window.location.pathname),
+          label: redactPath(error.message || "root layout error"),
           severity: "error",
           detail: { digest: error.digest ?? null, boundary: "global" },
         }),

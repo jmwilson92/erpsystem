@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
+import { redactSecrets } from "@/lib/redact-secrets";
 
 /**
  * "Start your own instance" — the demo's conversion CTA. Records a CONVERT
@@ -17,7 +18,7 @@ export function ConvertCta() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           kind: "CONVERT",
-          path: window.location.pathname,
+          path: redactSecrets(window.location.pathname),
           label: "demo.convert_clicked",
         }),
         keepalive: true,
