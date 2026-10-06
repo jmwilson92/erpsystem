@@ -8,6 +8,7 @@ const PUBLIC_PREFIXES = [
   "/demo",
   "/legal",
   "/welcome",
+  "/compare",
   "/preview",
   "/marketing-preview",
   "/api/demo",

@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { COMPARE_PAGES } from "@/lib/compare/pages";
 import { LEGAL_DOCS } from "@/lib/legal-content";
 import { getSiteUrl } from "@/lib/site";
 
@@ -46,5 +47,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
     priority: 0.3,
   }));
 
-  return [...marketing, ...legal];
+  const compare: MetadataRoute.Sitemap = COMPARE_PAGES.map((page) => ({
+    url: `${base}${page.slug}`,
+    lastModified: now,
+    changeFrequency: "monthly" as const,
+    priority: 0.8,
+  }));
+
+  return [...marketing, ...compare, ...legal];
 }

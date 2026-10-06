@@ -229,6 +229,7 @@ export default async function RootLayout({
       pathname.startsWith("/demo") ||
       pathname.startsWith("/legal") ||
       pathname.startsWith("/welcome") ||
+      pathname.startsWith("/compare") ||
       pathname.startsWith("/support/t/") ||
       pathname.startsWith("/preview") ||
       pathname.startsWith("/marketing-preview") ||
@@ -242,6 +243,7 @@ export default async function RootLayout({
       pathname.startsWith("/signup") ||
       pathname.startsWith("/legal") ||
       pathname.startsWith("/welcome") ||
+      pathname.startsWith("/compare") ||
       pathname.startsWith("/demo") ||
       pathname.startsWith("/support/t/");
     return (
@@ -331,6 +333,7 @@ export default async function RootLayout({
     "/invite",
     "/onboard", // new-customer claim flow — must not be gated by the dogfood plan
     "/legal",
+    "/compare",
     "/demo",
     "/module-off",
     "/api",
