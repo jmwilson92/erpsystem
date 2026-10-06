@@ -116,7 +116,7 @@ const STEPS = [
   {
     n: "01",
     title: "Claim your instance",
-    body: "Pick a plan, check out securely, and land in your own isolated company. No shared multi-tenant soup.",
+    body: "Pick a plan and land in your own isolated company. No card required to start. No shared multi-tenant soup.",
   },
   {
     n: "02",
@@ -146,7 +146,7 @@ const FAQS = [
   },
   {
     q: "How long is the free trial?",
-    a: `You get full product access for ${TRIAL_DAYS} days. Your card is not charged until the trial ends, and you have 15 days after the first charge to request a full refund under our refund policy.`,
+    a: `You get full product access for ${TRIAL_DAYS} days. No credit card is required to start. Nothing is billed until you choose to subscribe. If you subscribe, you have 15 days after the first charge to request a full refund under our refund policy.`,
   },
   {
     q: "Do I need consultants or an implementation project?",
@@ -166,7 +166,7 @@ const FAQS = [
   },
   {
     q: "Can I try the product before I buy?",
-    a: "Yes — take the live demo (a sandboxed test drive with sample data) or start a 45-day free trial on your own instance with Stripe checkout.",
+    a: `Yes — take the live demo (a sandboxed test drive with sample data) or start a ${TRIAL_DAYS}-day free trial on your own instance. No credit card required.`,
   },
   {
     q: "How is pricing structured?",
@@ -446,7 +446,7 @@ export function LandingPage({
               </p>
               <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
                 <Link href="/signup" className={`${primaryBtnClass} px-5 py-3`}>
-                  Start your 45-day free trial{" "}
+                  Start your {TRIAL_DAYS}-day free trial{" "}
                   <ArrowRight className="h-4 w-4" aria-hidden />
                 </Link>
                 <Link href="/" className={`${secondaryBtnClass} px-5 py-3`}>
@@ -454,8 +454,8 @@ export function LandingPage({
                 </Link>
               </div>
               <p className="muted mt-4 text-xs font-medium">
-                Full access for {TRIAL_DAYS} days. No charge until day {TRIAL_DAYS}{" "}
-                · 15-day money-back guarantee.
+                Full access for {TRIAL_DAYS} days. No card required. 15-day
+                money-back guarantee.
               </p>
             </div>
           </div>
@@ -602,8 +602,8 @@ export function LandingPage({
             >
               Shop is $30 per user per month (1–10 seats). Larger teams get flat
               annual bands. Every plan is the full product. Start with a{" "}
-              {TRIAL_DAYS}-day free trial; your card isn&rsquo;t charged until it
-              ends, and you have 15 days after that to request a full refund.
+              {TRIAL_DAYS}-day free trial. No card required. If you subscribe,
+              you have 15 days after the first charge to request a full refund.
             </SectionIntro>
 
             <div className="mt-12 grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
@@ -735,7 +735,7 @@ export function LandingPage({
               </p>
               <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
                 <Link href="/signup" className={`${primaryBtnClass} px-5 py-3`}>
-                  Start your 45-day free trial
+                  Start your {TRIAL_DAYS}-day free trial
                 </Link>
                 <Link href="/" className={`${secondaryBtnClass} px-5 py-3`}>
                   Take the live demo

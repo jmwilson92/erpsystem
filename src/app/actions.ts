@@ -8848,9 +8848,9 @@ export async function actionStartCheckout(formData: FormData): Promise<void> {
 export async function actionStartTrial(): Promise<void> {
   const { requirePermission } = await import("@/lib/auth");
   const user = await requirePermission("admin.permissions");
-  const { startTrial } = await import("@/lib/services/subscription");
+  const { startTrial, TRIAL_DAYS } = await import("@/lib/services/subscription");
   await startTrial(user?.id);
-  await flashToast("Trial started — 30 days on us");
+  await flashToast(`Trial started — ${TRIAL_DAYS} days on us`);
   revalidatePath("/", "layout");
   redirect("/billing");
 }

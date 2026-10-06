@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { TRIAL_DAYS } from "../src/lib/services/subscription-plans";
 
 /**
  * Public marketing + auth surfaces (run against a DEMO_MODE=0 server with a
@@ -14,7 +15,9 @@ test.describe("Landing page", () => {
     await expect(page.getByRole("link", { name: /^Protessera/ }).first()).toBeVisible();
     await expect(page.getByRole("link", { name: "Sign in" }).first()).toBeVisible();
     // Hero CTAs
-    await expect(page.getByRole("link", { name: /Start your 45-day free trial/i }).first()).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: new RegExp(`Start your ${TRIAL_DAYS}-day free trial`, "i") }).first()
+    ).toBeVisible();
     await expect(page.getByRole("link", { name: /Take the live demo/i }).first()).toBeVisible();
     // Footer present with legal links
     await expect(page.getByRole("link", { name: "Terms" }).first()).toBeVisible();
@@ -23,7 +26,10 @@ test.describe("Landing page", () => {
 
   test("hero 'Start free trial' navigates to signup", async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("link", { name: /Start your 45-day free trial/i }).first().click();
+    await page
+      .getByRole("link", { name: new RegExp(`Start your ${TRIAL_DAYS}-day free trial`, "i") })
+      .first()
+      .click();
     await expect(page).toHaveURL(/\/signup/);
   });
 
@@ -81,12 +87,12 @@ test.describe("Legal", () => {
     await expect(page.getByRole("link", { name: "Privacy", exact: true }).first()).toBeVisible(); // footer
   });
 
-  test("terms shows real entity + 45-day trial, no template disclaimer", async ({ page }) => {
+  test("terms shows real entity + trial length, no template disclaimer", async ({ page }) => {
     await page.goto("/legal/terms-of-service");
     const body = await page.locator("body").innerText();
     expect(body).toMatch(/Protessera, LLC/);
     expect(body).toMatch(/California/);
-    expect(body).toMatch(/45 days/);
+    expect(body).toMatch(new RegExp(`${TRIAL_DAYS} days`));
     expect(body).not.toMatch(/template and not legal advice|have counsel review/i);
   });
 });
