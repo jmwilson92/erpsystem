@@ -615,11 +615,11 @@ export async function provisionDemo() {
 // ─── Real customer tenants (Stripe signup) ──────────────────────
 
 /**
- * Provision a paying customer's tenant after a successful Stripe checkout:
- * create the schema, seed just the essentials (a CompanySettings row + an admin
- * user), record billing on the registry, and stamp the tenant's own schema with
- * its trialing subscription state. Idempotent by Stripe subscription id, so a
- * retried webhook returns the existing tenant instead of provisioning twice.
+ * Provision a customer tenant for a self-serve trial (no card) or after Stripe
+ * checkout: create the schema, seed just the essentials (a CompanySettings row
+ * + an admin user), record billing on the registry, and stamp the tenant's own
+ * schema with its trialing subscription state. Idempotent by Stripe subscription
+ * id, so a retried webhook returns the existing tenant instead of provisioning twice.
  *
  * Note: the customer's self-serve login routing (session → their schema) is a
  * separate onboarding step; this establishes the tenant + billing record.
@@ -688,6 +688,9 @@ export async function provisionCustomerTenant(params: {
       params.seats != null
         ? normalizeSeats(params.plan, params.seats)
         : getPlan(params.plan)?.seats ?? null;
+    // Public signup has no card. Only a completed Stripe checkout has one.
+    const billingProvider =
+      params.stripeCustomerId || params.stripeSubscriptionId ? "stripe" : null;
 
     await db.companySettings.upsert({
       where: { id: "default" },
@@ -699,7 +702,7 @@ export async function provisionCustomerTenant(params: {
         trialEndsAt,
         seats,
         billingEmail: params.billingEmail,
-        billingProvider: "stripe",
+        billingProvider,
         stripeCustomerId: params.stripeCustomerId ?? undefined,
         stripeSubscriptionId: params.stripeSubscriptionId ?? undefined,
       },
@@ -708,7 +711,7 @@ export async function provisionCustomerTenant(params: {
         subscriptionStatus: "TRIALING",
         trialEndsAt,
         seats: seats ?? undefined,
-        billingProvider: "stripe",
+        billingProvider,
         billingEmail: params.billingEmail,
         stripeCustomerId: params.stripeCustomerId ?? undefined,
         stripeSubscriptionId: params.stripeSubscriptionId ?? undefined,

@@ -18,14 +18,14 @@ function feesParagraphs(): string[] {
   const shop = getPlan("SHOP")!;
   const max = shop.maxSeats ?? 10;
   return [
-    `${firstYearOfferSummary()} Shop is billed monthly. Starter, Growth, and Business are billed annually. The ${TRIAL_DAYS}-day trial does not require a payment card. When you subscribe, the payment method you provide is charged the first-year price for the first 12 months, then the standard price.`,
+    `${firstYearOfferSummary()} Shop is billed monthly. Starter, Growth, and Business are billed annually. The ${TRIAL_DAYS}-day trial does not require a payment card. Nothing is billed until you subscribe. When you subscribe, the payment method you provide is charged the first-year price for the first 12 months, then the standard price.`,
     `You may request a full refund of that first paid charge within 15 days of the charge. A ${max}-user Shop example of the first monthly charge is ${formatPlanMoney(shopFirstYearMonthly(max))}. Renewals at the standard price are not pro-rated or refundable except where required by law. Fees are exclusive of taxes, which you are responsible for.`,
   ];
 }
 
 function refundParagraphs(): string[] {
   return [
-    `The ${TRIAL_DAYS}-day trial is free and requires no payment card to start. When you subscribe, the first 12 months are billed at the first-year price, then at the standard price. ${firstYearOfferSummary()} Shop is billed monthly. Starter, Growth, and Business are billed annually.`,
+    `The ${TRIAL_DAYS}-day trial is free and requires no card to start. Nothing is billed until you subscribe. When you subscribe, the first 12 months are billed at the first-year price, then at the standard price. ${firstYearOfferSummary()} Shop is billed monthly. Starter, Growth, and Business are billed annually.`,
     "You may request a full refund of the first paid charge within 15 days of that charge — contact billing and we'll process it. After 15 days, that charge is non-refundable except where required by law.",
   ];
 }

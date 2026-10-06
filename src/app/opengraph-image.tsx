@@ -79,8 +79,8 @@ export default function OpenGraphImage() {
             }}
           >
             Sales · engineering · production · quality · accounting — one
-            connected system. {TRIAL_DAYS}-day free trial, no card. Shop{" "}
-            {shop.primaryAmount}
+            connected system. Live in a day. {TRIAL_DAYS}-day free trial, no
+            card. Shop {shop.primaryAmount}
             {shop.primarySuffix}. {shop.afterYearOne}
           </div>
         </div>

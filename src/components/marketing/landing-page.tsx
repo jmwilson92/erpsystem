@@ -121,7 +121,7 @@ const STEPS = [
   {
     n: "01",
     title: "Claim your instance",
-    body: "Pick a plan, check out securely, and land in your own isolated company. No shared multi-tenant soup.",
+    body: "Pick a plan and land in your own isolated company. No card required to start. No shared multi-tenant soup.",
   },
   {
     n: "02",
@@ -151,7 +151,7 @@ const FAQS = [
   },
   {
     q: "How long is the free trial?",
-    a: `You get full product access for ${TRIAL_DAYS} days. No card is required to start. When you subscribe, the first 12 months bill at the first-year price, then standard prices apply. You have 15 days after the first charge to request a full refund under our refund policy.`,
+    a: `You get full product access for ${TRIAL_DAYS} days. No credit card is required to start. Nothing is billed until you choose to subscribe. When you subscribe, the first 12 months bill at the first-year price, then standard prices apply. You have 15 days after the first charge to request a full refund under our refund policy.`,
   },
   {
     q: "Do I need consultants or an implementation project?",
@@ -171,7 +171,7 @@ const FAQS = [
   },
   {
     q: "Can I try the product before I buy?",
-    a: `Yes — take the live demo (a sandboxed test drive with sample data) or start a ${TRIAL_DAYS}-day free trial on your own instance. No card.`,
+    a: `Yes — take the live demo (a sandboxed test drive with sample data) or start a ${TRIAL_DAYS}-day free trial on your own instance. No credit card required.`,
   },
   {
     q: "How is pricing structured?",
@@ -443,7 +443,7 @@ export function LandingPage({
               </div>
               <p className="muted mt-4 text-xs font-medium">
                 Full access for {TRIAL_DAYS} days. No card required. 15-day
-                money-back after you subscribe.
+                money-back guarantee after you subscribe.
               </p>
             </div>
           </div>
@@ -588,8 +588,8 @@ export function LandingPage({
               center
               wide
             >
-              {pricingSectionLead()} You have 15 days after the first charge to
-              request a full refund.
+              {pricingSectionLead()} If you subscribe, you have 15 days after the
+              first charge to request a full refund.
             </SectionIntro>
 
             <div className="mt-12 grid gap-5 sm:grid-cols-2 xl:grid-cols-4">

@@ -245,10 +245,11 @@ export async function createCheckoutSession(params: {
 
 /**
  * Card-up-front Checkout with a Stripe trial, then the first-year price.
- * The hosted signup does not call this — customers start a no-card trial via
- * provisionCustomerTenant and subscribe later from Plan & billing.
- * Kept so a future card-up-front path cannot reintroduce the 50% coupon.
- * `metadata.provision = tenant` tells the webhook to provision a new tenant.
+ * The public signup form does not call this. It provisions a trial of
+ * TRIAL_DAYS with no card via provisionCustomerTenant; the customer subscribes
+ * later from Plan & billing. This helper still requires a card when it is used,
+ * and it does not apply a coupon. `metadata.provision = tenant` tells the
+ * webhook this completed checkout should provision a brand-new customer tenant.
  */
 export async function createTrialCheckoutSession(params: {
   plan: string;
@@ -273,6 +274,8 @@ export async function createTrialCheckoutSession(params: {
     success_url: `${params.appUrl}/signup/complete?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${params.appUrl}/signup?checkout=cancel&plan=${params.plan}`,
     customer_email: params.customerEmail,
+    // This Checkout path collects a card even though the trial is free.
+    // Public signup does not use it.
     payment_method_collection: "always",
     "subscription_data[trial_period_days]": String(trialDays),
     "subscription_data[metadata][plan]": params.plan,
@@ -507,8 +510,7 @@ export async function handleWebhookEvent(event: {
       seats,
       billingEmail: email,
       companyName: m.companyName || null,
-      trialDays:
-        Number(m.trialDays) > 0 ? Number(m.trialDays) : TRIAL_DAYS,
+      trialDays: TRIAL_DAYS,
       stripeCustomerId: customerId,
       stripeSubscriptionId: subscriptionId,
     });

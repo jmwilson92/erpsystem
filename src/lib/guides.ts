@@ -1,7 +1,8 @@
 /**
- * Interactive guided tours. Data plus the plan-catalog trial length, usable from
- * client and server. Each step optionally spotlights a DOM element (CSS selector),
- * can navigate to a route first, and shows a note box with what to do + why.
+ * Interactive guided tours. Client-safe data (including the plan-catalog trial
+ * length) so it's usable from client and server. Each step optionally spotlights
+ * a DOM element (CSS selector), can navigate to a route first, and shows a note
+ * box with what to do + why.
  *
  * Add a tour for anything by appending to TOURS. Target elements with a stable
  * `data-tour="<id>"` attribute (preferred) or any CSS selector. Steps with no
@@ -18,7 +19,7 @@
  * pathname and would navigate in a loop). Describe tabs/views in the body text
  * instead.
  */
-import { TRIAL_DAYS } from "./services/subscription-plans";
+import { TRIAL_DAYS } from "@/lib/services/subscription-plans";
 
 export type TourStep = {
   /** CSS selector to spotlight. Omit for a centered card. */

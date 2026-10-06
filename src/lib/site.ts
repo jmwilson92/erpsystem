@@ -1,4 +1,4 @@
-import { TRIAL_DAYS, firstYearOfferSummary } from "./services/subscription-plans";
+import { TRIAL_DAYS, firstYearOfferSummary } from "@/lib/services/subscription-plans";
 
 /**
  * Public site identity + SEO defaults for Protessera marketing surfaces.
@@ -21,7 +21,7 @@ export const SITE_TAGLINE = "Connecting everything";
 export const SITE_TITLE_DESCRIPTOR = "Manufacturing ERP";
 
 export const SITE_DESCRIPTION =
-  `Protessera is plug-and-play manufacturing ERP: sales, engineering, purchasing, production, quality, and accounting in one connected system. ${TRIAL_DAYS}-day free trial, no card. ${firstYearOfferSummary()}`;
+  `Protessera is plug-and-play manufacturing ERP: sales, engineering, purchasing, production, quality, and accounting in one connected system. ${TRIAL_DAYS}-day free trial, no card — no consultants required. ${firstYearOfferSummary()}`;
 
 /** Primary phrase we want to rank for + supporting terms. */
 export const SITE_KEYWORDS = [
