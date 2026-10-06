@@ -21,6 +21,19 @@ import {
 } from "../src/lib/auth-core";
 import { redactSecrets } from "../src/lib/redact-secrets";
 import { deriveClaim } from "../src/lib/services/tenant-activity";
+import {
+  TRIAL_DAYS,
+  STRIPE_FIRST_YEAR_PRICE_ENV,
+  STRIPE_STANDARD_PRICE_ENV,
+  firstYearBillingCycles,
+  firstYearOfferSummary,
+  firstYearPeriodPriceForPlan,
+  periodPriceForPlan,
+  planPriceView,
+  shopFirstYearMonthly,
+} from "../src/lib/services/subscription-plans";
+import { buildIntroScheduleUpdate } from "../src/lib/services/stripe-intro";
+import { LEGAL_DOCS } from "../src/lib/legal-content";
 
 function testChargeCodes() {
   assert.equal(sanitizeChargeCode("  Foo Bar!  "), "Foo-Bar");
@@ -196,6 +209,115 @@ function testClaimDerivation() {
   console.log("  ✓ tenant claim derivation");
 }
 
+function testLaunchPricing() {
+  assert.equal(TRIAL_DAYS, 60);
+  assert.equal(shopFirstYearMonthly(1), 10);
+  assert.equal(shopFirstYearMonthly(2), 12);
+  assert.equal(shopFirstYearMonthly(10), 28);
+  assert.equal(shopFirstYearMonthly(99), 28);
+  assert.equal(periodPriceForPlan("SHOP", 1), 30);
+  assert.equal(periodPriceForPlan("SHOP", 10), 300);
+  assert.equal(firstYearPeriodPriceForPlan("STARTER"), 250);
+  assert.equal(periodPriceForPlan("STARTER"), 3600);
+  assert.equal(firstYearPeriodPriceForPlan("GROWTH"), 500);
+  assert.equal(periodPriceForPlan("GROWTH"), 8400);
+  assert.equal(firstYearPeriodPriceForPlan("BUSINESS"), 1000);
+  assert.equal(periodPriceForPlan("BUSINESS"), 18000);
+  assert.equal(firstYearPeriodPriceForPlan("ENTERPRISE"), 0);
+  assert.equal(firstYearBillingCycles("SHOP"), 12);
+  assert.equal(firstYearBillingCycles("STARTER"), 1);
+  assert.equal(firstYearBillingCycles("GROWTH"), 1);
+  assert.equal(firstYearBillingCycles("BUSINESS"), 1);
+
+  const shop = planPriceView("SHOP");
+  assert.equal(shop.primaryAmount, "$10");
+  assert.match(shop.note ?? "", /\$28/);
+  assert.match(shop.afterYearOne, /\$30\/user\/mo/);
+  const ten = planPriceView("SHOP", { seats: 10 });
+  assert.equal(ten.primaryAmount, "$28");
+  assert.match(ten.afterYearOne, /\$300\/mo/);
+  const starter = planPriceView("STARTER");
+  assert.equal(starter.primaryAmount, "$250");
+  assert.match(starter.afterYearOne, /\$3,600\/year/);
+
+  const summary = firstYearOfferSummary();
+  assert.match(summary, /\$250/);
+  assert.match(summary, /\$500/);
+  assert.match(summary, /\$1,000/);
+  assert.match(summary, /\$3,600/);
+  assert.match(summary, /\$8,400/);
+  assert.match(summary, /\$18,000/);
+  assert.doesNotMatch(summary, /50%/);
+
+  const shopSchedule = buildIntroScheduleUpdate({
+    plan: "SHOP",
+    startDate: 1_700_000_000,
+    quantity: 10,
+    introPriceId: "price_intro",
+    standardPriceId: "price_std",
+    nowUnix: 1_700_000_000,
+  });
+  assert.equal(shopSchedule["phases[0][iterations]"], "12");
+  assert.equal(shopSchedule["phases[0][items][0][price]"], "price_intro");
+  assert.equal(shopSchedule["phases[0][items][0][quantity]"], "10");
+  assert.equal(shopSchedule["phases[1][items][0][price]"], "price_std");
+  assert.equal(shopSchedule["phases[1][items][0][quantity]"], "10");
+  assert.equal(shopSchedule["phases[0][end_date]"], undefined);
+  assert.equal(
+    Object.keys(shopSchedule).some((k) => k.toLowerCase().includes("coupon")),
+    false
+  );
+
+  const annual = buildIntroScheduleUpdate({
+    plan: "STARTER",
+    startDate: 1_700_000_000,
+    quantity: 1,
+    introPriceId: "price_intro",
+    standardPriceId: "price_std",
+    nowUnix: 1_700_000_000,
+  });
+  assert.equal(annual["phases[0][iterations]"], "1");
+
+  const trialing = buildIntroScheduleUpdate({
+    plan: "SHOP",
+    startDate: 1_700_000_000,
+    quantity: 3,
+    introPriceId: "price_intro",
+    standardPriceId: "price_std",
+    trialEnd: 1_700_000_000 + 60 * 86400,
+    nowUnix: 1_700_000_000,
+  });
+  assert.equal(trialing["phases[0][iterations]"], undefined);
+  const trialEnd = Number(trialing["phases[0][trial_end]"]);
+  const end = Number(trialing["phases[0][end_date]"]);
+  assert.ok(end > trialEnd + 360 * 86400);
+  assert.ok(end < trialEnd + 370 * 86400);
+
+  assert.equal(STRIPE_FIRST_YEAR_PRICE_ENV.SHOP, "STRIPE_PRICE_SHOP_FIRST_YEAR");
+  assert.equal(STRIPE_STANDARD_PRICE_ENV.SHOP, "STRIPE_PRICE_SHOP");
+  assert.notEqual(
+    STRIPE_FIRST_YEAR_PRICE_ENV.STARTER,
+    STRIPE_STANDARD_PRICE_ENV.STARTER
+  );
+
+  const textOf = (slug: string) =>
+    LEGAL_DOCS.find((d) => d.slug === slug)!
+      .sections.flatMap((s) => s.paragraphs)
+      .join("\n");
+  const termsText = textOf("terms-of-service");
+  const refundText = textOf("refund-policy");
+  assert.match(termsText, /60 days/);
+  assert.doesNotMatch(termsText, /45 days/);
+  assert.match(termsText, /\$28/);
+  assert.match(termsText, /\$250/);
+  assert.match(termsText, /does not require a payment card/);
+  assert.match(refundText, /\$500/);
+  assert.match(refundText, /\$1,000/);
+  assert.match(refundText, /\$18,000/);
+  assert.doesNotMatch(`${termsText}\n${refundText}`, /50%/);
+  console.log("  ✓ first-year pricing");
+}
+
 console.log("smoke-unit");
 testChargeCodes();
 testModules();
@@ -204,4 +326,5 @@ testSessionIdleTimeout();
 testPasswordPolicy();
 testSecretRedaction();
 testClaimDerivation();
+testLaunchPricing();
 console.log("smoke-unit: all passed");

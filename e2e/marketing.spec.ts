@@ -14,7 +14,7 @@ test.describe("Landing page", () => {
     await expect(page.getByRole("link", { name: /^Protessera/ }).first()).toBeVisible();
     await expect(page.getByRole("link", { name: "Sign in" }).first()).toBeVisible();
     // Hero CTAs
-    await expect(page.getByRole("link", { name: /Start your 45-day free trial/i }).first()).toBeVisible();
+    await expect(page.getByRole("link", { name: /Start your 60-day free trial/i }).first()).toBeVisible();
     await expect(page.getByRole("link", { name: /Take the live demo/i }).first()).toBeVisible();
     // Footer present with legal links
     await expect(page.getByRole("link", { name: "Terms" }).first()).toBeVisible();
@@ -23,7 +23,7 @@ test.describe("Landing page", () => {
 
   test("hero 'Start free trial' navigates to signup", async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("link", { name: /Start your 45-day free trial/i }).first().click();
+    await page.getByRole("link", { name: /Start your 60-day free trial/i }).first().click();
     await expect(page).toHaveURL(/\/signup/);
   });
 
@@ -59,17 +59,18 @@ test.describe("Signup", () => {
     await page.fill('input[name="email"]', "not-an-email");
     // bypass native validation to hit the server check
     await page.locator('input[name="email"]').evaluate((el: HTMLInputElement) => (el.type = "text"));
-    await page.getByRole("button", { name: /Continue to secure checkout/i }).click();
+    await page.getByRole("button", { name: /free trial/i }).click();
     await expect(page).toHaveURL(/error=email/);
   });
 
-  test("valid submit reaches checkout attempt (graceful with dummy Stripe)", async ({ page }) => {
+  test("valid submit starts a no-card trial", async ({ page }) => {
     await page.goto("/signup?plan=starter");
     await page.fill('input[name="email"]', "tester@example.com");
     await page.fill('input[name="company"]', "Test Co");
-    await page.getByRole("button", { name: /Continue to secure checkout/i }).click();
-    // dummy key → Stripe API rejects → graceful redirect back with error=stripe
-    await expect(page).toHaveURL(/error=stripe|checkout\.stripe\.com/);
+    await page.getByRole("button", { name: /free trial/i }).click();
+    // No card and no Stripe call. Provision either opens onboarding or
+    // returns to signup if the workspace could not be created.
+    await expect(page).toHaveURL(/\/onboard\/|error=provision/);
   });
 });
 
@@ -81,12 +82,15 @@ test.describe("Legal", () => {
     await expect(page.getByRole("link", { name: "Privacy", exact: true }).first()).toBeVisible(); // footer
   });
 
-  test("terms shows real entity + 45-day trial, no template disclaimer", async ({ page }) => {
+  test("terms shows real entity + 60-day trial and first-year prices, no template disclaimer", async ({ page }) => {
     await page.goto("/legal/terms-of-service");
     const body = await page.locator("body").innerText();
     expect(body).toMatch(/Protessera, LLC/);
     expect(body).toMatch(/California/);
-    expect(body).toMatch(/45 days/);
+    expect(body).toMatch(/60 days/);
+    expect(body).toMatch(/\$250/);
+    expect(body).toMatch(/\$3,600/);
+    expect(body).not.toMatch(/50%/);
     expect(body).not.toMatch(/template and not legal advice|have counsel review/i);
   });
 });

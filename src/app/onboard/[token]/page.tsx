@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { tenantBySetupToken } from "@/lib/services/tenancy";
 import { ClaimTenantForm } from "@/components/auth/auth-forms";
+import { TRIAL_DAYS } from "@/lib/services/subscription-plans";
 
 export const dynamic = "force-dynamic";
 
@@ -36,8 +37,8 @@ export default async function OnboardPage({
               <p className="mb-3 text-sm text-slate-400">
                 Set a password for{" "}
                 <span className="text-slate-200">{tenant.billingEmail}</span> to
-                activate your workspace and jump in. Your 45-day trial is already
-                running.
+                activate your workspace and jump in. Your {TRIAL_DAYS}-day trial is
+                already running. No card was required.
               </p>
               <ClaimTenantForm token={token} />
             </>

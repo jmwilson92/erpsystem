@@ -1,13 +1,41 @@
 /**
  * Legal document content for the hosted service.
+ * Dollar amounts and the trial length are read from the plan catalog.
  */
+import {
+  TRIAL_DAYS,
+  firstYearOfferSummary,
+  formatPlanMoney,
+  getPlan,
+  shopFirstYearMonthly,
+} from "./services/subscription-plans";
+
+function trialParagraph(): string {
+  return `Free trials run for ${TRIAL_DAYS} days and do not require a payment card. You get the features described at signup. Beta or early-access features are provided on an as-is basis and may change or be withdrawn. Keep independent records of anything business-critical.`;
+}
+
+function feesParagraphs(): string[] {
+  const shop = getPlan("SHOP")!;
+  const max = shop.maxSeats ?? 10;
+  return [
+    `${firstYearOfferSummary()} Shop is billed monthly. Starter, Growth, and Business are billed annually. The ${TRIAL_DAYS}-day trial does not require a payment card. When you subscribe, the payment method you provide is charged the first-year price for the first 12 months, then the standard price.`,
+    `You may request a full refund of that first paid charge within 15 days of the charge. A ${max}-user Shop example of the first monthly charge is ${formatPlanMoney(shopFirstYearMonthly(max))}. Renewals at the standard price are not pro-rated or refundable except where required by law. Fees are exclusive of taxes, which you are responsible for.`,
+  ];
+}
+
+function refundParagraphs(): string[] {
+  return [
+    `The ${TRIAL_DAYS}-day trial is free and requires no payment card to start. When you subscribe, the first 12 months are billed at the first-year price, then at the standard price. ${firstYearOfferSummary()} Shop is billed monthly. Starter, Growth, and Business are billed annually.`,
+    "You may request a full refund of the first paid charge within 15 days of that charge — contact billing and we'll process it. After 15 days, that charge is non-refundable except where required by law.",
+  ];
+}
 
 export const LEGAL_COMPANY = "Protessera";
 export const LEGAL_ENTITY = "Protessera, LLC";
 export const LEGAL_JURISDICTION = "California, United States";
 export const LEGAL_CONTACT = "jeramey.wilson@protessera.com";
 export const PRIVACY_CONTACT = "jeramey.wilson@protessera.com";
-export const LAST_UPDATED = "2026-07-29";
+export const LAST_UPDATED = "2026-10-06";
 
 export type LegalSection = { heading: string; paragraphs: string[] };
 export type LegalDoc = {
@@ -39,14 +67,13 @@ export const LEGAL_DOCS: LegalDoc[] = [
       {
         heading: "3. Trials and beta",
         paragraphs: [
-          "Free trials run for the stated period (currently 45 days) with the features described at signup. Beta or early-access features are provided on an as-is basis and may change or be withdrawn. Keep independent records of anything business-critical.",
+          trialParagraph(),
         ],
       },
       {
         heading: "4. Fees, billing, and refunds",
         paragraphs: [
-          "Paid plans are billed annually in advance based on your selected tier and organization size. Unless you cancel before the trial ends, the payment method on file is charged for the first annual term when the trial concludes.",
-          "You may request a full refund of the initial annual charge within 15 days of that charge. Renewals are not pro-rated or refundable except where required by law. Fees are exclusive of taxes, which you are responsible for.",
+          ...feesParagraphs(),
         ],
       },
       {
@@ -245,19 +272,18 @@ export const LEGAL_DOCS: LegalDoc[] = [
   {
     slug: "refund-policy",
     title: "Refund Policy",
-    summary: "Trials, the first annual charge, and renewals.",
+    summary: "Trials, the first paid charge, and renewals.",
     sections: [
       {
         heading: "Trials and the first charge",
         paragraphs: [
-          "The 45-day trial is free and requires no payment to start using. When the trial ends, the annual plan you selected is charged to your payment method.",
-          "You may request a full refund of that initial annual charge within 15 days of the charge — contact billing and we'll process it. After 15 days, the annual term is non-refundable except where required by law.",
+          ...refundParagraphs(),
         ],
       },
       {
         heading: "Renewals and cancellation",
         paragraphs: [
-          "Annual plans renew automatically. Cancel before the renewal date to avoid the next charge. Renewals are not pro-rated. Canceling stops future billing; you keep access through the paid term.",
+          "Plans renew automatically at the standard price after the first 12 months (monthly for Shop, annually for Starter, Growth, and Business). Cancel before the renewal date to avoid the next charge. Renewals are not pro-rated. Canceling stops future billing; you keep access through the paid term.",
         ],
       },
     ],

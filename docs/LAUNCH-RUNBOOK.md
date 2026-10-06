@@ -54,15 +54,24 @@ spin up a `demo_*` schema and drop you into a seeded ERP with no login.
 
 ## 3. Environment variables (Vercel → Project → Settings → Environment Variables)
 
-Already set (confirmed): `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
-`STRIPE_PRICE_SHOP` (per-seat monthly $30, qty 1–10), `STRIPE_PRICE_STARTER`, `STRIPE_PRICE_GROWTH`, `STRIPE_PRICE_BUSINESS`.
+Already set (confirmed): `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and the
+**standard** prices `STRIPE_PRICE_SHOP` (per-seat monthly $30, qty 1–10),
+`STRIPE_PRICE_STARTER` ($3,600/year), `STRIPE_PRICE_GROWTH` ($8,400/year),
+`STRIPE_PRICE_BUSINESS` ($18,000/year). Leave those price IDs in place — existing
+subscribers stay on them.
+
+New checkouts also need the first-year prices (see §4). Until those env vars
+exist, Plan & billing refuses to start a first-year checkout rather than
+charging the standard price by mistake.
 
 > **Test vs live mode:** every Stripe value above is mode-specific. Switching to
-> live means recreating the **4 prices** (Shop per-seat + 3 annual), the coupon,
-> and the webhook endpoint in live mode, then updating `STRIPE_SECRET_KEY`
-> (`sk_live_…`), the 4 `STRIPE_PRICE_*`, `STRIPE_COUPON_LAUNCH`, and
-> `STRIPE_WEBHOOK_SECRET` to the live values. A leftover test webhook secret
-> makes live events fail signature verification (400s in Stripe → Webhooks).
+> live means recreating the **4 standard prices** and the **4 first-year prices**
+> (Shop graduated + 3 annual intro prices), and the webhook endpoint in live
+> mode, then updating `STRIPE_SECRET_KEY` (`sk_live_…`), the 8 `STRIPE_PRICE_*`
+> vars, and `STRIPE_WEBHOOK_SECRET` to the live values. A leftover test webhook
+> secret makes live events fail signature verification (400s in Stripe → Webhooks).
+> Do **not** set `STRIPE_COUPON_LAUNCH`. The 50%-off coupon is retired and the
+> app does not read it.
 
 Add these:
 
@@ -72,17 +81,23 @@ Add these:
 | `CRON_SECRET` | a long random string | Auth for the demo-sweep cron route |
 | `DEMO_IDLE_MINUTES` | `10` (optional, default 10) | Idle minutes before a claimed sandbox is reaped and its ~23 MB returned to the pool budget. Measures a heartbeat, not clicks: the demo pings every 60s while its tab is open, so this only reaps sandboxes whose tab is gone. |
 | `DEMO_POOL_SIZE` | `5` (optional, default 5, max 20) | Pre-warmed demo sandboxes kept ready. Cloning takes seconds against a remote DB, so the pool is what makes "Take the live demo" feel instant. `0` disables pre-warming (every visitor waits for a clone). A demo schema measures ~23 MB, and a spare costs that whether or not anyone claims it: 5 is ~115 MB, 15 is ~345 MB. Supabase free is 500 MB total, shared with demo_template, the dogfood schema, real tenants, and claimed demos -- so raise this only on a paid database. |
-| `LAUNCH_DATE` | `YYYY-MM-DD` **launch day** | Opens the 50%-off promo window |
-| `LAUNCH_PROMO_DAYS` | `60` (optional, default 60) | Length of the promo window |
-| `STRIPE_COUPON_LAUNCH` | Stripe coupon id (see §4) | The 50%-off-first-year coupon |
+| `STRIPE_PRICE_SHOP_FIRST_YEAR` | Stripe price id (see §4) | Graduated Shop price for the first 12 paid months |
+| `STRIPE_PRICE_STARTER_FIRST_YEAR` | Stripe price id | $250 for the first year |
+| `STRIPE_PRICE_GROWTH_FIRST_YEAR` | Stripe price id | $500 for the first year |
+| `STRIPE_PRICE_BUSINESS_FIRST_YEAR` | Stripe price id | $1,000 for the first year |
 
 Notes:
-- **Until `LAUNCH_DATE` is set, the auto-coupon is OFF** and the signup page
-  simply shows the manual promo-code box on Stripe. Set it to the real launch
-  day when you're ready — the 50%-off applies automatically for
-  `LAUNCH_PROMO_DAYS` days after it.
-- Until `STRIPE_COUPON_LAUNCH` exists, no auto-discount is applied even inside
-  the window (fails safe — full price, never a broken checkout).
+- `LAUNCH_DATE`, `LAUNCH_PROMO_DAYS`, and `STRIPE_COUPON_LAUNCH` are **ignored**.
+  Checkout does not offer a promotion-code box, so a leftover 50% coupon cannot
+  be entered. Deactivate that coupon in the Stripe dashboard anyway.
+- The hosted trial is 60 days and does not collect a card. The first-year price
+  is charged when the customer subscribes from Plan & billing (there is no card
+  on file to charge automatically on day 60). A subscription schedule then
+  switches that subscription to the standard price after 12 paid months.
+- An instance whose `billingProvider` is already `stripe` checks out at the
+  standard price. The webhook does not rewrite that subscriber's current
+  subscription. Trials and instances that have never been billed by Stripe
+  check out at the first-year price.
 
 ### 3a. Carina (AI voice assistant + agent)
 
@@ -107,19 +122,40 @@ Notes:
 Note: `SMTP_URL` is an alternate transport for self-hosted deployments; the
 hosted app uses Resend.
 
-## 4. Stripe dashboard — coupon + webhook
+## 4. Stripe dashboard — first-year prices + webhook
 
-**Coupon (50% off first year):**
-1. Products → Coupons → New.
-2. Percentage discount **50%**, Duration **Once** (applies to the first annual
-   invoice = first year).
-3. Copy the coupon **ID** into `STRIPE_COUPON_LAUNCH`.
+Create the four first-year prices in the **same Stripe mode** as
+`STRIPE_SECRET_KEY` (test or live). `npm run stripe:setup-plans` does this from
+the plan catalog and prints the env vars. If you create them by hand:
+
+**Shop first year** (`STRIPE_PRICE_SHOP_FIRST_YEAR`) — recurring, monthly, USD,
+billing scheme **Tiered**, tiers mode **Graduated**:
+1. First unit: up to 1, **$10.00** per unit.
+2. Remaining units: up to infinity, **$2.00** per unit.
+3. A quantity of 10 must invoice at **$28.00**. Do not use a flat per-seat price
+   or a percent-off coupon; seat quantity is adjustable on Checkout.
+
+**Starter first year** (`STRIPE_PRICE_STARTER_FIRST_YEAR`) — **$250.00** / year.
+**Growth first year** (`STRIPE_PRICE_GROWTH_FIRST_YEAR`) — **$500.00** / year.
+**Business first year** (`STRIPE_PRICE_BUSINESS_FIRST_YEAR`) — **$1,000.00** / year.
+
+Leave the existing standard prices unchanged:
+Shop $30/seat/month, Starter $3,600/year, Growth $8,400/year, Business $18,000/year.
+
+Deactivate the old **50% off first year** coupon if it still exists. The app
+does not apply it.
+
+On `checkout.session.completed` for a new first-year checkout, the app attaches
+a subscription schedule: 12 monthly cycles (Shop) or 1 annual cycle
+(Starter / Growth / Business) on the first-year price, then the standard price
+with the same quantity. `end_behavior` is `release`. Proration on the transition
+is `none`.
 
 **Webhook endpoint:**
 1. Developers → Webhooks → Add endpoint: `https://www.protessera.com/api/stripe/webhook`.
 2. Send these events:
    - `checkout.session.completed`  (provisions the customer tenant)
-   - `invoice.payment_succeeded`   (day-45 charge → tenant ACTIVE)
+   - `invoice.payment_succeeded`   (first paid invoice → tenant ACTIVE)
    - `customer.subscription.updated`
    - `customer.subscription.deleted`
 3. Copy the signing secret into `STRIPE_WEBHOOK_SECRET` (already set — re-check it
@@ -178,7 +214,8 @@ follow-up). Trial reminder **emails** (Resend) remain **Phase 4 — on hold**.
    even before the steps below).
 2. §1 `db push` Tenant table.
 3. §2 build `demo_template`.
-4. §3 env vars, §4 Stripe coupon + webhook.
+4. §3 env vars, §4 Stripe first-year prices + webhook. Deactivate the 50% coupon.
 5. Smoke test: take the demo; run a Stripe **test-mode** checkout end-to-end and
    confirm a `tenant_*` schema appears and `public` is unchanged.
-6. Set `LAUNCH_DATE` on launch day.
+6. Confirm a test checkout uses the first-year price, and that the subscription
+   schedule's second phase is the standard price. Do not set `LAUNCH_DATE`.

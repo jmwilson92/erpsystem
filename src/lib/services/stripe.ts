@@ -3,22 +3,37 @@ import {
   getPlan,
   isPerSeatPlan,
   normalizeSeats,
+  TRIAL_DAYS,
+  STRIPE_STANDARD_PRICE_ENV,
+  STRIPE_FIRST_YEAR_PRICE_ENV,
 } from "@/lib/services/subscription";
+import { buildIntroScheduleUpdate } from "@/lib/services/stripe-intro";
 
 /**
  * Minimal Stripe integration over the REST API (no SDK dependency). Env-gated:
  * unconfigured → the billing page falls back to in-app activation.
  *
+ * Standard (year two+) prices — existing subscribers stay on these:
+ *   STRIPE_PRICE_SHOP        price_... (per-seat monthly, $30/unit; qty = seats 1–10)
+ *   STRIPE_PRICE_STARTER     price_... (flat annual, $3,600)
+ *   STRIPE_PRICE_GROWTH      price_... (flat annual, $8,400)
+ *   STRIPE_PRICE_BUSINESS    price_... (flat annual, $18,000)
+ *
+ * First-year prices — new checkouts only. A subscription schedule switches to
+ * the standard price after 12 paid months. Shop is graduated ($10 first seat,
+ * $2 each additional), not a percent-off coupon.
+ *   STRIPE_PRICE_SHOP_FIRST_YEAR
+ *   STRIPE_PRICE_STARTER_FIRST_YEAR
+ *   STRIPE_PRICE_GROWTH_FIRST_YEAR
+ *   STRIPE_PRICE_BUSINESS_FIRST_YEAR
+ *
  *   STRIPE_SECRET_KEY        sk_test_... / sk_live_...
  *   STRIPE_WEBHOOK_SECRET    whsec_...
- *   STRIPE_PRICE_SHOP        price_... (per-seat monthly, $30/unit; qty = seats 1–10)
- *   STRIPE_PRICE_STARTER     price_... (flat annual)
- *   STRIPE_PRICE_GROWTH      price_...
- *   STRIPE_PRICE_BUSINESS    price_...
  *   APP_URL                  https://your-instance (for success/cancel URLs)
  *
  * Enterprise is "contact sales" — no self-serve checkout.
  * Shop: line-item quantity = seats (adjustable 1–10 on Checkout).
+ * LAUNCH_DATE, LAUNCH_PROMO_DAYS, and STRIPE_COUPON_LAUNCH are not read.
  */
 
 const API = "https://api.stripe.com/v1";
@@ -27,14 +42,56 @@ export function stripeEnabled(): boolean {
   return Boolean(process.env.STRIPE_SECRET_KEY);
 }
 
+function envPrice(map: Record<string, string>, plan: string): string | undefined {
+  const envName = map[plan.toUpperCase()];
+  if (!envName) return undefined;
+  const value = process.env[envName]?.trim();
+  return value || undefined;
+}
+
+/** Standard (year two+) Stripe Price id. Existing subscriptions keep using these. */
 export function priceIdForPlan(plan: string): string | undefined {
-  const map: Record<string, string | undefined> = {
-    SHOP: process.env.STRIPE_PRICE_SHOP,
-    STARTER: process.env.STRIPE_PRICE_STARTER,
-    GROWTH: process.env.STRIPE_PRICE_GROWTH,
-    BUSINESS: process.env.STRIPE_PRICE_BUSINESS,
-  };
-  return map[plan];
+  return envPrice(STRIPE_STANDARD_PRICE_ENV, plan);
+}
+
+/** First-year Stripe Price id. Used only when starting a new subscription. */
+export function firstYearPriceIdForPlan(plan: string): string | undefined {
+  return envPrice(STRIPE_FIRST_YEAR_PRICE_ENV, plan);
+}
+
+/**
+ * Price id for a new Checkout. First-year checkout also requires the standard
+ * price so the renewal schedule can be attached; we refuse to start a
+ * subscription that would stay on the intro price forever.
+ */
+function requireCheckoutPrice(plan: string, firstYear: boolean): string {
+  const key = plan.toUpperCase();
+  if (firstYear) {
+    const introEnv = STRIPE_FIRST_YEAR_PRICE_ENV[key];
+    const standardEnv = STRIPE_STANDARD_PRICE_ENV[key];
+    const intro = firstYearPriceIdForPlan(key);
+    const standard = priceIdForPlan(key);
+    if (!intro || !standard) {
+      const missing = [
+        !intro ? introEnv : null,
+        !standard ? standardEnv : null,
+      ]
+        .filter(Boolean)
+        .join(" and ");
+      throw new Error(
+        `No Stripe price configured for ${key} first-year checkout. Set ${missing}.`
+      );
+    }
+    return intro;
+  }
+  const standardEnv = STRIPE_STANDARD_PRICE_ENV[key];
+  const standard = priceIdForPlan(key);
+  if (!standard) {
+    throw new Error(
+      `No Stripe price configured for ${key}. Set ${standardEnv ?? `STRIPE_PRICE_${key}`}.`
+    );
+  }
+  return standard;
 }
 
 function form(params: Record<string, string | undefined>): string {
@@ -140,13 +197,16 @@ export async function createCheckoutSession(params: {
   seats?: number | null;
   customerEmail?: string;
   appUrl: string;
+  /**
+   * true (default): charge the first-year price. The webhook attaches a
+   * schedule that moves the subscription onto the standard price after 12
+   * paid months. Pass false for an already-paid instance so a plan change
+   * bills the standard price and does not rewrite the existing subscription.
+   */
+  firstYear?: boolean;
 }): Promise<string> {
-  const price = priceIdForPlan(params.plan);
-  if (!price) {
-    throw new Error(
-      `No Stripe price configured for ${params.plan}. Set STRIPE_PRICE_${params.plan}.`
-    );
-  }
+  const firstYear = params.firstYear !== false;
+  const price = requireCheckoutPrice(params.plan, firstYear);
   const qty = checkoutQuantity(params.plan, params.seats);
   const seatsMeta = isPerSeatPlan(params.plan)
     ? String(qty)
@@ -161,9 +221,12 @@ export async function createCheckoutSession(params: {
     customer_email: params.customerEmail,
     "metadata[plan]": params.plan,
     "metadata[seats]": seatsMeta,
+    "metadata[firstYear]": firstYear ? "1" : "0",
     "subscription_data[metadata][plan]": params.plan,
     "subscription_data[metadata][seats]": seatsMeta,
-    allow_promotion_codes: "true",
+    "subscription_data[metadata][firstYear]": firstYear ? "1" : "0",
+    // Promo codes stay off so a leftover 50%-off coupon cannot stack on the
+    // first-year price or discount an existing subscriber's standard price.
   };
   // Shop: let the customer adjust quantity (seats) on Stripe Checkout, max 10.
   if (isPerSeatPlan(params.plan)) {
@@ -181,27 +244,11 @@ export async function createCheckoutSession(params: {
 }
 
 /**
- * Whether the launch promo (50% off first year) is currently active. Gated to a
- * window that opens on LAUNCH_DATE and runs LAUNCH_PROMO_DAYS (default 60) days.
- * If LAUNCH_DATE is unset, the auto-coupon is off (customers can still enter a
- * promo code manually — allow_promotion_codes stays on).
- */
-export function launchPromoActive(now: Date = new Date()): boolean {
-  const raw = process.env.LAUNCH_DATE;
-  if (!raw) return false;
-  const start = new Date(raw);
-  if (Number.isNaN(start.getTime())) return false;
-  const days = Number(process.env.LAUNCH_PROMO_DAYS) || 60;
-  const end = new Date(start.getTime() + days * 86_400_000);
-  return now >= start && now <= end;
-}
-
-/**
- * Create a subscription Checkout Session for a new self-serve signup: card
- * required up front, a 45-day free trial (no charge until day 45), and — inside
- * the launch window — the 50%-off-first-year coupon applied automatically.
- * Returns the hosted checkout URL. `metadata.provision = tenant` tells the
- * webhook this completed checkout should provision a brand-new customer tenant.
+ * Card-up-front Checkout with a Stripe trial, then the first-year price.
+ * The hosted signup does not call this — customers start a no-card trial via
+ * provisionCustomerTenant and subscribe later from Plan & billing.
+ * Kept so a future card-up-front path cannot reintroduce the 50% coupon.
+ * `metadata.provision = tenant` tells the webhook to provision a new tenant.
  */
 export async function createTrialCheckoutSession(params: {
   plan: string;
@@ -211,19 +258,13 @@ export async function createTrialCheckoutSession(params: {
   companyName?: string;
   appUrl: string;
 }): Promise<string> {
-  const price = priceIdForPlan(params.plan);
-  if (!price) {
-    throw new Error(
-      `No Stripe price configured for ${params.plan}. Set STRIPE_PRICE_${params.plan}.`
-    );
-  }
-  const coupon = process.env.STRIPE_COUPON_LAUNCH;
-  const applyCoupon = coupon && launchPromoActive();
+  const price = requireCheckoutPrice(params.plan, true);
   const qty = checkoutQuantity(params.plan, params.seats);
   const seatsMeta = isPerSeatPlan(params.plan)
     ? String(qty)
     : String(getPlan(params.plan)?.seats ?? "");
   const planDef = getPlan(params.plan);
+  const trialDays = params.trialDays > 0 ? params.trialDays : TRIAL_DAYS;
 
   const body: Record<string, string | undefined> = {
     mode: "subscription",
@@ -232,17 +273,19 @@ export async function createTrialCheckoutSession(params: {
     success_url: `${params.appUrl}/signup/complete?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${params.appUrl}/signup?checkout=cancel&plan=${params.plan}`,
     customer_email: params.customerEmail,
-    // Require a card even though the trial is free, so day-45 billing is seamless.
     payment_method_collection: "always",
-    "subscription_data[trial_period_days]": String(params.trialDays),
+    "subscription_data[trial_period_days]": String(trialDays),
     "subscription_data[metadata][plan]": params.plan,
     "subscription_data[metadata][seats]": seatsMeta,
     "subscription_data[metadata][provision]": "tenant",
+    "subscription_data[metadata][firstYear]": "1",
+    "subscription_data[metadata][trialDays]": String(trialDays),
     "metadata[plan]": params.plan,
     "metadata[seats]": seatsMeta,
     "metadata[provision]": "tenant",
     "metadata[companyName]": params.companyName,
-    allow_promotion_codes: applyCoupon ? undefined : "true",
+    "metadata[firstYear]": "1",
+    "metadata[trialDays]": String(trialDays),
   };
   if (isPerSeatPlan(params.plan)) {
     body["line_items[0][adjustable_quantity][enabled]"] = "true";
@@ -253,12 +296,96 @@ export async function createTrialCheckoutSession(params: {
       planDef?.maxSeats ?? 10
     );
   }
-  // Stripe rejects allow_promotion_codes + discounts together; when we auto-apply
-  // the launch coupon we drop the manual promo-code box.
-  if (applyCoupon) body["discounts[0][coupon]"] = coupon;
 
   const session = await stripePost("/checkout/sessions", form(body));
   return session.url as string;
+}
+
+type StripePriceRef = string | { id?: string } | null | undefined;
+
+function priceRefId(price: StripePriceRef): string | undefined {
+  if (!price) return undefined;
+  if (typeof price === "string") return price;
+  return price.id;
+}
+
+type SchedulePhase = {
+  start_date?: number;
+  end_date?: number | null;
+  trial_end?: number | null;
+  items?: { price?: StripePriceRef; quantity?: number }[];
+};
+
+/**
+ * Attach a subscription schedule that keeps the first-year price for 12 paid
+ * months, then moves the same quantity onto the standard price. Idempotent:
+ * a subscription that already has a phase on the standard price is left alone.
+ * Never called for an existing subscriber's current subscription.
+ */
+export async function ensureIntroRenewalSchedule(
+  subscriptionId: string,
+  plan: string
+): Promise<void> {
+  if (!subscriptionId.startsWith("sub_") || subscriptionId.startsWith("sub_sched")) {
+    throw new Error("Invalid subscription id for first-year schedule");
+  }
+  const standardPrice = priceIdForPlan(plan);
+  const introPrice = firstYearPriceIdForPlan(plan);
+  if (!standardPrice || !introPrice) {
+    requireCheckoutPrice(plan, true);
+    throw new Error(`Missing Stripe prices for ${plan} first-year schedule`);
+  }
+  const sub = (await stripeGet(`/subscriptions/${subscriptionId}`)) as {
+    schedule?: string | { id?: string } | null;
+    trial_end?: number | null;
+    items?: { data?: { quantity?: number; price?: StripePriceRef }[] };
+  };
+  let scheduleId =
+    typeof sub.schedule === "string" ? sub.schedule : sub.schedule?.id;
+
+  if (!scheduleId) {
+    try {
+      const created = (await stripePost(
+        "/subscription_schedules",
+        form({ from_subscription: subscriptionId })
+      )) as { id?: string };
+      scheduleId = created.id;
+    } catch (err) {
+      const again = (await stripeGet(`/subscriptions/${subscriptionId}`)) as {
+        schedule?: string | { id?: string } | null;
+      };
+      scheduleId =
+        typeof again.schedule === "string" ? again.schedule : again.schedule?.id;
+      if (!scheduleId) throw err;
+    }
+  }
+  if (!scheduleId) throw new Error("Stripe did not return a subscription schedule");
+
+  const schedule = (await stripeGet(
+    `/subscription_schedules/${scheduleId}`
+  )) as { phases?: SchedulePhase[] };
+  const phases = schedule.phases ?? [];
+  const already = phases.some((ph) =>
+    (ph.items ?? []).some((it) => priceRefId(it.price) === standardPrice)
+  );
+  if (already) return;
+
+  const current = phases[phases.length - 1];
+  if (!current?.start_date) {
+    throw new Error("First-year schedule is missing the current phase");
+  }
+  const quantity =
+    current.items?.[0]?.quantity ?? sub.items?.data?.[0]?.quantity ?? 1;
+  const trialEnd = current.trial_end ?? sub.trial_end ?? null;
+  const body = buildIntroScheduleUpdate({
+    plan,
+    startDate: current.start_date,
+    quantity,
+    introPriceId: introPrice,
+    standardPriceId: standardPrice,
+    trialEnd,
+  });
+  await stripePost(`/subscription_schedules/${scheduleId}`, form(body));
 }
 
 /** Verify a Stripe webhook signature (Stripe-Signature header). */
@@ -345,6 +472,18 @@ export async function handleWebhookEvent(event: {
 
   if (event.type === "checkout.session.completed") {
     const m = meta(obj);
+    // New first-year checkouts only. An existing subscriber's subscription is
+    // not rewritten; their checkout sets firstYear=0 and bills the standard price.
+    if (m.firstYear === "1") {
+      const subForSchedule =
+        typeof obj.subscription === "string" ? obj.subscription : "";
+      if (!subForSchedule.startsWith("sub_")) {
+        throw new Error(
+          "checkout.session.completed missing subscription for first-year schedule"
+        );
+      }
+      await ensureIntroRenewalSchedule(subForSchedule, m.plan || "STARTER");
+    }
     if (m.provision !== "tenant") return; // not a self-serve signup — ignore
     const email =
       (obj.customer_email as string) ||
@@ -368,7 +507,8 @@ export async function handleWebhookEvent(event: {
       seats,
       billingEmail: email,
       companyName: m.companyName || null,
-      trialDays: 45,
+      trialDays:
+        Number(m.trialDays) > 0 ? Number(m.trialDays) : TRIAL_DAYS,
       stripeCustomerId: customerId,
       stripeSubscriptionId: subscriptionId,
     });

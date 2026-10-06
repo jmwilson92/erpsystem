@@ -6,20 +6,21 @@ import { SignupPlanForm } from "@/components/marketing/signup-plan-form";
 import {
   PLANS,
   TRIAL_DAYS,
+  firstYearOfferSummary,
+  planPriceView,
   planSeatsLabel,
 } from "@/lib/services/subscription";
-import { launchPromoActive } from "@/lib/services/stripe";
 import { actionStartTrial } from "./actions";
 
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Start your free trial",
-  description: `Start a ${TRIAL_DAYS}-day free trial of Protessera manufacturing ERP. No credit card. Full product access. Pay only if you keep the plant after the trial.`,
+  description: `Start a ${TRIAL_DAYS}-day free trial of Protessera manufacturing ERP. No credit card. ${firstYearOfferSummary()}`,
   alternates: { canonical: "/signup" },
   openGraph: {
     title: "Start your Protessera free trial",
-    description: `${TRIAL_DAYS}-day free trial of plug-and-play manufacturing ERP. Every module included.`,
+    description: `${TRIAL_DAYS}-day free trial, no card. ${firstYearOfferSummary()}`,
     url: "/signup",
   },
   robots: {
@@ -27,10 +28,6 @@ export const metadata: Metadata = {
     follow: true,
   },
 };
-
-function money(n: number) {
-  return `$${n.toLocaleString()}`;
-}
 
 const ERRORS: Record<string, string> = {
   plan: "Please choose a plan to continue.",
@@ -55,18 +52,16 @@ export default async function SignupPage({
   const errorMsg = ERRORS[errorKey];
   const cancelled =
     (Array.isArray(sp.checkout) ? sp.checkout[0] : sp.checkout) === "cancel";
-  const promoOn = launchPromoActive();
   const paidPlans = PLANS.filter((p) => p.key !== "ENTERPRISE");
   const defaultPlan =
     selected && selected.key !== "ENTERPRISE" ? selected.key : "SHOP";
+  const selectedView = selected ? planPriceView(selected.key) : null;
 
   const selectedSummary = selected
-    ? selected.pricing === "per_seat"
-      ? `You're starting on ${selected.name} (${money(selected.pricePerSeatMonthly ?? 30)}/user/mo, ${planSeatsLabel(selected)}). Set quantity for the seats you need.`
-      : selected.pricing === "custom"
-        ? `You're interested in ${selected.name} — contact sales after trial setup, or pick a self-serve plan below.`
-        : `You're starting on the ${selected.name} plan (${money(selected.price)}/year, ${planSeatsLabel(selected)}).`
-    : `Pick a plan and get the full product for ${TRIAL_DAYS} days, free. No card. Small shops start at $30/user/mo.`;
+    ? selected.pricing === "custom"
+      ? `You're interested in ${selected.name}. Enterprise is quoted. Pick a self-serve plan below, or contact sales after you open the plant.`
+      : `You're starting on ${selected.name} (${planSeatsLabel(selected)}). ${selectedView?.primaryAmount}${selectedView?.primarySuffix}. ${selectedView?.note ? `${selectedView.note} ` : ""}${selectedView?.afterYearOne}`
+    : `Pick a plan and get the full product for ${TRIAL_DAYS} days, free. No card. ${firstYearOfferSummary()}`;
 
   return (
     <MarketingShell>
@@ -84,9 +79,9 @@ export default async function SignupPage({
             {[
               `Full access to every module for ${TRIAL_DAYS} days — no feature locked.`,
               "No credit card to start. Set a password and walk into your plant.",
-              `On day ${TRIAL_DAYS} we ask you to pay for the suite you picked. Until then, nothing is billed.`,
+              `On day ${TRIAL_DAYS} we ask you to subscribe. Until then, nothing is billed.`,
               "If you do not subscribe, the plant stays but the floor locks until you add a card.",
-              "Launch offer: 50% off your first year for a limited time.",
+              firstYearOfferSummary(),
             ].map((x) => (
               <li key={x} className="flex items-start gap-2">
                 <Check className="mt-0.5 h-4 w-4 shrink-0 text-teal-400" />
@@ -109,7 +104,6 @@ export default async function SignupPage({
           defaultSeats={3}
           action={actionStartTrial}
           trialDays={TRIAL_DAYS}
-          promoOn={promoOn}
         />
 
         <p className="mt-6 text-center text-xs text-slate-600">

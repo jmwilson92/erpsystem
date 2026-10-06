@@ -96,7 +96,8 @@ DIRECT_URL="postgresql://postgres.xxxx:PW@aws-0-REGION.pooler.supabase.com:5432/
 
 **Optional integrations (set only what you use)**
 - [ ] Billing: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
-      `STRIPE_PRICE_SHOP`, `STRIPE_PRICE_STARTER`, `STRIPE_PRICE_GROWTH`, `STRIPE_PRICE_BUSINESS`
+      standard prices `STRIPE_PRICE_SHOP`, `STRIPE_PRICE_STARTER`, `STRIPE_PRICE_GROWTH`, `STRIPE_PRICE_BUSINESS`,
+      first-year prices `STRIPE_PRICE_SHOP_FIRST_YEAR`, `STRIPE_PRICE_STARTER_FIRST_YEAR`, `STRIPE_PRICE_GROWTH_FIRST_YEAR`, `STRIPE_PRICE_BUSINESS_FIRST_YEAR`
 - [ ] Bank feeds: `PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_ENV`
 - [ ] Email: `RESEND_API_KEY` **or** `SMTP_URL`, plus `EMAIL_FROM`
 - [ ] AI assistant: `XAI_API_KEY`, `XAI_MODEL`
@@ -115,7 +116,7 @@ DIRECT_URL="postgresql://postgres.xxxx:PW@aws-0-REGION.pooler.supabase.com:5432/
 Run from your machine (env pointed at Supabase; uses `DIRECT_URL`):
 - [ ] `npx prisma db push`  ← creates all tables in Supabase
 - [ ] `npm run db:seed:prod`  ← production seed: **no demo data**, no users,
-      starts a 30-day trial, permission/role scaffolding + default settings
+      starts a 60-day trial, permission/role scaffolding + default settings
 - [ ] Deploy (git push → Vercel builds) or `vercel --prod`
 - [ ] Open the site → **"First boot — claim this instance"** → create the first
       ADMIN (this is how the owner account is made; the prod seed creates no users)
@@ -151,7 +152,7 @@ real data (no demo). Notes:
 - [ ] Invite the team from **Admin → Roles & Permissions → Invite teammates**
       (needs email env set) or have them self-claim then assign roles.
 - [ ] Turn off the trial banner by moving onto a plan (Stripe) or leave it —
-      trials are 30 days with unlimited users.
+      trials are 60 days and do not require a card. First-year prices apply for the first 12 months after subscribe, then standard prices.
 
 ---
 

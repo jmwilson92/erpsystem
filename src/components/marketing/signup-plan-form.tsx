@@ -3,14 +3,10 @@
 import { useMemo, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import {
-  periodPriceForPlan,
+  planPriceView,
   planSeatsLabel,
   type PlanDef,
 } from "@/lib/services/subscription-plans";
-
-function money(n: number) {
-  return `$${n.toLocaleString()}`;
-}
 
 type Props = {
   plans: PlanDef[];
@@ -18,7 +14,6 @@ type Props = {
   defaultSeats?: number;
   action: (formData: FormData) => void | Promise<void>;
   trialDays: number;
-  promoOn: boolean;
 };
 
 function pingLead(payload: {
@@ -58,7 +53,6 @@ export function SignupPlanForm({
   defaultSeats = 3,
   action,
   trialDays,
-  promoOn,
 }: Props) {
   const [planKey, setPlanKey] = useState(defaultPlan);
   const selected = plans.find((p) => p.key === planKey) ?? plans[0];
@@ -70,9 +64,13 @@ export function SignupPlanForm({
   });
   const lastTyped = useRef("");
 
-  const periodTotal = useMemo(
-    () => periodPriceForPlan(planKey, isShop ? seats : null),
+  const selectedView = useMemo(
+    () => planPriceView(planKey, isShop ? { seats } : undefined),
     [planKey, isShop, seats]
+  );
+  const shopFormula = useMemo(
+    () => (isShop ? planPriceView(planKey) : null),
+    [planKey, isShop]
   );
 
   function onPlanChange(key: string) {
@@ -110,10 +108,7 @@ export function SignupPlanForm({
         </legend>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           {plans.map((p) => {
-            const priceLabel =
-              p.pricing === "per_seat"
-                ? `${money(p.pricePerSeatMonthly ?? 30)}/user/mo`
-                : `${money(p.price)}/yr`;
+            const view = planPriceView(p.key);
             return (
               <label
                 key={p.key}
@@ -130,11 +125,24 @@ export function SignupPlanForm({
                 <span className="min-w-0 flex-1">
                   <span className="flex items-baseline justify-between gap-2">
                     <span className="font-semibold">{p.name}</span>
-                    <span className="text-sm text-slate-400">{priceLabel}</span>
+                    <span className="text-right text-sm text-slate-400">
+                      {view.primaryAmount}
+                      {view.primarySuffix}
+                    </span>
                   </span>
                   <span className="mt-1 block text-xs text-slate-500">
                     {planSeatsLabel(p)}
                   </span>
+                  {view.note && (
+                    <span className="mt-0.5 block text-[11px] text-slate-500">
+                      {view.note}
+                    </span>
+                  )}
+                  {view.afterYearOne && (
+                    <span className="mt-0.5 block text-[11px] text-slate-500">
+                      {view.afterYearOne}
+                    </span>
+                  )}
                   {p.pricing === "per_seat" && (
                     <span className="mt-0.5 block text-[11px] text-slate-600">
                       billed monthly, set quantity for seats (max {p.maxSeats})
@@ -154,9 +162,10 @@ export function SignupPlanForm({
               How many seats?
             </span>
             <span className="mt-0.5 block text-xs text-slate-500">
-              Each seat is {money(selected.pricePerSeatMonthly ?? 30)}/month.
-              1–{selected.maxSeats} seats on Shop. Need more? Choose Starter or
-              above.
+              {shopFormula?.primaryAmount}
+              {shopFormula?.primarySuffix}. {shopFormula?.note}{" "}
+              {shopFormula?.afterYearOne} 1–{selected.maxSeats} seats on Shop.
+              Need more? Choose Starter or above.
             </span>
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <input
@@ -176,11 +185,11 @@ export function SignupPlanForm({
               />
               <p className="text-sm text-slate-300">
                 <span className="font-semibold text-slate-100">
-                  {money(periodTotal)}
+                  {selectedView.primaryAmount}
                 </span>
-                <span className="text-slate-500">/mo</span>
+                <span className="text-slate-500">{selectedView.primarySuffix}</span>
                 <span className="ml-2 text-xs text-slate-500">
-                  ({seats} x {money(selected.pricePerSeatMonthly ?? 30)})
+                  {selectedView.note} {selectedView.afterYearOne}
                 </span>
               </p>
             </div>
@@ -224,10 +233,8 @@ export function SignupPlanForm({
       <SubmitButton trialDays={trialDays} />
       <p className="mt-3 text-center text-xs text-slate-500">
         No credit card. Takes about 20 seconds to open your plant. Free for{" "}
-        {trialDays} days
-        {promoOn
-          ? ". The 50% off first-year launch offer applies when you subscribe."
-          : "."}
+        {trialDays} days. When you subscribe: {selectedView.primaryAmount}
+        {selectedView.primarySuffix}. {selectedView.afterYearOne}
       </p>
     </form>
   );

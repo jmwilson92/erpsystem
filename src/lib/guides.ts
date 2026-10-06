@@ -1,6 +1,6 @@
 /**
- * Interactive guided tours. Pure data (no imports) so it's usable from client
- * and server. Each step optionally spotlights a DOM element (CSS selector),
+ * Interactive guided tours. Data plus the plan-catalog trial length, usable from
+ * client and server. Each step optionally spotlights a DOM element (CSS selector),
  * can navigate to a route first, and shows a note box with what to do + why.
  *
  * Add a tour for anything by appending to TOURS. Target elements with a stable
@@ -18,6 +18,7 @@
  * pathname and would navigate in a loop). Describe tabs/views in the body text
  * instead.
  */
+import { TRIAL_DAYS } from "./services/subscription-plans";
 
 export type TourStep = {
   /** CSS selector to spotlight. Omit for a centered card. */
@@ -800,8 +801,8 @@ export const TOURS: Tour[] = [
         route: "/billing",
         selector: HEADER,
         title: "Plan & billing",
-        body: "Your trial countdown, current plan, and the tiers live here — Starter, Growth, Business, or Enterprise — with seat limits shown per plan.",
-        why: "Trials run 30 days with unlimited users; after that a plan keeps your data and access.",
+        body: "Your trial countdown, current plan, and the tiers live here — Shop, Starter, Growth, Business, or Enterprise — with the first-year price and the standard price after 12 months on each card.",
+        why: `The free trial is ${TRIAL_DAYS} days and does not require a card. After you subscribe, the first 12 months bill at the first-year price, then standard prices. Seat limits are shown on each plan.`,
       },
     ],
   },
