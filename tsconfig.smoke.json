@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // App tsconfig keeps jsx=preserve for Next. This runner executes
+    // opengraph-image.tsx in Node, which needs the automatic JSX runtime.
+    "jsx": "react-jsx"
+  }
+}

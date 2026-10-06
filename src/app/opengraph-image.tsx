@@ -7,8 +7,13 @@ export const alt =
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
-export default function OpenGraphImage() {
+/** Single text child. Satori requires display:flex on a div with more than one child. */
+export function openGraphSubtitle(): string {
   const shop = planPriceView("SHOP");
+  return `Sales · engineering · production · quality · accounting — one connected system. Live in a day. ${TRIAL_DAYS}-day free trial, no card. Shop ${shop.primaryAmount}${shop.primarySuffix}. ${shop.afterYearOne}`;
+}
+
+export default function OpenGraphImage() {
   return new ImageResponse(
     (
       <div
@@ -78,10 +83,7 @@ export default function OpenGraphImage() {
               maxWidth: 900,
             }}
           >
-            Sales · engineering · production · quality · accounting — one
-            connected system. Live in a day. {TRIAL_DAYS}-day free trial, no
-            card. Shop {shop.primaryAmount}
-            {shop.primarySuffix}. {shop.afterYearOne}
+            {openGraphSubtitle()}
           </div>
         </div>
 
