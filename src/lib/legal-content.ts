@@ -2,12 +2,14 @@
  * Legal document content for the hosted service.
  */
 
+import { TRIAL_DAYS } from "@/lib/services/subscription-plans";
+
 export const LEGAL_COMPANY = "Protessera";
 export const LEGAL_ENTITY = "Protessera, LLC";
 export const LEGAL_JURISDICTION = "California, United States";
 export const LEGAL_CONTACT = "jeramey.wilson@protessera.com";
 export const PRIVACY_CONTACT = "jeramey.wilson@protessera.com";
-export const LAST_UPDATED = "2026-07-29";
+export const LAST_UPDATED = "2026-10-06";
 
 export type LegalSection = { heading: string; paragraphs: string[] };
 export type LegalDoc = {
@@ -39,13 +41,13 @@ export const LEGAL_DOCS: LegalDoc[] = [
       {
         heading: "3. Trials and beta",
         paragraphs: [
-          "Free trials run for the stated period (currently 45 days) with the features described at signup. Beta or early-access features are provided on an as-is basis and may change or be withdrawn. Keep independent records of anything business-critical.",
+          `Free trials run for the stated period (currently ${TRIAL_DAYS} days) with the features described at signup. Beta or early-access features are provided on an as-is basis and may change or be withdrawn. Keep independent records of anything business-critical.`,
         ],
       },
       {
         heading: "4. Fees, billing, and refunds",
         paragraphs: [
-          "Paid plans are billed annually in advance based on your selected tier and organization size. Unless you cancel before the trial ends, the payment method on file is charged for the first annual term when the trial concludes.",
+          "Paid plans are billed annually in advance based on your selected tier and organization size. No card is required to start a trial. Nothing is billed until you subscribe.",
           "You may request a full refund of the initial annual charge within 15 days of that charge. Renewals are not pro-rated or refundable except where required by law. Fees are exclusive of taxes, which you are responsible for.",
         ],
       },
@@ -250,7 +252,7 @@ export const LEGAL_DOCS: LegalDoc[] = [
       {
         heading: "Trials and the first charge",
         paragraphs: [
-          "The 45-day trial is free and requires no payment to start using. When the trial ends, the annual plan you selected is charged to your payment method.",
+          `The ${TRIAL_DAYS}-day trial is free and requires no card to start. Nothing is billed until you subscribe.`,
           "You may request a full refund of that initial annual charge within 15 days of the charge — contact billing and we'll process it. After 15 days, the annual term is non-refundable except where required by law.",
         ],
       },

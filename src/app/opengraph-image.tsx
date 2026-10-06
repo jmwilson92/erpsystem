@@ -1,4 +1,5 @@
 import { ImageResponse } from "next/og";
+import { TRIAL_DAYS } from "@/lib/services/subscription-plans";
 
 export const runtime = "edge";
 export const alt =
@@ -77,7 +78,7 @@ export default function OpenGraphImage() {
             }}
           >
             Sales · engineering · production · quality · accounting — one
-            connected system. Live in a day. 45-day free trial.
+            connected system. Live in a day. {TRIAL_DAYS}-day free trial.
           </div>
         </div>
 

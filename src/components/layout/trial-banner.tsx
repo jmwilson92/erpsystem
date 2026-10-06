@@ -7,10 +7,10 @@ import { PLANS } from "@/lib/services/subscription";
  * count is recomputed server-side on every load, so it ticks down day by day.
  * Calm blue with a week+ left, amber inside a week, red in the final two days.
  *
- * When a paid plan is already selected with a card on file (self-serve signup),
- * there's nothing to pick — it auto-charges at trial end — so we show when the
- * charge lands and a "Manage billing" link (cancel/change) instead of "pick a
- * plan". The in-app beta trial (no plan chosen yet) still prompts to pick one.
+ * A Stripe subscription (card on file) auto-charges at trial end, so that case
+ * shows when the charge lands. The public signup trial has a plan but no card,
+ * so nothing is billed until a card is added. An in-app trial with no plan yet
+ * still prompts to pick one.
  */
 export function TrialBanner({
   daysLeft,
@@ -34,7 +34,7 @@ export function TrialBanner({
   const Icon = urgent ? AlertTriangle : Clock;
 
   const planDef = PLANS.find((p) => p.key === plan && p.key !== "ENTERPRISE");
-  const planChosen = provider === "stripe" && !!planDef;
+  const cardOnFile = provider === "stripe" && !!planDef;
   const chargeDate = endsAt
     ? new Date(endsAt).toLocaleDateString(undefined, {
         month: "short",
@@ -50,13 +50,17 @@ export function TrialBanner({
         ? "1 day left in your trial"
         : `${daysLeft} days left in your trial`;
 
-  const sub = planChosen
+  const sub = cardOnFile
     ? urgent
       ? `Your ${planDef!.name} plan begins${chargeDate ? ` ${chargeDate}` : " soon"} — cancel before then to avoid the charge.`
       : `You're on the ${planDef!.name} plan${chargeDate ? `; billing begins ${chargeDate}` : ""}. No charge until then.`
-    : urgent
-      ? "Add a plan now to keep your data and access."
-      : "Enjoying Protessera? Pick a plan any time.";
+    : planDef
+      ? urgent
+        ? `You're on the ${planDef.name} plan. Add a card before the trial ends to keep access.`
+        : `You're on the ${planDef.name} plan. No card on file — nothing is billed until you add one.`
+      : urgent
+        ? "Add a plan now to keep your data and access."
+        : "Enjoying Protessera? Pick a plan any time.";
 
   return (
     <div
@@ -72,7 +76,7 @@ export function TrialBanner({
         href="/billing"
         className="rounded-lg border border-current px-3 py-1.5 text-xs font-medium transition-colors hover:bg-white/5"
       >
-        {planChosen ? "Manage billing" : "Choose a plan"}
+        {cardOnFile ? "Manage billing" : planDef ? "Add a card" : "Choose a plan"}
       </Link>
     </div>
   );

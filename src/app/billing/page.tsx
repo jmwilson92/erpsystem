@@ -263,7 +263,7 @@ export default async function BillingPage({
             <form action={actionStartTrial}>
               <Button type="submit" size="sm" variant="outline">
                 {sub.isTrialing
-                  ? "Restart 30-day trial"
+                  ? `Restart ${TRIAL_DAYS}-day trial`
                   : `Start ${TRIAL_DAYS}-day trial`}
               </Button>
             </form>
