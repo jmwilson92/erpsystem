@@ -21,6 +21,20 @@ import {
 } from "../src/lib/auth-core";
 import { redactSecrets } from "../src/lib/redact-secrets";
 import { deriveClaim } from "../src/lib/services/tenant-activity";
+import { COMPARE_PAGES, prepareComparePage } from "../src/lib/compare/pages";
+import {
+  externalLinkAttrs,
+  faqPageJsonLd,
+  visibleText,
+  walkLinks,
+} from "../src/lib/compare/model";
+import {
+  TRIAL_DAYS,
+  formatPlanMoney,
+  getPlan,
+  shopFirstYearMonthly,
+} from "../src/lib/services/subscription-plans";
+import sitemap from "../src/app/sitemap";
 import {
   TRIAL_DAYS,
   STRIPE_FIRST_YEAR_PRICE_ENV,
@@ -188,6 +202,147 @@ function testSecretRedaction() {
   console.log("  ✓ secret redaction");
 }
 
+function testComparePages() {
+  const shop = getPlan("SHOP");
+  const starter = getPlan("STARTER");
+  const growth = getPlan("GROWTH");
+  const business = getPlan("BUSINESS");
+  assert.ok(shop && starter && growth && business);
+  const allowedDollars = new Set<number>([
+    shop.firstYearPrice ?? -1,
+    shop.firstYearAdditionalPerSeat ?? -1,
+    shop.pricePerSeatMonthly ?? -1,
+    shopFirstYearMonthly(shop.maxSeats ?? 10),
+    starter.firstYearPrice ?? -1,
+    starter.price,
+    growth.firstYearPrice ?? -1,
+    growth.price,
+    business.firstYearPrice ?? -1,
+    business.price,
+  ]);
+
+  const expectedSlugs = [
+    "/compare/protessera-vs-proshop",
+    "/compare/protessera-vs-jobboss",
+  ];
+  assert.deepEqual(
+    COMPARE_PAGES.map((page) => page.slug),
+    expectedSlugs
+  );
+
+  const sitemapUrls = sitemap().map((entry) => entry.url);
+  for (const slug of expectedSlugs) {
+    assert.ok(
+      sitemapUrls.some((url) => url.endsWith(slug)),
+      `sitemap missing ${slug}`
+    );
+  }
+
+  for (const page of COMPARE_PAGES) {
+    assert.equal(page.rawBody.includes("$"), false, `${page.slug} hardcodes a price`);
+    assert.equal(/\{\{[A-Z0-9_]+\}\}/.test(page.rawBody), true);
+    const prepared = prepareComparePage(page);
+    assert.equal(prepared.markdown.includes("{{"), false, `${page.slug} left a token`);
+    assert.equal(prepared.markdown.includes(`${TRIAL_DAYS}-day`), true);
+    assert.equal(prepared.markdown.includes(`day ${TRIAL_DAYS}`), true);
+    assert.equal(prepared.faqs.length >= 6, true, `${page.slug} faqs`);
+
+    const dollars = [...prepared.markdown.matchAll(/\$[\d,]+/g)].map((match) =>
+      Number(match[0].slice(1).replace(/,/g, ""))
+    );
+    assert.ok(dollars.length > 0, `${page.slug} shows no prices`);
+    for (const amount of dollars) {
+      assert.ok(allowedDollars.has(amount), `${page.slug} unexpected price $${amount}`);
+    }
+    assert.ok(prepared.markdown.includes(formatPlanMoney(shop.firstYearPrice ?? 0)));
+    assert.ok(prepared.markdown.includes(formatPlanMoney(business.price)));
+
+    const banned = ["ITAR-ready", "CUI-ready", "700+", "9,000", "50% off", "45-day"];
+    for (const phrase of banned) {
+      assert.equal(prepared.markdown.includes(phrase), false, `${page.slug} says ${phrase}`);
+    }
+
+    assert.equal(
+      visibleText(prepared.blocks),
+      draftVisibleText(prepared.markdown),
+      `${page.slug} rendered copy drifted from the draft`
+    );
+
+    const links = walkLinks(prepared.blocks);
+    const external = links.filter((link) => link.external);
+    assert.ok(external.length > 5, `${page.slug} missing competitor links`);
+    for (const link of external) {
+      assert.ok(link.href.startsWith("https://"), link.href);
+      assert.equal(externalLinkAttrs(link).rel, "noopener noreferrer");
+      assert.equal(externalLinkAttrs(link).target, "_blank");
+    }
+    const internal = links.filter((link) => !link.external);
+    assert.ok(internal.length >= 1);
+    for (const link of internal) {
+      assert.equal(link.href, "/demo");
+      assert.equal(externalLinkAttrs(link).rel, undefined);
+    }
+
+    const jsonLd = faqPageJsonLd(prepared.faqs);
+    assert.equal(jsonLd["@type"], "FAQPage");
+    assert.equal(jsonLd.mainEntity.length, prepared.faqs.length);
+    assert.equal(jsonLd.mainEntity[0]["@type"], "Question");
+    assert.equal(jsonLd.mainEntity[0].acceptedAnswer["@type"], "Answer");
+    assert.equal(jsonLd.mainEntity[0].name.includes("**"), false);
+    assert.ok(jsonLd.mainEntity.some((item) => item.acceptedAnswer.text.includes("DFARS 252.204-7012")));
+    assert.ok(
+      jsonLd.mainEntity.some((item) =>
+        item.acceptedAnswer.text.includes(formatPlanMoney(shop.pricePerSeatMonthly ?? 0))
+      )
+    );
+  }
+
+  console.log("  ✓ comparison pages");
+}
+
+/** Independent of the parser, so a dropped word fails the smoke test. */
+function draftVisibleText(md: string): string {
+  const parts: string[] = [];
+  const push = (value: string) => {
+    const text = value
+      .replace(/^#{1,6}\s+/, "")
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+      .replace(/\*\*/g, "")
+      .replace(/\*([^*]+)\*/g, "$1")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (text) parts.push(text);
+  };
+  for (const raw of md.replace(/\r\n/g, "\n").trim().split(/\n\n+/)) {
+    const lines = raw
+      .trim()
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (lines.length === 0) continue;
+    if (lines.length === 1 && lines[0] === "---") continue;
+    if (lines.every((line) => line.startsWith("|"))) {
+      for (const line of lines) {
+        const cells = line.replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+        if (cells.every((cell) => /^:?-{3,}:?$/.test(cell))) continue;
+        for (const cell of cells) push(cell);
+      }
+      continue;
+    }
+    if (lines.every((line) => line.startsWith("- "))) {
+      for (const line of lines) push(line.slice(2));
+      continue;
+    }
+    if (lines.length >= 2 && /^\*\*[^*]+\*\*$/.test(lines[0])) {
+      push(lines[0]);
+      push(lines.slice(1).join(" "));
+      continue;
+    }
+    push(lines.join(" "));
+  }
+  return parts.join("\n");
+}
+
 function testClaimDerivation() {
   const claimedAt = new Date("2026-03-01T00:00:00Z");
   assert.deepEqual(
@@ -325,6 +480,7 @@ testDemoModeHelper();
 testSessionIdleTimeout();
 testPasswordPolicy();
 testSecretRedaction();
+testComparePages();
 testClaimDerivation();
 testLaunchPricing();
 console.log("smoke-unit: all passed");
