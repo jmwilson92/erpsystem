@@ -8829,11 +8829,17 @@ export async function actionStartCheckout(formData: FormData): Promise<void> {
     const seats = isPerSeatPlan(plan)
       ? normalizeSeats(plan, Number(seatsRaw))
       : null;
+    // A Stripe subscriber keeps the standard price. Trials and instances that
+    // have never been billed by Stripe subscribe at the first-year price.
+    // This does not edit an existing Stripe subscription in place.
+    const { getSubscriptionState } = await import("@/lib/services/subscription");
+    const sub = await getSubscriptionState();
     url = await createCheckoutSession({
       plan,
       seats,
       customerEmail: billingEmail || user?.email || undefined,
       appUrl,
+      firstYear: sub.billingProvider !== "stripe",
     });
   } catch (err) {
     await flashToast(

@@ -6,7 +6,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { MarketingShell } from "@/components/marketing/marketing-shell";
-import { TRIAL_DAYS } from "@/lib/services/subscription";
+import { TRIAL_DAYS, firstYearOfferSummary } from "@/lib/services/subscription";
 import { retrieveCheckoutSession, stripeEnabled } from "@/lib/services/stripe";
 import {
   provisionCustomerTenant,
@@ -71,7 +71,9 @@ export default async function SignupCompletePage({
             <p className="mx-auto mt-3 max-w-lg text-slate-400">
               Your card is on file but won&apos;t be charged for {TRIAL_DAYS} days.
               Cancel anytime before the trial ends and you&apos;re never billed.
-              Next step: set up Protessera in your browser.
+              After the trial, the first 12 months bill at the first-year price,
+              then standard prices apply. {firstYearOfferSummary()} Next step:
+              set up Protessera in your browser.
             </p>
           </div>
 

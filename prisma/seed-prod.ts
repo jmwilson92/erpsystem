@@ -22,6 +22,7 @@
 import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { TRIAL_DAYS } from "../src/lib/services/subscription-plans";
 
 const adapter = new PrismaPg({
   connectionString: process.env.DIRECT_URL || process.env.DATABASE_URL,
@@ -263,10 +264,10 @@ async function main() {
       // Government Property (GFP) off by default — ITAR/export-controlled
       // hosting is a self-host / Enterprise upgrade.
       disabledModules: JSON.stringify(["government"]),
-      // Fresh instance starts on a 30-day free trial
+      // Fresh instance starts on the free trial. Length lives in TRIAL_DAYS.
       plan: "TRIAL",
       subscriptionStatus: "TRIALING",
-      trialEndsAt: new Date(Date.now() + 30 * 86_400_000),
+      trialEndsAt: new Date(Date.now() + TRIAL_DAYS * 86_400_000),
     },
   });
   await prisma.accountingSettings.create({

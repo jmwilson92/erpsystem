@@ -31,6 +31,8 @@ for (const k of [
   "PLAID_CLIENT_ID", "PLAID_SECRET", "PLAID_ENV",
   "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET",
   "STRIPE_PRICE_SHOP", "STRIPE_PRICE_STARTER", "STRIPE_PRICE_GROWTH", "STRIPE_PRICE_BUSINESS",
+  "STRIPE_PRICE_SHOP_FIRST_YEAR", "STRIPE_PRICE_STARTER_FIRST_YEAR",
+  "STRIPE_PRICE_GROWTH_FIRST_YEAR", "STRIPE_PRICE_BUSINESS_FIRST_YEAR",
   "APP_URL",
 ]) {
   console.log(`  ${k.padEnd(24)} ${env[k] ? mask(env[k]) : "MISSING"}`);
@@ -50,11 +52,15 @@ async function checkStripe() {
   if (!acct.ok) return console.log(bad(`key rejected (${acct.status}): ${acct.json?.error?.message || ""}`));
   console.log(ok("secret key valid"));
   console.log(sk.startsWith("sk_test_") ? ok("test mode") : warn("LIVE key — use sk_test_ for sandbox"));
+  // Amounts mirror src/lib/services/subscription-plans.ts (cents).
   for (const [label, key, expect] of [
-    ["Shop (per seat / mo)", "STRIPE_PRICE_SHOP", 3000],
-    ["Starter", "STRIPE_PRICE_STARTER", 360000],
-    ["Growth", "STRIPE_PRICE_GROWTH", 840000],
-    ["Business", "STRIPE_PRICE_BUSINESS", 1800000],
+    ["Shop standard ($30/seat/mo)", "STRIPE_PRICE_SHOP", 3000],
+    ["Starter standard ($3,600/yr)", "STRIPE_PRICE_STARTER", 360000],
+    ["Growth standard ($8,400/yr)", "STRIPE_PRICE_GROWTH", 840000],
+    ["Business standard ($18,000/yr)", "STRIPE_PRICE_BUSINESS", 1800000],
+    ["Starter first year ($250/yr)", "STRIPE_PRICE_STARTER_FIRST_YEAR", 25000],
+    ["Growth first year ($500/yr)", "STRIPE_PRICE_GROWTH_FIRST_YEAR", 50000],
+    ["Business first year ($1,000/yr)", "STRIPE_PRICE_BUSINESS_FIRST_YEAR", 100000],
   ]) {
     const id = env[key];
     if (!id) { console.log(bad(`${label}: ${key} MISSING`)); continue; }
@@ -63,12 +69,36 @@ async function checkStripe() {
     const amt = p.json.unit_amount;
     const rec = p.json.recurring?.interval;
     const parts = [`$${(amt / 100).toLocaleString()}/${rec || "one-time"}`];
-    const expectInterval = key === "STRIPE_PRICE_SHOP" ? "month" : "year";
-    let good = p.json.active && rec === expectInterval;
+    const expectInterval = key.includes("SHOP") ? "month" : "year";
+    let good = p.json.active && rec === expectInterval && amt === expect;
     if (rec !== expectInterval) parts.push(`(expected ${expectInterval} ⚠)`);
     if (!p.json.active) parts.push("(inactive ⚠)");
     if (amt !== expect) parts.push(`(expected $${(expect / 100).toLocaleString()})`);
     console.log((good ? ok : warn)(`${label}: ${parts.join(" ")}`));
+  }
+  const shopIntro = env.STRIPE_PRICE_SHOP_FIRST_YEAR;
+  if (!shopIntro) {
+    console.log(bad("Shop first year (graduated $10 + $2): STRIPE_PRICE_SHOP_FIRST_YEAR MISSING"));
+  } else {
+    const p = await get(`/prices/${shopIntro}?expand[]=tiers`);
+    if (!p.ok) {
+      console.log(bad(`Shop first year: price ${shopIntro} not found (${p.status})`));
+    } else {
+      const tiers = p.json.tiers || [];
+      const rec = p.json.recurring?.interval;
+      const good =
+        p.json.active &&
+        p.json.billing_scheme === "tiered" &&
+        p.json.tiers_mode === "graduated" &&
+        rec === "month" &&
+        tiers[0]?.up_to === 1 &&
+        tiers[0]?.unit_amount === 1000 &&
+        tiers[1]?.up_to == null &&
+        tiers[1]?.unit_amount === 200;
+      console.log((good ? ok : warn)(
+        `Shop first year: graduated ${good ? "$10 + $2/mo" : "does not match $10 first seat + $2 additional"}`
+      ));
+    }
   }
   console.log(env.STRIPE_WEBHOOK_SECRET
     ? ok("webhook secret set")

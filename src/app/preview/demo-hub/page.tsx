@@ -1,5 +1,11 @@
 import Link from "next/link";
 import { PreviewHeader, PreviewFooter } from "@/components/marketing/preview-chrome";
+import { PlanPriceBlock } from "@/components/marketing/plan-price";
+import {
+  PLANS,
+  planSeatsLabel,
+  pricingSectionLead,
+} from "@/lib/services/subscription-plans";
 
 export default function PreviewDemoHubPage() {
   return (
@@ -75,30 +81,26 @@ export default function PreviewDemoHubPage() {
 
         <section id="pricing" className="mx-auto max-w-6xl px-6 py-12">
           <h2 className="text-2xl font-bold tracking-tight">Pricing</h2>
-          <p className="mt-1 text-slate-400">
-            Shop is $30/user/mo (1–10 seats). Larger plants pick flat annual bands.
-          </p>
+          <p className="mt-1 max-w-3xl text-slate-400">{pricingSectionLead()}</p>
           <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {[
-              ["Shop", "$30", "/user/mo", "1–10 seats · pay for quantity"],
-              ["Starter", "$3,600", "/yr", "Up to 30 users · full product"],
-              ["Growth", "$8,400", "/yr", "Up to 100 users"],
-              ["Business", "$18,000", "/yr", "Up to 250 users"],
-            ].map(([name, amt, unit, blurb], i) => (
+            {PLANS.filter((p) => p.key !== "ENTERPRISE").map((plan) => (
               <div
-                key={name}
+                key={plan.key}
                 className={`rounded-2xl border p-5 ${
-                  i === 1
+                  plan.key === "STARTER"
                     ? "border-teal-500/50 bg-teal-500/[0.06]"
                     : "border-slate-800 bg-slate-900/40"
                 }`}
               >
-                <h3 className="font-semibold">{name}</h3>
-                <p className="mt-2 text-2xl font-bold">
-                  {amt}{" "}
-                  <span className="text-sm font-normal text-slate-500">{unit}</span>
-                </p>
-                <p className="mt-1 text-xs text-slate-500">{blurb}</p>
+                <h3 className="font-semibold">{plan.name}</h3>
+                <PlanPriceBlock
+                  planKey={plan.key}
+                  className="mt-2"
+                  amountClassName="text-2xl font-bold text-slate-100"
+                  suffixClassName="text-sm font-normal text-slate-500"
+                  detailClassName="mt-1 text-xs text-slate-500"
+                />
+                <p className="mt-1 text-xs text-slate-500">{planSeatsLabel(plan)}</p>
               </div>
             ))}
           </div>

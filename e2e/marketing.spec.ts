@@ -65,17 +65,18 @@ test.describe("Signup", () => {
     await page.fill('input[name="email"]', "not-an-email");
     // bypass native validation to hit the server check
     await page.locator('input[name="email"]').evaluate((el: HTMLInputElement) => (el.type = "text"));
-    await page.getByRole("button", { name: /Continue to secure checkout/i }).click();
+    await page.getByRole("button", { name: /free trial/i }).click();
     await expect(page).toHaveURL(/error=email/);
   });
 
-  test("valid submit reaches checkout attempt (graceful with dummy Stripe)", async ({ page }) => {
+  test("valid submit starts a no-card trial", async ({ page }) => {
     await page.goto("/signup?plan=starter");
     await page.fill('input[name="email"]', "tester@example.com");
     await page.fill('input[name="company"]', "Test Co");
-    await page.getByRole("button", { name: /Continue to secure checkout/i }).click();
-    // dummy key → Stripe API rejects → graceful redirect back with error=stripe
-    await expect(page).toHaveURL(/error=stripe|checkout\.stripe\.com/);
+    await page.getByRole("button", { name: /free trial/i }).click();
+    // No card and no Stripe call. Provision either opens onboarding or
+    // returns to signup if the workspace could not be created.
+    await expect(page).toHaveURL(/\/onboard\/|error=provision/);
   });
 });
 
@@ -87,12 +88,15 @@ test.describe("Legal", () => {
     await expect(page.getByRole("link", { name: "Privacy", exact: true }).first()).toBeVisible(); // footer
   });
 
-  test("terms shows real entity + trial length, no template disclaimer", async ({ page }) => {
+  test("terms shows real entity, trial length, and first-year prices", async ({ page }) => {
     await page.goto("/legal/terms-of-service");
     const body = await page.locator("body").innerText();
     expect(body).toMatch(/Protessera, LLC/);
     expect(body).toMatch(/California/);
     expect(body).toMatch(new RegExp(`${TRIAL_DAYS} days`));
+    expect(body).toMatch(/\$250/);
+    expect(body).toMatch(/\$3,600/);
+    expect(body).not.toMatch(/50%/);
     expect(body).not.toMatch(/template and not legal advice|have counsel review/i);
   });
 });

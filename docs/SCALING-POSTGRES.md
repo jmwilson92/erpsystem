@@ -60,7 +60,7 @@ npx prisma db push
 ## 4. Seed or migrate data
 
 - **Fresh instance:** `npm run db:seed:prod` (production seed — starts on a
-  30-day trial, GFP module off).
+  60-day trial, GFP module off).
 - **Existing SQLite data to carry over:** export from SQLite and import into
   Postgres. The reliable path is a small Prisma script that reads from the old
   SQLite client and writes to the new Postgres client, table by table in FK

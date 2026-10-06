@@ -38,7 +38,7 @@ export default async function OnboardPage({
                 Set a password for{" "}
                 <span className="text-slate-200">{tenant.billingEmail}</span> to
                 activate your workspace and jump in. Your {TRIAL_DAYS}-day trial
-                is already running.
+                is already running. No card was required.
               </p>
               <ClaimTenantForm token={token} />
             </>

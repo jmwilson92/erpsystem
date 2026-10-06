@@ -29,8 +29,13 @@ import {
   PLANS,
   TRIAL_DAYS,
   planSeatsLabel,
+  firstYearOfferSummary,
+  firstYearPeriodPriceForPlan,
+  planPriceView,
+  pricingSectionLead,
   type PlanDef,
-} from "@/lib/services/subscription";
+} from "@/lib/services/subscription-plans";
+import { PlanPriceBlock } from "./plan-price";
 import { SiteHeader } from "./site-header";
 import { SiteFooter } from "./site-footer";
 import {
@@ -146,7 +151,7 @@ const FAQS = [
   },
   {
     q: "How long is the free trial?",
-    a: `You get full product access for ${TRIAL_DAYS} days. No credit card is required to start. Nothing is billed until you choose to subscribe. If you subscribe, you have 15 days after the first charge to request a full refund under our refund policy.`,
+    a: `You get full product access for ${TRIAL_DAYS} days. No credit card is required to start. Nothing is billed until you choose to subscribe. When you subscribe, the first 12 months bill at the first-year price, then standard prices apply. You have 15 days after the first charge to request a full refund under our refund policy.`,
   },
   {
     q: "Do I need consultants or an implementation project?",
@@ -170,7 +175,7 @@ const FAQS = [
   },
   {
     q: "How is pricing structured?",
-    a: "Shop is $30 per user per month for 1–10 seats (you set the quantity). Larger teams pick a flat annual seat band — Starter (30), Growth (100), or Business (250). Enterprise covers 251+, SSO, self-host, and custom modules. Every paid plan is the full product — no per-module nickel-and-diming.",
+    a: `${firstYearOfferSummary()} Every paid plan is the full product — no per-module nickel-and-diming.`,
   },
 ];
 
@@ -182,33 +187,16 @@ const TRUST = [
   { icon: Sparkles, label: "15-day money-back" },
 ];
 
-function money(n: number) {
-  return `$${n.toLocaleString()}`;
-}
-
-/** Schema.org / list price: per-seat plans quote 1-seat annual. */
+/** Schema.org price: the first-year amount a new customer pays (Shop = 1 seat). */
 function offerPrice(p: PlanDef): string {
-  return String(p.price);
+  return String(
+    firstYearPeriodPriceForPlan(p.key, p.pricing === "per_seat" ? 1 : null)
+  );
 }
 
-function PlanPriceDisplay({ p }: { p: PlanDef }) {
-  if (p.pricing === "per_seat") {
-    return (
-      <div className="mt-2">
-        <span className="text-3xl font-bold">{money(p.pricePerSeatMonthly ?? 30)}</span>
-        <span className="muted text-sm font-medium">/user/mo</span>
-        <p className="muted mt-1 text-xs">
-          billed monthly · quantity = seats (max {p.maxSeats})
-        </p>
-      </div>
-    );
-  }
-  return (
-    <div className="mt-2">
-      <span className="text-3xl font-bold">{money(p.price)}</span>
-      <span className="muted text-sm font-medium">/year</span>
-    </div>
-  );
+function offerDescription(p: PlanDef): string {
+  const view = planPriceView(p.key);
+  return [p.blurb, view.note, view.afterYearOne].filter(Boolean).join(" ");
 }
 
 /**
@@ -345,7 +333,7 @@ function JsonLd() {
       name: `${p.name} plan`,
       price: offerPrice(p),
       priceCurrency: "USD",
-      description: p.blurb,
+      description: offerDescription(p),
       url: `${base}/signup?plan=${p.key.toLowerCase()}`,
       availability: "https://schema.org/InStock",
       priceValidUntil: `${new Date().getFullYear() + 1}-12-31`,
@@ -455,7 +443,7 @@ export function LandingPage({
               </div>
               <p className="muted mt-4 text-xs font-medium">
                 Full access for {TRIAL_DAYS} days. No card required. 15-day
-                money-back guarantee.
+                money-back guarantee after you subscribe.
               </p>
             </div>
           </div>
@@ -600,10 +588,8 @@ export function LandingPage({
               center
               wide
             >
-              Shop is $30 per user per month (1–10 seats). Larger teams get flat
-              annual bands. Every plan is the full product. Start with a{" "}
-              {TRIAL_DAYS}-day free trial. No card required. If you subscribe,
-              you have 15 days after the first charge to request a full refund.
+              {pricingSectionLead()} If you subscribe, you have 15 days after the
+              first charge to request a full refund.
             </SectionIntro>
 
             <div className="mt-12 grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
@@ -632,7 +618,12 @@ export function LandingPage({
                       </span>
                     )}
                     <h3 className="pr-24 text-lg font-semibold">{p.name}</h3>
-                    <PlanPriceDisplay p={p} />
+                    <PlanPriceBlock
+                      planKey={p.key}
+                      className="mt-2"
+                      suffixClassName="muted text-sm font-medium"
+                      detailClassName="muted mt-1 text-xs"
+                    />
                     <p className="muted mt-1 text-xs">{planSeatsLabel(p)}</p>
                     <p className="muted mt-3 flex-1 text-sm">{p.blurb}</p>
                     <Link

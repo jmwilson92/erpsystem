@@ -1,5 +1,5 @@
 import { ImageResponse } from "next/og";
-import { TRIAL_DAYS } from "@/lib/services/subscription-plans";
+import { TRIAL_DAYS, planPriceView } from "@/lib/services/subscription-plans";
 
 export const runtime = "edge";
 export const alt =
@@ -8,6 +8,7 @@ export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
 export default function OpenGraphImage() {
+  const shop = planPriceView("SHOP");
   return new ImageResponse(
     (
       <div
@@ -78,7 +79,9 @@ export default function OpenGraphImage() {
             }}
           >
             Sales · engineering · production · quality · accounting — one
-            connected system. Live in a day. {TRIAL_DAYS}-day free trial.
+            connected system. Live in a day. {TRIAL_DAYS}-day free trial, no
+            card. Shop {shop.primaryAmount}
+            {shop.primarySuffix}. {shop.afterYearOne}
           </div>
         </div>
 

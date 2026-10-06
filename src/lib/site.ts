@@ -1,10 +1,10 @@
+import { TRIAL_DAYS, firstYearOfferSummary } from "@/lib/services/subscription-plans";
+
 /**
  * Public site identity + SEO defaults for Protessera marketing surfaces.
  * Prefer APP_URL / NEXT_PUBLIC_APP_URL in production so absolute OG/sitemap
  * URLs match the live domain (www.protessera.com).
  */
-
-import { TRIAL_DAYS } from "@/lib/services/subscription-plans";
 
 export const SITE_NAME = "Protessera";
 export const SITE_LEGAL = "Protessera, LLC";
@@ -21,7 +21,7 @@ export const SITE_TAGLINE = "Connecting everything";
 export const SITE_TITLE_DESCRIPTOR = "Manufacturing ERP";
 
 export const SITE_DESCRIPTION =
-  `Protessera is plug-and-play manufacturing ERP: sales, engineering, purchasing, production, quality, and accounting in one connected system. ${TRIAL_DAYS}-day free trial — no consultants required.`;
+  `Protessera is plug-and-play manufacturing ERP: sales, engineering, purchasing, production, quality, and accounting in one connected system. ${TRIAL_DAYS}-day free trial, no card — no consultants required. ${firstYearOfferSummary()}`;
 
 /** Primary phrase we want to rank for + supporting terms. */
 export const SITE_KEYWORDS = [

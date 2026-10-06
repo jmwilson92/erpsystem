@@ -10,8 +10,9 @@ import {
   PLANS,
   TRIAL_DAYS,
   planSeatsLabel,
-  periodPriceForPlan,
+  planPriceView,
 } from "@/lib/services/subscription";
+import { PlanPriceBlock } from "@/components/marketing/plan-price";
 import {
   actionStartCheckout,
   actionStartTrial,
@@ -21,10 +22,6 @@ import { formatDate } from "@/lib/utils";
 import { Check, AlertTriangle } from "lucide-react";
 
 export const dynamic = "force-dynamic";
-
-function money(n: number) {
-  return `$${n.toLocaleString()}`;
-}
 
 export default async function BillingPage({
   searchParams,
@@ -155,6 +152,7 @@ export default async function BillingPage({
         {PLANS.map((plan) => {
           const current = sub.plan === plan.key && sub.isPaid;
           const isShop = plan.pricing === "per_seat";
+          const shopExample = isShop ? planPriceView("SHOP", { seats: 3 }) : null;
           return (
             <Card
               key={plan.key}
@@ -172,28 +170,17 @@ export default async function BillingPage({
                 <p className="text-sm text-slate-400">{plan.blurb}</p>
               </CardHeader>
               <CardContent className="space-y-3">
-                <p className="text-2xl font-bold text-slate-100">
-                  {plan.key === "ENTERPRISE" ? (
-                    "Custom"
-                  ) : isShop ? (
-                    <>
-                      {money(plan.pricePerSeatMonthly ?? 30)}
-                      <span className="text-sm font-normal text-slate-500">
-                        /user/mo
-                      </span>
-                      <span className="mt-0.5 block text-xs font-normal text-slate-500">
-                        billed monthly · qty = seats (max {plan.maxSeats})
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      {money(plan.price)}
-                      <span className="text-sm font-normal text-slate-500">
-                        /{plan.interval}
-                      </span>
-                    </>
-                  )}
-                </p>
+                <PlanPriceBlock
+                  planKey={plan.key}
+                  amountClassName="text-2xl font-bold text-slate-100"
+                  suffixClassName="text-sm font-normal text-slate-500"
+                  detailClassName="mt-0.5 text-xs font-normal text-slate-500"
+                />
+                {isShop && (
+                  <p className="text-xs text-slate-500">
+                    Billed monthly · quantity = seats (max {plan.maxSeats})
+                  </p>
+                )}
                 <ul className="space-y-1 text-xs text-slate-400">
                   <li className="flex items-center gap-1.5">
                     <Check className="h-3.5 w-3.5 text-teal-400" />
@@ -230,8 +217,9 @@ export default async function BillingPage({
                           className="mt-1 h-8 text-xs"
                         />
                         <span className="mt-1 block text-[11px] text-slate-500">
-                          Example: 3 seats ={" "}
-                          {money(periodPriceForPlan("SHOP", 3))}/mo
+                          Example, 3 seats: {shopExample?.primaryAmount}
+                          {shopExample?.primarySuffix}. {shopExample?.note}{" "}
+                          {shopExample?.afterYearOne}
                         </span>
                       </label>
                     )}
