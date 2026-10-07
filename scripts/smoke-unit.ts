@@ -3,6 +3,9 @@
  * Validates auth helpers, module packaging, charge-code scheme.
  */
 import assert from "node:assert/strict";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import {
   chargeCodeFromBudgetName,
   projectWbsChargeCode,
@@ -473,14 +476,99 @@ function testLaunchPricing() {
   console.log("  ✓ first-year pricing");
 }
 
-console.log("smoke-unit");
-testChargeCodes();
-testModules();
-testDemoModeHelper();
-testSessionIdleTimeout();
-testPasswordPolicy();
-testSecretRedaction();
-testComparePages();
-testClaimDerivation();
-testLaunchPricing();
-console.log("smoke-unit: all passed");
+const SOCIAL_IMAGE_GENERATED =
+  /^(opengraph-image|twitter-image)\.(tsx|ts|jsx|js)$/;
+const SOCIAL_IMAGE_STATIC =
+  /^(opengraph-image|twitter-image)\.(png|jpe?g|webp|gif)$/;
+
+function listSocialImageRoutes(dir: string): string[] {
+  const found: string[] = [];
+  for (const name of readdirSync(dir)) {
+    const full = path.join(dir, name);
+    if (statSync(full).isDirectory()) {
+      found.push(...listSocialImageRoutes(full));
+      continue;
+    }
+    if (SOCIAL_IMAGE_GENERATED.test(name) || SOCIAL_IMAGE_STATIC.test(name)) {
+      found.push(full);
+    }
+  }
+  return found.sort();
+}
+
+function pngSize(bytes: Uint8Array): { width: number; height: number } {
+  assert.ok(bytes.byteLength >= 24, "png truncated");
+  assert.equal(bytes[0], 0x89);
+  assert.equal(bytes[1], 0x50);
+  assert.equal(bytes[2], 0x4e);
+  assert.equal(bytes[3], 0x47);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  return { width: view.getUint32(16), height: view.getUint32(20) };
+}
+
+async function renderSocialImageModule(file: string) {
+  const mod = (await import(pathToFileURL(file).href)) as {
+    default?: () => Promise<Response> | Response;
+    size?: { width: number; height: number };
+    contentType?: string;
+  };
+  const render = mod.default;
+  assert.equal(typeof render, "function", `${file} default export`);
+  if (typeof render !== "function") return;
+  const response = await Promise.resolve(render());
+  assert.equal(response.status, 200, file);
+  const contentType = response.headers.get("content-type") ?? "";
+  assert.match(contentType, /^image\/png\b/, file);
+  if (mod.contentType) {
+    assert.equal(mod.contentType, "image/png", file);
+  }
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  const { width, height } = pngSize(bytes);
+  assert.equal(width, mod.size?.width, `${file} width`);
+  assert.equal(height, mod.size?.height, `${file} height`);
+  assert.ok(bytes.byteLength > 1000, `${file} tiny`);
+}
+
+async function testSocialImages() {
+  const { openGraphSubtitle } = await import("../src/app/opengraph-image");
+  assert.equal(
+    openGraphSubtitle(),
+    "Sales · engineering · production · quality · accounting — one connected system. Live in a day. 60-day free trial, no card. Shop $10/mo for the first user. Then $30/user/mo."
+  );
+
+  const routes = listSocialImageRoutes(path.join(process.cwd(), "src/app"));
+  const rel = routes.map((file) => path.relative(process.cwd(), file));
+  assert.ok(rel.includes(path.join("src", "app", "opengraph-image.tsx")));
+  assert.ok(rel.includes(path.join("src", "app", "twitter-image.tsx")));
+
+  for (const file of routes) {
+    if (SOCIAL_IMAGE_STATIC.test(path.basename(file))) {
+      const bytes = new Uint8Array(readFileSync(file));
+      if (file.endsWith(".png")) pngSize(bytes);
+      else assert.ok(bytes.byteLength > 8, file);
+      continue;
+    }
+    await renderSocialImageModule(file);
+  }
+  console.log(`  ✓ social images (${rel.join(", ")})`);
+}
+
+async function main() {
+  console.log("smoke-unit");
+  testChargeCodes();
+  testModules();
+  testDemoModeHelper();
+  testSessionIdleTimeout();
+  testPasswordPolicy();
+  testSecretRedaction();
+  testComparePages();
+  testClaimDerivation();
+  testLaunchPricing();
+  await testSocialImages();
+  console.log("smoke-unit: all passed");
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

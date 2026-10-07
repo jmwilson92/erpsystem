@@ -22,7 +22,7 @@
     "setup": "prisma generate && prisma db push && tsx prisma/seed.ts",
     "postinstall": "prisma generate",
     "typecheck": "tsc --noEmit",
-    "smoke": "tsx scripts/smoke-unit.ts",
+    "smoke": "tsx --tsconfig tsconfig.smoke.json scripts/smoke-unit.ts",
     "assert:prod-env": "node scripts/assert-production-env.mjs",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
