@@ -36,6 +36,7 @@ import {
   type PlanDef,
 } from "@/lib/services/subscription-plans";
 import { PlanPriceBlock } from "./plan-price";
+import { PayNowForm } from "./pay-now-form";
 import { SiteHeader } from "./site-header";
 import { SiteFooter } from "./site-footer";
 import {
@@ -626,14 +627,20 @@ export function LandingPage({
                     />
                     <p className="muted mt-1 text-xs">{planSeatsLabel(p)}</p>
                     <p className="muted mt-3 flex-1 text-sm">{p.blurb}</p>
-                    <Link
-                      href={`/signup?plan=${p.key.toLowerCase()}`}
-                      className={`mt-5 ${
-                        featured ? primaryBtnClass : secondaryBtnClass
-                      }`}
-                    >
-                      Start free trial
-                    </Link>
+                    <div className="mt-5 flex flex-col gap-2">
+                      <Link
+                        href={`/signup?plan=${p.key.toLowerCase()}`}
+                        className={featured ? primaryBtnClass : secondaryBtnClass}
+                      >
+                        Start free trial
+                      </Link>
+                      <PayNowForm
+                        plan={p.key}
+                        seats={p.pricing === "per_seat" ? 1 : undefined}
+                        label="Pay now"
+                        className={`${secondaryBtnClass} w-full`}
+                      />
+                    </div>
                   </div>
                 );
               })}

@@ -23,7 +23,7 @@ export function SiteHeader() {
           <a href="/welcome#features" className="hover:text-teal-300">
             Features
           </a>
-          <a href="/welcome#pricing" className="hover:text-teal-300">
+          <a href="/pricing" className="hover:text-teal-300">
             Pricing
           </a>
           <a href="/welcome#faq" className="hover:text-teal-300">
