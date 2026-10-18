@@ -49,7 +49,7 @@ HTML report: `npx playwright show-report`
 |-------|-------------|--------|
 | `full-crawl.spec.ts` | `DEMO_MODE=1` | **Every** route (static + dynamic detail pages w/ real ids): no 500, no error boundary, no console errors. 122 routes. |
 | `marketing.spec.ts` | `DEMO_MODE=0` | Landing header/footer/CTAs, pricing plan pre-select + single "Most popular", signup validation, legal (entity/TRIAL_DAYS/first-year prices/no-template), login, onboard invalid-token, demo splash. |
-| `authed-app.spec.ts` | `DEMO_MODE=0` | Real login, header dropdowns **with occlusion check** (z-index), sidebar nav, logout. Needs `admin@forge.erp` / `Test1234!`. |
+| `authed-app.spec.ts` | `DEMO_MODE=0` | Real login, header dropdowns **with occlusion check** (z-index), sidebar nav, logout. Needs `admin@protessera.example` / `Test1234!`. |
 | `demo-flow.spec.ts` | `DEMO_MODE=0` | Start test drive → sandbox banner + convert CTA → persona switch → browse module → convert → end. Needs `demo_template` seeded. |
 | `tenant-lifecycle.spec.ts` | `DEMO_MODE=0` | Claim workspace → setup wizard → trial banner shows plan → `/admin/tenants` refused for tenant admin → re-login routes to own tenant. |
 | `write-actions.spec.ts` | `DEMO_MODE=0` | A real create action (customer) → server action → DB → list. |

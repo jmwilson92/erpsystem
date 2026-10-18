@@ -6,8 +6,13 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { MarketingShell } from "@/components/marketing/marketing-shell";
-import { TRIAL_DAYS, firstYearOfferSummary } from "@/lib/services/subscription";
+import {
+  TRIAL_DAYS,
+  activatePlan,
+  firstYearOfferSummary,
+} from "@/lib/services/subscription";
 import { retrieveCheckoutSession, stripeEnabled } from "@/lib/services/stripe";
+import { clientForSchema } from "@/lib/db";
 import {
   provisionCustomerTenant,
   issueOnboardingLink,
@@ -34,6 +39,7 @@ export default async function SignupCompletePage({
 
   let onboardUrl: string | null = null;
   let companyName: string | null = null;
+  let paidNow = false;
   let failed = false;
   try {
     if (!sessionId || !stripeEnabled()) throw new Error("no session");
@@ -41,6 +47,7 @@ export default async function SignupCompletePage({
     if (!session?.complete || !session.provision || !session.email) {
       throw new Error("session not provisionable");
     }
+    paidNow = session.payNow;
     const tenant = await provisionCustomerTenant({
       plan: session.plan,
       seats: session.seats,
@@ -50,6 +57,19 @@ export default async function SignupCompletePage({
       stripeCustomerId: session.customerId,
       stripeSubscriptionId: session.subscriptionId,
     });
+    if (paidNow && tenant.schemaName) {
+      await activatePlan(
+        {
+          plan: session.plan,
+          seats: session.seats,
+          billingEmail: session.email,
+          provider: "stripe",
+          stripeCustomerId: session.customerId,
+          stripeSubscriptionId: session.subscriptionId,
+        },
+        clientForSchema(tenant.schemaName)
+      );
+    }
     companyName = tenant.name;
     const { url } = await issueOnboardingLink(tenant.id);
     onboardUrl = url || null;
@@ -69,11 +89,23 @@ export default async function SignupCompletePage({
               You&apos;re in — {companyName ? `${companyName} is` : "your workspace is"} ready
             </h1>
             <p className="mx-auto mt-3 max-w-lg text-slate-400">
-              Your card is on file but won&apos;t be charged for {TRIAL_DAYS} days.
-              Cancel anytime before the trial ends and you&apos;re never billed.
-              After the trial, the first 12 months bill at the first-year price,
-              then standard prices apply. {firstYearOfferSummary()} Next step:
-              set up Protessera in your browser.
+              {paidNow ? (
+                <>
+                  Payment received. This workspace is tied to the email on your
+                  Stripe receipt. The first 12 months bill at the first-year
+                  price, then standard prices apply. {firstYearOfferSummary()}{" "}
+                  Next step: set up Protessera in your browser.
+                </>
+              ) : (
+                <>
+                  Your card is on file but won&apos;t be charged for {TRIAL_DAYS}{" "}
+                  days. Cancel anytime before the trial ends and you&apos;re never
+                  billed. After the trial, the first 12 months bill at the
+                  first-year price, then standard prices apply.{" "}
+                  {firstYearOfferSummary()} Next step: set up Protessera in your
+                  browser.
+                </>
+              )}
             </p>
           </div>
 

@@ -94,20 +94,20 @@ async function main() {
   // ── Users ──────────────────────────────────────────────────
   const users = await Promise.all(
     [
-      { email: "admin@forge.erp", name: "Alex Morgan", role: "ADMIN", department: "Operations", title: "ERP Admin" },
-      { email: "eng.lead@forge.erp", name: "Jordan Lee", role: "ENGINEERING", department: "Engineering", title: "Chief Engineer" },
-      { email: "cm@forge.erp", name: "Sam Rivera", role: "CM", department: "Configuration Management", title: "CM Manager" },
-      { email: "quality@forge.erp", name: "Casey Nguyen", role: "QUALITY", department: "Quality", title: "Quality Manager" },
-      { email: "buyer@forge.erp", name: "Taylor Brooks", role: "PURCHASING", department: "Supply Chain", title: "Senior Buyer" },
-      { email: "prod@forge.erp", name: "Morgan Ellis", role: "PRODUCTION", department: "Production", title: "Production Supervisor" },
-      { email: "acct@forge.erp", name: "Riley Chen", role: "ACCOUNTING", department: "Finance", title: "Controller" },
-      { email: "hr@forge.erp", name: "Avery Park", role: "HR", department: "Human Resources", title: "HR Manager" },
-      { email: "tech1@forge.erp", name: "Chris Walsh", role: "OPERATOR", department: "Assembly", title: "Assembler II", skills: JSON.stringify(["Torque", "IPC-A-610", "First Article"]) },
-      { email: "tech2@forge.erp", name: "Dana Kim", role: "OPERATOR", department: "Machining", title: "Machinist", skills: JSON.stringify(["CNC", "CMM", "GD&T"]) },
-      { email: "insp@forge.erp", name: "Pat Okonkwo", role: "QUALITY", department: "Quality", title: "Inspector" },
-      { email: "pm@forge.erp", name: "Quinn Foster", role: "PM", department: "Programs", title: "Program Manager" },
-      { email: "ceo@forge.erp", name: "Morgan Blake", role: "EXECUTIVE", department: "Executive", title: "CEO" },
-      { email: "cfo@forge.erp", name: "Harper Quinn", role: "EXECUTIVE", department: "Finance", title: "CFO" },
+      { email: "admin@protessera.example", name: "Alex Morgan", role: "ADMIN", department: "Operations", title: "ERP Admin" },
+      { email: "eng.lead@protessera.example", name: "Jordan Lee", role: "ENGINEERING", department: "Engineering", title: "Chief Engineer" },
+      { email: "cm@protessera.example", name: "Sam Rivera", role: "CM", department: "Configuration Management", title: "CM Manager" },
+      { email: "quality@protessera.example", name: "Casey Nguyen", role: "QUALITY", department: "Quality", title: "Quality Manager" },
+      { email: "buyer@protessera.example", name: "Taylor Brooks", role: "PURCHASING", department: "Supply Chain", title: "Senior Buyer" },
+      { email: "prod@protessera.example", name: "Morgan Ellis", role: "PRODUCTION", department: "Production", title: "Production Supervisor" },
+      { email: "acct@protessera.example", name: "Riley Chen", role: "ACCOUNTING", department: "Finance", title: "Controller" },
+      { email: "hr@protessera.example", name: "Avery Park", role: "HR", department: "Human Resources", title: "HR Manager" },
+      { email: "tech1@protessera.example", name: "Chris Walsh", role: "OPERATOR", department: "Assembly", title: "Assembler II", skills: JSON.stringify(["Torque", "IPC-A-610", "First Article"]) },
+      { email: "tech2@protessera.example", name: "Dana Kim", role: "OPERATOR", department: "Machining", title: "Machinist", skills: JSON.stringify(["CNC", "CMM", "GD&T"]) },
+      { email: "insp@protessera.example", name: "Pat Okonkwo", role: "QUALITY", department: "Quality", title: "Inspector" },
+      { email: "pm@protessera.example", name: "Quinn Foster", role: "PM", department: "Programs", title: "Program Manager" },
+      { email: "ceo@protessera.example", name: "Morgan Blake", role: "EXECUTIVE", department: "Executive", title: "CEO" },
+      { email: "cfo@protessera.example", name: "Harper Quinn", role: "EXECUTIVE", department: "Finance", title: "CFO" },
     ].map((u, idx) =>
       prisma.user.create({
         data: {

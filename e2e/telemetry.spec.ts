@@ -39,7 +39,7 @@ test("demo session produces telemetry visible on the insights dashboard", async 
   // --- check the dashboard ---------------------------------------------
   // Sign in as the platform owner (public-schema ADMIN).
   await page.goto("/login");
-  await page.fill('input[name="email"]', "admin@forge.erp");
+  await page.fill('input[name="email"]', "admin@protessera.example");
   await page.fill('input[name="password"]', "Test1234!");
   await page.getByRole("button", { name: "Sign in" }).click();
   await page.waitForURL((u) => !u.pathname.startsWith("/login"), { timeout: 30_000 });

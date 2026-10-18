@@ -43,7 +43,10 @@ jobs:
         run: node scripts/assert-production-env.mjs --dry-run
 
       - name: Unit smoke (auth + modules)
-        run: npx tsx scripts/smoke-unit.ts
+        # tsconfig.smoke.json sets jsx=react-jsx so opengraph-image.tsx can
+        # render under tsx. The bare `tsx` invocation leaves jsx=preserve and
+        # throws "React is not defined".
+        run: npm run smoke
 
       # Builds with AIRGAP=1 and greps the client bundle for third-party hosts.
       # Guards the on-premise claim: an import that reintroduces egress fails

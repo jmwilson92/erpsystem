@@ -8786,6 +8786,14 @@ export async function actionActivatePlan(formData: FormData): Promise<void> {
 }
 
 export async function actionStartCheckout(formData: FormData): Promise<void> {
+  const { isAnonymousDemoRequest } = await import("@/lib/demo-request");
+  if (await isAnonymousDemoRequest()) {
+    await flashToast(
+      "This demo can't open a live checkout. Start a trial or pay from Pricing.",
+      "error"
+    );
+    redirect("/pricing");
+  }
   const { requirePermission } = await import("@/lib/auth");
   const user = await requirePermission("admin.permissions");
   const { stripeEnabled, createCheckoutSession } = await import("@/lib/services/stripe");
@@ -8799,33 +8807,11 @@ export async function actionStartCheckout(formData: FormData): Promise<void> {
   }
   let url: string | null = null;
   try {
-    const { headers } = await import("next/headers");
     const { isPerSeatPlan, normalizeSeats } = await import(
       "@/lib/services/subscription"
     );
-    const h = await headers();
-    // Derive the base URL the *browser* is actually using, so Stripe returns
-    // to the right place on Codespaces / proxies / custom domains without
-    // needing APP_URL. Priority: explicit APP_URL → this request's origin →
-    // forwarded host → host header.
-    let appUrl = process.env.APP_URL || "";
-    if (!appUrl) {
-      const origin = h.get("origin");
-      const referer = h.get("referer");
-      if (origin) appUrl = origin;
-      else if (referer) {
-        try {
-          appUrl = new URL(referer).origin;
-        } catch {
-          /* ignore */
-        }
-      }
-    }
-    if (!appUrl) {
-      const proto = h.get("x-forwarded-proto") || "https";
-      const host = h.get("x-forwarded-host") || h.get("host") || "localhost:3000";
-      appUrl = `${proto}://${host}`;
-    }
+    const { requestAppUrl } = await import("@/lib/request-app-url");
+    const appUrl = await requestAppUrl();
     const seats = isPerSeatPlan(plan)
       ? normalizeSeats(plan, Number(seatsRaw))
       : null;

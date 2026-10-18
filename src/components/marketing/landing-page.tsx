@@ -38,6 +38,7 @@ import {
 import { PlanPriceBlock } from "./plan-price";
 import { SiteHeader } from "./site-header";
 import { SiteFooter } from "./site-footer";
+import { actionStartPublicCheckout } from "@/app/pricing/actions";
 import {
   getSiteUrl,
   SITE_DESCRIPTION,
@@ -379,6 +380,117 @@ function JsonLd() {
   );
 }
 
+/** Shared by /welcome and the public /pricing page. Trial and pay-now both stay. */
+export function PricingSection() {
+  const paid = PLANS.filter((p) => p.key !== "ENTERPRISE");
+  const enterprise = PLANS.find((p) => p.key === "ENTERPRISE");
+  return (
+    <CinematicSection id="pricing" image={ART.product}>
+      <div className="mx-auto max-w-6xl px-6 py-20">
+        <SectionIntro
+          eyebrow="Pricing"
+          title="Fair pricing from the smallest shop to the largest plant"
+          titleId="pricing-heading"
+          center
+          wide
+        >
+          {pricingSectionLead()} If you subscribe, you have 15 days after the
+          first charge to request a full refund.
+        </SectionIntro>
+
+        <div className="mt-12 grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
+          {paid.map((p) => {
+            const featured = p.key === "GROWTH";
+            const shopBadge = p.key === "SHOP";
+            return (
+              <div
+                key={p.key}
+                className={`relative flex flex-col border p-6 ${cardClass} ${
+                  featured
+                    ? "border-teal-600 ring-2 ring-teal-600/30"
+                    : shopBadge
+                      ? "border-cyan-600"
+                      : ""
+                }`}
+              >
+                {featured && (
+                  <span className="badge-green absolute right-4 top-4 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase">
+                    Most popular
+                  </span>
+                )}
+                {shopBadge && (
+                  <span className="badge-green absolute right-4 top-4 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase">
+                    Small teams
+                  </span>
+                )}
+                <h3 className="pr-24 text-lg font-semibold">{p.name}</h3>
+                <PlanPriceBlock
+                  planKey={p.key}
+                  className="mt-2"
+                  suffixClassName="muted text-sm font-medium"
+                  detailClassName="muted mt-1 text-xs"
+                />
+                <p className="muted mt-1 text-xs">{planSeatsLabel(p)}</p>
+                <p className="muted mt-3 flex-1 text-sm">{p.blurb}</p>
+                <Link
+                  href={`/signup?plan=${p.key.toLowerCase()}`}
+                  className={`mt-5 w-full ${
+                    featured ? primaryBtnClass : secondaryBtnClass
+                  }`}
+                >
+                  Start free trial
+                </Link>
+                <form action={actionStartPublicCheckout} className="mt-2">
+                  <input type="hidden" name="plan" value={p.key} />
+                  {p.pricing === "per_seat" ? (
+                    <input type="hidden" name="seats" value="1" />
+                  ) : null}
+                  <button
+                    type="submit"
+                    className={`${secondaryBtnClass} w-full`}
+                  >
+                    Pay now
+                  </button>
+                </form>
+              </div>
+            );
+          })}
+        </div>
+
+        {enterprise && (
+          <div
+            className={`mt-6 flex flex-col items-center justify-between gap-4 sm:flex-row ${cardClass} p-6`}
+          >
+            <div>
+              <h3 className="text-lg font-semibold">{enterprise.name}</h3>
+              <p className="muted mt-1 text-sm">{enterprise.blurb}</p>
+            </div>
+            <Link href="/signup?plan=enterprise" className={secondaryBtnClass}>
+              Contact sales <ArrowRight className="h-4 w-4" aria-hidden />
+            </Link>
+          </div>
+        )}
+
+        <ul
+          className={`mx-auto mt-10 flex max-w-3xl flex-wrap justify-center gap-x-6 gap-y-2 ${cardClass} px-5 py-3 text-sm`}
+        >
+          {[
+            "Every module included",
+            "Unlimited data",
+            "Free guided onboarding",
+            "Cancel anytime in trial",
+            "Your data stays yours",
+          ].map((x) => (
+            <li key={x} className="inline-flex items-center gap-1.5">
+              <Check className="eyebrow h-4 w-4 shrink-0" aria-hidden /> {x}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </CinematicSection>
+  );
+}
+
 export function LandingPage({
   /** Include SiteHeader / SiteFooter (default). Off when nested under Spinning up the Shop. */
   showChrome = true,
@@ -388,9 +500,6 @@ export function LandingPage({
   showChrome?: boolean;
   showClassicHero?: boolean;
 } = {}) {
-  const paid = PLANS.filter((p) => p.key !== "ENTERPRISE");
-  const enterprise = PLANS.find((p) => p.key === "ENTERPRISE");
-
   return (
     <div
       className={`marketing-story ${showChrome ? "min-h-screen" : ""} bg-slate-950`}
@@ -578,98 +687,7 @@ export function LandingPage({
           </div>
         </CinematicSection>
 
-        {/* Pricing — floating product UI */}
-        <CinematicSection id="pricing" image={ART.product}>
-          <div className="mx-auto max-w-6xl px-6 py-20">
-            <SectionIntro
-              eyebrow="Pricing"
-              title="Fair pricing from the smallest shop to the largest plant"
-              titleId="pricing-heading"
-              center
-              wide
-            >
-              {pricingSectionLead()} If you subscribe, you have 15 days after the
-              first charge to request a full refund.
-            </SectionIntro>
-
-            <div className="mt-12 grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
-              {paid.map((p) => {
-                const featured = p.key === "GROWTH";
-                const shopBadge = p.key === "SHOP";
-                return (
-                  <div
-                    key={p.key}
-                    className={`relative flex flex-col border p-6 ${cardClass} ${
-                      featured
-                        ? "border-teal-600 ring-2 ring-teal-600/30"
-                        : shopBadge
-                          ? "border-cyan-600"
-                          : ""
-                    }`}
-                  >
-                    {featured && (
-                      <span className="badge-green absolute right-4 top-4 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase">
-                        Most popular
-                      </span>
-                    )}
-                    {shopBadge && (
-                      <span className="badge-green absolute right-4 top-4 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase">
-                        Small teams
-                      </span>
-                    )}
-                    <h3 className="pr-24 text-lg font-semibold">{p.name}</h3>
-                    <PlanPriceBlock
-                      planKey={p.key}
-                      className="mt-2"
-                      suffixClassName="muted text-sm font-medium"
-                      detailClassName="muted mt-1 text-xs"
-                    />
-                    <p className="muted mt-1 text-xs">{planSeatsLabel(p)}</p>
-                    <p className="muted mt-3 flex-1 text-sm">{p.blurb}</p>
-                    <Link
-                      href={`/signup?plan=${p.key.toLowerCase()}`}
-                      className={`mt-5 ${
-                        featured ? primaryBtnClass : secondaryBtnClass
-                      }`}
-                    >
-                      Start free trial
-                    </Link>
-                  </div>
-                );
-              })}
-            </div>
-
-            {enterprise && (
-              <div
-                className={`mt-6 flex flex-col items-center justify-between gap-4 sm:flex-row ${cardClass} p-6`}
-              >
-                <div>
-                  <h3 className="text-lg font-semibold">{enterprise.name}</h3>
-                  <p className="muted mt-1 text-sm">{enterprise.blurb}</p>
-                </div>
-                <Link href="/signup?plan=enterprise" className={secondaryBtnClass}>
-                  Contact sales <ArrowRight className="h-4 w-4" aria-hidden />
-                </Link>
-              </div>
-            )}
-
-            <ul
-              className={`mx-auto mt-10 flex max-w-3xl flex-wrap justify-center gap-x-6 gap-y-2 ${cardClass} px-5 py-3 text-sm`}
-            >
-              {[
-                "Every module included",
-                "Unlimited data",
-                "Free guided onboarding",
-                "Cancel anytime in trial",
-                "Your data stays yours",
-              ].map((x) => (
-                <li key={x} className="inline-flex items-center gap-1.5">
-                  <Check className="eyebrow h-4 w-4 shrink-0" aria-hidden /> {x}
-                </li>
-              ))}
-            </ul>
-          </div>
-        </CinematicSection>
+        <PricingSection />
 
         {/* FAQ — product UI backdrop */}
         <CinematicSection id="faq" image={ART.product}>

@@ -6,7 +6,7 @@ import { test, expect } from "@playwright/test";
  * the list. Proves the create → server action → DB → list-render loop, not just
  * that pages render.
  */
-const EMAIL = "admin@forge.erp";
+const EMAIL = "admin@protessera.example";
 const PASSWORD = "Test1234!";
 
 test("create a customer and see it in the list", async ({ page }) => {
