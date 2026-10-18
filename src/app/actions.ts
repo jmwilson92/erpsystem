@@ -8786,6 +8786,13 @@ export async function actionActivatePlan(formData: FormData): Promise<void> {
 }
 
 export async function actionStartCheckout(formData: FormData): Promise<void> {
+  const { cookies } = await import("next/headers");
+  const jar = await cookies();
+  // Demo sandboxes must not open a live Checkout (the seeded admin email would
+  // be prefilled). Send the visitor to public pricing instead.
+  if (jar.get("forge-demo")?.value && !jar.get("forge-session")?.value) {
+    redirect("/pricing");
+  }
   const { requirePermission } = await import("@/lib/auth");
   const user = await requirePermission("admin.permissions");
   const { stripeEnabled, createCheckoutSession } = await import("@/lib/services/stripe");
@@ -8799,33 +8806,11 @@ export async function actionStartCheckout(formData: FormData): Promise<void> {
   }
   let url: string | null = null;
   try {
-    const { headers } = await import("next/headers");
     const { isPerSeatPlan, normalizeSeats } = await import(
       "@/lib/services/subscription"
     );
-    const h = await headers();
-    // Derive the base URL the *browser* is actually using, so Stripe returns
-    // to the right place on Codespaces / proxies / custom domains without
-    // needing APP_URL. Priority: explicit APP_URL → this request's origin →
-    // forwarded host → host header.
-    let appUrl = process.env.APP_URL || "";
-    if (!appUrl) {
-      const origin = h.get("origin");
-      const referer = h.get("referer");
-      if (origin) appUrl = origin;
-      else if (referer) {
-        try {
-          appUrl = new URL(referer).origin;
-        } catch {
-          /* ignore */
-        }
-      }
-    }
-    if (!appUrl) {
-      const proto = h.get("x-forwarded-proto") || "https";
-      const host = h.get("x-forwarded-host") || h.get("host") || "localhost:3000";
-      appUrl = `${proto}://${host}`;
-    }
+    const { appUrlForCheckout } = await import("@/lib/request-origin");
+    const appUrl = await appUrlForCheckout();
     const seats = isPerSeatPlan(plan)
       ? normalizeSeats(plan, Number(seatsRaw))
       : null;

@@ -44,3 +44,28 @@ export function publicUrlFromRequest(req: Request, pathAndQuery: string): string
   const path = pathAndQuery.startsWith("/") ? pathAndQuery : `/${pathAndQuery}`;
   return `${publicOriginFromRequest(req)}${path}`;
 }
+
+/**
+ * Absolute origin for Stripe success/cancel URLs.
+ * Prefer APP_URL so a checkout started behind a proxy returns to the public site.
+ */
+export async function appUrlForCheckout(): Promise<string> {
+  const configured = process.env.APP_URL?.replace(/\/$/, "") || "";
+  if (configured) return configured;
+
+  const { headers } = await import("next/headers");
+  const h = await headers();
+  const origin = h.get("origin");
+  const referer = h.get("referer");
+  if (origin) return origin.replace(/\/$/, "");
+  if (referer) {
+    try {
+      return new URL(referer).origin;
+    } catch {
+      /* ignore */
+    }
+  }
+  const proto = h.get("x-forwarded-proto") || "https";
+  const host = h.get("x-forwarded-host") || h.get("host") || "localhost:3000";
+  return `${proto}://${host}`;
+}

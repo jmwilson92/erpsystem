@@ -143,6 +143,10 @@ export type CheckoutSessionInfo = {
   companyName: string | null;
   /** true when this checkout should provision a self-serve customer tenant */
   provision: boolean;
+  /** Stripe trial length, when this checkout delayed the first charge. */
+  trialDays: number | null;
+  /** Paid immediately (no trial). The success page provisions an active plan. */
+  payNow: boolean;
 };
 
 /**
@@ -169,6 +173,8 @@ export async function retrieveCheckoutSession(
     line_items?: { data?: { quantity?: number }[] } | null;
   };
   const plan = s.metadata?.plan || "STARTER";
+  const trialRaw = Number(s.metadata?.trialDays);
+  const trialDays = trialRaw > 0 ? trialRaw : null;
   const qty = s.line_items?.data?.[0]?.quantity;
   const seatsRaw = s.metadata?.seats;
   let seats: number | null;
@@ -188,6 +194,8 @@ export async function retrieveCheckoutSession(
     seats,
     companyName: s.metadata?.companyName || null,
     provision: s.metadata?.provision === "tenant",
+    trialDays,
+    payNow: s.metadata?.provision === "tenant" && trialDays == null,
   };
 }
 
@@ -204,6 +212,13 @@ export async function createCheckoutSession(params: {
    * bills the standard price and does not rewrite the existing subscription.
    */
   firstYear?: boolean;
+  /**
+   * Public pay-now. Charges the first-year price immediately and tells the
+   * webhook / success page to provision a new customer tenant. In-app plan
+   * changes leave this off so they keep billing the existing instance.
+   */
+  provisionTenant?: boolean;
+  companyName?: string;
 }): Promise<string> {
   const firstYear = params.firstYear !== false;
   const price = requireCheckoutPrice(params.plan, firstYear);
@@ -212,12 +227,18 @@ export async function createCheckoutSession(params: {
     ? String(qty)
     : String(getPlan(params.plan)?.seats ?? "");
   const planDef = getPlan(params.plan);
+  const provision = params.provisionTenant === true;
+  const planKey = params.plan.toLowerCase();
   const body: Record<string, string | undefined> = {
     mode: "subscription",
     "line_items[0][price]": price,
     "line_items[0][quantity]": String(qty),
-    success_url: `${params.appUrl}/billing?checkout=success`,
-    cancel_url: `${params.appUrl}/billing?checkout=cancel`,
+    success_url: provision
+      ? `${params.appUrl}/signup/complete?session_id={CHECKOUT_SESSION_ID}`
+      : `${params.appUrl}/billing?checkout=success`,
+    cancel_url: provision
+      ? `${params.appUrl}/pricing?checkout=cancel&plan=${planKey}`
+      : `${params.appUrl}/billing?checkout=cancel`,
     customer_email: params.customerEmail,
     "metadata[plan]": params.plan,
     "metadata[seats]": seatsMeta,
@@ -228,6 +249,11 @@ export async function createCheckoutSession(params: {
     // Promo codes stay off so a leftover 50%-off coupon cannot stack on the
     // first-year price or discount an existing subscriber's standard price.
   };
+  if (provision) {
+    body["metadata[provision]"] = "tenant";
+    body["metadata[companyName]"] = params.companyName;
+    body["subscription_data[metadata][provision]"] = "tenant";
+  }
   // Shop: let the customer adjust quantity (seats) on Stripe Checkout, max 10.
   if (isPerSeatPlan(params.plan)) {
     body["line_items[0][adjustable_quantity][enabled]"] = "true";
@@ -505,14 +531,17 @@ export async function handleWebhookEvent(event: {
         /* keep seats from meta */
       }
     }
+    const trialDaysRaw = Number(m.trialDays);
+    const paidNow = !(trialDaysRaw > 0);
     await provisionCustomerTenant({
       plan,
       seats,
       billingEmail: email,
       companyName: m.companyName || null,
-      trialDays: TRIAL_DAYS,
+      trialDays: trialDaysRaw > 0 ? trialDaysRaw : TRIAL_DAYS,
       stripeCustomerId: customerId,
       stripeSubscriptionId: subscriptionId,
+      paidNow,
     });
     return;
   }

@@ -229,6 +229,7 @@ export default async function RootLayout({
       pathname.startsWith("/demo") ||
       pathname.startsWith("/legal") ||
       pathname.startsWith("/welcome") ||
+      pathname.startsWith("/pricing") ||
       pathname.startsWith("/compare") ||
       pathname.startsWith("/support/t/") ||
       pathname.startsWith("/preview") ||
@@ -243,6 +244,7 @@ export default async function RootLayout({
       pathname.startsWith("/signup") ||
       pathname.startsWith("/legal") ||
       pathname.startsWith("/welcome") ||
+      pathname.startsWith("/pricing") ||
       pathname.startsWith("/compare") ||
       pathname.startsWith("/demo") ||
       pathname.startsWith("/support/t/");

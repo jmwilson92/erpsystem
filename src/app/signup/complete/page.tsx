@@ -34,6 +34,7 @@ export default async function SignupCompletePage({
 
   let onboardUrl: string | null = null;
   let companyName: string | null = null;
+  let paidNow = false;
   let failed = false;
   try {
     if (!sessionId || !stripeEnabled()) throw new Error("no session");
@@ -41,14 +42,16 @@ export default async function SignupCompletePage({
     if (!session?.complete || !session.provision || !session.email) {
       throw new Error("session not provisionable");
     }
+    paidNow = session.payNow;
     const tenant = await provisionCustomerTenant({
       plan: session.plan,
       seats: session.seats,
       billingEmail: session.email,
       companyName: session.companyName,
-      trialDays: TRIAL_DAYS,
+      trialDays: session.trialDays ?? TRIAL_DAYS,
       stripeCustomerId: session.customerId,
       stripeSubscriptionId: session.subscriptionId,
+      paidNow: session.payNow,
     });
     companyName = tenant.name;
     const { url } = await issueOnboardingLink(tenant.id);
@@ -69,11 +72,9 @@ export default async function SignupCompletePage({
               You&apos;re in — {companyName ? `${companyName} is` : "your workspace is"} ready
             </h1>
             <p className="mx-auto mt-3 max-w-lg text-slate-400">
-              Your card is on file but won&apos;t be charged for {TRIAL_DAYS} days.
-              Cancel anytime before the trial ends and you&apos;re never billed.
-              After the trial, the first 12 months bill at the first-year price,
-              then standard prices apply. {firstYearOfferSummary()} Next step:
-              set up Protessera in your browser.
+              {paidNow
+                ? `Payment received. Your workspace is ready. The first 12 months bill at the first-year price, then standard prices apply. ${firstYearOfferSummary()} Next step: set up Protessera in your browser.`
+                : `Your card is on file but won't be charged for ${TRIAL_DAYS} days. Cancel anytime before the trial ends and you're never billed. After the trial, the first 12 months bill at the first-year price, then standard prices apply. ${firstYearOfferSummary()} Next step: set up Protessera in your browser.`}
             </p>
           </div>
 

@@ -632,6 +632,11 @@ export async function provisionCustomerTenant(params: {
   trialDays: number;
   stripeCustomerId?: string | null;
   stripeSubscriptionId?: string | null;
+  /**
+   * Immediate pay-now checkout. Marks the tenant ACTIVE for the first paid
+   * period instead of opening a cardless trial. Cardless signup leaves this off.
+   */
+  paidNow?: boolean;
 }) {
   const cp = controlPlaneClient();
 
@@ -643,7 +648,16 @@ export async function provisionCustomerTenant(params: {
     if (existing) return existing;
   }
 
-  const trialEndsAt = new Date(Date.now() + params.trialDays * 86_400_000);
+  const paidNow = params.paidNow === true;
+  const { normalizeSeats, getPlan } = await import("./subscription");
+  const planDef = getPlan(params.plan);
+  const periodMs =
+    planDef?.interval === "month" ? 32 * 86_400_000 : 365 * 86_400_000;
+  const trialEndsAt = paidNow
+    ? null
+    : new Date(Date.now() + params.trialDays * 86_400_000);
+  const currentPeriodEnd = paidNow ? new Date(Date.now() + periodMs) : null;
+  const subscriptionStatus = paidNow ? "ACTIVE" : "TRIALING";
   // Deterministic schema name per subscription: the success page and the Stripe
   // webhook can both try to provision the same checkout at once — deriving the
   // name from the subscription id makes the unique constraint collapse that
@@ -681,13 +695,12 @@ export async function provisionCustomerTenant(params: {
   try {
     await provisionSchema(schemaName);
     const db = clientForSchema(schemaName);
-    // Essentials: a settings row carrying the trialing subscription state, and a
-    // first admin user (no password yet — set during onboarding).
-    const { normalizeSeats, getPlan } = await import("./subscription");
+    // Essentials: a settings row carrying subscription state, and a first admin
+    // user (no password yet — set during onboarding).
     const seats =
       params.seats != null
         ? normalizeSeats(params.plan, params.seats)
-        : getPlan(params.plan)?.seats ?? null;
+        : planDef?.seats ?? null;
     // Public signup has no card. Only a completed Stripe checkout has one.
     const billingProvider =
       params.stripeCustomerId || params.stripeSubscriptionId ? "stripe" : null;
@@ -698,8 +711,9 @@ export async function provisionCustomerTenant(params: {
         id: "default",
         name: params.companyName ?? "My Company",
         plan: params.plan,
-        subscriptionStatus: "TRIALING",
+        subscriptionStatus,
         trialEndsAt,
+        currentPeriodEnd,
         seats,
         billingEmail: params.billingEmail,
         billingProvider,
@@ -708,8 +722,9 @@ export async function provisionCustomerTenant(params: {
       },
       update: {
         plan: params.plan,
-        subscriptionStatus: "TRIALING",
+        subscriptionStatus,
         trialEndsAt,
+        currentPeriodEnd,
         seats: seats ?? undefined,
         billingProvider,
         billingEmail: params.billingEmail,

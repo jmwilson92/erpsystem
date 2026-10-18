@@ -367,6 +367,39 @@ function testClaimDerivation() {
   console.log("  ✓ tenant claim derivation");
 }
 
+function testPublicPayNowWiring() {
+  const middleware = readFileSync(
+    path.join(process.cwd(), "src/middleware.ts"),
+    "utf8"
+  );
+  const layout = readFileSync(
+    path.join(process.cwd(), "src/app/layout.tsx"),
+    "utf8"
+  );
+  const billing = readFileSync(
+    path.join(process.cwd(), "src/app/billing/page.tsx"),
+    "utf8"
+  );
+  const checkoutAction = readFileSync(
+    path.join(process.cwd(), "src/app/actions.ts"),
+    "utf8"
+  );
+  assert.match(middleware, /"\/pricing"/);
+  assert.match(layout, /pathname\.startsWith\("\/pricing"\)/);
+  assert.match(billing, /isDemoVisitor/);
+  assert.match(billing, /This demo plant cannot open a live checkout/);
+  assert.match(checkoutAction, /forge-demo/);
+  assert.match(checkoutAction, /redirect\("\/pricing"\)/);
+  const pricing = readFileSync(
+    path.join(process.cwd(), "src/app/pricing/page.tsx"),
+    "utf8"
+  );
+  assert.match(pricing, /Pay now/);
+  assert.match(pricing, /Start free trial/);
+  assert.doesNotMatch(pricing, /ForgeRP/);
+  console.log("  ✓ public pay-now wiring");
+}
+
 function testLaunchPricing() {
   assert.equal(TRIAL_DAYS, 60);
   assert.equal(shopFirstYearMonthly(1), 10);
@@ -563,6 +596,7 @@ async function main() {
   testSecretRedaction();
   testComparePages();
   testClaimDerivation();
+  testPublicPayNowWiring();
   testLaunchPricing();
   await testSocialImages();
   console.log("smoke-unit: all passed");

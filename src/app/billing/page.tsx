@@ -1,9 +1,12 @@
+import { cookies } from "next/headers";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { getCurrentUser, userHasPermission } from "@/lib/auth";
+import { SESSION_COOKIE } from "@/lib/auth-core";
+import { DEMO_COOKIE } from "@/lib/db";
 import {
   getSubscriptionState,
   getSeatUsage,
@@ -33,6 +36,9 @@ export default async function BillingPage({
   const checkout = sp.checkout as string | undefined;
   const user = await getCurrentUser();
   const canManage = await userHasPermission(user?.id, "admin.permissions");
+  const jar = await cookies();
+  const isDemoVisitor =
+    !!jar.get(DEMO_COOKIE)?.value && !jar.get(SESSION_COOKIE)?.value;
   const sub = await getSubscriptionState();
   const seatUsage = await getSeatUsage();
 
@@ -198,7 +204,30 @@ export default async function BillingPage({
                     </li>
                   )}
                 </ul>
-                {canManage && !current && (
+                {isDemoVisitor && !current && (
+                  <div className="space-y-2 rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+                    <p className="text-xs text-slate-400">
+                      This demo plant cannot open a live checkout. Pay on the
+                      public pricing page, or start a free trial for your own
+                      plant.
+                    </p>
+                    <div className="flex flex-col gap-2">
+                      <a
+                        href="/pricing"
+                        className="inline-flex h-8 items-center justify-center rounded-md bg-teal-500 px-3 text-xs font-semibold text-slate-950 hover:bg-teal-400"
+                      >
+                        See pricing and pay
+                      </a>
+                      <a
+                        href={`/signup?plan=${plan.key.toLowerCase()}`}
+                        className="inline-flex h-8 items-center justify-center rounded-md border border-slate-700 px-3 text-xs font-medium text-slate-200 hover:bg-slate-800"
+                      >
+                        Start free trial
+                      </a>
+                    </div>
+                  </div>
+                )}
+                {canManage && !current && !isDemoVisitor && (
                   <form action={actionStartCheckout} className="space-y-2">
                     <input type="hidden" name="plan" value={plan.key} />
                     {isShop && (
