@@ -18,7 +18,7 @@ export function CompactSiteFooter() {
           className="flex flex-wrap items-center gap-x-3 gap-y-1 text-teal-300/90"
           aria-label="Marketing and legal"
         >
-          <a href="/welcome#pricing" className="hover:text-teal-200">
+          <a href="/pricing" className="hover:text-teal-200">
             Pricing
           </a>
           <a href="/welcome#faq" className="hover:text-teal-200">
@@ -73,7 +73,7 @@ export function SiteFooter() {
               <a href="/welcome#features" className="hover:text-slate-300">
                 Features
               </a>
-              <a href="/welcome#pricing" className="hover:text-slate-300">
+              <a href="/pricing" className="hover:text-slate-300">
                 Pricing
               </a>
               <a href="/welcome#faq" className="hover:text-slate-300">

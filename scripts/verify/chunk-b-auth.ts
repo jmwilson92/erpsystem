@@ -69,7 +69,7 @@ export async function runChunkB() {
   });
 
   await check("B", "Login rate limit trips after many failures", async () => {
-    const email = "rate-limit-test@forge.erp";
+    const email = "rate-limit-test@protessera.example";
     clearLoginFailures(email);
     for (let i = 0; i < 10; i++) recordLoginFailure(email);
     let threw = false;

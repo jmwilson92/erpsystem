@@ -1,9 +1,11 @@
+import Link from "next/link";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { getCurrentUser, userHasPermission } from "@/lib/auth";
+import { isAnonymousDemoRequest } from "@/lib/demo-request";
 import {
   getSubscriptionState,
   getSeatUsage,
@@ -33,6 +35,7 @@ export default async function BillingPage({
   const checkout = sp.checkout as string | undefined;
   const user = await getCurrentUser();
   const canManage = await userHasPermission(user?.id, "admin.permissions");
+  const inDemo = await isAnonymousDemoRequest();
   const sub = await getSubscriptionState();
   const seatUsage = await getSeatUsage();
 
@@ -56,6 +59,27 @@ export default async function BillingPage({
           <CardContent className="p-4 text-sm text-slate-300">
             Checkout canceled — no charge was made. You can pick a plan whenever
             you&apos;re ready.
+          </CardContent>
+        </Card>
+      )}
+
+      {inDemo && (
+        <Card className="border-amber-500/40 bg-amber-500/10">
+          <CardContent className="space-y-2 p-4 text-sm text-amber-100">
+            <p className="font-semibold">Live checkout is off in the demo</p>
+            <p className="text-amber-100/90">
+              A test drive can&apos;t open a real Stripe payment. Start a free
+              trial, or pay on the pricing page — that checkout is not tied to
+              this sandbox.
+            </p>
+            <p className="flex flex-wrap gap-3 pt-1">
+              <Link href="/signup" className="font-semibold text-teal-300 underline">
+                Start a free trial
+              </Link>
+              <Link href="/pricing" className="font-semibold text-teal-300 underline">
+                Pricing and pay now
+              </Link>
+            </p>
           </CardContent>
         </Card>
       )}
@@ -198,7 +222,7 @@ export default async function BillingPage({
                     </li>
                   )}
                 </ul>
-                {canManage && !current && (
+                {canManage && !current && !inDemo && (
                   <form action={actionStartCheckout} className="space-y-2">
                     <input type="hidden" name="plan" value={plan.key} />
                     {isShop && (

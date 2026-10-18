@@ -6,10 +6,10 @@ import { test, expect } from "@playwright/test";
  * panel is the top element at its own center, not painted over), sidebar
  * navigation, and logout.
  *
- * Requires admin@forge.erp to have password Test1234! (set by the test harness).
+ * Requires admin@protessera.example to have password Test1234! (set by the test harness).
  */
 
-const EMAIL = "admin@forge.erp";
+const EMAIL = "admin@protessera.example";
 const PASSWORD = "Test1234!";
 
 async function login(page: import("@playwright/test").Page) {
