@@ -48,6 +48,9 @@ import {
   periodPriceForPlan,
   planPriceView,
   shopFirstYearMonthly,
+  SHOP_FREE_SEATS,
+  isFreeShop,
+  paidShopSeats,
 } from "../src/lib/services/subscription-plans";
 import { buildIntroScheduleUpdate } from "../src/lib/services/stripe-intro";
 import { LEGAL_DOCS } from "../src/lib/legal-content";
@@ -417,8 +420,21 @@ function testLaunchPricing() {
   assert.equal(firstYearBillingCycles("GROWTH"), 1);
   assert.equal(firstYearBillingCycles("BUSINESS"), 1);
 
+  // Shop is free for up to 5 users; paid Shop (6–10) keeps the $10 + $2 formula.
+  assert.equal(SHOP_FREE_SEATS, 5);
+  assert.equal(isFreeShop("SHOP", 1), true);
+  assert.equal(isFreeShop("SHOP", 5), true);
+  assert.equal(isFreeShop("SHOP", 6), false);
+  assert.equal(isFreeShop("STARTER", 1), false);
+  assert.equal(paidShopSeats(1), 6);
+  assert.equal(paidShopSeats(8), 8);
+  assert.equal(paidShopSeats(99), 10);
+  assert.equal(shopFirstYearMonthly(6), 20);
+  assert.equal(planPriceView("SHOP", { seats: 5 }).primaryAmount, "Free");
+  assert.equal(planPriceView("SHOP", { seats: 6 }).primaryAmount, "$20");
   const shop = planPriceView("SHOP");
-  assert.equal(shop.primaryAmount, "$10");
+  assert.equal(shop.primaryAmount, "Free");
+  assert.match(shop.primarySuffix, /up to 5 users/);
   assert.match(shop.note ?? "", /\$28/);
   assert.match(shop.afterYearOne, /\$30\/user\/mo/);
   const ten = planPriceView("SHOP", { seats: 10 });
@@ -563,7 +579,7 @@ async function testSocialImages() {
   const { openGraphSubtitle } = await import("../src/app/opengraph-image");
   assert.equal(
     openGraphSubtitle(),
-    "Sales · engineering · production · quality · accounting — one connected system. Live in a day. 60-day free trial, no card. Shop $10/mo for the first user. Then $30/user/mo."
+    "Sales · engineering · production · quality · accounting — one connected system. Live in a day. 60-day free trial, no card. Shop is free for up to 5 users."
   );
 
   const routes = listSocialImageRoutes(path.join(process.cwd(), "src/app"));

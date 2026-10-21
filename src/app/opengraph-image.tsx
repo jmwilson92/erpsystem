@@ -1,5 +1,5 @@
 import { ImageResponse } from "next/og";
-import { TRIAL_DAYS, planPriceView } from "@/lib/services/subscription-plans";
+import { TRIAL_DAYS, SHOP_FREE_SEATS } from "@/lib/services/subscription-plans";
 
 export const runtime = "edge";
 export const alt =
@@ -9,8 +9,7 @@ export const contentType = "image/png";
 
 /** Single text child. Satori requires display:flex on a div with more than one child. */
 export function openGraphSubtitle(): string {
-  const shop = planPriceView("SHOP");
-  return `Sales · engineering · production · quality · accounting — one connected system. Live in a day. ${TRIAL_DAYS}-day free trial, no card. Shop ${shop.primaryAmount}${shop.primarySuffix}. ${shop.afterYearOne}`;
+  return `Sales · engineering · production · quality · accounting — one connected system. Live in a day. ${TRIAL_DAYS}-day free trial, no card. Shop is free for up to ${SHOP_FREE_SEATS} users.`;
 }
 
 export default function OpenGraphImage() {

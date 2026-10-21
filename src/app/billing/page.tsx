@@ -176,7 +176,9 @@ export default async function BillingPage({
         {PLANS.map((plan) => {
           const current = sub.plan === plan.key && sub.isPaid;
           const isShop = plan.pricing === "per_seat";
-          const shopExample = isShop ? planPriceView("SHOP", { seats: 3 }) : null;
+          const shopExample = isShop ? planPriceView("SHOP", { seats: 6 }) : null;
+          // Free Shop (≤5 users) still sees the form so a 6th user can upgrade.
+          const freeShopHere = isShop && sub.isFree;
           return (
             <Card
               key={plan.key}
@@ -222,26 +224,28 @@ export default async function BillingPage({
                     </li>
                   )}
                 </ul>
-                {canManage && !current && !inDemo && (
+                {canManage && (!current || freeShopHere) && !inDemo && (
                   <form action={actionStartCheckout} className="space-y-2">
                     <input type="hidden" name="plan" value={plan.key} />
                     {isShop && (
                       <label className="block text-xs text-slate-400">
-                        Seats / quantity (1–{plan.maxSeats})
+                        Users (5 or fewer is free; 6–{plan.maxSeats} is paid Shop)
                         <Input
                           name="seats"
                           type="number"
                           min={plan.minSeats ?? 1}
                           max={plan.maxSeats ?? 10}
                           defaultValue={
-                            sub.plan === "SHOP" && sub.seats
+                            sub.plan === "SHOP" && sub.seats && !sub.isFree
                               ? Math.min(sub.seats, plan.maxSeats ?? 10)
-                              : 3
+                              : freeShopHere
+                                ? 6
+                                : 3
                           }
                           className="mt-1 h-8 text-xs"
                         />
                         <span className="mt-1 block text-[11px] text-slate-500">
-                          Example, 3 seats: {shopExample?.primaryAmount}
+                          Example, 6 users: {shopExample?.primaryAmount}
                           {shopExample?.primarySuffix}. {shopExample?.note}{" "}
                           {shopExample?.afterYearOne}
                         </span>

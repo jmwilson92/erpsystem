@@ -683,9 +683,14 @@ export async function provisionCustomerTenant(params: {
     const db = clientForSchema(schemaName);
     // Essentials: a settings row carrying the trialing subscription state, and a
     // first admin user (no password yet — set during onboarding).
-    const { normalizeSeats, getPlan } = await import("./subscription");
-    const seats =
-      params.seats != null
+    const { normalizeSeats, getPlan, isFreeShop, SHOP_FREE_SEATS } =
+      await import("./subscription");
+    // Free Shop (≤5 users, no Stripe) gets the full free allowance of 5 seats.
+    const freeShop =
+      !params.stripeSubscriptionId && isFreeShop(params.plan, params.seats);
+    const seats = freeShop
+      ? SHOP_FREE_SEATS
+      : params.seats != null
         ? normalizeSeats(params.plan, params.seats)
         : getPlan(params.plan)?.seats ?? null;
     // Public signup has no card. Only a completed Stripe checkout has one.

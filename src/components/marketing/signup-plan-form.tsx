@@ -145,7 +145,7 @@ export function SignupPlanForm({
                   )}
                   {p.pricing === "per_seat" && (
                     <span className="mt-0.5 block text-[11px] text-slate-600">
-                      billed monthly, set quantity for seats (max {p.maxSeats})
+                      free up to 5 users · 6–{p.maxSeats} billed monthly
                     </span>
                   )}
                 </span>
@@ -164,7 +164,7 @@ export function SignupPlanForm({
             <span className="mt-0.5 block text-xs text-slate-500">
               {shopFormula?.primaryAmount}
               {shopFormula?.primarySuffix}. {shopFormula?.note}{" "}
-              {shopFormula?.afterYearOne} 1–{selected.maxSeats} seats on Shop.
+              {shopFormula?.afterYearOne} Up to {selected.maxSeats} seats on Shop.
               Need more? Choose Starter or above.
             </span>
             <div className="mt-3 flex flex-wrap items-center gap-3">
