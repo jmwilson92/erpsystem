@@ -3,6 +3,8 @@ import {
   getPlan,
   isPerSeatPlan,
   normalizeSeats,
+  paidShopSeats,
+  SHOP_PAID_MIN_SEATS,
   TRIAL_DAYS,
   STRIPE_STANDARD_PRICE_ENV,
   STRIPE_FIRST_YEAR_PRICE_ENV,
@@ -14,7 +16,7 @@ import { buildIntroScheduleUpdate } from "@/lib/services/stripe-intro";
  * unconfigured → the billing page falls back to in-app activation.
  *
  * Standard (year two+) prices — existing subscribers stay on these:
- *   STRIPE_PRICE_SHOP        price_... (per-seat monthly, $30/unit; qty = seats 1–10)
+ *   STRIPE_PRICE_SHOP        price_... (per-seat monthly, $30/unit; qty = seats 6–10)
  *   STRIPE_PRICE_STARTER     price_... (flat annual, $3,600)
  *   STRIPE_PRICE_GROWTH      price_... (flat annual, $8,400)
  *   STRIPE_PRICE_BUSINESS    price_... (flat annual, $18,000)
@@ -32,7 +34,9 @@ import { buildIntroScheduleUpdate } from "@/lib/services/stripe-intro";
  *   APP_URL                  https://your-instance (for success/cancel URLs)
  *
  * Enterprise is "contact sales" — no self-serve checkout.
- * Shop: line-item quantity = seats (adjustable 1–10 on Checkout).
+ * Shop: free for 1–5 users (never reaches Checkout). Paid Shop line-item
+ * quantity = seats (adjustable 6–10 on Checkout), billed by the same graduated
+ * price: $10 + $2 × (seats − 1) in year one.
  * LAUNCH_DATE, LAUNCH_PROMO_DAYS, and STRIPE_COUPON_LAUNCH are not read.
  */
 
@@ -130,7 +134,8 @@ async function stripeGet(path: string) {
 /** Line-item quantity: seat count for Shop, 1 for flat plans. */
 function checkoutQuantity(plan: string, seats?: number | null): number {
   if (!isPerSeatPlan(plan)) return 1;
-  return normalizeSeats(plan, seats) ?? 1;
+  // Shop ≤5 is free; anything that reaches Stripe is paid Shop (6–10).
+  return paidShopSeats(seats);
 }
 
 export type CheckoutSessionInfo = {
@@ -250,11 +255,11 @@ export async function createCheckoutSession(params: {
     body["subscription_data[metadata][provision]"] = "tenant";
     body["subscription_data[metadata][payNow]"] = "1";
   }
-  // Shop: let the customer adjust quantity (seats) on Stripe Checkout, max 10.
+  // Shop: let the customer adjust quantity (seats) on Stripe Checkout, 6–10.
   if (isPerSeatPlan(params.plan)) {
     body["line_items[0][adjustable_quantity][enabled]"] = "true";
     body["line_items[0][adjustable_quantity][minimum]"] = String(
-      planDef?.minSeats ?? 1
+      SHOP_PAID_MIN_SEATS
     );
     body["line_items[0][adjustable_quantity][maximum]"] = String(
       planDef?.maxSeats ?? 10
@@ -315,7 +320,7 @@ export async function createTrialCheckoutSession(params: {
   if (isPerSeatPlan(params.plan)) {
     body["line_items[0][adjustable_quantity][enabled]"] = "true";
     body["line_items[0][adjustable_quantity][minimum]"] = String(
-      planDef?.minSeats ?? 1
+      SHOP_PAID_MIN_SEATS
     );
     body["line_items[0][adjustable_quantity][maximum]"] = String(
       planDef?.maxSeats ?? 10

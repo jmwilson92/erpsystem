@@ -8,8 +8,11 @@
  * Stripe setup all read from here.
  *
  * Pricing model:
- *  - Shop: monthly, 1–10 users. First year is $10 for the first user plus $2
- *    for each additional user ($28/month at 10 users). After that, $30/user/month.
+ *  - Shop: FREE for up to 5 users (no card, no checkout, no expiry). A 6th
+ *    user moves the shop onto paid Shop (6–10 users). Paid Shop uses the
+ *    existing formula over the whole seat count: first year $10 for the first
+ *    user plus $2 for each additional user ($20/month at 6, $28/month at 10).
+ *    After that, $30/user/month. Same Stripe prices as before.
  *  - Starter / Growth / Business: flat annual. First year is a fixed intro
  *    amount; the standard annual price applies after that.
  *  - Enterprise: custom (self-host, SSO, 251+). Unchanged — quoted.
@@ -59,7 +62,7 @@ export const PLANS: readonly PlanDef[] = [
     firstYearPrice: 10,
     firstYearAdditionalPerSeat: 2,
     interval: "month",
-    blurb: "Startups & micro shops — full ERP, up to 10 seats.",
+    blurb: "Startups & micro shops — full ERP. Free for up to 5 users, paid up to 10.",
     seats: 10,
     minSeats: 1,
     maxSeats: 10,
@@ -127,6 +130,24 @@ export const PLANS: readonly PlanDef[] = [
 ];
 
 export const TRIAL_DAYS = 60;
+
+/** Shop is free for up to this many users. Paid Shop starts one above it. */
+export const SHOP_FREE_SEATS = 5;
+/** Smallest seat count that goes through Stripe for Shop. */
+export const SHOP_PAID_MIN_SEATS = SHOP_FREE_SEATS + 1;
+
+/** True when this plan + seat count is the free Shop tier (never hits checkout). */
+export function isFreeShop(planKey: string, seats?: number | null): boolean {
+  if (planKey.toUpperCase() !== "SHOP") return false;
+  const n = normalizeSeats("SHOP", seats ?? 1) ?? 1;
+  return n <= SHOP_FREE_SEATS;
+}
+
+/** Seat count used for a paid Shop checkout: clamped to 6–10. */
+export function paidShopSeats(seats?: number | null): number {
+  const n = normalizeSeats("SHOP", seats ?? SHOP_PAID_MIN_SEATS) ?? SHOP_PAID_MIN_SEATS;
+  return Math.max(SHOP_PAID_MIN_SEATS, n);
+}
 
 /**
  * Stripe Price lookup keys. The setup script reuses a price when the key
@@ -259,7 +280,7 @@ export function annualPriceForPlan(
 export function planSeatsLabel(plan: PlanDef): string {
   if (plan.pricing === "custom" || plan.seats == null) return "Unlimited seats";
   if (plan.pricing === "per_seat") {
-    return `${plan.minSeats}–${plan.maxSeats} users · pay per seat`;
+    return `Free up to ${SHOP_FREE_SEATS} users · paid ${SHOP_PAID_MIN_SEATS}–${plan.maxSeats}`;
   }
   return `Up to ${plan.seats} users`;
 }
@@ -296,22 +317,28 @@ export function planPriceView(
     const perUser = formatPlanMoney(plan.pricePerSeatMonthly ?? 0);
     if (opts?.seats == null) {
       const max = plan.maxSeats ?? 10;
+      const six = shopFirstYearMonthly(SHOP_PAID_MIN_SEATS);
       const ten = shopFirstYearMonthly(max);
       return {
-        primaryAmount: formatPlanMoney(plan.firstYearPrice ?? 0),
-        primarySuffix: "/mo for the first user",
-        note: `+ ${formatPlanMoney(plan.firstYearAdditionalPerSeat ?? 0)}/mo for each additional user. A ${max}-user shop pays ${formatPlanMoney(ten)}/mo in the first year.`,
-        afterYearOne: `Then ${perUser}/user/mo.`,
+        primaryAmount: "Free",
+        primarySuffix: ` for up to ${SHOP_FREE_SEATS} users`,
+        note: `Need ${SHOP_PAID_MIN_SEATS}–${max} users? Paid Shop is ${formatPlanMoney(plan.firstYearPrice ?? 0)}/mo for the first user + ${formatPlanMoney(plan.firstYearAdditionalPerSeat ?? 0)}/mo for each additional user in the first year (${formatPlanMoney(six)}/mo at ${SHOP_PAID_MIN_SEATS} users, ${formatPlanMoney(ten)}/mo at ${max}).`,
+        afterYearOne: `Paid Shop is ${perUser}/user/mo after the first year. Free stays free.`,
       };
     }
     const n = normalizeSeats(plan.key, opts.seats) ?? 1;
+    if (n <= SHOP_FREE_SEATS) {
+      return {
+        primaryAmount: "Free",
+        primarySuffix: ` for up to ${SHOP_FREE_SEATS} users`,
+        note: "No card, no checkout.",
+        afterYearOne: "",
+      };
+    }
     const intro = shopFirstYearMonthly(n);
     const standard = periodPriceForPlan(plan.key, n);
     const extraSeats = n - 1;
-    const note =
-      extraSeats === 0
-        ? "First user only, for the first year."
-        : `${formatPlanMoney(plan.firstYearPrice ?? 0)} for the first user + ${formatPlanMoney(plan.firstYearAdditionalPerSeat ?? 0)}/mo × ${extraSeats} additional.`;
+    const note = `${formatPlanMoney(plan.firstYearPrice ?? 0)} for the first user + ${formatPlanMoney(plan.firstYearAdditionalPerSeat ?? 0)}/mo × ${extraSeats} additional.`;
     return {
       primaryAmount: formatPlanMoney(intro),
       primarySuffix: "/mo for the first year",
@@ -335,7 +362,7 @@ export function firstYearOfferSummary(): string {
   const business = getPlan("BUSINESS")!;
   const max = shop.maxSeats ?? 10;
   const ten = shopFirstYearMonthly(max);
-  return `First year, Shop is ${formatPlanMoney(shop.firstYearPrice ?? 0)}/month for the first user plus ${formatPlanMoney(shop.firstYearAdditionalPerSeat ?? 0)}/month for each additional user (a ${max}-user shop pays ${formatPlanMoney(ten)}/month). Starter is ${formatPlanMoney(starter.firstYearPrice ?? 0)} for the first year, Growth ${formatPlanMoney(growth.firstYearPrice ?? 0)}, and Business ${formatPlanMoney(business.firstYearPrice ?? 0)}. After the first 12 months, standard prices apply: Shop ${formatPlanMoney(shop.pricePerSeatMonthly ?? 0)}/user/month, Starter ${formatPlanMoney(starter.price)}/year, Growth ${formatPlanMoney(growth.price)}/year, Business ${formatPlanMoney(business.price)}/year. Enterprise stays quoted.`;
+  return `Shop is free for up to ${SHOP_FREE_SEATS} users. For ${SHOP_PAID_MIN_SEATS}–${max} users, paid Shop's first year is ${formatPlanMoney(shop.firstYearPrice ?? 0)}/month for the first user plus ${formatPlanMoney(shop.firstYearAdditionalPerSeat ?? 0)}/month for each additional user (a ${max}-user shop pays ${formatPlanMoney(ten)}/month). Starter is ${formatPlanMoney(starter.firstYearPrice ?? 0)} for the first year, Growth ${formatPlanMoney(growth.firstYearPrice ?? 0)}, and Business ${formatPlanMoney(business.firstYearPrice ?? 0)}. After the first 12 months, standard prices apply: paid Shop ${formatPlanMoney(shop.pricePerSeatMonthly ?? 0)}/user/month, Starter ${formatPlanMoney(starter.price)}/year, Growth ${formatPlanMoney(growth.price)}/year, Business ${formatPlanMoney(business.price)}/year. Enterprise stays quoted.`;
 }
 
 export function pricingSectionLead(): string {

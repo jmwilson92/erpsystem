@@ -188,7 +188,7 @@ const TRUST = [
   { icon: Sparkles, label: "15-day money-back" },
 ];
 
-/** Schema.org price: the first-year amount a new customer pays (Shop = 1 seat). */
+/** Schema.org price: the first-year amount a new customer pays (Shop ≤5 users = free). */
 function offerPrice(p: PlanDef): string {
   return String(
     firstYearPeriodPriceForPlan(p.key, p.pricing === "per_seat" ? 1 : null)
@@ -438,18 +438,18 @@ export function PricingSection() {
                     featured ? primaryBtnClass : secondaryBtnClass
                   }`}
                 >
-                  Start free trial
+                  {p.pricing === "per_seat" ? "Start free" : "Start free trial"}
                 </Link>
                 <form action={actionStartPublicCheckout} className="mt-2">
                   <input type="hidden" name="plan" value={p.key} />
                   {p.pricing === "per_seat" ? (
-                    <input type="hidden" name="seats" value="1" />
+                    <input type="hidden" name="seats" value="6" />
                   ) : null}
                   <button
                     type="submit"
                     className={`${secondaryBtnClass} w-full`}
                   >
-                    Pay now
+                    {p.pricing === "per_seat" ? "Pay for 6–10 users" : "Pay now"}
                   </button>
                 </form>
               </div>

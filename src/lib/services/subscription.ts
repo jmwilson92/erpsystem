@@ -6,6 +6,10 @@ import { demoModeEnabled } from "@/lib/auth-core";
 export {
   PLANS,
   TRIAL_DAYS,
+  SHOP_FREE_SEATS,
+  SHOP_PAID_MIN_SEATS,
+  isFreeShop,
+  paidShopSeats,
   STRIPE_LOOKUP_KEYS,
   STRIPE_STANDARD_PRICE_ENV,
   STRIPE_FIRST_YEAR_PRICE_ENV,
@@ -31,6 +35,8 @@ import {
   getPlan,
   normalizeSeats,
   TRIAL_DAYS,
+  SHOP_FREE_SEATS,
+  SHOP_PAID_MIN_SEATS,
 } from "./subscription-plans";
 
 /**
@@ -148,6 +154,16 @@ export async function assertSeatAvailableForInvite(
   if (openInvite) return; // already reserved
 
   if (usage.used >= usage.limit) {
+    const plan = await db.companySettings.findUnique({
+      where: { id: "default" },
+      select: { plan: true },
+    });
+    if (plan?.plan === "SHOP" && usage.limit <= SHOP_FREE_SEATS) {
+      throw new Error(
+        `Shop is free for up to ${SHOP_FREE_SEATS} users. ` +
+          `To add user #${SHOP_PAID_MIN_SEATS}, upgrade to paid Shop on Plan & billing (/billing).`
+      );
+    }
     throw new Error(
       `Seat limit reached (${usage.limit} seat${usage.limit === 1 ? "" : "s"}). ` +
         `You have ${usage.activeUsers} active user${usage.activeUsers === 1 ? "" : "s"}` +
@@ -205,6 +221,8 @@ export type SubscriptionState = {
   isTrialing: boolean;
   /** whole days left in the trial (0 once elapsed); null when not trialing */
   trialDaysLeft: number | null;
+  /** true on the free Shop tier (≤5 users, no checkout) */
+  isFree: boolean;
   /** true when access should be granted right now */
   hasAccess: boolean;
   /** true when the trial is over and there is no paid subscription */
@@ -232,13 +250,22 @@ export async function getSubscriptionState(
       seats: true,
       billingEmail: true,
       billingProvider: true,
+      stripeSubscriptionId: true,
     },
   });
 
   const now = new Date();
   const enforced = !demoModeEnabled();
 
+  // Free Shop (≤5 seats, no Stripe subscription) keeps access with no trial clock.
+  const isFree =
+    s.plan === "SHOP" &&
+    s.seats != null &&
+    s.seats <= SHOP_FREE_SEATS &&
+    s.subscriptionStatus !== "CANCELLED" &&
+    !s.stripeSubscriptionId;
   const isPaid =
+    !isFree &&
     s.subscriptionStatus === "ACTIVE" &&
     (!s.currentPeriodEnd || s.currentPeriodEnd > now);
   const isTrialing =
@@ -250,9 +277,9 @@ export async function getSubscriptionState(
     s.subscriptionStatus === "TRIALING" && s.trialEndsAt
       ? daysBetween(now, s.trialEndsAt)
       : null;
-  const isExpired = !isPaid && !isTrialing;
-  // Demo instance is always open; otherwise access needs paid or live trial.
-  const hasAccess = !enforced || isPaid || isTrialing;
+  const isExpired = !isPaid && !isTrialing && !isFree;
+  // Demo instance is always open; otherwise access needs paid, free Shop, or live trial.
+  const hasAccess = !enforced || isPaid || isTrialing || isFree;
 
   return {
     plan: s.plan,
@@ -264,6 +291,7 @@ export async function getSubscriptionState(
     billingProvider: s.billingProvider,
     isPaid,
     isTrialing,
+    isFree,
     trialDaysLeft,
     hasAccess,
     isExpired,
@@ -315,9 +343,15 @@ export async function activatePlan(
   const periodEnd =
     params.currentPeriodEnd ?? new Date(Date.now() + defaultPeriodMs);
 
+  const perSeat = known.pricing === "per_seat"
+    ? normalizeSeats(params.plan, params.seats)
+    : null;
+  // Free Shop always gets the full 5-seat allowance.
   const seats =
     known.pricing === "per_seat"
-      ? normalizeSeats(params.plan, params.seats)
+      ? (perSeat != null && perSeat <= SHOP_FREE_SEATS && !params.stripeSubscriptionId
+          ? SHOP_FREE_SEATS
+          : perSeat)
       : (params.seats ?? known.seats);
 
   const sub = await db.companySettings.update({

@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { requestAppUrl } from "@/lib/request-app-url";
 import {
   getPlan,
+  isFreeShop,
   isPerSeatPlan,
   normalizeSeats,
 } from "@/lib/services/subscription-plans";
@@ -31,6 +32,17 @@ export async function actionStartPublicCheckout(formData: FormData) {
   }
   if (email && !EMAIL_RE.test(email)) {
     redirect(`/pricing?error=email&plan=${plan.toLowerCase()}`);
+  }
+  // Shop for 5 or fewer users is free: no checkout, straight to free signup.
+  if (plan === "SHOP") {
+    const requested =
+      seatsRaw == null || String(seatsRaw).trim() === "" ? 1 : Number(seatsRaw);
+    if (isFreeShop(plan, requested)) {
+      const qs = new URLSearchParams({ plan: "SHOP", seats: String(normalizeSeats(plan, requested) ?? 1) });
+      if (email) qs.set("email", email);
+      if (company) qs.set("company", company);
+      redirect(`/signup?${qs.toString()}`);
+    }
   }
   if (!stripeEnabled()) {
     redirect("/pricing?error=unavailable");

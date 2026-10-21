@@ -8801,6 +8801,13 @@ export async function actionStartCheckout(formData: FormData): Promise<void> {
   const billingEmail = ((formData.get("billingEmail") as string) || "").trim();
   const seatsRaw = formData.get("seats");
 
+  // Shop for 5 or fewer users is free — activate in-app, never open Checkout.
+  {
+    const { isFreeShop } = await import("@/lib/services/subscription");
+    if (isFreeShop(plan, Number(seatsRaw) || 1)) {
+      return actionActivatePlan(formData);
+    }
+  }
   // No Stripe configured → fall back to in-app activation (beta behaviour).
   if (!stripeEnabled()) {
     return actionActivatePlan(formData);
