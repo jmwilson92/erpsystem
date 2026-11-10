@@ -110,7 +110,7 @@ export async function createWorkOrder(params: {
   scheduleOffsetMinutes?: number;
 }) {
   const type = (params.type || (params.bomHeaderId || params.partId ? "PRODUCTION" : "TASK_ONLY")).trim().toUpperCase();
-  if (!["PRODUCTION", "PROTOTYPE", "TASK_ONLY", "REWORK", "INSPECTION"].includes(type)) throw new Error("Invalid work order type");
+  if (!["PRODUCTION", "PROTOTYPE", "TASK_ONLY", "REWORK", "INSPECTION", "REPAIR"].includes(type)) throw new Error("Invalid work order type");
   if (type === "PRODUCTION" && !params.bomHeaderId) {
     throw new Error("Production work orders require a CERTIFIED BOM revision. Select a certified BOM before creating the order.");
   }

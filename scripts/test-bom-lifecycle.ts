@@ -77,6 +77,20 @@ async function main() {
     await assert.rejects(orders.updateWorkOrderStatus({ workOrderId: legacyMissing.id, toStatus: "RELEASED" }), /CERTIFIED BOM/);
     console.log("✓ Missing/non-certified BOMs blocked on creation/release, invalid WO types rejected, task-only unchanged");
 
+    const noBomPart = await prisma.part.create({ data: { partNumber: "NO-BOM-LOCAL", description: "Part without any BOM", partType: "MAKE" } });
+    assert.equal(await prisma.bomHeader.count({ where: { partId: noBomPart.id } }), 0);
+    await assert.rejects(orders.createWorkOrder({ partId: noBomPart.id, type: "PRODUCTION" }), /CERTIFIED BOM/);
+    await assert.rejects(orders.createWorkOrder({ partId: noBomPart.id }), /CERTIFIED BOM/);
+    assert.equal(await prisma.workOrder.count({ where: { partId: noBomPart.id } }), 0, "No-BOM production attempts must not persist an order");
+    const legacyNoBomPart = await prisma.workOrder.create({ data: { number: "LEGACY-PART-NO-BOM", type: "PRODUCTION", partId: noBomPart.id } });
+    await assert.rejects(orders.updateWorkOrderStatus({ workOrderId: legacyNoBomPart.id, toStatus: "RELEASED" }), /CERTIFIED BOM/);
+    await assert.rejects(orders.startWorkOrderProduction({ workOrderId: legacyNoBomPart.id, allowWithoutKit: true }), /CERTIFIED BOM/);
+    const repair = await orders.createWorkOrder({ type: "REPAIR", partId: noBomPart.id, scheduleMode: "MANUAL", plannedStart: new Date(), plannedEnd: new Date() });
+    assert.equal(repair.bomHeaderId, null, "Repair work does not require a production BOM");
+    await orders.updateWorkOrderStatus({ workOrderId: repair.id, toStatus: "RELEASED" });
+    assert.equal((await orders.startWorkOrderProduction({ workOrderId: repair.id })).status, "IN_PROGRESS");
+    console.log("✓ Parts with no BOM blocked at production creation/release/start; repair WOs remain exempt");
+
     const customer = await prisma.customer.create({ data: { code: "LOCAL", name: "Fixture Customer" } });
     const so = await prisma.salesOrder.create({ data: { number: "SO-LOCAL", customerId: customer.id, lines: { create: { partId: part.id, description: "Assembly", quantity: 2 } } } });
     const planned = await planSalesOrderFulfillment({ salesOrderId: so.id, userId: admin.id });
