@@ -4252,6 +4252,10 @@ export async function actionCompleteReceivingInspection(
   const measuredValue =
     ((formData.get("measuredValue") as string) || "").trim() || undefined;
   const user = await getCurrentUser();
+  const { userHasPermission } = await import("@/lib/auth");
+  if (!(await userHasPermission(user?.id, "qa.inspect"))) {
+    throw new Error("Not authorized to accept inspections");
+  }
 
   const documents: { url: string; fileName?: string; caption?: string }[] = [];
   for (let i = 0; i < 12; i++) {
@@ -8681,7 +8685,7 @@ export async function actionApproveJournal(
   const { userHasPermission } = await import("@/lib/auth");
   const { approveJournal } = await import("@/lib/services/gaap");
   const user = await getCurrentUser();
-  if (!(await userHasPermission(user?.id, "accounting.journal.post"))) {
+  if (!(await userHasPermission(user?.id, "accounting.journal.approve"))) {
     throw new Error("Not authorized to approve journals");
   }
   await approveJournal({
