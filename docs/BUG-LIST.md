@@ -80,7 +80,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 **51 tracked entries:** 22 historical observations/UX gaps + 4 first-pass defects + 9 first-continuation defects + 16 second-continuation findings (15 defects + 1 policy gap). Historical/UI-only reports remain explicitly labeled. No product fixes or merges.
 
 ### ACCT-006 — Concurrent approval double-applies one journal to account balances
-- Module: Accounting / concurrent approval | Severity: **high** | Status: REPRODUCED via genuine password-issued sessions and HTTP action requests on strict-auth local fixture (DEMO_MODE=0); production NOT tested
+- Module: Accounting / concurrent approval | Severity: **high** | Status: FIXED (atomic updateMany claim in approveJournal; balances applied only on successful claim) via genuine password-issued sessions and HTTP action requests on strict-auth local fixture (DEMO_MODE=0); production NOT tested
 - Steps: Create pending balanced JE of 10 against isolated fresh accounts; invoke approveJournal concurrently twice. Also repeat via two genuine ACCOUNTING-session HTTP actionApproveJournal requests.
 - Expected: One posted entry and one balance application: debit account=10.
 - Actual: One journal and its lines total 10, but the debit account balance becomes 20. Reproduced in both service calls and authenticated HTTP requests, so cached account balances no longer reconcile to posted lines.
@@ -94,14 +94,14 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Suspect: `src/app/actions.ts:4205-4264`
 
 ### MRB-001 — Partial scrap disposition removes all quarantined stock
-- Module: MRB / inventory reconciliation | Severity: **high** | Status: REPRODUCED on baseline #142 in isolated synthetic local fixture
+- Module: MRB / inventory reconciliation | Severity: **high** | Status: FIXED (disposition quantity decremented instead of zeroing the lot) on baseline #142 in isolated synthetic local fixture
 - Steps: Receive and fail five units at unit cost 10; dispositionMrb SCRAP quantity 2; sum remaining on-hand for that new part.
 - Expected: Remove two and retain three units with an appropriate remaining hold/disposition state.
 - Actual: All five units are removed: on-hand=0 rather than 3. Code zeros the entire held item while the disposition/material transaction quantity is only 2.
 - Suspect: `src/lib/services/supply-chain.ts:1479-1515`
 
 ### SERIAL-001 — Serialized receiving accepts missing, mismatched and duplicate serial lists
-- Module: Receiving / serialized material | Severity: **high** | Status: REPRODUCED on baseline #142 in isolated synthetic local fixture
+- Module: Receiving / serialized material | Severity: **high** | Status: FIXED (receivePurchaseOrder rejects non-matching or non-unique serial lists for isSerialized parts) on baseline #142 in isolated synthetic local fixture
 - Steps: Create separate serialized parts and two-unit POs. Receive with no serial list, a one-serial list, or the same serial repeated twice; count receipts and PO quantities.
 - Expected: Require one unique valid serial per unit before receipt/inventory/PO writes.
 - Actual: All three invalid cases create receipts and accept quantity 2. isSerialized/serial-count/uniqueness are not validated in this service path.
@@ -122,14 +122,14 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Suspect: `src/lib/services/gaap.ts:880-899,937-957`
 
 ### ACCT-005 — AR/AP journal date ignores the supplied historical payment date
-- Module: Accounting / payment periods | Severity: **high** | Status: REPRODUCED on baseline #142 in isolated synthetic local fixture
+- Module: Accounting / payment periods | Severity: **high** | Status: FIXED (postJournal receives the paymentDate) on baseline #142 in isolated synthetic local fixture
 - Steps: Record an AR/AP payment with an explicit historical paymentDate in an open period; compare its payment row date with linked JE.date.
 - Expected: Payment and settlement journal use the supplied payment date consistently and honor that period lock.
 - Actual: Payment row keeps requested date but GL journal uses current date. The known paymentDate is not passed to postJournal, so historical-period reconciliation is wrong.
 - Suspect: `src/lib/services/gaap.ts:894,906-916,962-972`
 
 ### ACCT-007 — Journal approval checks posting permission instead of approval permission
-- Module: Accounting / individual approval permissions | Severity: **high** | Status: REPRODUCED via genuine password-issued sessions and HTTP action requests on strict-auth local fixture (DEMO_MODE=0); production NOT tested
+- Module: Accounting / individual approval permissions | Severity: **high** | Status: FIXED (actionApproveJournal now checks accounting.journal.approve) via genuine password-issued sessions and HTTP action requests on strict-auth local fixture (DEMO_MODE=0); production NOT tested
 - Steps: Password-login as synthetic EXECUTIVE; assert accounting.journal.approve=true and accounting.journal.post=false; submit actionApproveJournal for another person’s pending JE.
 - Expected: Dedicated journal approval grant authorizes approval, without needing posting permission.
 - Actual: Request is denied and JE stays PENDING_APPROVAL because the action checks accounting.journal.post. The distinct approval grant/default is ignored.
