@@ -1636,7 +1636,6 @@ export async function completeKitOrder(params: {
     await prisma.kitOrderLine.update({
       where: { id: line.id },
       data: {
-        quantityPicked: line.quantityRequired,
         lotNumber: lastLot,
         fromLocationId: lastLocId,
         inventoryItemId: lastInvId,
