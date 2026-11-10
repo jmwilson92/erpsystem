@@ -1329,7 +1329,9 @@ export async function dispositionMrb(params: {
 
   if (!Number.isFinite(params.quantity) || params.quantity <= 0) throw new Error("Disposition quantity must be positive and finite");
   if (!["OPEN", "IN_REVIEW"].includes(mrb.status)) throw new Error("MRB case is already dispositioned or closed");
-  const heldQuantity = mrb.inventoryHolds.reduce((sum, item) => sum + item.quantityOnHand, 0);
+  const heldQuantity = mrb.inventoryHolds.length
+    ? mrb.inventoryHolds.reduce((sum, item) => sum + item.quantityOnHand, 0)
+    : mrb.serialId ? 1 : mrb.ncr.quantity;
   if (params.disposition === "SCRAP" && params.quantity > heldQuantity + 0.0001) throw new Error("Scrap quantity exceeds held inventory");
 
   const carNumber = params.createCar
@@ -1481,7 +1483,9 @@ export async function dispositionMrb(params: {
     const locked = await db.mrbCase.update({ where: { id: mrb.id }, data: { updatedAt: new Date() } });
     if (!["OPEN", "IN_REVIEW"].includes(locked.status)) throw new Error("MRB case is already dispositioned or closed");
     const holds = await db.inventoryItem.findMany({ where: { mrbCaseId: mrb.id }, orderBy: { id: "asc" } });
-    const heldQuantity = holds.reduce((sum, item) => sum + item.quantityOnHand, 0);
+    const heldQuantity = holds.length
+      ? holds.reduce((sum, item) => sum + item.quantityOnHand, 0)
+      : mrb.serialId ? 1 : mrb.ncr.quantity;
     if (params.disposition === "SCRAP" && params.quantity > heldQuantity + 0.0001) throw new Error("Scrap quantity exceeds held inventory");
     const disposition = await db.mrbDisposition.create({
       data: {

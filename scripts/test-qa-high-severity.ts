@@ -127,6 +127,14 @@ async function main() {
     await s.dispositionMrb({ mrbCaseId: mrb.id, disposition: "SCRAP", quantity: 3, justification: "Remaining three" });
     await assert.rejects(s.dispositionMrb({ mrbCaseId: mrb.id, disposition: "SCRAP", quantity: 3, justification: "Repeat" }), /already/);
     console.log("PASS MRB-001/002/003 partial multi-hold scrap conserves quantity, keeps remainder held and rejects invalid/repeat decisions");
+    // An RMA tear-down holds a serial, not necessarily an InventoryItem row.
+    const serialNcr = await p.nonConformance.create({ data: { number: "NCR-SERIAL", title: "Serial tear-down", source: "CUSTOMER", partId: good.part.id, quantity: 1, description: "RMA tear-down" } });
+    const stockSerial = await p.serialNumber.findUniqueOrThrow({ where: { serial: "FIRST" } });
+    const serialMrb = await p.mrbCase.create({ data: { number: "MRB-SERIAL", ncrId: serialNcr.id, serialId: stockSerial.id } });
+    await s.dispositionMrb({ mrbCaseId: serialMrb.id, disposition: "SCRAP", quantity: 1, justification: "Unrepairable serial" });
+    assert.equal((await p.serialNumber.findUniqueOrThrow({ where: { id: stockSerial.id } })).status, "SCRAPPED");
+    assert.equal((await p.mrbCase.findUniqueOrThrow({ where: { id: serialMrb.id } })).status, "DISPOSITIONED");
+    console.log("PASS MRB serial-only RMA tear-down remains scrappable without a stock hold");
     // Clone a template only in this disposable database, then race real refills.
     const raw = execFileSync("node", ["node_modules/prisma/build/index.js", "migrate", "diff", "--from-empty", "--to-schema", "prisma/schema.prisma", "--script"], { encoding: "utf8", maxBuffer: 8 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] });
     const tenantDdl = raw.match(/CREATE TABLE "Tenant" \([\s\S]*?\n\);/)?.[0];
