@@ -89,6 +89,22 @@ export async function receivePurchaseOrder(params: {
         `Cannot receive ${line.quantityReceived} on "${poLine.description}" — only ${open} open`
       );
     }
+    // SERIAL-001: for serialized parts require exactly one unique serial per unit.
+    const part = poLine.part;
+    if (part?.isSerialized) {
+      const serials = (line.serialNumbers || []).map((s) => (s || "").trim()).filter(Boolean);
+      if (serials.length !== Math.round(line.quantityReceived)) {
+        throw new Error(
+          `Serialized part "${part.partNumber || poLine.description}" requires exactly ${Math.round(line.quantityReceived)} unique serial number(s)`
+        );
+      }
+      const unique = new Set(serials);
+      if (unique.size !== serials.length) {
+        throw new Error(
+          `Duplicate serial numbers are not allowed for serialized part "${part.partNumber || poLine.description}"`
+        );
+      }
+    }
   }
 
   const putawayLoc = params.putawayLocationCode
@@ -1479,12 +1495,14 @@ export async function dispositionMrb(params: {
   // Update inventory based on disposition
   for (const item of mrb.inventoryHolds) {
     if (params.disposition === "SCRAP") {
+      // MRB-001: scrap only the disposition quantity, not the entire held lot.
+      const scrapQty = Math.min(params.quantity || 0, item.quantityOnHand || 0);
       await prisma.inventoryItem.update({
         where: { id: item.id },
         data: {
-          quantityOnHand: 0,
-          quantityAvailable: 0,
-          quantityQuarantine: 0,
+          quantityOnHand: { decrement: scrapQty },
+          quantityAvailable: { decrement: Math.min(scrapQty, item.quantityAvailable || 0) },
+          quantityQuarantine: { decrement: Math.min(scrapQty, item.quantityQuarantine || 0) },
           mrbCaseId: null,
         },
       });

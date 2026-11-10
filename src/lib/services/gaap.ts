@@ -789,13 +789,25 @@ export async function approveJournal(params: {
   if (!["PENDING_APPROVAL", "DRAFT"].includes(je.status)) {
     throw new Error(`Cannot approve journal in status ${je.status}`);
   }
-  const updated = await prisma.journalEntry.update({
-    where: { id: je.id },
+  // Atomic claim: only one concurrent caller can transition PENDING/DRAFT → POSTED.
+  // Prevents double-application of balances (ACCT-006).
+  const claimed = await prisma.journalEntry.updateMany({
+    where: { id: je.id, status: { in: ["PENDING_APPROVAL", "DRAFT"] } },
     data: {
       status: "POSTED",
       postedAt: new Date(),
       approvedById: params.approvedById || null,
     },
+  });
+  if (claimed.count === 0) {
+    // Another concurrent approval already posted it.
+    return prisma.journalEntry.findUniqueOrThrow({
+      where: { id: je.id },
+      include: { lines: true, attachments: true },
+    });
+  }
+  const updated = await prisma.journalEntry.findUniqueOrThrow({
+    where: { id: je.id },
     include: { lines: true, attachments: true },
   });
   await applyJournalBalances(updated.lines);
@@ -909,6 +921,7 @@ export async function recordArPayment(params: {
       sourceId: payment.id,
       createdById: params.userId || undefined,
       status: "POSTED",
+      date: params.paymentDate || new Date(),  // ACCT-005: honor historical payment date
       lines: [
         { accountId: cash.id, debit: params.amount, memo: inv.number },
         { accountId: ar.id, credit: params.amount, memo: inv.number },
@@ -965,6 +978,7 @@ export async function recordApPayment(params: {
       sourceId: payment.id,
       createdById: params.userId || undefined,
       status: "POSTED",
+      date: params.paymentDate || new Date(),  // ACCT-005: honor historical payment date
       lines: [
         { accountId: ap.id, debit: params.amount, memo: inv.number },
         { accountId: cash.id, credit: params.amount, memo: inv.number },

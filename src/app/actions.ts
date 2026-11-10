@@ -8644,7 +8644,8 @@ export async function actionApproveJournal(
   const { userHasPermission } = await import("@/lib/auth");
   const { approveJournal } = await import("@/lib/services/gaap");
   const user = await getCurrentUser();
-  if (!(await userHasPermission(user?.id, "accounting.journal.post"))) {
+  // ACCT-007: dedicated approval permission, not posting permission.
+  if (!(await userHasPermission(user?.id, "accounting.journal.approve"))) {
     throw new Error("Not authorized to approve journals");
   }
   await approveJournal({
