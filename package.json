@@ -22,7 +22,7 @@
     "setup": "prisma generate && prisma db push && tsx prisma/seed.ts",
     "postinstall": "prisma generate",
     "typecheck": "tsc --noEmit",
-    "smoke": "tsx --tsconfig tsconfig.smoke.json scripts/smoke-unit.ts && npm run test:integrity && npm run test:ai-help && npm run test:qa",
+    "smoke": "tsx --tsconfig tsconfig.smoke.json scripts/smoke-unit.ts && npm run test:integrity && npm run test:ai-help && npm run test:qa && npm run test:qa-permissions",
     "assert:prod-env": "node scripts/assert-production-env.mjs",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
@@ -44,7 +44,8 @@
     "test:ai-help": "tsx --tsconfig tsconfig.smoke.json scripts/test-ai-help.ts && tsx scripts/test-ai-help-db.ts",
     "eval:ai-help": "tsx scripts/eval-ai-help.ts",
     "test:integrity": "tsx scripts/test-integrity.ts",
-    "test:qa": "tsx scripts/test-qa-high-severity.ts"
+    "test:qa": "tsx scripts/test-qa-high-severity.ts",
+    "test:qa-permissions": "tsx scripts/test-qa-permissions.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

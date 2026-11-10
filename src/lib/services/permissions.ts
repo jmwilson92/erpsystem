@@ -220,7 +220,7 @@ export async function grantUserPermission(params: {
       permissionId: perm.id,
       allowed: params.allowed !== false,
     },
-    update: { allowed: params.allowed !== false },
+    update: { allowed: params.allowed !== false, expiresAt: null },
   });
 }
 
