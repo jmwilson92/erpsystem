@@ -450,7 +450,7 @@ export async function decideTimeEntry(params: {
 const EXPENSE_TRANSITIONS: Record<string, string[]> = {
   DRAFT: ["SUBMITTED"],
   SUBMITTED: ["APPROVED", "REJECTED"],
-  APPROVED: ["PAID"],
+  APPROVED: [], // Payment only through payExpenseReport / accounting ledger.
   REJECTED: ["SUBMITTED"],
   PAID: [],
 };

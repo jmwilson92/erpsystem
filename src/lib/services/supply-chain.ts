@@ -70,6 +70,9 @@ export async function receivePurchaseOrder(params: {
     },
   });
   if (!po) throw new Error("Purchase order not found");
+  if (["CLOSED", "CANCELLED", "CANCELED"].includes(po.status)) {
+    throw new Error(`${po.number} is ${po.status} — receiving is blocked`);
+  }
   if (po.status === "PENDING_REAPPROVAL") {
     throw new Error(
       `${po.number} was amended and is awaiting re-approval — receiving is blocked until the approver chain signs off`
