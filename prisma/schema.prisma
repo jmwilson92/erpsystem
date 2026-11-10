@@ -6061,3 +6061,104 @@ model MfaChallenge {
 
   @@index([expiresAt])
 }
+
+// ═══════════════════════════════════════════════════════════════
+// DOCS — tenant-local knowledge base. Revision/signature records are append-only.
+// Actor IDs + name snapshots preserve attribution even if an account is renamed.
+// ═══════════════════════════════════════════════════════════════
+model DocSpace {
+  id          String    @id @default(cuid())
+  key         String    @unique
+  name        String
+  description String?
+  createdById String
+  createdAt   DateTime  @default(now())
+  pages       DocPage[]
+}
+
+model DocPage {
+  id          String        @id @default(cuid())
+  spaceId     String
+  space       DocSpace      @relation(fields: [spaceId], references: [id])
+  parentId    String?
+  parent      DocPage?      @relation("DocTree", fields: [parentId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  children    DocPage[]     @relation("DocTree")
+  title       String
+  content     String // validated TipTap JSON, never trusted HTML
+  plainText   String        @default("")
+  version     Int           @default(1)
+  controlled  Boolean       @default(false)
+  isTemplate  Boolean       @default(false)
+  status      String        @default("DRAFT") // DRAFT | RELEASED
+  createdById String
+  updatedById String
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  revisions   DocRevision[]
+  comments    DocComment[]
+  links       DocLink[]
+
+  @@index([spaceId, parentId])
+  @@index([spaceId, updatedAt])
+}
+
+model DocRevision {
+  id          String         @id @default(cuid())
+  pageId      String
+  page        DocPage        @relation(fields: [pageId], references: [id])
+  version     Int
+  title       String
+  content     String
+  plainText   String
+  controlled  Boolean
+  contentHash String
+  summary     String?
+  authorId    String
+  authorName  String
+  createdAt   DateTime       @default(now())
+  signatures  DocSignature[]
+
+  @@unique([pageId, version])
+}
+
+model DocSignature {
+  id          String      @id @default(cuid())
+  revisionId  String
+  revision    DocRevision @relation(fields: [revisionId], references: [id])
+  userId      String
+  signerName  String
+  meaning     String      @default("APPROVED")
+  contentHash String
+  pinVerified Boolean     @default(true)
+  signedAt    DateTime    @default(now())
+
+  @@unique([revisionId, userId])
+}
+
+model DocComment {
+  id           String    @id @default(cuid())
+  pageId       String
+  page         DocPage   @relation(fields: [pageId], references: [id])
+  version      Int
+  body         String
+  authorId     String
+  authorName   String
+  resolvedAt   DateTime?
+  resolvedById String?
+  createdAt    DateTime  @default(now())
+
+  @@index([pageId, createdAt])
+}
+
+model DocLink {
+  id          String   @id @default(cuid())
+  pageId      String
+  page        DocPage  @relation(fields: [pageId], references: [id])
+  targetType  String // TASK | TICKET | WORK_ORDER | PART | NCR | PROGRAM | PAGE
+  targetId    String // validated inside the request's tenant schema
+  createdById String
+  createdAt   DateTime @default(now())
+
+  @@unique([pageId, targetType, targetId])
+  @@index([targetType, targetId])
+}

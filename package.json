@@ -36,7 +36,8 @@
     "verify:http": "tsx scripts/verify/chunk-j-http.ts",
     "verify:money": "tsx scripts/verify/chunk-c2-money-path.ts",
     "verify:serials": "tsx scripts/verify/chunk-serials-rma.ts",
-    "verify:chunk": "tsx scripts/verify/run-all.ts"
+    "verify:chunk": "tsx scripts/verify/run-all.ts",
+    "test:docs": "tsx scripts/test-docs.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -70,6 +71,9 @@
     "@radix-ui/react-tabs": "^1.1.17",
     "@radix-ui/react-tooltip": "^1.2.12",
     "@tanstack/react-table": "^8.21.3",
+    "@tiptap/pm": "^3.33.0",
+    "@tiptap/react": "^3.33.0",
+    "@tiptap/starter-kit": "^3.33.0",
     "@vercel/analytics": "^2.0.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -97,6 +101,8 @@
     "better-sqlite3": "^12.11.1"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.16",
+    "@electric-sql/pglite-socket": "^0.2.19",
     "@eslint/eslintrc": "^3",
     "@playwright/test": "^1.61.1",
     "@tailwindcss/postcss": "^4",

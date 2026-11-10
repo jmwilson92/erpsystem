@@ -1,3 +1,4 @@
+import { DocBacklinks } from "@/components/docs/backlinks";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { prisma } from "@/lib/db";
@@ -604,6 +605,7 @@ export default async function EngTaskDetailPage({
           </table>
         </CardContent>
       </Card>
+      <DocBacklinks type="TASK" targetId={id} />
     </div>
   );
 }

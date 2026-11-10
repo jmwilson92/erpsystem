@@ -26,6 +26,7 @@
  *   npx tsx scripts/backfill-tenant-schemas.ts            # report only
  *   npx tsx scripts/backfill-tenant-schemas.ts --apply    # actually create
  *   npx tsx scripts/backfill-tenant-schemas.ts --apply --include-demos
+ *   npx tsx scripts/backfill-tenant-schemas.ts --docs-only --include-public --include-demos --apply
  *
  * Demo sandboxes are skipped unless --include-demos: they are disposable and
  * normally recycle themselves, so it is usually cheaper to let the pool roll
@@ -36,9 +37,14 @@
  */
 import "dotenv/config";
 import { Pool } from "pg";
-import { TENANT_TABLES_SQL, TENANT_FKS_SQL } from "../src/lib/tenant-template";
+import { TENANT_TABLES_SQL, TENANT_FKS_SQL, DOCS_HARDENING_SQL } from "../src/lib/tenant-template";
 import { assertCheckoutCurrent } from "./lib/assert-current.mjs";
 
+// Docs rollout: additive tables/indexes/FKs + RLS and append-only evidence.
+// --docs-only --include-public patches the dogfood schema without other model drift.
+const DOC_TABLES = new Set(["DocSpace", "DocPage", "DocRevision", "DocSignature", "DocComment", "DocLink"]);
+const DOCS_ONLY = process.argv.includes("--docs-only");
+const INCLUDE_PUBLIC = process.argv.includes("--include-public");
 const APPLY = process.argv.includes("--apply");
 const INCLUDE_DEMOS = process.argv.includes("--include-demos");
 
@@ -140,6 +146,11 @@ async function main() {
 
   const wanted = templateTables();
   const wantedCols = templateColumns();
+  if (DOCS_ONLY) {
+    for (const table of wanted.keys()) if (!DOC_TABLES.has(table)) wanted.delete(table);
+    for (const table of wantedCols.keys()) if (!DOC_TABLES.has(table)) wantedCols.delete(table);
+  }
+  for (const table of DOC_TABLES) if (!wanted.has(table)) throw new Error(`Regenerate tenant DDL: ${table} is missing`);
   console.log(
     `Template has ${wanted.size} tables. Mode: ${APPLY ? "APPLY" : "report only (pass --apply to write)"}\n`
   );
@@ -155,9 +166,12 @@ async function main() {
     let patched = 0;
     let scanned = 0;
     let columnsAdded = 0;
+    let failures = 0;
 
     for (const { nspname: schema } of schemas) {
-      if (SYSTEM_SCHEMAS.has(schema)) continue;
+      if (SYSTEM_SCHEMAS.has(schema) && !(schema === "public" && INCLUDE_PUBLIC)) continue;
+      // A Docs-only rollout must not provision tables into extension/service schemas.
+      if (DOCS_ONLY && schema !== "public" && !/^(tenant_|demo_)/.test(schema)) continue;
       const isDemo = schema.startsWith("demo_");
       if (isDemo && !INCLUDE_DEMOS) continue;
       scanned++;
@@ -201,6 +215,9 @@ async function main() {
       }
 
       if (missing.length === 0 && missingCols.length === 0) {
+        if (APPLY && [...DOC_TABLES].every(t => have.has(t))) {
+          await pool.query(`BEGIN; SET LOCAL search_path TO "${schema.replaceAll('"', '""')}";\n${DOCS_HARDENING_SQL}\nCOMMIT;`).catch(async e => { await pool.query("ROLLBACK"); throw e; });
+        }
         console.log(`  ok      ${schema} (${have.size} tables)`);
         continue;
       }
@@ -225,6 +242,7 @@ async function main() {
       }
       if (!APPLY) continue;
 
+      const safeSchema = schema.replaceAll('"', '""');
       const client = await pool.connect();
       try {
         if (missing.length > 0) {
@@ -235,7 +253,8 @@ async function main() {
             ddl.push(...templateIndexes(t));
           }
           ddl.push(...templateForeignKeys(new Set(missing)));
-          await client.query(`SET search_path TO "${schema}";\n${ddl.join("\n")}`);
+          if ([...DOC_TABLES].every(t => have.has(t) || missing.includes(t))) ddl.push(DOCS_HARDENING_SQL);
+          await client.query(`SET LOCAL search_path TO "${safeSchema}";\n${ddl.join("\n")}`);
           await client.query("COMMIT");
         }
 
@@ -245,16 +264,20 @@ async function main() {
         for (const c of missingCols) {
           try {
             await client.query(
-              `ALTER TABLE "${schema}"."${c.table}" ADD COLUMN IF NOT EXISTS ${c.def}`
+              `ALTER TABLE "${safeSchema}"."${c.table}" ADD COLUMN IF NOT EXISTS ${c.def}`
             );
             added++;
           } catch (e) {
+            failures++;
             console.error(
               `  FAILED  ${schema}.${c.table}.${c.column}: ${
                 e instanceof Error ? e.message : String(e)
               }`
             );
           }
+        }
+        if (missingCols.length && [...DOC_TABLES].every(t => have.has(t) || missing.includes(t))) {
+          await client.query(`BEGIN; SET LOCAL search_path TO "${safeSchema}";\n${DOCS_HARDENING_SQL}\nCOMMIT;`);
         }
         columnsAdded += added;
         patched++;
@@ -265,6 +288,7 @@ async function main() {
         );
       } catch (e) {
         await client.query("ROLLBACK").catch(() => undefined);
+        failures++;
         console.error(
           `  FAILED  ${schema}: ${e instanceof Error ? e.message : String(e)}`
         );
@@ -279,6 +303,7 @@ async function main() {
           ? ` Patched ${patched} schema(s), ${columnsAdded} column(s) added.`
           : " Nothing written.")
     );
+    if (failures) throw new Error(`${failures} backfill operation(s) failed; do not deploy until resolved`);
   } finally {
     await pool.end();
   }
