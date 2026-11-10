@@ -16,7 +16,7 @@ async function main() {
  const {prisma}=await import('../src/lib/db');
  const token=randomBytes(32).toString('hex');
  const user=await prisma.user.create({data:{name:'AI Browser Fixture',email:'ai-browser@example.invalid',role:'ADMIN'}});
- await prisma.companySettings.create({data:{id:'default',name:'Isolated AI fixture'}});
+ await prisma.companySettings.create({data:{id:'default',name:'Isolated AI fixture',subscriptionStatus:'TRIALING',trialEndsAt:new Date(Date.now()+86400000)}});
  await prisma.authSession.create({data:{tokenHash:createHash('sha256').update(token).digest('hex'),userId:user.id,expiresAt:new Date(Date.now()+3600000)}});
  const port=3093,base=`http://127.0.0.1:${port}`;
  const child=spawn(process.execPath,['node_modules/next/dist/bin/next','start','-p',String(port)],{env:{...process.env,NODE_ENV:'production',DATABASE_POOL_MAX:'1',DEMO_MODE:'0',XAI_API_KEY:'',TTS_API_KEY:'',APP_URL:base,NEXT_PUBLIC_APP_URL:base},stdio:['ignore','pipe','pipe']});
