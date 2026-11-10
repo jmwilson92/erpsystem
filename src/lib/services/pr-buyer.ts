@@ -1,3 +1,4 @@
+import { assertSeparatePrSigner } from "./pr-signers";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 
@@ -568,6 +569,8 @@ export async function confirmBuyerPackageStep(params: {
         : "No open approval steps on this PR."
     );
   }
+
+  await assertSeparatePrSigner(pr.id, params.userId, buyerStep.id);
 
   // Mark buyer step done
   await prisma.approval.update({

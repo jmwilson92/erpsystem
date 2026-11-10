@@ -183,6 +183,7 @@ export async function createBomRevision(params: {
     }));
   }
 
+  if (lines.some(l => !Number.isFinite(l.quantity) || l.quantity <= 0)) throw new Error("Quantity must be finite and > 0");
   const company = await prisma.companySettings.findUnique({
     where: { id: "default" }, select: { bomPrototypeRequired: true },
   });
@@ -321,7 +322,7 @@ export async function addBomLine(params: {
   if (params.componentPartId === bom.partId) {
     throw new Error("BOM cannot include itself as a component");
   }
-  if (!(params.quantity > 0)) throw new Error("Quantity must be > 0");
+  if (!Number.isFinite(params.quantity) || !(params.quantity > 0)) throw new Error("Quantity must be > 0");
 
   const component = await prisma.part.findUnique({
     where: { id: params.componentPartId },
@@ -365,6 +366,7 @@ export async function updateBomLine(params: {
   notes?: string | null;
   userId?: string;
 }) {
+  if (params.quantity !== undefined && (!Number.isFinite(params.quantity) || params.quantity <= 0)) throw new Error("Quantity must be finite and > 0");
   const line = await prisma.bomLine.findUnique({
     where: { id: params.bomLineId },
     include: { bomHeader: true },

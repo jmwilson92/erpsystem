@@ -121,22 +121,24 @@ export async function convertLead(params: {
   ownerId?: string | null;
   userId?: string;
 }) {
-  const lead = await prisma.lead.findUnique({ where: { id: params.leadId } });
-  if (!lead) throw new Error("Lead not found");
-
-  const opp = await createOpportunity({
-    name: lead.company,
-    value: params.value ?? 0,
-    expectedCloseAt: params.expectedCloseAt ?? null,
-    ownerId: params.ownerId ?? lead.ownerId,
-    source: lead.source,
-    description: lead.notes,
-    userId: params.userId,
-  });
-
-  await prisma.lead.update({
-    where: { id: lead.id },
-    data: { status: "CONVERTED", convertedAt: new Date(), opportunityId: opp.id },
+  const opp = await prisma.$transaction(async (tx) => {
+    // Lock the lead using a schema-qualified write before checking its conversion link.
+    const lead = await tx.lead.update({ where: { id: params.leadId }, data: { updatedAt: new Date() } });
+    if (lead.opportunityId) return tx.opportunity.findUniqueOrThrow({ where: { id: lead.opportunityId } });
+    if (lead.status === "CONVERTED") throw new Error("Lead already converted");
+    const name = lead.company.trim();
+    if (!name) throw new Error("Opportunity name is required");
+    const last = await tx.opportunity.findFirst({ orderBy: { number: "desc" }, select: { number: true } });
+    const n = last?.number?.match(/(\d+)$/)?.[1];
+    const created = await tx.opportunity.create({ data: {
+      number: `OPP-${String((n ? parseInt(n, 10) : 0) + 1).padStart(4, "0")}`,
+      name, value: params.value ?? 0, expectedCloseAt: params.expectedCloseAt ?? null,
+      ownerId: params.ownerId ?? lead.ownerId, source: lead.source, description: lead.notes,
+      stage: "PROSPECT", probability: STAGE_PROBABILITY.PROSPECT ?? 10,
+    } });
+    await tx.lead.update({ where: { id: lead.id }, data: { status: "CONVERTED", convertedAt: new Date(), opportunityId: created.id } });
+    await tx.auditLog.create({ data: { entityType: "Opportunity", entityId: created.id, action: "CREATED", userId: params.userId, metadata: JSON.stringify({ number: created.number, leadId: lead.id }) } });
+    return created;
   });
   return opp;
 }

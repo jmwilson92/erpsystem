@@ -284,6 +284,7 @@ export async function createQuote(params: SalesDocumentInput & { validUntil?: Da
 /** Accept quote → create Sales Order (and optionally plan fulfillment). */
 export async function convertQuoteToSalesOrder(params: {
   quoteId: string;
+  customerPo?: string;
   userId?: string;
   autoPlan?: boolean;
 }) {
@@ -310,7 +311,7 @@ export async function convertQuoteToSalesOrder(params: {
     allowEarlyShip: quote.allowEarlyShip,
     shipNotBefore:
       quote.shipDate && !quote.allowEarlyShip ? quote.shipDate : undefined,
-    customerPo: quote.customerPo || undefined,
+    customerPo: params.customerPo || quote.customerPo || undefined,
     paymentTerms: quote.paymentTerms,
     isFob: quote.isFob,
     fobPoint: quote.fobPoint || undefined,
@@ -335,7 +336,7 @@ export async function convertQuoteToSalesOrder(params: {
 
   await prisma.quote.update({
     where: { id: quote.id },
-    data: { status: "CONVERTED" },
+    data: { status: "CONVERTED", ...(params.customerPo ? { customerPo: params.customerPo } : {}) },
   });
 
   await logAudit({
@@ -1388,8 +1389,8 @@ export async function completeKitOrder(params: {
     kit.workOrder.salesOrder?.number ||
     null;
 
-  await prisma.kitOrder.update({
-    where: { id: kit.id },
+  const claimed = await prisma.kitOrder.updateMany({
+    where: { id: kit.id, status: { not: "COMPLETE" } },
     data: {
       status: "PICKING",
       startedAt: kit.startedAt || new Date(),
@@ -1397,8 +1398,13 @@ export async function completeKitOrder(params: {
     },
   });
 
+  if (!claimed.count) return prisma.kitOrder.findUnique({ where: { id: kit.id } });
+  if (!wipLoc) throw new Error("Configure a kit staging location before picking");
+
   for (const line of kit.lines) {
     let remaining = line.quantityRequired - line.quantityPicked;
+    // A retried SHORT kit must never re-stage an already picked line.
+    if (remaining <= 0.0001) continue;
     let items = await getAvailableInventory(line.partId);
 
     // GFP rules: government stock only if WO charges a project and contract matches
@@ -1481,31 +1487,42 @@ export async function completeKitOrder(params: {
       if (remaining <= 0) break;
       const take = Math.min(item.quantityAvailable, remaining);
 
-      await prisma.inventoryItem.update({
-        where: { id: item.id },
-        data: {
-          quantityOnHand: item.quantityOnHand - take,
-          quantityAvailable: item.quantityAvailable - take,
-        },
-      });
-
-      const issued = await prisma.materialTransaction.create({
-        data: {
-          type: "KIT",
-          partId: line.partId,
-          inventoryItemId: item.id,
-          workOrderId: kit.workOrderId,
-          kitOrderId: kit.id,
-          quantity: take,
-          unitCost: item.unitCost,
-          fromLocation: item.location.code,
-          toLocation: wipLoc?.code || "WIP",
-          lotNumber: item.lotNumber,
-          serialNumber: item.serialNumber,
-          reference: kit.number,
-          notes: `Kitted to ${kit.workOrder.number}`,
-          userId: params.userId,
-        },
+      // Commit a pick, its staged inventory and progress marker together.
+      // Competing/retried callers cannot spend this line's same progress twice.
+      const issued = await prisma.$transaction(async (tx) => {
+        const progress = await tx.kitOrderLine.updateMany({
+          where: { id: line.id, quantityPicked: line.quantityPicked + picked },
+          data: { quantityPicked: { increment: take } },
+        });
+        if (!progress.count) throw new Error("Kit changed while picking — refresh and retry");
+        const stock = await tx.inventoryItem.updateMany({
+          where: { id: item.id, quantityAvailable: { gte: take }, quantityOnHand: { gte: take } },
+          data: { quantityOnHand: { decrement: take }, quantityAvailable: { decrement: take } },
+        });
+        if (!stock.count) throw new Error("Stock changed while picking — refresh and retry");
+        await tx.inventoryItem.create({ data: {
+          partId: line.partId, locationId: wipLoc.id, workOrderId: kit.workOrderId,
+          quantityOnHand: take, quantityAvailable: 0, quantityCommitted: 0,
+          lotNumber: item.lotNumber, unitCost: item.unitCost, ownership: item.ownership,
+        } });
+        return tx.materialTransaction.create({
+          data: {
+            type: "KIT",
+            partId: line.partId,
+            inventoryItemId: item.id,
+            workOrderId: kit.workOrderId,
+            kitOrderId: kit.id,
+            quantity: take,
+            unitCost: item.unitCost,
+            fromLocation: item.location.code,
+            toLocation: wipLoc?.code || "WIP",
+            lotNumber: item.lotNumber,
+            serialNumber: item.serialNumber,
+            reference: kit.number,
+            notes: `Kitted to ${kit.workOrder.number}`,
+            userId: params.userId,
+          },
+        });
       });
       if (item.ownership !== "GOVERNMENT" && item.unitCost * take > 0.001) {
         try {
@@ -1626,25 +1643,6 @@ export async function completeKitOrder(params: {
         status: "PICKED",
       },
     });
-
-    // Stage the picked material as WIP inventory at the staging location,
-    // tagged to this work order, so inventory shows the kit sitting there.
-    // On-hand but not available (it's spoken for by the build).
-    if (wipLoc && line.quantityRequired > 0) {
-      await prisma.inventoryItem.create({
-        data: {
-          partId: line.partId,
-          locationId: wipLoc.id,
-          workOrderId: kit.workOrderId,
-          quantityOnHand: line.quantityRequired,
-          quantityAvailable: 0,
-          quantityCommitted: 0,
-          lotNumber: lastLot,
-          unitCost: line.part.standardCost,
-          ownership: "COMPANY",
-        },
-      });
-    }
   }
 
   await prisma.kitOrder.update({
@@ -1791,6 +1789,19 @@ export async function completeWorkOrderToStock(params: {
     throw new Error(
       `WO workcenter is ${wo.workCenter || "unset"} — deliver to RCV-01 Receiving before putaway`
     );
+  }
+
+  if (wo.type === "TASK_ONLY") {
+    // Non-inventory travelers use the same signed-step/Receiving gates, but never stock a part.
+    await prisma.workOrder.update({
+      where: { id: wo.id },
+      data: {
+        status: "COMPLETED", quantityCompleted: wo.quantity, actualEnd: new Date(), currentLocationId: null,
+        statusHistory: { create: { fromStatus: wo.status, toStatus: "COMPLETED", userId: params.userId, notes: "Task-only work complete — no inventory movement" } },
+      },
+    });
+    await logAudit({ entityType: "WorkOrder", entityId: wo.id, action: "TASK_COMPLETED", userId: params.userId });
+    return { workOrderId: wo.id, inventoryItemId: null, lotNumber: null, serialNumber: undefined, unitSerials: [] };
   }
 
   const storageLoc =
