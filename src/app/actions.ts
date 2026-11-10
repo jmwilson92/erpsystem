@@ -1626,7 +1626,7 @@ export async function actionAcceptInvite(
   _prev: AuthFormState,
   formData: FormData
 ): Promise<AuthFormState> {
-  const { acceptInvite } = await import("@/lib/auth-core");
+  const { acceptInvite, hasPendingMfa } = await import("@/lib/auth-core");
   try {
     await acceptInvite({
       token: (formData.get("token") as string) || "",
@@ -1639,6 +1639,7 @@ export async function actionAcceptInvite(
       message: e instanceof Error ? e.message : "Could not accept invite",
     };
   }
+  if (await hasPendingMfa()) redirect("/login/mfa");
   redirect("/");
 }
 
