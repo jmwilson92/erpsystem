@@ -1,3 +1,5 @@
+> Current hardening overrides the historical planning recommendations below: Carina help is read-only on every plan. The current text default is grok-4.7 with low reasoning; XAI_MODEL remains a server override. All requests have durable fair-use budgets, short context/output, a 25-second deadline, no retry cascade, and tenant+user-isolated two-minute memoization. TTS has its own budget. Use docs/ai-help/README.md for the shipping implementation. These are availability safeguards, not usage billing.
+
 # Carina AI — cost impact (talk, guide, agent)
 
 **Local planning doc.** Prices are approximate public xAI list rates (2026). Re-check [x.ai API pricing](https://x.ai/api) before budgeting.

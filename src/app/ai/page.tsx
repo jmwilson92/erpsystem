@@ -11,7 +11,7 @@ export default function AiPage() {
     <div className="mx-auto max-w-3xl space-y-6">
       <PageHeader
         title="My AI assistant"
-        description="Wake name, language, and voice diagnostics for Carina. Day-to-day chat and voice are in the help bubble."
+        description="Carina is an AI assistant powered by Grok and can make mistakes. Read-only product help, with source links and human support in the help bubble."
       />
 
       <p className="rounded-lg border border-slate-800 bg-slate-950/50 px-3 py-2 text-xs text-slate-400">

@@ -5,28 +5,21 @@
 
 const XAI_BASE = "https://api.x.ai/v1";
 
-/** Try these in order if XAI_MODEL is unset or fails */
-const MODEL_FALLBACKS = [
-  process.env.XAI_MODEL,
-  "grok-4.5",
-  "grok-4",
-  "grok-3",
-  "grok-2-latest",
-  "grok-2",
-].filter(Boolean) as string[];
-
+/** Configured deployments keep their selected model; new installs use current flagship.
+ * No fallback on authentication, quota, transport or model errors: avoid retry storms. */
 export function grokConfigured() {
   return !!process.env.XAI_API_KEY?.trim();
 }
 
 export function grokModel() {
-  return MODEL_FALLBACKS[0] || "grok-4.5";
+  return process.env.XAI_MODEL?.trim() || "grok-4.7";
 }
 
 export async function grokChat(params: {
   system: string;
   user: string;
   temperature?: number;
+  maxTokens?: number;
   messages?: { role: "system" | "user" | "assistant"; content: string }[];
 }): Promise<string> {
   const key = process.env.XAI_API_KEY?.trim();
@@ -39,41 +32,24 @@ export async function grokChat(params: {
       { role: "user" as const, content: params.user },
     ] as const);
 
-  let lastErr = "AI request failed";
-  for (const model of MODEL_FALLBACKS) {
-    try {
-      const res = await fetch(`${XAI_BASE}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${key}`,
-        },
-        body: JSON.stringify({
-          model,
-          temperature: params.temperature ?? 0.3,
-          messages,
-        }),
-      });
-      if (!res.ok) {
-        const body = (await res.text()).slice(0, 240);
-        lastErr = `AI ${model} → HTTP ${res.status}: ${body}`;
-        console.error("[ai]", lastErr);
-        // try next model on 404/400 model errors
-        if (res.status === 404 || res.status === 400) continue;
-        throw new Error(lastErr);
-      }
-      const data = (await res.json()) as {
-        choices?: { message?: { content?: string } }[];
-      };
-      const content = data.choices?.[0]?.message?.content?.trim();
-      if (content) return content;
-      lastErr = `AI ${model} returned empty content`;
-    } catch (e) {
-      lastErr = e instanceof Error ? e.message : String(e);
-      console.error("[ai] attempt failed:", model, lastErr);
-    }
+  const res = await fetch(`${XAI_BASE}/chat/completions`, {
+    method: "POST",
+    signal: AbortSignal.timeout(25000),
+    cache: "no-store",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({ model: grokModel(), temperature: params.temperature ?? 0.1,
+      max_tokens: Math.min(params.maxTokens ?? 700, 1000),
+      ...(grokModel()==="grok-4.7" ? {reasoning_effort:"low"} : {}), messages }),
+  });
+  if (!res.ok) {
+    // Upstream bodies can echo input or credentials. Never log or expose them.
+    console.warn("[ai] upstream status", res.status);
+    throw new Error("AI service unavailable. Use the Support tab or try again later.");
   }
-  throw new Error(lastErr);
+  const data = await res.json() as {choices?:{message?:{content?:string}}[]};
+  const content = data.choices?.[0]?.message?.content?.trim();
+  if (!content) throw new Error("AI returned no answer");
+  return content;
 }
 
 /** Translate text into target language via xAI. */

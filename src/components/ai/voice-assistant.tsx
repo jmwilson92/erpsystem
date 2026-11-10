@@ -644,6 +644,7 @@ export function VoiceAssistant({
             pendingAction: pendingActionRef.current,
             language: langRef.current.code,
             source: "APP",
+            page: window.location.pathname,
           });
           if (!result.ok) {
             setError(result.error);
