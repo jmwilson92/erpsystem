@@ -40,6 +40,8 @@ export default async function SignupCompletePage({
   let onboardUrl: string | null = null;
   let companyName: string | null = null;
   let paidNow = false;
+  let foundingMember = false;
+  let paymentPending = false;
   let failed = false;
   try {
     if (!sessionId || !stripeEnabled()) throw new Error("no session");
@@ -47,7 +49,9 @@ export default async function SignupCompletePage({
     if (!session?.complete || !session.provision || !session.email) {
       throw new Error("session not provisionable");
     }
-    paidNow = session.payNow;
+    paidNow = session.payNow && session.paymentReceived;
+    paymentPending = session.payNow && !session.paymentReceived;
+    foundingMember = session.foundingMember;
     const tenant = await provisionCustomerTenant({
       plan: session.plan,
       seats: session.seats,
@@ -56,6 +60,7 @@ export default async function SignupCompletePage({
       trialDays: TRIAL_DAYS,
       stripeCustomerId: session.customerId,
       stripeSubscriptionId: session.subscriptionId,
+      foundingMembership: { foundingMember: session.foundingMember, foundingQualifiedAt: session.foundingQualifiedAt ?? undefined },
     });
     if (paidNow && tenant.schemaName) {
       await activatePlan(
@@ -66,6 +71,7 @@ export default async function SignupCompletePage({
           provider: "stripe",
           stripeCustomerId: session.customerId,
           stripeSubscriptionId: session.subscriptionId,
+          foundingMembership: { foundingMember: session.foundingMember, foundingQualifiedAt: session.foundingQualifiedAt ?? undefined },
         },
         clientForSchema(tenant.schemaName)
       );
@@ -93,16 +99,18 @@ export default async function SignupCompletePage({
                 <>
                   Payment received. This workspace is tied to the email on your
                   Stripe receipt. The first 12 months bill at the first-year
-                  price, then standard prices apply. {firstYearOfferSummary()}{" "}
+                  price{foundingMember ? " for life as a founding member." : ", then standard prices apply."} {foundingMember ? "Your recurring first-year rates are locked for life." : firstYearOfferSummary()}{" "}
                   Next step: set up Protessera in your browser.
                 </>
+              ) : paymentPending ? (
+                <>Your payment is still processing. Paid access begins only after Stripe confirms payment. Your workspace is ready for setup; check Plan &amp; billing for the payment status.</>
               ) : (
                 <>
                   Your card is on file but won&apos;t be charged for {TRIAL_DAYS}{" "}
                   days. Cancel anytime before the trial ends and you&apos;re never
                   billed. After the trial, the first 12 months bill at the
-                  first-year price, then standard prices apply.{" "}
-                  {firstYearOfferSummary()} Next step: set up Protessera in your
+                  first-year price{foundingMember ? " for life as a founding member." : ", then standard prices apply."}{" "}
+                  {foundingMember ? "Your recurring first-year rates are locked for life." : firstYearOfferSummary()} Next step: set up Protessera in your
                   browser.
                 </>
               )}

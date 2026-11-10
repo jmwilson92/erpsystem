@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { subscriptionFoundingMembership, foundingGrant, type FoundingMembership } from "./founding-membership";
 import {
   getPlan,
   isPerSeatPlan,
@@ -21,8 +22,8 @@ import { buildIntroScheduleUpdate } from "@/lib/services/stripe-intro";
  *   STRIPE_PRICE_GROWTH      price_... (flat annual, $8,400)
  *   STRIPE_PRICE_BUSINESS    price_... (flat annual, $18,000)
  *
- * First-year prices — new checkouts only. A subscription schedule switches to
- * the standard price after 12 paid months. Shop is graduated ($10 first seat,
+ * First-year prices — founders keep these for life; other new subscriptions
+ * switch to standard prices after 12 paid months. Shop is graduated ($10 first seat,
  * $2 each additional), not a percent-off coupon.
  *   STRIPE_PRICE_SHOP_FIRST_YEAR
  *   STRIPE_PRICE_STARTER_FIRST_YEAR
@@ -65,20 +66,20 @@ export function firstYearPriceIdForPlan(plan: string): string | undefined {
 
 /**
  * Price id for a new Checkout. First-year checkout also requires the standard
- * price so the renewal schedule can be attached; we refuse to start a
- * subscription that would stay on the intro price forever.
+ * price for non-founders so their renewal schedule can be attached. A verified
+ * existing founder intentionally stays on the recurring intro Price forever.
  */
-function requireCheckoutPrice(plan: string, firstYear: boolean): string {
+function requireCheckoutPrice(plan: string, firstYear: boolean, lifetime = false): string {
   const key = plan.toUpperCase();
   if (firstYear) {
     const introEnv = STRIPE_FIRST_YEAR_PRICE_ENV[key];
     const standardEnv = STRIPE_STANDARD_PRICE_ENV[key];
     const intro = firstYearPriceIdForPlan(key);
     const standard = priceIdForPlan(key);
-    if (!intro || !standard) {
+    if (!intro || (!standard && !lifetime)) {
       const missing = [
         !intro ? introEnv : null,
-        !standard ? standardEnv : null,
+        !standard && !lifetime ? standardEnv : null,
       ]
         .filter(Boolean)
         .join(" and ");
@@ -150,6 +151,9 @@ export type CheckoutSessionInfo = {
   provision: boolean;
   /** true when the buyer pays immediately (public pay-now, no trial) */
   payNow: boolean;
+  paymentReceived: boolean;
+  foundingMember: boolean;
+  foundingQualifiedAt: Date | null;
 };
 
 /**
@@ -165,11 +169,12 @@ export async function retrieveCheckoutSession(
   // Expand line_items so Shop seat count comes from the actual paid quantity
   // (customer may have adjusted qty on Stripe Checkout).
   const s = (await stripeGet(
-    `/checkout/sessions/${sessionId}?expand[]=line_items`
+    `/checkout/sessions/${sessionId}?expand[]=line_items&expand[]=subscription`
   )) as {
     status?: string;
+    payment_status?: string;
     customer?: string | null;
-    subscription?: string | null;
+    subscription?: string | StripeSubscription | null;
     customer_email?: string | null;
     customer_details?: { email?: string | null } | null;
     metadata?: Record<string, string> | null;
@@ -186,16 +191,23 @@ export async function retrieveCheckoutSession(
   } else {
     seats = getPlan(plan)?.seats ?? null;
   }
+  const sub = typeof s.subscription === "string"
+    ? (s.status === "complete" ? await retrieveStripeSubscription(s.subscription) : undefined)
+    : s.subscription ?? undefined;
+  const membership = sub ? subscriptionFoundingMembership(sub) : { foundingMember: false };
   return {
     complete: s.status === "complete",
     customerId: s.customer || null,
-    subscriptionId: s.subscription || null,
+    subscriptionId: typeof s.subscription === "string" ? s.subscription : s.subscription?.id ?? null,
     email: s.customer_email || s.customer_details?.email || "",
     plan,
     seats,
     companyName: s.metadata?.companyName || null,
     provision: s.metadata?.provision === "tenant",
     payNow: s.metadata?.payNow === "1",
+    paymentReceived: s.payment_status === "paid" || sub?.status === "active",
+    foundingMember: membership.foundingMember,
+    foundingQualifiedAt: membership.foundingQualifiedAt ?? null,
   };
 }
 
@@ -207,11 +219,17 @@ export async function createCheckoutSession(params: {
   appUrl: string;
   /**
    * true (default): charge the first-year price. The webhook attaches a
-   * schedule that moves the subscription onto the standard price after 12
-   * paid months. Pass false for an already-paid instance so a plan change
-   * bills the standard price and does not rewrite the existing subscription.
+   * schedule onto the standard price after 12 paid months, unless the actual
+   * subscription start qualifies for the founding offer. Persisted founders
+   * always use first-year prices, even when this option is false.
    */
   firstYear?: boolean;
+  /** Server-authenticated existing entitlement; never read from FormData. */
+  foundingMembership?: FoundingMembership;
+  /** Server-resolved ownership for in-app trial conversions/plan selection. */
+  workspaceSchema?: string;
+  /** Prevent accidental double billing during plan selection/resubscription. */
+  existingSubscriptionId?: string | null;
   /**
    * Public pay-now. Same first-year Price ids as in-app checkout, but the
    * session provisions a new tenant (metadata.provision = tenant) and returns
@@ -220,9 +238,18 @@ export async function createCheckoutSession(params: {
   provisionTenant?: boolean;
   companyName?: string | null;
 }): Promise<string> {
+  if (params.existingSubscriptionId) {
+    const existing = await retrieveStripeSubscription(params.existingSubscriptionId);
+    if (!["canceled", "incomplete_expired"].includes(String(existing.status))) {
+      throw new Error("This workspace already has a Stripe subscription. Contact billing to change it without opening a duplicate subscription.");
+    }
+  }
   const provisionTenant = params.provisionTenant === true;
-  const firstYear = provisionTenant || params.firstYear !== false;
-  const price = requireCheckoutPrice(params.plan, firstYear);
+  if (params.workspaceSchema && params.workspaceSchema !== "public" && !/^tenant_[a-z0-9]{6,40}$/.test(params.workspaceSchema)) {
+    throw new Error("Invalid billing workspace");
+  }
+  const firstYear = params.foundingMembership?.foundingMember === true || provisionTenant || params.firstYear !== false;
+  const price = requireCheckoutPrice(params.plan, firstYear, params.foundingMembership?.foundingMember === true);
   const qty = checkoutQuantity(params.plan, params.seats);
   const seatsMeta = isPerSeatPlan(params.plan)
     ? String(qty)
@@ -242,6 +269,11 @@ export async function createCheckoutSession(params: {
     "metadata[plan]": params.plan,
     "metadata[seats]": seatsMeta,
     "metadata[firstYear]": firstYear ? "1" : "0",
+    "metadata[foundingMember]": params.foundingMembership?.foundingMember ? "1" : undefined,
+    "metadata[workspaceSchema]": params.workspaceSchema,
+    "subscription_data[metadata][foundingMember]": params.foundingMembership?.foundingMember ? "1" : undefined,
+    "subscription_data[metadata][foundingQualifiedAt]": params.foundingMembership?.foundingQualifiedAt?.toISOString(),
+    "subscription_data[metadata][workspaceSchema]": params.workspaceSchema,
     "subscription_data[metadata][plan]": params.plan,
     "subscription_data[metadata][seats]": seatsMeta,
     "subscription_data[metadata][firstYear]": firstYear ? "1" : "0",
@@ -331,6 +363,19 @@ export async function createTrialCheckoutSession(params: {
   return session.url as string;
 }
 
+type StripeSubscription = Record<string, unknown> & {
+  id: string;
+  created?: number;
+  metadata?: Record<string, string> | null;
+  schedule?: string | { id?: string } | null;
+  trial_end?: number | null;
+  items?: { data?: { quantity?: number; price?: StripePriceRef }[] };
+};
+async function retrieveStripeSubscription(id: string): Promise<StripeSubscription> {
+  if (!/^sub_[a-zA-Z0-9]+$/.test(id) || id.startsWith("sub_sched")) throw new Error("Invalid subscription id");
+  return stripeGet(`/subscriptions/${id}`);
+}
+
 type StripePriceRef = string | { id?: string } | null | undefined;
 
 function priceRefId(price: StripePriceRef): string | undefined {
@@ -350,26 +395,28 @@ type SchedulePhase = {
  * Attach a subscription schedule that keeps the first-year price for 12 paid
  * months, then moves the same quantity onto the standard price. Idempotent:
  * a subscription that already has a phase on the standard price is left alone.
- * Never called for an existing subscriber's current subscription.
+ * Founders return without creating or editing any schedule. Existing schedules
+ * require an explicitly approved Stripe reconciliation; this helper never releases them.
  */
 export async function ensureIntroRenewalSchedule(
   subscriptionId: string,
-  plan: string
+  plan: string,
+  existingMembership?: FoundingMembership
 ): Promise<void> {
   if (!subscriptionId.startsWith("sub_") || subscriptionId.startsWith("sub_sched")) {
     throw new Error("Invalid subscription id for first-year schedule");
   }
+  // Check the actual subscription start before reading renewal prices or writing
+  // any schedule. Delayed webhooks and checkout sessions crossing midnight must
+  // not change the entitlement. A persisted account grant survives trial conversion.
+  const sub = await retrieveStripeSubscription(subscriptionId);
+  if (subscriptionFoundingMembership(sub, existingMembership).foundingMember) return;
   const standardPrice = priceIdForPlan(plan);
   const introPrice = firstYearPriceIdForPlan(plan);
   if (!standardPrice || !introPrice) {
     requireCheckoutPrice(plan, true);
     throw new Error(`Missing Stripe prices for ${plan} first-year schedule`);
   }
-  const sub = (await stripeGet(`/subscriptions/${subscriptionId}`)) as {
-    schedule?: string | { id?: string } | null;
-    trial_end?: number | null;
-    items?: { data?: { quantity?: number; price?: StripePriceRef }[] };
-  };
   let scheduleId =
     typeof sub.schedule === "string" ? sub.schedule : sub.schedule?.id;
 
@@ -496,113 +543,95 @@ export async function handleWebhookEvent(event: {
   const { provisionCustomerTenant, tenantByStripe } = await import("./tenancy");
   const { activatePlan, cancelSubscription } = await import("./subscription");
 
-  const customerId = (obj.customer as string) || null;
-  const subscriptionId =
-    (obj.subscription as string) || (obj.id as string) || null;
+  const customerId = typeof obj.customer === "string" ? obj.customer : null;
+  const subscriptionId = subscriptionIdForEvent(event.type, obj);
+  const cp = (await import("@/lib/db")).controlPlaneClient();
 
-  if (event.type === "checkout.session.completed") {
+  // Only signed, server-created Checkout metadata can carry this routing hint.
+  // Unknown public checkouts still cannot write to the dogfood workspace.
+  async function owner(metadata: Record<string, string>) {
+    const mapped = await tenantByStripe({ subscriptionId, customerId });
+    const hint = metadata.workspaceSchema;
+    if (mapped) {
+      if (mapped.isDemo || mapped.status === "DESTROYED") return null;
+      if (hint && hint !== mapped.schemaName) throw new Error("Billing ownership mismatch");
+      return { tenant: mapped, db: clientForSchema(mapped.schemaName) };
+    }
+    if (hint === "public") return { tenant: null, db: clientForSchema("public") };
+    if (hint && /^tenant_[a-z0-9]{6,40}$/.test(hint)) {
+      const tenant = await cp.tenant.findUnique({ where: { schemaName: hint } });
+      if (tenant && !tenant.isDemo && tenant.status === "ACTIVE") return { tenant, db: clientForSchema(hint) };
+    }
+    return null;
+  }
+  async function membershipFor(db: ReturnType<typeof clientForSchema>, sub: StripeSubscription, registry?: { foundingMember: boolean; foundingQualifiedAt: Date | null } | null) {
+    const stored = await db.companySettings.findUnique({ where: { id: "default" }, select: { foundingMember: true, foundingQualifiedAt: true } });
+    return subscriptionFoundingMembership(sub, { foundingMember: stored?.foundingMember === true || registry?.foundingMember === true, foundingQualifiedAt: stored?.foundingQualifiedAt ?? registry?.foundingQualifiedAt ?? undefined });
+  }
+
+  if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
     const m = meta(obj);
-    // New first-year checkouts only. An existing subscriber's subscription is
-    // not rewritten; their checkout sets firstYear=0 and bills the standard price.
-    if (m.firstYear === "1") {
-      const subForSchedule =
-        typeof obj.subscription === "string" ? obj.subscription : "";
-      if (!subForSchedule.startsWith("sub_")) {
-        throw new Error(
-          "checkout.session.completed missing subscription for first-year schedule"
-        );
-      }
-      await ensureIntroRenewalSchedule(subForSchedule, m.plan || "STARTER");
-    }
-    if (m.provision !== "tenant") return; // not a self-serve signup — ignore
-    const email =
-      (obj.customer_email as string) ||
-      ((obj.customer_details as Record<string, string> | undefined)?.email) ||
-      "";
-    if (!email) throw new Error("checkout.session.completed missing customer email");
+    if (!subscriptionId) throw new Error("Completed checkout is missing a subscription");
+    const sub = await retrieveStripeSubscription(subscriptionId);
+    const email = (obj.customer_email as string) || (obj.customer_details as Record<string, string> | undefined)?.email || "";
     const plan = m.plan || "STARTER";
-    // Session payloads often omit line_items — re-fetch so Shop qty is correct.
-    let seats = seatsFromMeta(plan, m, obj);
-    const sid = (obj.id as string) || "";
-    if (isPerSeatPlan(plan) && sid.startsWith("cs_")) {
-      try {
-        const full = await retrieveCheckoutSession(sid);
-        if (full?.seats != null) seats = full.seats;
-      } catch {
-        /* keep seats from meta */
+    let seats = seatsFromMeta(plan, m, sub);
+    if (isPerSeatPlan(plan) && typeof obj.id === "string" && obj.id.startsWith("cs_")) {
+      const full = await retrieveCheckoutSession(obj.id);
+      if (full?.seats != null) seats = full.seats;
+    }
+    let workspace = await owner(m);
+    let membership = workspace ? await membershipFor(workspace.db, sub, workspace.tenant) : subscriptionFoundingMembership(sub);
+    if (m.provision === "tenant") {
+      if (!email) throw new Error("Completed checkout is missing customer email");
+      const tenant = await provisionCustomerTenant({ plan, seats, billingEmail: email, companyName: m.companyName || null, trialDays: TRIAL_DAYS, stripeCustomerId: customerId, stripeSubscriptionId: subscriptionId, foundingMembership: membership });
+      workspace = { tenant, db: clientForSchema(tenant.schemaName) };
+      membership = await membershipFor(workspace.db, sub, workspace.tenant);
+    }
+    if (workspace) {
+      await workspace.db.companySettings.update({ where: { id: "default" }, data: { ...foundingGrant(membership), stripeCustomerId: customerId ?? undefined, stripeSubscriptionId: subscriptionId, billingProvider: "stripe" } });
+      if (workspace.tenant) await cp.tenant.update({ where: { id: workspace.tenant.id }, data: { ...foundingGrant(membership), stripeCustomerId: customerId ?? undefined, stripeSubscriptionId: subscriptionId, plan } });
+      // Do not activate an unpaid asynchronous Checkout just because it completed.
+      if (obj.payment_status === "paid" || sub.status === "active") {
+        await activatePlan({ plan, seats, provider: "stripe", billingEmail: email || undefined, stripeCustomerId: customerId, stripeSubscriptionId: subscriptionId, foundingMembership: membership }, workspace.db);
       }
     }
-    const tenant = await provisionCustomerTenant({
-      plan,
-      seats,
-      billingEmail: email,
-      companyName: m.companyName || null,
-      trialDays: TRIAL_DAYS,
-      stripeCustomerId: customerId,
-      stripeSubscriptionId: subscriptionId,
-    });
-    // Pay-now already collected the first invoice. Mark the new tenant paid
-    // here so access does not depend on invoice.payment_succeeded arriving
-    // first (that event no-ops until the tenant row exists).
-    if (m.payNow === "1" && tenant.schemaName) {
-      await activatePlan(
-        {
-          plan,
-          seats,
-          provider: "stripe",
-          billingEmail: email,
-          stripeCustomerId: customerId,
-          stripeSubscriptionId: subscriptionId,
-        },
-        clientForSchema(tenant.schemaName)
-      );
-    }
+    if (m.firstYear === "1" && ["active", "trialing"].includes(String(sub.status))) await ensureIntroRenewalSchedule(subscriptionId, plan, membership);
     return;
   }
 
-  // Subscription lifecycle: resolve the owning tenant and write ONLY its schema.
-  if (
-    event.type === "customer.subscription.updated" ||
-    event.type === "customer.subscription.deleted" ||
-    event.type === "invoice.payment_succeeded"
-  ) {
-    const tenant = await tenantByStripe({ subscriptionId, customerId });
-    if (!tenant) return; // unknown subscription (e.g. the dogfood instance) — skip
-    const db = clientForSchema(tenant.schemaName);
-
+  if (["customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted", "invoice.payment_succeeded", "invoice.paid"].includes(event.type)) {
+    if (!subscriptionId) return;
+    const sub = event.type.startsWith("customer.subscription.") ? obj as StripeSubscription : await retrieveStripeSubscription(subscriptionId);
+    const workspace = await owner(meta(sub));
+    if (!workspace) return;
+    const membership = await membershipFor(workspace.db, sub, workspace.tenant);
+    if (membership.foundingMember) {
+      await workspace.db.companySettings.update({ where: { id: "default" }, data: foundingGrant(membership) });
+      if (workspace.tenant) await cp.tenant.update({ where: { id: workspace.tenant.id }, data: foundingGrant(membership) });
+    }
     if (event.type === "customer.subscription.deleted") {
-      await cancelSubscription(undefined, db);
+      await cancelSubscription(undefined, workspace.db);
       return;
     }
-    // updated / payment succeeded → mark active with the current period end.
-    const periodEndUnix =
-      (obj.current_period_end as number | undefined) ??
-      (obj.lines as { data?: { period?: { end?: number } }[] } | undefined)
-        ?.data?.[0]?.period?.end;
-    const plan = tenant.plan || meta(obj).plan || "STARTER";
-    let seats = seatsFromMeta(plan, meta(obj), obj);
-    // Subscription quantity may change (Shop seat adds) — re-fetch when per-seat.
-    if (isPerSeatPlan(plan) && subscriptionId?.startsWith("sub_")) {
-      try {
-        const sub = (await stripeGet(
-          `/subscriptions/${subscriptionId}`
-        )) as Record<string, unknown>;
-        seats = seatsFromMeta(plan, meta(sub), sub) ?? seats;
-      } catch {
-        /* keep seats from event payload */
-      }
+    const plan = meta(sub).plan || workspace.tenant?.plan || "STARTER";
+    if (meta(sub).firstYear === "1" && ["active", "trialing"].includes(String(sub.status))) {
+      await ensureIntroRenewalSchedule(subscriptionId, plan, membership);
     }
-    await activatePlan(
-      {
-        plan,
-        seats,
-        provider: "stripe",
-        currentPeriodEnd: periodEndUnix ? new Date(periodEndUnix * 1000) : null,
-        stripeCustomerId: customerId,
-        stripeSubscriptionId: subscriptionId,
-        billingEmail: tenant.billingEmail,
-      },
-      db
-    );
+    if (sub.status === "trialing") {
+      await workspace.db.companySettings.update({ where: { id: "default" }, data: { subscriptionStatus: "TRIALING", trialEndsAt: sub.trial_end ? new Date(sub.trial_end * 1000) : undefined } });
+      return;
+    }
+    if (event.type.startsWith("customer.subscription.") && sub.status && sub.status !== "active") return;
+    const periodEndUnix = (sub.current_period_end as number | undefined) ?? (obj.lines as { data?: { period?: { end?: number } }[] } | undefined)?.data?.[0]?.period?.end;
+    await activatePlan({ plan, seats: seatsFromMeta(plan, meta(sub), sub), provider: "stripe", currentPeriodEnd: periodEndUnix ? new Date(periodEndUnix * 1000) : null, stripeCustomerId: customerId, stripeSubscriptionId: subscriptionId, billingEmail: workspace.tenant?.billingEmail, foundingMembership: membership }, workspace.db);
   }
+}
+
+/** Never persist an invoice/session id as a subscription id. Supports current and legacy invoices. */
+export function subscriptionIdForEvent(type: string, obj: Record<string, unknown>): string | null {
+  const ref = type.startsWith("customer.subscription.") ? obj.id : obj.subscription ??
+    (obj.parent as { subscription_details?: { subscription?: unknown } } | undefined)?.subscription_details?.subscription;
+  const id = typeof ref === "string" ? ref : (ref as { id?: unknown } | null)?.id;
+  return typeof id === "string" && /^sub_[a-zA-Z0-9]+$/.test(id) && !id.startsWith("sub_sched") ? id : null;
 }

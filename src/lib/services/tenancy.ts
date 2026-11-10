@@ -1,3 +1,4 @@
+import { foundingMembership, foundingGrant, type FoundingMembership } from "./founding-membership";
 import { Pool, type PoolClient } from "pg";
 import { randomBytes, createHash } from "node:crypto";
 import { controlPlaneClient, clientForSchema, isValidSchemaName } from "@/lib/db";
@@ -632,15 +633,27 @@ export async function provisionCustomerTenant(params: {
   trialDays: number;
   stripeCustomerId?: string | null;
   stripeSubscriptionId?: string | null;
+  foundingMembership?: FoundingMembership;
 }) {
   const cp = controlPlaneClient();
+  const { isFreeShop } = await import("./subscription");
+  const freeAccount = !params.stripeSubscriptionId && isFreeShop(params.plan, params.seats);
+  const membership = params.foundingMembership ??
+    (!params.stripeSubscriptionId && !freeAccount ? foundingMembership(new Date()) : { foundingMember: false });
+  const grant = foundingGrant(membership);
 
   // Idempotency: a retried webhook must not create a second schema.
   if (params.stripeSubscriptionId) {
     const existing = await cp.tenant.findFirst({
       where: { stripeSubscriptionId: params.stripeSubscriptionId },
     });
-    if (existing) return existing;
+    if (existing) {
+      if (membership.foundingMember && existing.status === "ACTIVE") {
+        await clientForSchema(existing.schemaName).companySettings.update({ where: { id: "default" }, data: grant });
+        return cp.tenant.update({ where: { id: existing.id }, data: grant });
+      }
+      return existing;
+    }
   }
 
   const trialEndsAt = new Date(Date.now() + params.trialDays * 86_400_000);
@@ -655,6 +668,7 @@ export async function provisionCustomerTenant(params: {
   try {
     tenant = await cp.tenant.create({
       data: {
+        ...grant,
         slug: schemaName,
         schemaName,
         name: params.companyName ?? null,
@@ -701,6 +715,7 @@ export async function provisionCustomerTenant(params: {
       where: { id: "default" },
       create: {
         id: "default",
+        ...grant,
         name: params.companyName ?? "My Company",
         plan: params.plan,
         subscriptionStatus: "TRIALING",
@@ -712,6 +727,7 @@ export async function provisionCustomerTenant(params: {
         stripeSubscriptionId: params.stripeSubscriptionId ?? undefined,
       },
       update: {
+        ...grant,
         plan: params.plan,
         subscriptionStatus: "TRIALING",
         trialEndsAt,

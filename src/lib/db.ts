@@ -14,7 +14,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
  */
 
 // Bump when the Prisma schema changes so dev HMR drops a stale client.
-const PRISMA_CLIENT_EPOCH = "docs-knowledge-base-v42";
+const PRISMA_CLIENT_EPOCH = "docs-founding-billing-v43";
 
 /** Legacy cookie name kept for compatibility with old demo/test-drive routes. */
 export const SANDBOX_COOKIE = "forge-sandbox";

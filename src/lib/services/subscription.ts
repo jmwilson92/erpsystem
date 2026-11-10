@@ -1,3 +1,4 @@
+import { foundingMembership, foundingGrant, type FoundingMembership } from "./founding-membership";
 import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { demoModeEnabled } from "@/lib/auth-core";
@@ -215,8 +216,11 @@ export type SubscriptionState = {
   seats: number | null;
   billingEmail: string | null;
   billingProvider: string | null;
+  stripeSubscriptionId: string | null;
   /** true when the customer has a live paid subscription */
   isPaid: boolean;
+  foundingMember: boolean;
+  foundingQualifiedAt: Date | null;
   /** true while inside a valid trial window */
   isTrialing: boolean;
   /** whole days left in the trial (0 once elapsed); null when not trialing */
@@ -251,6 +255,8 @@ export async function getSubscriptionState(
       billingEmail: true,
       billingProvider: true,
       stripeSubscriptionId: true,
+      foundingMember: true,
+      foundingQualifiedAt: true,
     },
   });
 
@@ -289,7 +295,10 @@ export async function getSubscriptionState(
     seats: s.seats,
     billingEmail: s.billingEmail,
     billingProvider: s.billingProvider,
+    stripeSubscriptionId: s.stripeSubscriptionId,
     isPaid,
+    foundingMember: s.foundingMember,
+    foundingQualifiedAt: s.foundingQualifiedAt,
     isTrialing,
     isFree,
     trialDaysLeft,
@@ -301,16 +310,19 @@ export async function getSubscriptionState(
 
 /** Begin (or restart) the free trial — sets a fresh trial window. */
 export async function startTrial(userId?: string, db: Db = prisma) {
+  const grant = foundingGrant(foundingMembership(new Date()));
   const trialEndsAt = new Date(Date.now() + TRIAL_DAYS * 86_400_000);
   return db.companySettings.upsert({
     where: { id: "default" },
     create: {
       id: "default",
+      ...grant,
       plan: "TRIAL",
       subscriptionStatus: "TRIALING",
       trialEndsAt,
     },
     update: {
+      ...grant,
       plan: "TRIAL",
       subscriptionStatus: "TRIALING",
       trialEndsAt,
@@ -332,6 +344,7 @@ export async function activatePlan(
     provider?: string | null;
     stripeCustomerId?: string | null;
     stripeSubscriptionId?: string | null;
+    foundingMembership?: FoundingMembership;
     userId?: string;
   },
   db: Db = prisma
@@ -354,9 +367,13 @@ export async function activatePlan(
           : perSeat)
       : (params.seats ?? known.seats);
 
+  const membership = params.foundingMembership ??
+    (params.provider !== "stripe" && !(params.plan === "SHOP" && seats != null && seats <= SHOP_FREE_SEATS)
+      ? foundingMembership(new Date()) : { foundingMember: false });
   const sub = await db.companySettings.update({
     where: { id: "default" },
     data: {
+      ...foundingGrant(membership),
       plan: params.plan,
       subscriptionStatus: "ACTIVE",
       currentPeriodEnd: periodEnd,
@@ -374,7 +391,7 @@ export async function activatePlan(
       entityType: "Subscription",
       entityId: "default",
       action: "ACTIVATED",
-      metadata: JSON.stringify({ plan: params.plan, seats, periodEnd }),
+      metadata: JSON.stringify({ plan: params.plan, seats, periodEnd, foundingMember: sub.foundingMember }),
       userId: params.userId ?? null,
     },
   });

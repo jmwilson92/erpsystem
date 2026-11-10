@@ -172,6 +172,7 @@ export default async function BillingPage({
         </CardContent>
       </Card>
 
+      {sub.foundingMember && <p className="rounded-xl border border-teal-700 bg-teal-950/40 p-4 text-sm text-teal-200">Founding member · your first-year prices are locked for life. Renewals do not move to standard pricing. Seat quantities and applicable taxes still apply.</p>}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {PLANS.map((plan) => {
           const current = sub.plan === plan.key && sub.isPaid;
@@ -198,6 +199,7 @@ export default async function BillingPage({
               <CardContent className="space-y-3">
                 <PlanPriceBlock
                   planKey={plan.key}
+                  foundingMember={sub.foundingMember}
                   amountClassName="text-2xl font-bold text-slate-100"
                   suffixClassName="text-sm font-normal text-slate-500"
                   detailClassName="mt-0.5 text-xs font-normal text-slate-500"
@@ -247,7 +249,7 @@ export default async function BillingPage({
                         <span className="mt-1 block text-[11px] text-slate-500">
                           Example, 6 users: {shopExample?.primaryAmount}
                           {shopExample?.primarySuffix}. {shopExample?.note}{" "}
-                          {shopExample?.afterYearOne}
+                          {sub.foundingMember ? "Lifetime founding-member rates." : shopExample?.afterYearOne}
                         </span>
                       </label>
                     )}

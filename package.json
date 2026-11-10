@@ -37,6 +37,7 @@
     "verify:money": "tsx scripts/verify/chunk-c2-money-path.ts",
     "verify:serials": "tsx scripts/verify/chunk-serials-rma.ts",
     "verify:chunk": "tsx scripts/verify/run-all.ts",
+    "test:founding": "tsx --tsconfig tsconfig.smoke.json scripts/test-founding-billing.ts",
     "test:docs": "tsx scripts/test-docs.ts"
   },
   "prisma": {

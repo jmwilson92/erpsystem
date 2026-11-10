@@ -26,7 +26,9 @@
  *   npx tsx scripts/backfill-tenant-schemas.ts            # report only
  *   npx tsx scripts/backfill-tenant-schemas.ts --apply    # actually create
  *   npx tsx scripts/backfill-tenant-schemas.ts --apply --include-demos
+ *   npx tsx scripts/backfill-tenant-schemas.ts --founding-only --include-public --include-demos --apply
  *   npx tsx scripts/backfill-tenant-schemas.ts --docs-only --include-public --include-demos --apply
+
  *
  * Demo sandboxes are skipped unless --include-demos: they are disposable and
  * normally recycle themselves, so it is usually cheaper to let the pool roll
@@ -37,11 +39,12 @@
  */
 import "dotenv/config";
 import { Pool } from "pg";
-import { TENANT_TABLES_SQL, TENANT_FKS_SQL, DOCS_HARDENING_SQL } from "../src/lib/tenant-template";
+import { TENANT_TABLES_SQL, TENANT_FKS_SQL, DOCS_HARDENING_SQL, FOUNDING_BILLING_COLUMNS, FOUNDING_BILLING_HARDENING } from "../src/lib/tenant-template";
+import { backfillFoundingMembers } from "./lib/founding-backfill.mjs";
+import { FOUNDING_CUTOFF_EXCLUSIVE } from "../src/lib/services/founding-membership";
 import { assertCheckoutCurrent } from "./lib/assert-current.mjs";
 
-// Docs rollout: additive tables/indexes/FKs + RLS and append-only evidence.
-// --docs-only --include-public patches the dogfood schema without other model drift.
+const FOUNDING_ONLY = process.argv.includes("--founding-only");
 const DOC_TABLES = new Set(["DocSpace", "DocPage", "DocRevision", "DocSignature", "DocComment", "DocLink"]);
 const DOCS_ONLY = process.argv.includes("--docs-only");
 const INCLUDE_PUBLIC = process.argv.includes("--include-public");
@@ -156,6 +159,14 @@ async function main() {
   );
 
   const pool = new Pool({ connectionString, max: 1 });
+  if (FOUNDING_ONLY) {
+    if (!process.argv.includes("--include-public")) { await pool.end(); throw new Error("Founding rollout requires --include-public for the registry and dogfood settings"); }
+    try {
+      const result = await backfillFoundingMembers(pool, { apply: APPLY, includeDemos: INCLUDE_DEMOS, columns: FOUNDING_BILLING_COLUMNS, hardening: FOUNDING_BILLING_HARDENING, cutoffExclusive: FOUNDING_CUTOFF_EXCLUSIVE });
+      if (result.manualReview) process.exitCode = 2;
+    } finally { await pool.end(); }
+    return;
+  }
   try {
     const { rows: schemas } = await pool.query<{ nspname: string }>(
       `SELECT nspname FROM pg_namespace
