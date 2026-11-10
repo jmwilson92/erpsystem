@@ -98,6 +98,7 @@ export async function createLead(params: {
 }
 
 export async function updateLeadStatus(id: string, status: string, userId?: string) {
+  if (!(LEAD_STATUSES as readonly string[]).includes(status)) throw new Error("Unknown lead status");
   const lead = await prisma.lead.update({ where: { id }, data: { status } });
   await logAudit({
     entityType: "Lead",
@@ -155,6 +156,12 @@ async function nextOpportunityNumber(): Promise<string> {
   return `OPP-${String((n ? parseInt(n, 10) : 0) + 1).padStart(4, "0")}`;
 }
 
+function validateProbability(value: unknown): void {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 100) {
+    throw new Error("Probability must be a finite percentage between 0 and 100");
+  }
+}
+
 export async function createOpportunity(params: {
   name: string;
   customerId?: string | null;
@@ -171,6 +178,8 @@ export async function createOpportunity(params: {
   const name = params.name.trim();
   if (!name) throw new Error("Opportunity name is required");
   const stage = (params.stage as Stage) || "PROSPECT";
+  if (!STAGES.includes(stage)) throw new Error("Unknown opportunity stage");
+  if (params.probability !== undefined) validateProbability(params.probability);
   const opp = await prisma.opportunity.create({
     data: {
       number: await nextOpportunityNumber(),
@@ -224,6 +233,7 @@ export async function updateOpportunity(
   data: Record<string, unknown>,
   userId?: string
 ) {
+  if ("probability" in data) validateProbability(data.probability);
   const opp = await prisma.opportunity.update({ where: { id }, data });
   await logAudit({ entityType: "Opportunity", entityId: id, action: "UPDATED", userId });
   return opp;
@@ -242,6 +252,8 @@ export async function setStage(params: {
   lostReason?: string | null;
   userId?: string;
 }) {
+  if (!STAGES.includes(params.stage)) throw new Error("Unknown opportunity stage");
+  if (params.probability != null) validateProbability(params.probability);
   const closing = params.stage === "WON" || params.stage === "LOST";
   if (params.stage === "LOST" && !params.lostReason?.trim()) {
     throw new Error("A reason is required when marking a deal lost");

@@ -158,10 +158,9 @@ export async function updateTicketStatus(params: {
   status: string;
   userId?: string;
 }) {
-  const data: Record<string, unknown> = { status: params.status };
-  if (params.status === "CLOSED" || params.status === "COMPLETED") {
-    data.closedAt = new Date();
-  }
+  if (!(TICKET_STATUSES as readonly string[]).includes(params.status)) throw new Error("Unknown service ticket status");
+  const terminal = ["CLOSED", "COMPLETED", "CANCELLED"].includes(params.status);
+  const data = { status: params.status, closedAt: terminal ? new Date() : null };
   const t = await prisma.serviceTicket.update({
     where: { id: params.id },
     data,
