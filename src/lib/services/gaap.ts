@@ -784,43 +784,42 @@ export async function approveJournal(params: {
   id: string;
   approvedById?: string | null;
 }) {
-  const je = await prisma.journalEntry.findUniqueOrThrow({
-    where: { id: params.id },
-    include: { lines: true },
+  const approverIsController = params.approvedById
+    ? await userHasPermission(params.approvedById, "accounting.controller") : false;
+  return prisma.$transaction(async (db) => {
+    const je = await db.journalEntry.findUniqueOrThrow({
+      where: { id: params.id },
+      include: { lines: true },
+    });
+    if (je.status === "POSTED") return je;
+    const settings = await db.accountingSettings.findUnique({
+      where: { id: "default" }, select: { requireJournalSoD: true },
+    });
+    const block = journalApprovalBlock({
+      creatorId: je.createdById,
+      approverId: params.approvedById,
+      requireSoD: settings?.requireJournalSoD ?? false,
+      approverIsController,
+    });
+    if (block) throw new Error(block);
+    await assertPeriodOpen(je.date, "post", db);
+    if (!["PENDING_APPROVAL", "DRAFT"].includes(je.status)) {
+      throw new Error(`Cannot approve journal in status ${je.status}`);
+    }
+    // Claim and ledger effects share one transaction: failures must restore PENDING.
+    // Conditional UPDATE serializes competing approvers on this tenant-qualified row.
+    const claim = await db.journalEntry.updateMany({
+      where: { id: je.id, status: { in: ["PENDING_APPROVAL", "DRAFT"] } },
+      data: { status: "POSTED", postedAt: new Date(), approvedById: params.approvedById || null },
+    });
+    const updated = await db.journalEntry.findUniqueOrThrow({
+      where: { id: je.id }, include: { lines: true, attachments: true },
+    });
+    if (claim.count === 0) return updated;
+    await applyJournalBalances(updated.lines, db);
+    await applyArSettlementFromJournal(updated, db);
+    return updated;
   });
-  if (je.status === "POSTED") return je;
-  const [settings, approverIsController] = await Promise.all([
-    prisma.accountingSettings.findUnique({
-      where: { id: "default" },
-      select: { requireJournalSoD: true },
-    }),
-    params.approvedById
-      ? userHasPermission(params.approvedById, "accounting.controller")
-      : Promise.resolve(false),
-  ]);
-  const block = journalApprovalBlock({
-    creatorId: je.createdById,
-    approverId: params.approvedById,
-    requireSoD: settings?.requireJournalSoD ?? false,
-    approverIsController,
-  });
-  if (block) throw new Error(block);
-  await assertPeriodOpen(je.date, "post");
-  if (!["PENDING_APPROVAL", "DRAFT"].includes(je.status)) {
-    throw new Error(`Cannot approve journal in status ${je.status}`);
-  }
-  const updated = await prisma.journalEntry.update({
-    where: { id: je.id },
-    data: {
-      status: "POSTED",
-      postedAt: new Date(),
-      approvedById: params.approvedById || null,
-    },
-    include: { lines: true, attachments: true },
-  });
-  await applyJournalBalances(updated.lines);
-  await applyArSettlementFromJournal(updated);
-  return updated;
 }
 
 export async function voidJournal(params: {

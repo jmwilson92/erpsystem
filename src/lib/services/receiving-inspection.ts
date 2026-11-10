@@ -1034,6 +1034,14 @@ export async function completeReceivingAfterInspection(params: {
       capturePhotos: false,
       targetLocationCode: params.putawayLocationCode || planned || undefined,
     });
+    // Release only the serial identities on these passed receipt lines, not
+    // unrelated lots of the same part. Failed/quarantined receipts stay hidden.
+    const item = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: inventoryItemId } });
+    const sources = await prisma.inspection.findMany({ where: { inventoryItemId, status: "PASSED", receiptId: { not: null } }, select: { receiptId: true } });
+    const lines = await prisma.receiptLine.findMany({ where: { receiptId: { in: sources.map((x) => x.receiptId!) }, partId: item.partId, lotNumber: item.lotNumber } });
+    const serials = lines.flatMap((line) => line.serialNumbers ? JSON.parse(line.serialNumbers) as string[] : []);
+    if (serials.length) await prisma.serialNumber.updateMany({ where: { serial: { in: serials }, partId: item.partId, status: "QUARANTINE" }, data: { status: "IN_STOCK" } });
+
   }
 
   // Close open labor scan on putaway (dock time ends)

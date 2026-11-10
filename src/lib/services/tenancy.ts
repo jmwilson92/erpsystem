@@ -445,12 +445,22 @@ export function demoIdleMinutes(): number {
 }
 
 /** Build one spare sandbox and park it as READY for the next visitor. */
-export async function warmOneDemo(): Promise<string | null> {
+export async function warmOneDemo(target = demoPoolTarget()): Promise<string | null> {
   const cp = controlPlaneClient();
   const schemaName = `demo_${randToken()}`;
-  const tenant = await cp.tenant.create({
-    data: { slug: schemaName, schemaName, isDemo: true, status: "PROVISIONING" },
+  // A short transaction-scoped lock works across workers and transaction poolers.
+  // Reserve the registry row under the same lock as the capacity check; DDL runs
+  // afterwards, never holding a connection/lock for a multi-second clone.
+  const tenant = await cp.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(74192018)::text`;
+    const [ready, inFlight] = await Promise.all([
+      tx.tenant.count({ where: { isDemo: true, status: "READY" } }),
+      tx.tenant.count({ where: { isDemo: true, status: "PROVISIONING", createdAt: { gte: new Date(Date.now() - PROVISION_STALE_MS) } } }),
+    ]);
+    if (ready + inFlight >= target || inFlight >= MAX_INFLIGHT_PROVISIONS) return null;
+    return tx.tenant.create({ data: { slug: schemaName, schemaName, isDemo: true, status: "PROVISIONING" } });
   });
+  if (!tenant) return null;
   try {
     await cloneSchema(DEMO_TEMPLATE_SCHEMA, schemaName);
     await cp.tenant.update({ where: { id: tenant.id }, data: { status: "READY" } });
@@ -473,10 +483,8 @@ export async function warmOneDemo(): Promise<string | null> {
  * its internal sequential loop only serialises one invocation — several can
  * still overlap and stack concurrent clones on the database.
  *
- * This counts control-plane rows rather than taking a Postgres advisory lock,
- * because the DDL connection may be a transaction pooler where session-level
- * advisory locks are unreliable (consecutive queries can land on different
- * backends). A row count needs no session affinity.
+ * Capacity check + reservation are serialized with a transaction-scoped advisory
+ * lock (not a session lock), so transaction-pooler routing is safe.
  *
  * The staleness window is the important half. A crashed provision leaves its
  * PROVISIONING row behind, and counting those forever would wedge the pool shut
@@ -491,24 +499,10 @@ export async function ensureDemoPool(): Promise<number> {
   const target = demoPoolTarget();
   if (target === 0) return 0;
   if (!(await demoTemplateExists())) return 0;
-  const cp = controlPlaneClient();
-  const inFlight = await cp.tenant.count({
-    where: {
-      isDemo: true,
-      status: "PROVISIONING",
-      createdAt: { gte: new Date(Date.now() - PROVISION_STALE_MS) },
-    },
-  });
-  if (inFlight >= MAX_INFLIGHT_PROVISIONS) return 0;
-  const ready = await cp.tenant.count({ where: { isDemo: true, status: "READY" } });
   let made = 0;
-  // Build sequentially: a burst of parallel clones is heavy on a small database.
-  // Capped per run so a drained pool converges over successive calls rather than
-  // running past the caller's time budget — see MAX_REFILL_PER_RUN.
-  const ceiling = Math.min(target, ready + MAX_REFILL_PER_RUN);
-  for (let i = ready; i < ceiling; i++) {
-    const s = await warmOneDemo();
-    if (!s) break; // template/database trouble — stop rather than thrash
+  for (let i = 0; i < MAX_REFILL_PER_RUN; i++) {
+    const s = await warmOneDemo(target);
+    if (!s) break;
     made += 1;
   }
   return made;
