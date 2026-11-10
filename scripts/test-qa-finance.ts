@@ -26,6 +26,7 @@ async function main() {
     const manager = await p.user.create({ data: { name: "QA HR", email: "hr@example.invalid", role: "HR" } });
     const cash = await p.account.create({ data: { code: "1000", name: "Cash", type: "ASSET" } });
     const expense = await p.account.create({ data: { code: "6200", name: "Expense", type: "EXPENSE" } });
+    await p.account.create({ data: { code: "2000", name: "AP", type: "LIABILITY" } });
     await p.accountingSettings.create({ data: { id: "default", requireJournalSoD: true } });
     const acct = await bank.connectBankAccount({ name: "Synthetic", glAccountId: cash.id, userId: admin.id });
     const imported = await bank.importBankTransactions({ bankAccountId: acct.id, text: "date,description,amount\n2026-01-01,Withdrawal,-25" });
@@ -73,6 +74,36 @@ async function main() {
     assert.equal(await p.journalEntry.count({ where: { source: "EXPENSE", sourceId: report.id } }), 1);
     console.log("PASS ACCT-010 HR generic transition cannot mark paid; existing controller reimbursement posts balanced journal (ACCT-009 policy unchanged)");
     const supplier = await p.supplier.create({ data: { code: "FIN-QA", name: "QA supplier" } });
+    const gaap = await import("../src/lib/services/gaap");
+    const billing = await import("../src/lib/services/billing");
+    const gl = await import("../src/lib/services/gl-posting");
+    await gl.ensureAccountingDefaults();
+    const job = await p.workOrder.create({ data: { number: "OSP-QA", type: "TASK_ONLY" } });
+    await gl.prepareOutsideProcessingJournal({ sourceId: "qa-prepare", amount: 1, workOrderId: job.id });
+    for (const workOrderId of [undefined, job.id]) {
+      const bill = () => billing.createVendorApInvoice({ supplierId: supplier.id, amount: 10, tax: 2, workOrderId, userId: admin.id });
+      const invoices = await p.apInvoice.count();
+      const journals = await p.journalEntry.count();
+      const balances = async () => (await p.account.findMany({ orderBy: { code: "asc" } })).map(x => x.balance);
+      const before = await balances();
+      await gaap.setAccountingCloseDate({ date: new Date("2099-12-31") });
+      await assert.rejects(bill(), /closed/);
+      assert.equal(await p.apInvoice.count(), invoices);
+      assert.equal(await p.journalEntry.count(), journals);
+      assert.deepEqual(await balances(), before);
+      await gaap.setAccountingCloseDate({ date: null });
+      await pg.exec(`CREATE FUNCTION qa_fail_ap() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected AP failure'; END $$; CREATE TRIGGER qa_fail_ap BEFORE UPDATE ON "Account" FOR EACH ROW EXECUTE FUNCTION qa_fail_ap();`);
+      await assert.rejects(bill(), /injected AP failure/);
+      assert.equal(await p.apInvoice.count(), invoices);
+      assert.equal(await p.journalEntry.count(), journals);
+      assert.deepEqual(await balances(), before);
+      await pg.exec('DROP TRIGGER qa_fail_ap ON "Account"; DROP FUNCTION qa_fail_ap();');
+      const voucher = await bill();
+      assert.equal(voucher.total, 12);
+      assert.equal(voucher.status, "OPEN");
+      assert.equal(await p.journalEntry.count({ where: { source: "AP", sourceId: voucher.id } }), 1);
+    }
+    console.log("PASS ACCT-008 expense and outside-processing AP invoices/GL/balances roll back on period and injected posting failure; retry succeeds");
     const part = await p.part.create({ data: { partNumber: "FIN-QA", description: "QA material" } });
     const po = await p.purchaseOrder.create({ data: { number: "PO-FIN-QA", supplierId: supplier.id, status: "APPROVED", lines: { create: { partId: part.id, description: "QA", quantity: 2, unitCost: 10 } } }, include: { lines: true } });
     const receive = (lines = [{ poLineId: po.lines[0].id, quantityReceived: 2 }]) => supply.receivePurchaseOrder({ purchaseOrderId: po.id, receivedById: admin.id, lines });

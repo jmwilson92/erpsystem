@@ -264,7 +264,7 @@ type MappedPost = {
   creditCode?: string;
 };
 
-async function postMapped(params: MappedPost) {
+async function mappedJournalParams(params: MappedPost): Promise<Parameters<typeof postJournal>[0] | null> {
   const amount = roundMoney(params.amount);
   if (amount <= 0.001) return null;
   const pair = await mappedPair(params.eventKey);
@@ -278,8 +278,7 @@ async function postMapped(params: MappedPost) {
   const programId = params.programId || charge.programId;
   const projectId = params.projectId || charge.projectId;
   const workOrderId = params.workOrderId || charge.workOrderId;
-  try {
-    return await postJournal({
+  return {
       description: params.description,
       source: params.source,
       sourceId: params.sourceId,
@@ -312,7 +311,14 @@ async function postMapped(params: MappedPost) {
           workOrderId: params.creditCode ? workOrderId || undefined : undefined,
         },
       ],
-    });
+  };
+}
+
+async function postMapped(params: MappedPost) {
+  const journal = await mappedJournalParams(params);
+  if (!journal) return null;
+  try {
+    return await postJournal(journal);
   } catch (err) {
     await logAudit({
       entityType: "JournalEntry",
@@ -523,6 +529,18 @@ export async function postOutsideProcessing(params: {
     workOrderId: params.workOrderId,
     projectId: params.projectId,
     userId: params.userId,
+  });
+}
+
+/** Resolve posting data before the caller opens an atomic AP-voucher transaction. */
+export async function prepareOutsideProcessingJournal(params: Parameters<typeof postOutsideProcessing>[0]) {
+  return mappedJournalParams({
+    eventKey: "OSP", amount: params.amount,
+    description: params.memo || "Outside processing charged to a job",
+    source: "AP", sourceId: params.sourceId,
+    idempotencyKey: `osp:${params.sourceId}`,
+    memo: params.memo, costElement: "OSP", workOrderId: params.workOrderId,
+    projectId: params.projectId, userId: params.userId,
   });
 }
 
