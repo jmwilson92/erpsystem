@@ -1,5 +1,7 @@
 "use server";
 
+import { verifySignaturePin } from "./signature-pin";
+
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 
@@ -541,20 +543,7 @@ export async function decideGfpConsumption(params: {
   approvalNotes?: string;
   pinCode?: string;
 }) {
-  // PM approval requires PIN
-  const approver = await prisma.user.findUnique({
-    where: { id: params.approvedById },
-  });
-  if (!approver) throw new Error("Approver not found");
-  if (!approver.pinCode?.trim()) {
-    throw new Error(
-      "Approver has no PIN configured — set a PIN before approving"
-    );
-  }
-  const expectedPin = approver.pinCode.trim();
-  if (!params.pinCode || params.pinCode.trim() !== expectedPin) {
-    throw new Error(`Invalid PIN for ${approver.name} — each person signs with their own PIN (set it under My Account)`);
-  }
+  await verifySignaturePin(params.approvedById, params.pinCode);
 
   const rec = await prisma.gfpConsumption.findUnique({
     where: { id: params.consumptionId },

@@ -1,3 +1,4 @@
+import { verifySignaturePin } from "./signature-pin";
 /**
  * Test Procedures — CM-controlled test documents (ATP, functional,
  * burn-in). Released procedures are locked and revision-controlled;
@@ -314,19 +315,7 @@ export async function recordTestStepSignOff(params: {
   photoUrl?: string | null;
   pinCode?: string | null;
 }) {
-  const user = await prisma.user.findUniqueOrThrow({
-    where: { id: params.userId },
-    select: { pinCode: true, name: true },
-  });
-  if (!user.pinCode?.trim()) {
-    throw new Error(
-      "Your account has no PIN configured — ask HR/admin to set one before signing"
-    );
-  }
-  const expectedPin = user.pinCode.trim();
-  if (!params.pinCode || params.pinCode.trim() !== expectedPin) {
-    throw new Error(`Invalid PIN for ${user.name} — each person signs with their own PIN (set it under My Account)`);
-  }
+  await verifySignaturePin(params.userId, params.pinCode);
 
   const step = await prisma.testProcedureStep.findUniqueOrThrow({
     where: { id: params.stepId },

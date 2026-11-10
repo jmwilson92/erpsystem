@@ -177,9 +177,9 @@ export default async function QualityPage() {
               <CardContent className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-mono font-semibold text-amber-400">
+                    <Link href={`/quality/ncr/${ncr.id}`} className="font-mono font-semibold text-amber-400 hover:underline">
                       {ncr.number}
-                    </span>
+                    </Link>
                     <StatusBadge status={ncr.status} />
                     <StatusBadge status={ncr.severity} />
                     <StatusBadge status={ncr.source} />

@@ -1,3 +1,4 @@
+import { DocBacklinks } from "@/components/docs/backlinks";
 import { prisma } from "@/lib/db";
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/shared/page-header";
@@ -1491,6 +1492,7 @@ export default async function WorkOrderDetailPage({
       <TraceChainCard events={traceChain} title="Everything that touched this WO" />
 
       <ActivityTimeline entityType="WorkOrder" entityId={id} />
+      <DocBacklinks type="WORK_ORDER" targetId={id} />
     </div>
   );
 }

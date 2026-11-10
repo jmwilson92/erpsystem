@@ -1,3 +1,4 @@
+import { DocBacklinks } from "@/components/docs/backlinks";
 import { prisma } from "@/lib/db";
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/shared/page-header";
@@ -937,6 +938,7 @@ export default async function ItemDetailPage({
       )}
 
       <ActivityTimeline entityType="Part" entityId={id} />
+      <DocBacklinks type="PART" targetId={id} />
     </div>
   );
 }
