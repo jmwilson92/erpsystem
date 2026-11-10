@@ -248,7 +248,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Suspect: `src/lib/services/pr-approval.ts:647-648,701-707; src/lib/services/pr-buyer.ts:488-497,572-580`
 
 ### WORK-002 — Task-only work order cannot complete putaway
-- Module: Work orders / receiving | Severity: **high** | Status: REPRODUCED again through full task-only create/sign/handoff/complete action chain; remains READY_FOR_PUTAWAY with no part
+- Module: Work orders / receiving | Severity: **high** | Status: FIXED (task-only / non-inventory WOs now complete without requiring part or storage) again through full task-only create/sign/handoff/complete action chain; remains READY_FOR_PUTAWAY with no part
 - Steps: Create synthetic TASK_ONLY via actionCreateTaskWo; sign every attached traveler step with the synthetic admin own PIN; actionSendWoToReceivingPutaway then actionCompleteWoToStock; read final WO status.
 - Expected: Non-inventory WO has a completion path without stocking.
 - Actual: READY FOR PUTAWAY 0/1; Cannot complete — missing storage or part.

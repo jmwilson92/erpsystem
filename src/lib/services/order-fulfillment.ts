@@ -1616,6 +1616,8 @@ export async function completeKitOrder(params: {
       throw new Error(`Kit short on ${line.part.partNumber}: need ${remaining} more`);
     }
 
+    const previouslyPicked = line.quantityPicked || 0;
+    const newlyPicked = line.quantityRequired - previouslyPicked;
     await prisma.kitOrderLine.update({
       where: { id: line.id },
       data: {
@@ -1627,23 +1629,35 @@ export async function completeKitOrder(params: {
       },
     });
 
-    // Stage the picked material as WIP inventory at the staging location,
-    // tagged to this work order, so inventory shows the kit sitting there.
-    // On-hand but not available (it's spoken for by the build).
-    if (wipLoc && line.quantityRequired > 0) {
-      await prisma.inventoryItem.create({
-        data: {
+    // Stage only the newly picked quantity as WIP (KIT-001: do not re-stage already-picked lines).
+    if (wipLoc && newlyPicked > 0) {
+      const existing = await prisma.inventoryItem.findFirst({
+        where: {
           partId: line.partId,
-          locationId: wipLoc.id,
           workOrderId: kit.workOrderId,
-          quantityOnHand: line.quantityRequired,
-          quantityAvailable: 0,
-          quantityCommitted: 0,
-          lotNumber: lastLot,
-          unitCost: line.part.standardCost,
-          ownership: "COMPANY",
+          locationId: wipLoc.id,
         },
       });
+      if (existing) {
+        await prisma.inventoryItem.update({
+          where: { id: existing.id },
+          data: { quantityOnHand: { increment: newlyPicked } },
+        });
+      } else {
+        await prisma.inventoryItem.create({
+          data: {
+            partId: line.partId,
+            locationId: wipLoc.id,
+            workOrderId: kit.workOrderId,
+            quantityOnHand: newlyPicked,
+            quantityAvailable: 0,
+            quantityCommitted: 0,
+            lotNumber: lastLot,
+            unitCost: line.part.standardCost,
+            ownership: "COMPANY",
+          },
+        });
+      }
     }
   }
 
@@ -1796,7 +1810,25 @@ export async function completeWorkOrderToStock(params: {
   const storageLoc =
     (await prisma.location.findFirst({ where: { type: "STORAGE" } })) ||
     (await prisma.location.findFirst());
-  if (!storageLoc || !wo.partId) throw new Error("Cannot complete — missing storage or part");
+  // WORK-002: task-only / non-inventory WOs complete without stocking.
+  const isTaskOnly = !wo.partId || wo.orderType === "TASK_ONLY" || wo.orderType === "TASK";
+  if (!isTaskOnly && (!storageLoc || !wo.partId)) {
+    throw new Error("Cannot complete — missing storage or part");
+  }
+  if (isTaskOnly) {
+    await prisma.workOrder.update({
+      where: { id: wo.id },
+      data: { status: "COMPLETED", completedAt: new Date() },
+    });
+    await logAudit({
+      entityType: "WorkOrder",
+      entityId: wo.id,
+      action: "COMPLETED",
+      userId: params.userId,
+      metadata: { taskOnly: true },
+    });
+    return { ok: true, taskOnly: true };
+  }
 
   const lotNumber =
     params.lotNumber || `LOT-WO-${wo.number.replace(/\W/g, "")}`;
