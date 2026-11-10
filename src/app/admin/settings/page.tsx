@@ -9,6 +9,7 @@ import {
   actionSaveAccountingSettings,
   actionSetModuleEnabled,
   actionSaveCompanyOps,
+  actionSetBomPrototypeDefault,
 } from "@/app/actions";
 import { Input } from "@/components/ui/input";
 import { MODULES } from "@/lib/modules";
@@ -231,6 +232,23 @@ export default async function AdminSettingsPage() {
                 </Button>
               </div>
             )}
+          </form>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>BOM certification default</CardTitle>
+          <p className="text-xs text-slate-500">Applies only to new BOM revisions. Authorized certifiers can choose a different path per BOM. Production orders always require a certified revision.</p>
+        </CardHeader>
+        <CardContent>
+          <form action={actionSetBomPrototypeDefault} className="flex flex-wrap items-center gap-3">
+            <label htmlFor="bomDefaultPath" className="text-sm">New BOMs</label>
+            <select id="bomDefaultPath" name="certificationPath" defaultValue={company.bomPrototypeRequired ? "PROTOTYPE" : "DIRECT"} disabled={!canEdit} className="rounded border border-slate-700 bg-slate-950 p-2 text-sm">
+              <option value="PROTOTYPE">Prototype required</option>
+              <option value="DIRECT">Direct certification (no prototype)</option>
+            </select>
+            {canEdit && <Button type="submit" size="sm">Save BOM default</Button>}
           </form>
         </CardContent>
       </Card>

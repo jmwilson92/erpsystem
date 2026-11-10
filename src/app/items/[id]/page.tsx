@@ -923,9 +923,10 @@ export default async function ItemDetailPage({
               </p>
               <p className="text-xs text-slate-500">
                 Once the drawing ECR is approved, a designated person updates the
-                BOM and certifies it for prototype; the drawing then releases,
-                the prototype runs on a work order, and on completion the BOM is
-                certified for production.
+                BOM and chooses its certification path: certify directly with a PIN,
+                or certify for prototype, complete a prototype work order and release
+                its work instruction before production certification. Either path
+                requires a certified BOM for production work orders.
               </p>
               <Link href="/cm?tab=submissions">
                 <Button size="sm" variant="outline">

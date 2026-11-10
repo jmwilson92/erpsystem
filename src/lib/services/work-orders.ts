@@ -42,6 +42,15 @@ export function resolveWorkOrderSource(params: {
   return "OTHER";
 }
 
+/** Re-check at release/start: a planned order may outlive BOM certification. */
+export async function assertProductionBomCertified(wo: { type: string; bomHeaderId: string | null; partId: string | null }) {
+  if (wo.type !== "PRODUCTION") return;
+  const bom = wo.bomHeaderId ? await prisma.bomHeader.findUnique({ where: { id: wo.bomHeaderId }, select: { status: true, revision: true, partId: true } }) : null;
+  if (!bom || bom.status !== "CERTIFIED" || bom.partId !== wo.partId) {
+    throw new Error(`Production work orders require a CERTIFIED BOM revision before release or production start.${bom ? ` Selected revision ${bom.revision} is ${bom.status}.` : " No BOM is selected."} Select the current certified revision or certify the BOM first.`);
+  }
+}
+
 async function nextWorkOrderNumber(prefix: string): Promise<string> {
   const rows = await prisma.workOrder.findMany({
     where: { number: { startsWith: `${prefix}-` } },
@@ -100,7 +109,11 @@ export async function createWorkOrder(params: {
   parentWorkOrderId?: string;
   scheduleOffsetMinutes?: number;
 }) {
-  const type = params.type || (params.bomHeaderId || params.partId ? "PRODUCTION" : "TASK_ONLY");
+  const type = (params.type || (params.bomHeaderId || params.partId ? "PRODUCTION" : "TASK_ONLY")).trim().toUpperCase();
+  if (!["PRODUCTION", "PROTOTYPE", "TASK_ONLY", "REWORK", "INSPECTION"].includes(type)) throw new Error("Invalid work order type");
+  if (type === "PRODUCTION" && !params.bomHeaderId) {
+    throw new Error("Production work orders require a CERTIFIED BOM revision. Select a certified BOM before creating the order.");
+  }
   const sourceType = resolveWorkOrderSource({
     sourceType: params.sourceType,
     salesOrderId: params.salesOrderId,
@@ -139,6 +152,7 @@ export async function createWorkOrder(params: {
       throw new Error(`BOM status ${bom.status} cannot be used for prototype WO`);
     }
 
+    if (params.partId && params.partId !== bom.partId) throw new Error("Selected BOM belongs to a different part");
     partId = bom.partId;
     standardCost =
       bom.lines.reduce(
@@ -458,6 +472,8 @@ export async function startWorkOrderProduction(params: {
   });
   if (!wo) throw new Error("Work order not found");
 
+  await assertProductionBomCertified(wo);
+
   const allowed = new Set([
     "KITTED",
     "RELEASED",
@@ -529,13 +545,16 @@ export async function updateWorkOrderStatus(params: {
   const wo = await prisma.workOrder.findUnique({ where: { id: params.workOrderId } });
   if (!wo) throw new Error("Work order not found");
 
-  const data: Record<string, unknown> = { status: params.toStatus };
-  if (params.toStatus === "IN_PROGRESS" && !wo.actualStart) {
+  const toStatus = params.toStatus.trim().toUpperCase();
+  if (["RELEASED", "IN_PROGRESS", "KITTED", "KITTING", "READY_TO_KIT"].includes(toStatus)) await assertProductionBomCertified(wo);
+
+  const data: Record<string, unknown> = { status: toStatus };
+  if (toStatus === "IN_PROGRESS" && !wo.actualStart) {
     data.actualStart = new Date();
   }
-  if (params.toStatus === "COMPLETED" || params.toStatus === "CLOSED") {
+  if (toStatus === "COMPLETED" || toStatus === "CLOSED") {
     data.actualEnd = new Date();
-    if (params.toStatus === "COMPLETED") {
+    if (toStatus === "COMPLETED") {
       data.quantityCompleted = wo.quantity;
     }
   }
@@ -547,7 +566,7 @@ export async function updateWorkOrderStatus(params: {
       statusHistory: {
         create: {
           fromStatus: wo.status,
-          toStatus: params.toStatus,
+          toStatus,
           userId: params.userId,
           notes: params.notes,
         },
@@ -560,7 +579,7 @@ export async function updateWorkOrderStatus(params: {
     entityId: wo.id,
     action: "STATUS_CHANGE",
     userId: params.userId,
-    changes: { from: wo.status, to: params.toStatus },
+    changes: { from: wo.status, to: toStatus },
   });
 
   return updated;

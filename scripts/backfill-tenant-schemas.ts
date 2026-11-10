@@ -28,6 +28,7 @@
  *   npx tsx scripts/backfill-tenant-schemas.ts --apply --include-demos
  *   npx tsx scripts/backfill-tenant-schemas.ts --founding-only --include-public --include-demos --apply
  *   npx tsx scripts/backfill-tenant-schemas.ts --docs-only --include-public --include-demos --apply
+ *   npx tsx scripts/backfill-tenant-schemas.ts --bom-only --include-public --include-demos --apply
 
  *
  * Demo sandboxes are skipped unless --include-demos: they are disposable and
@@ -44,6 +45,8 @@ import { backfillFoundingMembers } from "./lib/founding-backfill.mjs";
 import { FOUNDING_CUTOFF_EXCLUSIVE } from "../src/lib/services/founding-membership";
 import { assertCheckoutCurrent } from "./lib/assert-current.mjs";
 
+const BOM_ONLY = process.argv.includes("--bom-only");
+const BOM_COLUMNS = new Map([["BomHeader", "prototypeRequired"], ["CompanySettings", "bomPrototypeRequired"]]);
 const FOUNDING_ONLY = process.argv.includes("--founding-only");
 const DOC_TABLES = new Set(["DocSpace", "DocPage", "DocRevision", "DocSignature", "DocComment", "DocLink"]);
 const DOCS_ONLY = process.argv.includes("--docs-only");
@@ -149,11 +152,17 @@ async function main() {
 
   const wanted = templateTables();
   const wantedCols = templateColumns();
+  if ([BOM_ONLY, DOCS_ONLY, FOUNDING_ONLY].filter(Boolean).length > 1) throw new Error("Choose only one targeted backfill mode");
+  for (const table of DOC_TABLES) if (!wanted.has(table)) throw new Error(`Regenerate tenant DDL: ${table} is missing`);
+  if (BOM_ONLY) {
+    for (const [table, column] of BOM_COLUMNS) if (!wantedCols.get(table)?.has(column)) throw new Error(`Regenerate tenant DDL: ${table}.${column} is missing`);
+    for (const table of wanted.keys()) if (!BOM_COLUMNS.has(table)) { wanted.delete(table); wantedCols.delete(table); }
+    for (const [table, cols] of wantedCols) for (const column of cols.keys()) if (column !== BOM_COLUMNS.get(table)) cols.delete(column);
+  }
   if (DOCS_ONLY) {
     for (const table of wanted.keys()) if (!DOC_TABLES.has(table)) wanted.delete(table);
     for (const table of wantedCols.keys()) if (!DOC_TABLES.has(table)) wantedCols.delete(table);
   }
-  for (const table of DOC_TABLES) if (!wanted.has(table)) throw new Error(`Regenerate tenant DDL: ${table} is missing`);
   console.log(
     `Template has ${wanted.size} tables. Mode: ${APPLY ? "APPLY" : "report only (pass --apply to write)"}\n`
   );
@@ -182,7 +191,7 @@ async function main() {
     for (const { nspname: schema } of schemas) {
       if (SYSTEM_SCHEMAS.has(schema) && !(schema === "public" && INCLUDE_PUBLIC)) continue;
       // A Docs-only rollout must not provision tables into extension/service schemas.
-      if (DOCS_ONLY && schema !== "public" && !/^(tenant_|demo_)/.test(schema)) continue;
+      if ((DOCS_ONLY || BOM_ONLY) && schema !== "public" && !/^(tenant_|demo_)/.test(schema)) continue;
       const isDemo = schema.startsWith("demo_");
       if (isDemo && !INCLUDE_DEMOS) continue;
       scanned++;
@@ -197,6 +206,11 @@ async function main() {
 
       const have = new Set(existing.map((r) => r.tablename));
       const missing = [...wanted.keys()].filter((t) => !have.has(t));
+      if (BOM_ONLY && missing.length) {
+        failures++;
+        console.error(`  FAILED  ${schema}: BOM-only rollout requires existing tables: ${missing.join(", ")}`);
+        continue;
+      }
 
       // Column drift on tables that DO exist. One missing column on a common
       // table breaks every query that touches it, so this matters as much as
@@ -226,7 +240,7 @@ async function main() {
       }
 
       if (missing.length === 0 && missingCols.length === 0) {
-        if (APPLY && [...DOC_TABLES].every(t => have.has(t))) {
+        if (!BOM_ONLY && APPLY && [...DOC_TABLES].every(t => have.has(t))) {
           await pool.query(`BEGIN; SET LOCAL search_path TO "${schema.replaceAll('"', '""')}";\n${DOCS_HARDENING_SQL}\nCOMMIT;`).catch(async e => { await pool.query("ROLLBACK"); throw e; });
         }
         console.log(`  ok      ${schema} (${have.size} tables)`);
@@ -287,7 +301,7 @@ async function main() {
             );
           }
         }
-        if (missingCols.length && [...DOC_TABLES].every(t => have.has(t) || missing.includes(t))) {
+        if (!BOM_ONLY && missingCols.length && [...DOC_TABLES].every(t => have.has(t) || missing.includes(t))) {
           await client.query(`BEGIN; SET LOCAL search_path TO "${safeSchema}";\n${DOCS_HARDENING_SQL}\nCOMMIT;`);
         }
         columnsAdded += added;

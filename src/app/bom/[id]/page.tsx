@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { formatDate } from "@/lib/utils";
 import {
   actionCertifyBom,
+  actionSetBomPrototypeRequirement,
   actionCertifyBomForPrototype,
   actionCreateWoFromBom,
 } from "@/app/actions";
@@ -77,37 +78,28 @@ export default async function BomDetailPage({
                 All BOMs
               </Button>
             </Link>
-            {["DRAFT", "IN_REVIEW"].includes(bom.status) && (
-              <form action={actionCertifyBomForPrototype}>
-                <input type="hidden" name="bomHeaderId" value={bom.id} />
-                <Button type="submit" size="sm">
-                  Certify for Prototype
-                </Button>
-              </form>
-            )}
-            {bom.status === "PROTOTYPE" && (
+            {["DRAFT", "IN_REVIEW", "PROTOTYPE"].includes(bom.status) && (
               <>
-                <form action={actionCreateWoFromBom}>
+                {["DRAFT", "IN_REVIEW"].includes(bom.status) && bom.prototypeRequired && (
+                  <form action={actionCertifyBomForPrototype} className="flex items-center gap-2">
+                    <input type="hidden" name="bomHeaderId" value={bom.id} />
+                    <input type="password" name="pinCode" inputMode="numeric" autoComplete="off" required aria-label="Your signature PIN for prototype certification" placeholder="Your PIN" className="w-28 rounded border border-slate-700 bg-slate-950 px-2 py-1 text-sm" />
+                    <Button type="submit" size="sm">Sign &amp; Certify for Prototype</Button>
+                  </form>
+                )}
+                {bom.status === "PROTOTYPE" && (
+                  <form action={actionCreateWoFromBom}>
+                    <input type="hidden" name="bomHeaderId" value={bom.id} />
+                    <input type="hidden" name="quantity" value="1" />
+                    <input type="hidden" name="type" value="PROTOTYPE" />
+                    <Button type="submit" size="sm" variant="amber">Create Prototype WO</Button>
+                  </form>
+                )}
+                <form action={actionCertifyBom} className="flex items-center gap-2">
                   <input type="hidden" name="bomHeaderId" value={bom.id} />
-                  <input type="hidden" name="quantity" value="1" />
-                  <input type="hidden" name="type" value="PROTOTYPE" />
-                  <Button type="submit" size="sm" variant="amber">
-                    Create Prototype WO
-                  </Button>
-                </form>
-                <form action={actionCertifyBom}>
-                  <input type="hidden" name="bomHeaderId" value={bom.id} />
-                  <Button
-                    type="submit"
-                    size="sm"
-                    disabled={!hasCompletedProto}
-                    title={
-                      hasCompletedProto
-                        ? undefined
-                        : "Complete a prototype work order first"
-                    }
-                  >
-                    Certify for Production
+                  <input type="password" name="pinCode" inputMode="numeric" autoComplete="off" required aria-label="Your signature PIN for production certification" placeholder="Your PIN" className="w-28 rounded border border-slate-700 bg-slate-950 px-2 py-1 text-sm" />
+                  <Button type="submit" size="sm" disabled={bom.prototypeRequired && !hasCompletedProto} title={bom.prototypeRequired && !hasCompletedProto ? "Complete a prototype work order first" : undefined}>
+                    Sign &amp; Certify for Production
                   </Button>
                 </form>
               </>
@@ -136,23 +128,29 @@ export default async function BomDetailPage({
         )}
       </div>
 
-      {["DRAFT", "IN_REVIEW"].includes(bom.status) && (
-        <div className="rounded-lg border border-sky-500/40 bg-sky-500/10 px-4 py-3 text-sm text-sky-200">
-          <strong>In-work BOM</strong> — edit the components on the item card, then
-          <strong> Certify for Prototype</strong>. Prototype certification unlocks
-          release of the originating drawing.
-        </div>
-      )}
-
-      {bom.status === "PROTOTYPE" && (
-        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-          <strong>Prototype-certified BOM</strong> — the drawing can be released and a
-          prototype work order run.{" "}
-          {hasCompletedProto
-            ? "The prototype WO is complete — certify this BOM for production to unlock production work orders."
-            : "Once the prototype WO reaches COMPLETED, Certify for Production becomes available."}
-        </div>
-      )}
+      <Card>
+        <CardHeader><CardTitle>Certification path</CardTitle></CardHeader>
+        <CardContent className="space-y-3 text-sm">
+          <p className="text-slate-400">
+            {bom.prototypeRequired
+              ? "Prototype required: certify for prototype, complete its work order, release the work instruction through CM, then sign production certification."
+              : "Direct certification: review the BOM and sign production certification with your own PIN. No prototype build is required."}
+            {" "}Production work orders always require a CERTIFIED BOM revision, whichever path you choose.
+          </p>
+          {["DRAFT", "IN_REVIEW", "PROTOTYPE"].includes(bom.status) ? (
+            <form action={actionSetBomPrototypeRequirement} className="flex flex-wrap items-center gap-2">
+              <input type="hidden" name="bomHeaderId" value={bom.id} />
+              <label htmlFor="certificationPath">This revision</label>
+              <select id="certificationPath" name="certificationPath" defaultValue={bom.prototypeRequired ? "PROTOTYPE" : "DIRECT"} className="rounded border border-slate-700 bg-slate-950 p-2">
+                <option value="PROTOTYPE">Prototype required</option>
+                <option value="DIRECT">Direct certification (no prototype)</option>
+              </select>
+              <Button type="submit" size="sm" variant="outline">Save path</Button>
+              <span className="text-xs text-slate-500">Requires BOM certification permission. Changes are audited.</span>
+            </form>
+          ) : <p className="text-slate-500">Path locked for this revision — create a new revision to change it.</p>}
+        </CardContent>
+      </Card>
 
       <div className="flex flex-wrap gap-2">
         <span className="text-xs text-slate-500">Revisions:</span>
