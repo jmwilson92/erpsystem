@@ -1,34 +1,27 @@
 import Link from "next/link";
 import Image from "next/image";
 import {
-  Factory,
-  FlaskConical,
-  Clock,
-  Shield,
-  FileBarChart,
-  GitBranch,
-  ShieldCheck,
   Boxes,
-  Rocket,
-  Plug,
   Check,
   ArrowRight,
-  Compass,
-  Landmark,
-  Plane,
-  Wrench,
-  Cpu,
-  Layers,
   CircleHelp,
-  Sparkles,
-  Timer,
-  Database,
-  Users,
+  ClipboardCheck,
+  Factory,
+  GitBranch,
+  Landmark,
+  MonitorSmartphone,
+  Plug,
+  Rocket,
+  ScanLine,
 } from "lucide-react";
 import {
   PLANS,
   TRIAL_DAYS,
+  SHOP_FREE_SEATS,
+  SHOP_PAID_MIN_SEATS,
   planSeatsLabel,
+  formatPlanMoney,
+  getPlan,
   firstYearOfferSummary,
   firstYearPeriodPriceForPlan,
   planPriceView,
@@ -38,7 +31,11 @@ import {
 import { PlanPriceBlock } from "./plan-price";
 import { SiteHeader } from "./site-header";
 import { SiteFooter } from "./site-footer";
+import { CircleLink } from "./circle-link";
+import { HomeIndustries } from "./home-industries";
+import { HomeAi } from "./home-ai";
 import { actionStartPublicCheckout } from "@/app/pricing/actions";
+import { COMPARE_PAGES } from "@/lib/compare/pages";
 import {
   getSiteUrl,
   SITE_DESCRIPTION,
@@ -47,99 +44,71 @@ import {
   SITE_TAGLINE,
 } from "@/lib/site";
 
-const FEATURES = [
+const CAPABILITIES = [
   {
-    icon: Factory,
-    title: "Shop floor to cash",
-    body: "Quote → sales order → work order → ship. Shipping auto-raises the AR invoice and posts revenue + COGS; receiving auto-vouchers AP with a 3-way match.",
+    id: "traceability",
+    icon: ScanLine,
+    title: "Traceability and audit-ready records",
+    body: "Lot and serial trace, revision history, and an audit trail on the transactions that move material and money.",
+    href: "/demo",
   },
   {
-    icon: FlaskConical,
-    title: "Quality that closes the loop",
-    body: "NCRs and MRB dispositions that actually do things — return shipments, replacement PRs, rework orders — plus the full QMS suite: calibration, tool control, ESD, FOD, HAZMAT, audits, counterfeit.",
+    id: "quality",
+    icon: ClipboardCheck,
+    title: "Quality: NCR, MRB, and CAR",
+    body: "Nonconformances, MRB dispositions that open returns, replacement buys, or rework, and corrective actions on the same record.",
+    href: "/demo",
   },
   {
+    id: "plm",
     icon: GitBranch,
-    title: "Engineering & configuration management",
-    body: "Requirements → BOM → work instructions → test procedures, all revision-controlled through one ECR/ECO change process. Nothing on the floor references an uncontrolled copy.",
+    title: "PLM and the bill of materials",
+    body: "Requirements, BOMs, work instructions, and test procedures stay revision-controlled through one ECR/ECO path.",
+    href: "/demo",
   },
   {
+    id: "production",
+    icon: Factory,
+    title: "Production and the shop floor",
+    body: "Work orders, travelers with PIN sign-off, workcenters, kitting, and a floor board of what is running and what is held.",
+    href: "/demo",
+  },
+  {
+    id: "purchasing",
     icon: Boxes,
-    title: "Supply chain, connected",
-    body: "Purchase requests route to the charge owner, buyers package them into POs, receiving lands stock in inventory, and Kanban raises replenishment before you run out.",
+    title: "Purchasing and receiving",
+    body: "Purchase requests route to the charge owner, buyers cut POs, and receiving lands stock — including a DD-1149 gate for furnished property.",
+    href: "/demo",
   },
   {
-    icon: Clock,
-    title: "Timecards your people will fill out",
-    body: "Auto-created per pay period, grid entry by charge code, OT rules, PTO auto-fill, routed approvals — straight into payroll and job cost from one entry.",
-  },
-  {
+    id: "accounting",
     icon: Landmark,
-    title: "Real accounting, not a bolt-on",
-    body: "GL on your basis and fiscal calendar, AR/AP, month-end close that locks the period, bank feeds via Plaid, and payroll — all posting automatically from the work.",
+    title: "Accounting, GovCon, and program cost",
+    body: "GL, AR, AP, and payroll post from the work. Government property is tracked beside the books, and PMO rolls project cost up to the product.",
+    href: "/demo",
   },
   {
-    icon: Shield,
-    title: "Government property & audit records",
-    body: "GFP/CAP tracking, DD-1149 gates at receiving, UID, DFARS-style custody records, and AS9100-shaped quality records.",
+    id: "mobile",
+    icon: MonitorSmartphone,
+    title: "Shop floor in the browser",
+    body: "The floor board, travelers, and PIN sign-off run in the browser, including on a station screen. QR labels open the web traveler.",
+    href: "/demo",
   },
   {
-    icon: FileBarChart,
-    title: "Reports for everything",
-    body: "P&L, balance sheet, agings, WIP, inventory valuation, OTD, NCR log, timecards — on screen or CSV, zero setup.",
+    id: "integrations",
+    icon: Plug,
+    title: "Integrations that are actually wired",
+    body: "Optional Plaid bank feeds, OFX, QFX, and CSV statement import, plus CSV in and out for people, items, and financial reports.",
+    href: "/demo",
   },
   {
-    icon: Compass,
-    title: "Guided, not gatekept",
-    body: "Interactive tours walk every process — so new hires get productive without a consultant, and you never wonder where a feature lives.",
+    id: "onboarding",
+    icon: Rocket,
+    title: "Onboarding without a project plan",
+    body: "Import the item master, run the setup wizard, and invite the team. In-app tours walk the work. No consultant engagement is required.",
+    href: "/signup",
   },
-];
-
-const INDUSTRIES = [
-  {
-    icon: Plane,
-    title: "Aerospace & defense",
-    body: "AS9100-shaped quality, government property, configuration control, and full traceability from lot to serial.",
-  },
-  {
-    icon: Cpu,
-    title: "Electronics & assemblies",
-    body: "Multi-level BOMs, work instructions, test procedures, ESD/FOD programs, and serial-tracked builds.",
-  },
-  {
-    icon: Wrench,
-    title: "Precision job shops",
-    body: "Work orders, travelers, inventory, purchasing, and job cost without enterprise bloat or six-month implementations.",
-  },
-  {
-    icon: Layers,
-    title: "High-mix manufacturers",
-    body: "Quotes to cash, engineering change, MRB, and accounting in one system — not a stack of tools that never talk.",
-  },
-];
-
-const STEPS = [
-  {
-    n: "01",
-    title: "Claim your instance",
-    body: "Pick a plan and land in your own isolated company. No card required to start. No shared multi-tenant soup.",
-  },
-  {
-    n: "02",
-    title: "Import & invite",
-    body: "Load your item master, set pay periods, and invite the team. The setup wizard walks the rest.",
-  },
-  {
-    n: "03",
-    title: "Run the work",
-    body: "Quotes, POs, work orders, quality, and payroll post into the same ledger. Enter data once.",
-  },
-  {
-    n: "04",
-    title: "Close the books",
-    body: "Ship raises AR. Receive raises AP. Month-end locks the period. Your shop floor finally feeds finance.",
-  },
-];
+] as const;
 
 const FAQS = [
   {
@@ -178,14 +147,6 @@ const FAQS = [
     q: "How is pricing structured?",
     a: `${firstYearOfferSummary()} Every paid plan is the full product — no per-module nickel-and-diming.`,
   },
-];
-
-const TRUST = [
-  { icon: Timer, label: `${TRIAL_DAYS}-day free trial` },
-  { icon: ShieldCheck, label: "AS9100-shaped QMS" },
-  { icon: Database, label: "Isolated company data" },
-  { icon: Users, label: "No consultants required" },
-  { icon: Sparkles, label: "15-day money-back" },
 ];
 
 /** Schema.org price: the first-year amount a new customer pays (Shop ≤5 users = free). */
@@ -339,7 +300,7 @@ function JsonLd() {
       availability: "https://schema.org/InStock",
       priceValidUntil: `${new Date().getFullYear() + 1}-12-31`,
     })),
-    featureList: FEATURES.map((f) => f.title),
+    featureList: CAPABILITIES.map((f) => f.title),
   };
 
   const website = {
@@ -491,10 +452,151 @@ export function PricingSection() {
   );
 }
 
+const homeCanvas = {
+  backgroundColor: "#f4f7fb",
+  backgroundImage: [
+    "radial-gradient(ellipse 72% 48% at 6% -8%, rgba(253, 224, 71, 0.55), transparent 58%)",
+    "radial-gradient(ellipse 58% 42% at 100% 0%, rgba(45, 212, 191, 0.32), transparent 52%)",
+    "radial-gradient(ellipse 48% 36% at 78% 42%, rgba(147, 197, 253, 0.38), transparent 56%)",
+    "radial-gradient(ellipse 46% 34% at 0% 72%, rgba(254, 240, 138, 0.32), transparent 52%)",
+  ].join(","),
+} as const;
+
+function shopPaidLine(): string {
+  const shop = getPlan("SHOP");
+  const base = formatPlanMoney(shop?.firstYearPrice ?? 0);
+  const extra = formatPlanMoney(shop?.firstYearAdditionalPerSeat ?? 0);
+  const max = shop?.maxSeats ?? 10;
+  return `Paid Shop, first year: ${base}/mo for the first user + ${extra}/mo for each additional user (${SHOP_PAID_MIN_SEATS}–${max} users).`;
+}
+
+/** Homepage pricing. Full pay-now checkout stays on /pricing via PricingSection. */
+function HomePricing() {
+  const paid = PLANS.filter((plan) => plan.key !== "ENTERPRISE");
+  return (
+    <section id="pricing" aria-labelledby="pricing-heading" className="scroll-mt-28">
+      <div className="mx-auto max-w-6xl px-6 py-20">
+        <div className="mx-auto max-w-3xl text-center">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#0f766e]">
+            Pricing
+          </p>
+          <h2
+            id="pricing-heading"
+            className="mt-3 text-4xl font-semibold tracking-tight text-[#10203f] sm:text-5xl"
+          >
+            Simple, straightforward pricing
+          </h2>
+          <Link
+            href="/pricing"
+            className="mt-6 inline-flex items-center justify-center rounded-full bg-[#10203f] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#1b3358] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#10203f]"
+          >
+            See pricing details
+          </Link>
+        </div>
+
+        <div className="mt-12 grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
+          {paid.map((plan) => {
+            const featured = plan.key === "GROWTH";
+            const shop = plan.key === "SHOP";
+            const view = planPriceView(plan.key);
+            return (
+              <article
+                key={plan.key}
+                className={`relative flex flex-col rounded-[24px] bg-white p-6 shadow-[0_14px_40px_rgba(16,32,63,0.08)] ring-1 ring-[#10203f]/5 ${
+                  featured ? "ring-2 ring-[#10203f]" : ""
+                }`}
+              >
+                {featured ? (
+                  <span className="absolute right-4 top-4 rounded-full bg-[#10203f] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                    Most popular
+                  </span>
+                ) : null}
+                {shop ? (
+                  <span className="absolute right-4 top-4 rounded-full bg-[#e7f7f4] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#0f766e]">
+                    Small teams
+                  </span>
+                ) : null}
+                <h3 className="pr-24 text-lg font-semibold text-[#10203f]">{plan.name}</h3>
+                <p className="mt-2 flex-1 text-sm leading-relaxed text-[#3d4d66]">{plan.blurb}</p>
+                <p className="mt-5 text-[#10203f]">
+                  <span className="block text-4xl font-semibold tracking-tight">{view.primaryAmount}</span>
+                  {view.primarySuffix ? (
+                    <span className="mt-1 block text-sm font-medium text-[#3d4d66]">
+                      {view.primarySuffix.replace(/^\s+/, "")}
+                    </span>
+                  ) : null}
+                </p>
+                <p className="mt-2 text-xs leading-relaxed text-[#3d4d66]">
+                  {shop ? shopPaidLine() : view.afterYearOne}
+                </p>
+                {shop && view.afterYearOne ? (
+                  <p className="mt-1 text-xs leading-relaxed text-[#3d4d66]">{view.afterYearOne}</p>
+                ) : null}
+                <Link
+                  href={`/signup?plan=${plan.key.toLowerCase()}`}
+                  className="mt-5 inline-flex items-center justify-center rounded-full bg-[#10203f] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#1b3358] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#10203f]"
+                >
+                  {plan.pricing === "per_seat" ? "Start free" : "Start free trial"}
+                </Link>
+              </article>
+            );
+          })}
+        </div>
+        <p className="mx-auto mt-6 max-w-3xl text-center text-sm text-[#3d4d66]">
+          Every plan is the full product. Enterprise, for 251 or more users, is quoted on the{" "}
+          <Link href="/pricing" className="font-semibold text-[#10203f] underline">
+            pricing page
+          </Link>
+          .
+        </p>
+      </div>
+    </section>
+  );
+}
+
+const PROOF = [
+  {
+    value: String(TRIAL_DAYS),
+    unit: "days",
+    title: "Free trial",
+    body: "Full product access. No credit card to start. Nothing is billed until you subscribe.",
+    className: "lg:col-span-2 lg:row-span-2",
+    background: "linear-gradient(160deg, #fff3bf 0%, #ffffff 68%)",
+    valueClass: "text-7xl sm:text-8xl",
+  },
+  {
+    value: String(SHOP_FREE_SEATS),
+    unit: "users",
+    title: "Shop stays free",
+    body: `Shop is free for up to ${SHOP_FREE_SEATS} users. A sixth user moves that shop onto paid Shop.`,
+    className: "lg:col-span-2",
+    background: "linear-gradient(160deg, #d9f6f1 0%, #ffffff 72%)",
+    valueClass: "text-6xl",
+  },
+  {
+    value: "All",
+    unit: "modules",
+    title: "Full product on every plan",
+    body: "Tiers change the seat count. They do not lock modules behind a higher plan.",
+    className: "",
+    background: "linear-gradient(160deg, #dbeafe 0%, #ffffff 72%)",
+    valueClass: "text-6xl",
+  },
+  {
+    value: "15",
+    unit: "days",
+    title: "Refund on the first charge",
+    body: "After you subscribe, you have 15 days from the first charge to request a full refund.",
+    className: "",
+    background: "linear-gradient(160deg, #fef3c7 0%, #e0f2fe 100%)",
+    valueClass: "text-6xl",
+  },
+] as const;
+
 export function LandingPage({
   /** Include SiteHeader / SiteFooter (default). Off when nested under Spinning up the Shop. */
   showChrome = true,
-  /** Classic plug-and-play hero block. Off when Spinning up the Shop is already the hero. */
+  /** Overview hero. Off when the ended-demo splash is already the hero. */
   showClassicHero = true,
 }: {
   showChrome?: boolean;
@@ -502,260 +604,288 @@ export function LandingPage({
 } = {}) {
   return (
     <div
-      className={`marketing-story ${showChrome ? "min-h-screen" : ""} bg-slate-950`}
+      className={`marketing-story marketing-home ${showChrome ? "min-h-screen" : ""}`}
+      style={homeCanvas}
     >
       <JsonLd />
-      {showChrome && (
+      {showChrome ? (
         <a
           href="#main"
-          className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-teal-500 focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-slate-950"
+          className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-full focus:bg-[#10203f] focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-white"
         >
           Skip to content
         </a>
-      )}
-      {showChrome && <SiteHeader />}
+      ) : null}
+      {showChrome ? <SiteHeader /> : null}
 
       <main id={showChrome ? "main" : "story"}>
-        {/* Hero */}
-        {showClassicHero && (
-        <section
-          className="relative overflow-hidden bg-slate-100"
-          aria-labelledby="hero-heading"
-        >
-          <div className="relative mx-auto max-w-4xl px-6 py-20 text-center sm:py-28">
-            <div className="tile mx-auto max-w-3xl rounded-2xl px-6 py-8 shadow-[0_12px_40px_rgba(0,0,0,0.12)] sm:px-10">
-              <p className="eyebrow inline-flex items-center gap-1.5 rounded-full border border-teal-700/30 bg-teal-50 px-3 py-1 text-xs font-semibold">
-                <Plug className="h-3.5 w-3.5" aria-hidden />
-                Plug-and-play manufacturing ERP
+        {showClassicHero ? (
+          <section
+            id="overview"
+            aria-labelledby="hero-heading"
+            className="scroll-mt-28"
+          >
+            <div className="mx-auto max-w-6xl px-6 pb-8 pt-10 text-center sm:pt-16">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#0f766e]">
+                Manufacturing ERP
               </p>
               <h1
                 id="hero-heading"
-                className="mt-5 text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl"
+                className="mx-auto mt-4 max-w-4xl text-4xl font-semibold tracking-tight text-[#10203f] sm:text-6xl"
               >
-                The manufacturing ERP that runs your{" "}
-                <span className="eyebrow">whole shop</span>
+                The record of the job, from quote to the books
               </h1>
-              <p className="muted mx-auto mt-5 max-w-2xl text-lg leading-relaxed">
-                {SITE_TAGLINE}. Sales, engineering, purchasing, production,
-                quality, and accounting in one connected system — no integration
-                project, no consultants to hire. Enter data once; it follows the
-                work everywhere.
+              <p className="mx-auto mt-5 max-w-2xl text-lg leading-relaxed text-[#3d4d66]">
+                {SITE_TAGLINE}. {SITE_NAME} connects sales, engineering, purchasing,
+                production, quality, and accounting so a high-reliability shop enters
+                the work once. Built for aerospace, defense, medical devices, and
+                precision job shops.
               </p>
               <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-                <Link href="/signup" className={`${primaryBtnClass} px-5 py-3`}>
-                  Start your {TRIAL_DAYS}-day free trial{" "}
-                  <ArrowRight className="h-4 w-4" aria-hidden />
+                <Link
+                  href="/signup"
+                  className="inline-flex items-center justify-center rounded-full bg-[#10203f] px-5 py-3 text-sm font-semibold text-white hover:bg-[#1b3358] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#10203f]"
+                >
+                  Start your {TRIAL_DAYS}-day free trial
+                  <ArrowRight className="ml-1.5 h-4 w-4" aria-hidden />
                 </Link>
-                <Link href="/" className={`${secondaryBtnClass} px-5 py-3`}>
-                  <Rocket className="h-4 w-4" aria-hidden /> Take the live demo
+                <Link
+                  href="/demo"
+                  className="inline-flex items-center justify-center rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#10203f] ring-1 ring-[#c5d0de] hover:bg-[#f7f9fc] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#10203f]"
+                >
+                  Take the live demo
                 </Link>
               </div>
-              <p className="muted mt-4 text-xs font-medium">
-                Full access for {TRIAL_DAYS} days. No card required. 15-day
-                money-back guarantee after you subscribe.
+              <p className="mt-4 text-sm text-[#3d4d66]">
+                <Link href="/demo" className="font-semibold text-[#10203f] underline">
+                  www.protessera.com/demo
+                </Link>
+                <span className="mx-2 text-[#94a3b8]" aria-hidden>
+                  ·
+                </span>
+                {TRIAL_DAYS} days free, no card. 15-day refund after the first charge.
               </p>
             </div>
-          </div>
-        </section>
-        )}
+            <div className="mx-auto max-w-6xl px-6 pb-16">
+              <div className="overflow-hidden rounded-[28px] bg-[#0f172a] shadow-[0_24px_70px_rgba(16,32,63,0.16)] ring-1 ring-[#10203f]/10">
+                <Image
+                  src="/marketing/product-value-stream.png"
+                  alt="Protessera value stream map from suppliers through receiving, inspection, inventory, production, and shipping"
+                  width={1600}
+                  height={900}
+                  priority
+                  className="h-auto w-full"
+                />
+              </div>
+            </div>
+          </section>
+        ) : null}
 
-        {/* Trust bar */}
-        <section
-          aria-label="Why manufacturers choose Protessera"
-          className="border-y border-slate-300 bg-white"
-        >
-          <ul className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-x-8 gap-y-3 px-6 py-5">
-            {TRUST.map((t) => (
-              <li
-                key={t.label}
-                className="tile inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium shadow-sm"
+        <section id="industries" aria-labelledby="industries-heading" className="scroll-mt-28">
+          <div className="mx-auto max-w-6xl px-6 py-16 sm:py-20">
+            <div className="mx-auto max-w-3xl text-center">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#0f766e]">
+                Industries
+              </p>
+              <h2
+                id="industries-heading"
+                className="mt-3 text-4xl font-semibold tracking-tight text-[#10203f] sm:text-5xl"
               >
-                <t.icon className="eyebrow h-4 w-4" aria-hidden />
-                {t.label}
-              </li>
-            ))}
-          </ul>
+                Workflows arranged around the way your shop already builds
+              </h2>
+            </div>
+            <div className="mt-10">
+              <HomeIndustries />
+            </div>
+          </div>
         </section>
 
-        {/* Plug and play */}
-        <section
-          aria-labelledby="value-heading"
-          className="border-b border-slate-300 bg-white"
-        >
-          <div className="mx-auto max-w-6xl px-6 py-16">
-            <h2 id="value-heading" className="sr-only">
-              Why plug-and-play manufacturing ERP
+        <section id="ai" aria-labelledby="ai-heading" className="scroll-mt-28">
+          <div className="mx-auto max-w-6xl px-6 py-16 sm:py-20">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#0f766e]">AI</p>
+            <h2
+              id="ai-heading"
+              className="mt-3 max-w-3xl text-4xl font-semibold tracking-tight text-[#10203f] sm:text-5xl"
+            >
+              Carina answers from the plant, and can file the work when you confirm
             </h2>
-            <div className="grid gap-8 sm:grid-cols-3">
-              {[
-                {
-                  icon: Rocket,
-                  h: "Live in a day",
-                  b: "Import your item master, claim your instance, invite your team. The setup wizard handles the rest — no implementation project.",
-                },
-                {
-                  icon: Plug,
-                  h: "One connected system",
-                  b: "Every module shares the same data. A receipt updates inventory, AP, and job cost at once — nothing to sync.",
-                },
-                {
-                  icon: ShieldCheck,
-                  h: "Audit-ready records",
-                  b: "AS9100-shaped quality, government property, configuration management, and audit trails come standard, not as add-ons.",
-                },
-              ].map((c) => (
-                <div key={c.h} className={cardClass}>
-                  <c.icon className="eyebrow h-6 w-6" aria-hidden />
-                  <h3 className="mt-3 text-base font-semibold">{c.h}</h3>
-                  <p className="muted mt-1.5 text-sm leading-relaxed">{c.b}</p>
-                </div>
-              ))}
+            <p className="mt-4 max-w-2xl text-base leading-relaxed text-[#3d4d66]">
+              The assistant is in the product help bubble. Agents run the same services
+              as the screens — work orders, purchase requests, parts, customers, and
+              time off — and they ask before they change a record.
+            </p>
+            <div className="mt-8">
+              <HomeAi />
             </div>
           </div>
         </section>
 
-        {/* Who it's for — operator hologram wall */}
-        <CinematicSection id="who" image={ART.operator} priority>
-          <div className="mx-auto max-w-6xl px-6 py-20">
-            <SectionIntro
-              eyebrow="Built for manufacturers"
-              title="Manufacturing ERP for shops that can't afford chaos"
-              titleId="who-heading"
+        <section id="proof" aria-labelledby="proof-heading" className="scroll-mt-28">
+          <div className="mx-auto max-w-6xl px-6 py-16 text-center sm:py-20">
+            <h2
+              id="proof-heading"
+              className="mx-auto max-w-3xl text-4xl font-semibold tracking-tight text-[#10203f] sm:text-5xl"
             >
-              If your floor still runs on spreadsheets, shared drives, and three
-              systems that never agree, {SITE_NAME} is the single system of
-              record that replaces the tangle.
-            </SectionIntro>
-            <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-              {INDUSTRIES.map((ind) => (
-                <div key={ind.title} className={cardClass}>
-                  <ind.icon className="eyebrow h-6 w-6" aria-hidden />
-                  <h3 className="mt-3 font-semibold">{ind.title}</h3>
-                  <p className="muted mt-1.5 text-sm leading-relaxed">{ind.body}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </CinematicSection>
-
-        {/* How it works — isometric whole company */}
-        <CinematicSection id="how" image={ART.isometric}>
-          <div className="mx-auto max-w-6xl px-6 py-20">
-            <SectionIntro
-              eyebrow="How it works"
-              title="From signup to shipping without a project plan"
-              titleId="how-heading"
-            />
-            <ol className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-              {STEPS.map((s) => (
-                <li key={s.n} className={cardClass}>
-                  <span className="eyebrow font-mono text-xs font-semibold">
-                    {s.n}
-                  </span>
-                  <h3 className="mt-2 font-semibold">{s.title}</h3>
-                  <p className="muted mt-1.5 text-sm leading-relaxed">{s.body}</p>
-                </li>
-              ))}
-            </ol>
-          </div>
-        </CinematicSection>
-
-        {/* Features — factory command center */}
-        <CinematicSection id="features" image={ART.factory}>
-          <div className="mx-auto max-w-6xl px-6 py-20">
-            <SectionIntro
-              eyebrow="Modules"
-              title="Everything a shop needs, in one manufacturing ERP"
-              titleId="features-heading"
+              The numbers we will put on the offer
+            </h2>
+            <p className="mx-auto mt-4 max-w-2xl text-base leading-relaxed text-[#3d4d66]">
+              Trial length, the free Shop tier, what every plan includes, and the refund
+              window. These are the commercial terms — not a customer study.
+            </p>
+            <Link
+              href="/signup"
+              className="mt-6 inline-flex items-center justify-center rounded-full bg-[#10203f] px-5 py-3 text-sm font-semibold text-white hover:bg-[#1b3358] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#10203f]"
             >
-              {SITE_NAME} replaces the tangle of spreadsheets, point tools, and
-              disconnected apps most manufacturers run on — shop floor execution,
-              quality, supply chain, configuration management, and the books.
-            </SectionIntro>
-            <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-              {FEATURES.map((f) => (
+              Start your {TRIAL_DAYS}-day free trial
+            </Link>
+            <div className="mt-12 grid gap-4 text-left sm:grid-cols-2 lg:grid-cols-4">
+              {PROOF.map((card) => (
                 <article
-                  key={f.title}
-                  className={`${cardClass} transition-colors hover:border-teal-600`}
+                  key={card.title}
+                  className={`rounded-[28px] p-6 shadow-[0_12px_40px_rgba(16,32,63,0.06)] ring-1 ring-white/80 sm:p-8 ${card.className}`}
+                  style={{ background: card.background }}
                 >
-                  <f.icon className="eyebrow h-6 w-6" aria-hidden />
-                  <h3 className="mt-3 font-semibold">{f.title}</h3>
-                  <p className="muted mt-1.5 text-sm leading-relaxed">{f.body}</p>
+                  <p className={`font-semibold tracking-tight text-[#10203f] ${card.valueClass}`}>
+                    {card.value}
+                    <span className="ml-2 align-middle text-lg font-medium text-[#3d4d66]">
+                      {card.unit}
+                    </span>
+                  </p>
+                  <h3 className="mt-4 text-lg font-semibold text-[#10203f]">{card.title}</h3>
+                  <p className="mt-2 text-sm leading-relaxed text-[#3d4d66]">{card.body}</p>
                 </article>
               ))}
             </div>
           </div>
-        </CinematicSection>
+        </section>
 
-        <PricingSection />
-
-        {/* FAQ — product UI backdrop */}
-        <CinematicSection id="faq" image={ART.product}>
-          <div className="mx-auto max-w-3xl px-6 py-20">
-            <SectionIntro
-              eyebrow="FAQ"
-              title="Manufacturing ERP questions, answered"
-              titleId="faq-heading"
-              center
-              wide
+        <section id="features" aria-labelledby="features-heading" className="scroll-mt-28">
+          <div className="mx-auto max-w-6xl px-6 py-16 sm:py-20">
+            <h2
+              id="features-heading"
+              className="max-w-3xl text-4xl font-semibold tracking-tight text-[#10203f] sm:text-5xl"
             >
-              Straight answers before you start a trial or demo.
-            </SectionIntro>
+              Experience the Protessera difference
+            </h2>
+            <div className="mt-10 grid gap-x-8 gap-y-10 sm:grid-cols-2 lg:grid-cols-3">
+              {CAPABILITIES.map((item) => (
+                <article key={item.id} id={item.id} className="scroll-mt-28">
+                  <item.icon className="h-6 w-6 text-[#10203f]" strokeWidth={1.75} aria-hidden />
+                  <h3 className="mt-3 text-base font-semibold text-[#10203f]">{item.title}</h3>
+                  <p className="mt-2 text-sm leading-relaxed text-[#3d4d66]">{item.body}</p>
+                  <div className="mt-4">
+                    <CircleLink href={item.href}>Learn more</CircleLink>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <HomePricing />
+
+        <section id="stories" aria-labelledby="stories-heading" className="scroll-mt-28">
+          <div className="mx-auto max-w-3xl px-6 py-16 text-center">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#0f766e]">
+              Customer stories
+            </p>
+            <h2
+              id="stories-heading"
+              className="mt-3 text-3xl font-semibold tracking-tight text-[#10203f] sm:text-4xl"
+            >
+              See the product, not a borrowed quote
+            </h2>
+            <p className="mt-4 text-base leading-relaxed text-[#3d4d66]">
+              Protessera does not publish customer counts, ROI, or payback figures.
+              The way to judge the system is to run it. Comparisons with other job-shop
+              systems are linked under Resources.
+            </p>
+            <Link
+              href="/demo"
+              className="mt-6 inline-flex items-center justify-center rounded-full bg-[#10203f] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#1b3358] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#10203f]"
+            >
+              www.protessera.com/demo
+            </Link>
+          </div>
+        </section>
+
+        <section id="resources" aria-labelledby="resources-heading" className="scroll-mt-28">
+          <div className="mx-auto max-w-6xl px-6 pb-8">
+            <h2 id="resources-heading" className="text-2xl font-semibold tracking-tight text-[#10203f]">
+              Resources
+            </h2>
+            <ul className="mt-4 grid gap-3 sm:grid-cols-2">
+              {COMPARE_PAGES.map((page) => (
+                <li key={page.slug}>
+                  <Link
+                    href={page.slug}
+                    className="block rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#10203f] shadow-sm ring-1 ring-[#10203f]/5 hover:ring-[#10203f]/20"
+                  >
+                    {page.navLabel}
+                  </Link>
+                </li>
+              ))}
+              <li>
+                <Link
+                  href="/pricing"
+                  className="block rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#10203f] shadow-sm ring-1 ring-[#10203f]/5 hover:ring-[#10203f]/20"
+                >
+                  Pricing details
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/legal/refund-policy"
+                  className="block rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#10203f] shadow-sm ring-1 ring-[#10203f]/5 hover:ring-[#10203f]/20"
+                >
+                  Refund policy
+                </Link>
+              </li>
+            </ul>
+          </div>
+        </section>
+
+        <section id="faq" aria-labelledby="faq-heading" className="scroll-mt-28">
+          <div className="mx-auto max-w-3xl px-6 py-16">
+            <div className="text-center">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#0f766e]">FAQ</p>
+              <h2
+                id="faq-heading"
+                className="mt-3 text-4xl font-semibold tracking-tight text-[#10203f]"
+              >
+                Manufacturing ERP questions, answered
+              </h2>
+              <p className="mt-3 text-base text-[#3d4d66]">
+                Straight answers before you start a trial or demo.
+              </p>
+            </div>
             <div className="mt-10 space-y-3">
               {FAQS.map((item) => (
                 <details
                   key={item.q}
-                  className={`group open:border-teal-600 ${cardClass} px-5 py-1`}
+                  className="group rounded-2xl bg-white px-5 shadow-[0_10px_30px_rgba(16,32,63,0.06)] ring-1 ring-[#10203f]/5 open:ring-[#10203f]/15"
                 >
-                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 py-4 text-left font-medium marker:content-none [&::-webkit-details-marker]:hidden">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 py-4 text-left font-medium text-[#10203f] marker:content-none [&::-webkit-details-marker]:hidden">
                     <span className="inline-flex items-start gap-2">
-                      <CircleHelp
-                        className="eyebrow mt-0.5 h-4 w-4 shrink-0"
-                        aria-hidden
-                      />
+                      <CircleHelp className="mt-0.5 h-4 w-4 shrink-0 text-[#0f766e]" aria-hidden />
                       {item.q}
                     </span>
-                    <span
-                      className="shrink-0 transition-transform group-open:rotate-45"
-                      aria-hidden
-                    >
+                    <span className="shrink-0 text-[#10203f] transition-transform group-open:rotate-45" aria-hidden>
                       +
                     </span>
                   </summary>
-                  <p className="muted border-t border-slate-200 pb-4 pt-3 text-sm leading-relaxed">
+                  <p className="border-t border-[#e6edf5] pb-4 pt-3 text-sm leading-relaxed text-[#3d4d66]">
                     {item.a}
                   </p>
                 </details>
               ))}
             </div>
           </div>
-        </CinematicSection>
-
-        {/* Final CTA — factory floor */}
-        <CinematicSection image={ART.factory}>
-          <div className="mx-auto max-w-6xl px-6 py-20">
-            <div className={`${cardClass} mx-auto max-w-2xl px-8 py-8 text-center`}>
-              <h2 id="cta-heading" className="text-3xl font-bold tracking-tight">
-                Run your shop on one manufacturing system
-              </h2>
-              <p className="muted mx-auto mt-3 max-w-xl">
-                Take the live demo for a spin, or start your free trial and be
-                running today — full ERP, zero implementation theater.
-              </p>
-              <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-                <Link href="/signup" className={`${primaryBtnClass} px-5 py-3`}>
-                  Start your {TRIAL_DAYS}-day free trial
-                </Link>
-                <Link href="/" className={`${secondaryBtnClass} px-5 py-3`}>
-                  Take the live demo
-                </Link>
-              </div>
-            </div>
-          </div>
-        </CinematicSection>
+        </section>
       </main>
 
-      {showChrome && <SiteFooter />}
+      {showChrome ? <SiteFooter /> : null}
     </div>
   );
 }
+
