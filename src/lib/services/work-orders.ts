@@ -101,6 +101,10 @@ export async function createWorkOrder(params: {
   scheduleOffsetMinutes?: number;
 }) {
   const type = params.type || (params.bomHeaderId || params.partId ? "PRODUCTION" : "TASK_ONLY");
+  // BOM-001: production work orders must reference a BOM
+  if (type === "PRODUCTION" && !params.bomHeaderId) {
+    throw new Error("Production work orders require a certified BOM. Create a task-only WO or attach a BOM.");
+  }
   const sourceType = resolveWorkOrderSource({
     sourceType: params.sourceType,
     salesOrderId: params.salesOrderId,

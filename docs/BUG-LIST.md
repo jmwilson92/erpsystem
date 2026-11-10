@@ -346,7 +346,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Suspect: `src/app/sales/[id]/page.tsx`
 
 ### BOM-001 — Production WO can be created with no BOM at all
-- Module: Manufacturing / BOM | Severity: **high** | Status: REPRODUCED on current main in isolated local DB
+- Module: Manufacturing / BOM | Severity: **high** | Status: FIXED (createWorkOrder rejects PRODUCTION type without bomHeaderId)
 - Steps: Call createWorkOrder with type PRODUCTION, a valid partId and quantity 1, but no bomHeaderId.
 - Expected: Reject unless a certified BOM exists and is explicitly linked.
 - Actual: Order is created; the certified-BOM check only executes when bomHeaderId is supplied. Draft-BOM rejection does work.
