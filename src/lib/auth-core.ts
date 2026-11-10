@@ -28,6 +28,7 @@ import {
 import type { PrismaClient } from "@prisma/client";
 import { cookies } from "next/headers";
 import { logAudit } from "./audit";
+import { logAuthAudit } from "./auth-audit";
 import { airgapEnabled } from "./airgap";
 
 export const SESSION_COOKIE = "forge-session";
@@ -394,32 +395,28 @@ export async function loginWithPassword(params: {
   // Second factor, if this account has one. No session and no tenant cookie is
   // issued here — the password alone must not produce anything that can be
   // used, or MFA would be decorative.
-  const { requiresMfa, createChallenge } = await import("@/lib/services/mfa");
+  const { requiresMfa } = await import("@/lib/services/mfa");
   if (await requiresMfa(user!.id, schema)) {
-    const token = await createChallenge({
-      userId: user!.id,
-      schema,
-      userAgent: params.userAgent,
-    });
-    const jar = await cookies();
-    jar.set(MFA_COOKIE, token, {
-      path: "/",
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      maxAge: 5 * 60,
-    });
-    await logAudit({
-      entityType: "User",
-      entityId: user!.id,
-      action: "LOGIN_MFA_PENDING",
-      userId: user!.id,
-    });
+    await parkMfaLogin(user!.id, schema, params.userAgent);
     return { status: "mfa_required" as const, user: user! };
   }
 
   await finishLogin(user!.id, schema, params.userAgent);
   return { status: "ok" as const, user: user! };
+}
+
+/** Shared by password login and credential recovery: never issue a session here. */
+async function parkMfaLogin(userId: string, schema: string | null, userAgent?: string) {
+  const { createChallenge } = await import("@/lib/services/mfa");
+  const token = await createChallenge({ userId, schema, userAgent });
+  const jar = await cookies();
+  jar.delete(SESSION_COOKIE);
+  jar.delete(TENANT_COOKIE);
+  jar.set(MFA_COOKIE, token, {
+    path: "/", httpOnly: true, sameSite: "lax",
+    secure: process.env.NODE_ENV === "production", maxAge: 5 * 60,
+  });
+  await logAuthAudit(userId, schema, "LOGIN_MFA_PENDING");
 }
 
 /** Issue the session for a verified login, routed to the right schema. */
@@ -437,12 +434,7 @@ async function finishLogin(
       userAgent,
     });
   }
-  await logAudit({
-    entityType: "User",
-    entityId: userId,
-    action: "LOGIN",
-    userId,
-  });
+  await logAuthAudit(userId, schema, "LOGIN");
 }
 
 /**
@@ -775,51 +767,61 @@ export async function acceptInvite(params: {
     await assertSeatAvailableForAccept(invite.email, db);
   }
 
-  const user = existing
-    ? await db.user.update({
-        where: { id: existing.id },
-        data: {
-          passwordHash: hashPassword(params.password),
-          isActive: true,
-          // Apply invite role so re-invites / role changes take effect
-          role: invite.role || existing.role,
-          ...(params.name?.trim() ? { name: params.name.trim() } : {}),
-        },
-      })
-    : await db.user.create({
-        data: {
+  const passwordHash = hashPassword(params.password);
+  const user = await db.$transaction(async (tx) => {
+    // Claim once, then change credentials/session state in the same transaction.
+    const claim = await tx.userInvite.updateMany({
+      where: { id: invite.id, acceptedAt: null, expiresAt: { gt: new Date() } },
+      data: { acceptedAt: new Date() },
+    });
+    if (claim.count !== 1) throw new Error("Invite link is invalid or has expired");
+    const current = await tx.user.findFirst({ where: { email: invite.email } });
+    if (invite.kind === "RESET" && (!current || !current.isActive)) {
+      throw new Error("This account cannot be reset");
+    }
+    const acceptedUser = current
+      ? await tx.user.update({
+          where: { id: current.id },
+          data: {
+            passwordHash,
+            // Recovery proves credentials, not a previously snapshotted role or activation.
+            ...(invite.kind === "INVITE" ? {
+              isActive: true, role: invite.role || current.role,
+              ...(params.name?.trim() ? { name: params.name.trim() } : {}),
+            } : {}),
+          },
+        })
+      : await tx.user.create({ data: {
           email: invite.email,
           name: params.name?.trim() || invite.name || invite.email.split("@")[0],
-          role: invite.role,
-          passwordHash: hashPassword(params.password),
-        },
-      });
-
-  await db.userInvite.update({
-    where: { id: invite.id },
-    data: { acceptedAt: new Date() },
+          role: invite.role, passwordHash,
+        } });
+    if (invite.kind === "RESET") {
+      await tx.authSession.deleteMany({ where: { userId: acceptedUser.id } });
+    }
+    return acceptedUser;
   });
   await controlPlaneClient()
     .inviteLookup.deleteMany({ where: { tokenHash: sha256(params.token) } })
     .catch(() => undefined);
 
-  if (schema === "public") {
-    await createSession(user.id);
-  } else {
-    // Register the teammate's login and sign them into their tenant.
-    const tenant = await controlPlaneClient()
-      .tenant.findUnique({ where: { schemaName: schema } })
-      .catch(() => null);
+  if (schema !== "public") {
+    const tenant = await controlPlaneClient().tenant.findUnique({ where: { schemaName: schema } }).catch(() => null);
     const { registerTenantLogin } = await import("./services/tenancy");
     await registerTenantLogin(invite.email, schema, tenant?.id || "");
-    await createTenantSession(user.id, schema);
   }
-  await logAudit({
-    entityType: "User",
-    entityId: user.id,
-    action: invite.kind === "RESET" ? "PASSWORD_RESET" : "INVITE_ACCEPTED",
-    userId: user.id,
-  });
+  // A reset/re-invite must enforce an enrolled factor just like ordinary login.
+  const jar = await cookies();
+  jar.delete(MFA_COOKIE);
+  const loginSchema = schema === "public" ? null : schema;
+  const { requiresMfa } = await import("@/lib/services/mfa");
+  if (await requiresMfa(user.id, loginSchema)) {
+    await parkMfaLogin(user.id, loginSchema);
+  } else {
+    await finishLogin(user.id, loginSchema);
+  }
+
+  await logAuthAudit(user.id, loginSchema, invite.kind === "RESET" ? "PASSWORD_RESET" : "INVITE_ACCEPTED");
   return user;
 }
 
