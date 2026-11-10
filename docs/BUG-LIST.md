@@ -241,7 +241,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Suspect: `src/lib/services/signature-pin.ts:11`
 
 ### PUR-001 — One person can complete demand and buyer approvals
-- Module: Purchasing / permissions | Severity: **high** | Status: REPRODUCED on current main in isolated local DB; same actual admin identity, no role switch
+- Module: Purchasing / permissions | Severity: **high** | Status: FIXED (same-person dual approval blocked; ADMIN requires explicit 'override' in comments)
 - Steps: Create and submit synthetic standalone PR; decidePrApproval demand as admin; set valid buyer package fields; confirmBuyerPackageStep as the SAME admin user ID.
 - Expected: Distinct actual people per approval step; explicit audited reason for any permitted admin override.
 - Actual: Demand and buyer stages both become APPROVED with the same approverId. No separate signer or override reason was required.

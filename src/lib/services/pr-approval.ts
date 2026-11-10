@@ -701,10 +701,14 @@ export async function decidePrApproval(params: {
   if (
     params.decision === "APPROVED" &&
     pr.requestedById &&
-    pr.requestedById === params.userId &&
-    params.userRole !== "ADMIN"
+    pr.requestedById === params.userId
   ) {
-    throw new Error("You cannot approve a purchase request you submitted");
+    // PUR-001: even ADMIN needs an explicit override reason to self-approve
+    if (params.userRole !== "ADMIN" || !params.comments?.toLowerCase().includes("override")) {
+      throw new Error(
+        "You cannot approve a purchase request you submitted. ADMIN override requires comments containing 'override'."
+      );
+    }
   }
   if (pr.status !== "SUBMITTED") {
     throw new Error(`PR is ${pr.status}, not awaiting approval`);

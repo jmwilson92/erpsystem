@@ -495,6 +495,22 @@ export async function confirmBuyerPackageStep(params: {
   if (!canConfirm) {
     throw new Error("Only purchasing (or the assigned buyer) can confirm the package");
   }
+  // PUR-001: prevent the same person from completing both demand approval and buyer package
+  const priorApprovals = await prisma.approval.findMany({
+    where: {
+      entityType: "PurchaseRequest",
+      entityId: pr.id,
+      status: "APPROVED",
+      approverId: params.userId || undefined,
+    },
+    take: 1,
+  });
+  if (priorApprovals.length > 0 && params.userRole !== "ADMIN") {
+    throw new Error("The same person cannot complete both demand approval and buyer package steps");
+  }
+  if (priorApprovals.length > 0 && params.userRole === "ADMIN" && !params.comments?.toLowerCase().includes("override")) {
+    throw new Error("ADMIN override of dual-role approval requires comments containing 'override'");
+  }
 
   const gate = isBuyerPackageComplete({
     buyerConfirmedPrices: pr.buyerConfirmedPrices,
