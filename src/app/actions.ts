@@ -8941,17 +8941,26 @@ export async function actionStartCheckout(formData: FormData): Promise<void> {
     const seats = isPerSeatPlan(plan)
       ? normalizeSeats(plan, Number(seatsRaw))
       : null;
-    // A Stripe subscriber keeps the standard price. Trials and instances that
-    // have never been billed by Stripe subscribe at the first-year price.
+    // Founders retain first-year rates; other existing Stripe subscribers use
+    // standard rates. No customer-controlled form value can grant membership.
     // This does not edit an existing Stripe subscription in place.
     const { getSubscriptionState } = await import("@/lib/services/subscription");
     const sub = await getSubscriptionState();
+    const { currentRequestSchema, controlPlaneClient } = await import("@/lib/db");
+    const workspaceSchema = await currentRequestSchema();
+    const registry = workspaceSchema.startsWith("tenant_")
+      ? await controlPlaneClient().tenant.findUnique({ where: { schemaName: workspaceSchema }, select: { foundingMember: true, foundingQualifiedAt: true } })
+      : null;
+    const member = sub.foundingMember || registry?.foundingMember === true;
     url = await createCheckoutSession({
       plan,
       seats,
       customerEmail: billingEmail || user?.email || undefined,
       appUrl,
-      firstYear: sub.billingProvider !== "stripe",
+      firstYear: member || sub.billingProvider !== "stripe",
+      foundingMembership: { foundingMember: member, foundingQualifiedAt: sub.foundingQualifiedAt ?? registry?.foundingQualifiedAt ?? undefined },
+      workspaceSchema,
+      existingSubscriptionId: sub.stripeSubscriptionId,
     });
   } catch (err) {
     await flashToast(

@@ -4578,6 +4578,10 @@ model CompanySettings {
   billingProvider      String?
   stripeCustomerId     String?
   stripeSubscriptionId String?
+  /// Permanent, server-controlled first-year price entitlement; never cleared on renewal/cancellation.
+  foundingMember       Boolean   @default(false)
+  /// Verified qualifying subscription/trial start (legacy backfill: observed eligibility).
+  foundingQualifiedAt  DateTime?
   updatedById          String?
   updatedAt            DateTime  @updatedAt
 }
@@ -5367,6 +5371,10 @@ model Tenant {
   billingEmail         String?
   stripeCustomerId     String?
   stripeSubscriptionId String?
+  /// Permanent, server-controlled first-year price entitlement; never cleared on renewal/cancellation.
+  foundingMember       Boolean   @default(false)
+  /// Verified qualifying subscription/trial start (legacy backfill: observed eligibility).
+  foundingQualifiedAt  DateTime?
   /// One-time onboarding token (hash) for the customer to claim their instance
   /// and set the first admin password. Rotated by the owner's re-issue action.
   setupTokenHash       String?
