@@ -87,7 +87,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Suspect: `src/lib/services/gaap.ts:763-803; src/app/actions.ts:8641-8655`
 
 ### AUTH-005 — Operator without qa.inspect can accept a receiving inspection over HTTP
-- Module: Accounts / QA acceptance | Severity: **high** | Status: REPRODUCED via genuine password-issued sessions and HTTP action requests on strict-auth local fixture (DEMO_MODE=0); production NOT tested
+- Module: Accounts / QA acceptance | Severity: **high** | Status: FIXED (actionCompleteReceivingInspection now requires qa.inspect) via genuine password-issued sessions and HTTP action requests on strict-auth local fixture (DEMO_MODE=0); production NOT tested
 - Steps: Password-login as synthetic OPERATOR; verify qa.inspect=false; submit actual actionCompleteReceivingInspection RPC with a pending fixture inspection, PASS and a local evidence URL.
 - Expected: Reject before inspection/results/status mutation.
 - Actual: Inspection changes PENDING→PASSED under the unauthorized real session. Anonymous customer writes are blocked; logged-in privilege checks are the defect.
@@ -108,7 +108,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Suspect: `src/lib/services/supply-chain.ts:79-92,171-201`
 
 ### SERIAL-002 — Valid received serials never become selectable stock serial identities
-- Module: Receiving / serial trace and kitting | Severity: **high** | Status: REPRODUCED on baseline #142 in isolated synthetic local fixture
+- Module: Receiving / serial trace and kitting | Severity: **high** | Status: FIXED (receivePurchaseOrder now calls mintSerial for each serial on isSerialized parts) on baseline #142 in isolated synthetic local fixture
 - Steps: Receive a new serialized two-unit part with two distinct serial strings; query listStockSerialsForParts for that part.
 - Expected: Create/associate two IN_STOCK serial identities usable by serial trace, kit allocation and installation.
 - Actual: Stock quantity is received but selectable serial identities=0 instead of 2. Strings are stored only in receipt-line JSON; no SerialNumber records are created.
@@ -136,7 +136,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Suspect: `src/app/actions.ts:8644-8648; src/lib/auth.ts:245-246,447-451`
 
 ### DEMO-001 — Concurrent demo pool refills exceed configured spare target
-- Module: Demo / pool concurrency | Severity: **high** | Status: REPRODUCED on baseline #142 in isolated synthetic local fixture
+- Module: Demo / pool concurrency | Severity: **high** | Status: FIXED (ensureDemoPool re-checks READY + in-flight before every warm) on baseline #142 in isolated synthetic local fixture
 - Steps: With no READY spares and DEMO_POOL_SIZE=2, run three ensureDemoPool calls concurrently against the disposable fixture; count READY rows after all settle.
 - Expected: Refill coordination respects configured total spare target and in-flight limit.
 - Actual: Each call returns 2; six READY schemas remain while target=2. Sequential refill is idempotent, concurrent refill is not. Reproduced twice.

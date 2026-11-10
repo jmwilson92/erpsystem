@@ -216,6 +216,31 @@ export async function receivePurchaseOrder(params: {
     include: { lines: true },
   });
 
+  // SERIAL-002: create selectable SerialNumber identities for serialized receipts
+  const { mintSerial } = await import("@/lib/services/serials");
+  for (const line of receiveLines) {
+    const poLine = po.lines.find((pl) => pl.id === line.poLineId);
+    if (!poLine?.part?.isSerialized || !line.serialNumbers?.length) continue;
+    const ownership = receivingGovt ? "GOVERNMENT" : "COMPANY";
+    for (const raw of line.serialNumbers) {
+      const serial = (raw || "").trim();
+      if (!serial) continue;
+      try {
+        await mintSerial({
+          serial,
+          partId: poLine.partId!,
+          lotNumber: line.lotNumber || null,
+          status: "IN_STOCK",
+          ownership,
+          userId: params.receivedById,
+        });
+      } catch (err) {
+        // Unique constraint or other — log and continue so receipt still succeeds
+        console.error("mintSerial on receive", serial, err);
+      }
+    }
+  }
+
   // Update PO line quantities
   for (const line of receiveLines) {
     const poLine = po.lines.find((pl) => pl.id === line.poLineId);

@@ -500,15 +500,22 @@ export async function ensureDemoPool(): Promise<number> {
     },
   });
   if (inFlight >= MAX_INFLIGHT_PROVISIONS) return 0;
-  const ready = await cp.tenant.count({ where: { isDemo: true, status: "READY" } });
   let made = 0;
-  // Build sequentially: a burst of parallel clones is heavy on a small database.
-  // Capped per run so a drained pool converges over successive calls rather than
-  // running past the caller's time budget — see MAX_REFILL_PER_RUN.
-  const ceiling = Math.min(target, ready + MAX_REFILL_PER_RUN);
-  for (let i = ready; i < ceiling; i++) {
+  // DEMO-001: re-check ready + in-flight before each warm so concurrent callers
+  // cannot overshoot the target. Sequential build still preferred.
+  for (let attempt = 0; attempt < MAX_REFILL_PER_RUN; attempt++) {
+    const ready = await cp.tenant.count({ where: { isDemo: true, status: "READY" } });
+    if (ready >= target) break;
+    const inFlightNow = await cp.tenant.count({
+      where: {
+        isDemo: true,
+        status: "PROVISIONING",
+        createdAt: { gte: new Date(Date.now() - PROVISION_STALE_MS) },
+      },
+    });
+    if (inFlightNow >= MAX_INFLIGHT_PROVISIONS) break;
     const s = await warmOneDemo();
-    if (!s) break; // template/database trouble — stop rather than thrash
+    if (!s) break;
     made += 1;
   }
   return made;
