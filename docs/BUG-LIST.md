@@ -1,8 +1,237 @@
 # Protessera Bug List (live)
 
-Updated: **2026-11-10 03:25 PM PST**. Owner: Jeramey Wilson.
+Updated: **2026-11-10 03:27 PM PST**. Owner: Jeramey Wilson.
 Live Google Doc: https://docs.google.com/document/d/1DfNkpBAHioliXV4_RVWPRfjkF5XkfyoCuf3LS7xZHJI/edit
 GitHub copy: https://github.com/jmwilson92/erpsystem/blob/bugs/live-list/docs/BUG-LIST.md
+
+## Latest QA checkpoint — 2026-11-10 03:27 PM PST
+
+**Critical new: AUTH-011 — a real OPERATOR can become ADMIN through the setup wizard action, despite #150 fixing the other permission routes.** New password-reset/MFA, GFP and CM authority failures plus MRB stock-conservation defects are recorded below. **24 new findings; 101 tracked entries including fixed/historical.** No production exploitation or writes.
+
+### Exact progress
+
+- Inventory **893 / 1969** accepted in named scenarios: **848 pass / 45 fail**; **1076 untested**. Increase **98** newly exercised symbols/pages since the prior 795 checkpoint.
+- Callable **717 / 1549**: **673 pass / 44 fail**.
+- Actions **333 / 573**: **303 pass / 30 fail**; **240 wholly untested** (was 285).
+- **10 / 86 prior denial-only functions now also have positive workflow acceptance; 76 remain denial-only.** This is separate from the wholly untested-action count. No per-model CRUD completeness is claimed (229 models remain unaccepted as models).
+- Latest main151 run: **223 scenario checks (186 pass / 37 fail)**, including 8 dedicated #148 and 5 #151 regression groups; separately 71 seeded verification checks and 4 #150 permission-unit groups PASS. Failed scenario count is not bug count.
+
+### What was verified
+
+#147 is **closed, unmerged, superseded by #148**, not a missing merge. Built clean fixtures first at f0961ec (#148), then rebuilt from a973137 (#150), then again from fe46901 (#151) as fixes landed. All 13 acceptance suites rerun serially after the #151 rebuild; no stale main150 assertions are presented as main151 results. **Next production build and TypeScript checking PASS**; lint was not rerun by the QA fixture. Current fixture ports 3126/3127. Previous fixtures on 3096/3097, 3106/3107 and 3116/3117 were retired to reclaim memory.
+
+Independent original HTTP/service regressions plus dedicated regression suite verify **10 #148 fixes**: ACCT-006, ACCT-007, AUTH-005, MRB-001, MRB-002, MRB-003, SERIAL-001, SERIAL-002, DEMO-001, RCV-001. Includes six-way journal approval/rollback, QA authority, canonical serialized receipts and stock identities, partial multi-hold scrap, serial-only RMA, duplicate receipt lines and demo refill reservation.
+
+Independent latest HTTP retests verify **7 #150 fixes**: AUTH-006, AUTH-007, AUTH-008, AUTH-009, AUTH-010, PERM-001, PERM-002. Operator self-grant/group membership, profile/bank/GL edits and malformed permission decisions are now denied; authorized admin workflows and permanent regrant succeed. **Do not downgrade those fixed statuses because AUTH-011 is a separate unguarded route.**
+
+Independent **5 #151 fixes** verified: BANK-001, BANK-002, ACCT-008, ACCT-010, RCV-002. Bank categorization posts exactly once under competing calls and rolls back injected failures; malformed amounts reject; expense and OSP AP invoices roll back with their journals/balances; HR cannot mark expenses PAID through generic transitions; terminal PO receiving blocks before writes. Controller reimbursement still succeeds; accountant-only reimbursement remains a policy question.
+
+Passing positive workflows: offline invite→accept and ordinary password change; genuine password-only MFA challenge→factor→session and cancel; self-service enroll/disable; part/customer/supplier/people imports including skip/update and manager linking; actual browser importer create+idempotent skip; GFP document/audit/custody and authorized transfer/rejection; controlled-number request/assign/reject/cancel/register/scheme; document ECR attachments/comments→two authorized own-seat votes→formal release→revisionB/archive; guarded CM folder/document mutations; audit NCR/OFI→corrective REINSPECT→CLOSED→clean reinspection; typed MRB rework/repair and full supplier return.
+
+**Boundary of proof:** rework completion conservation test simulates physically completed traveler steps and correct Receiving state; it is not full end-to-end physical rework/reinspection acceptance. Real model-provider answer quality, native devices, production incidents and customer integrations were not retested here.
+
+### Latest suite results
+
+| Suite | Pass | Fail |
+|---|---:|---:|
+| round2-auth-results.json | 18 | 0 |
+| round2-quality-results.json | 16 | 1 |
+| round3-admin-results.json | 9 | 4 |
+| round3-cm-results.json | 13 | 4 |
+| round3-docs-assets-results.json | 19 | 3 |
+| round3-finance-deep-results.json | 15 | 2 |
+| round3-gfp-results.json | 7 | 7 |
+| round3-hr-auth-results.json | 26 | 4 |
+| round3-import-results.json | 8 | 3 |
+| round3-mfa-results.json | 11 | 3 |
+| round3-quality-deep-results.json | 6 | 6 |
+| round3-receiving-deep-results.json | 7 | 0 |
+| round3-ui5-results.json | 18 | 0 |
+| high-severity-regression | 8 | 0 |
+| finance-151-regression | 5 | 0 |
+
+**Harness correction (not product findings):** an initial main150 attempt ran eight suites simultaneously against a single WASM PostgreSQL protocol adapter and produced cross-client unnamed prepared-statement binding errors and misleading dependent assertions. That attempt was discarded. The database was recreated; all accepted suites were rerun serially with fresh genuine sessions and no binding/adapter errors. Reused only the already successful unchanged production build. Discarded logs are isolated under`round6-results/harness-contention-discarded/` and excluded from metrics. Earlier CM fixture corrections (uppercase number keys, correct location relation, actual shipped vote endpoint and approvers possessing cm.vote) are also not product bugs.
+
+**Safety:** env cleared before every launch, loopback-only disposable databases, no production credentials/data, no real email, Stripe call, paid model call, product patch, merge or deployment from this testing task. Invite/reset mail was recorded only in the synthetic local Email Center with no transport key. Sessions/factors/test key were never committed or shared. Headless browser aborts all external requests. UI desktop11/11, browser import1/1 and mobile6/6 PASS; no native hardware claims.
+
+### New findings (latest main151)
+
+#### AUTH-011 — Setup wizard: OPERATOR can promote own account to ADMIN
+- Module: Setup wizard | Severity: **critical** | Status: REPRODUCED on main fe46901 (#148/#150/#151), fresh isolated synthetic fixture only; also reproduced on a973137
+- Steps: Password-login as fresh OPERATOR. Invoke actionWizardAddPerson using own email and role=ADMIN from /account. Read the persisted user role; reset synthetic actor to OPERATOR afterward.
+- Expected: Setup actions must require authorized administrator before any user/role write.
+- Actual: Own user role becomes ADMIN. This is distinct from the permission/group routes fixed by #150.
+- Source: `src/app/actions.ts actionWizardAddPerson`
+
+#### AUTH-012 — Password reset: outstanding reset restores revoked ADMIN role
+- Module: Password reset | Severity: **high** | Status: REPRODUCED on main fe46901 (#148/#150/#151), fresh isolated synthetic fixture only; also reproduced on a973137
+- Steps: Create synthetic ADMIN and request reset. Downgrade account to OPERATOR, then redeem the prior RESET token.
+- Expected: RESET changes credentials only and preserves the account current role.
+- Actual: Account becomes ADMIN again because acceptInvite applies the role snapshotted in RESET invite.
+- Source: `src/lib/auth-core.ts acceptInvite, createInvite`
+
+#### AUTH-013 — Password reset: existing signed-in sessions remain valid
+- Module: Password reset | Severity: **high** | Status: REPRODUCED on main fe46901 (#148/#150/#151), fresh isolated synthetic fixture only; also reproduced on a973137
+- Steps: Invite synthetic account and accept/login. Request and redeem RESET from another cookie jar. Reuse original session against /account.
+- Expected: Reset revokes old sessions; only the recovery flow may issue a new session.
+- Actual: Old session still receives HTTP 200 on authenticated account page after password changes. Ordinary signed-in changePassword does revoke sessions.
+- Source: `src/lib/auth-core.ts acceptInvite`
+
+#### AUTH-014 — Password reset: MFA-enabled account gets a session without second factor
+- Module: Password reset | Severity: **high** | Status: REPRODUCED on main fe46901 (#148/#150/#151), fresh isolated synthetic fixture only; also reproduced on a973137
+- Steps: Enroll synthetic user in MFA. Confirm ordinary password login produces challenge and no session. Request and redeem RESET for that user from fresh cookie jar.
+- Expected: Credential reset must still require enrolled factor before issuing authenticated session, unless explicitly completing verified MFA recovery.
+- Actual: MFA remains enabled but RESET acceptance immediately issues forge-session without any TOTP/recovery factor.
+- Source: `src/lib/auth-core.ts acceptInvite`
+
+#### AUTH-015 — GFP authority: OPERATOR can transfer ownership and approve consumption
+- Module: GFP authority | Severity: **high** | Status: REPRODUCED on main fe46901 (#148/#150/#151), fresh isolated synthetic fixture only; also reproduced on a973137
+- Steps: Confirm real OPERATOR lacks gfp.manage. Invoke actionCheckinGfp with TRANSFER_COMPANY on government stock. Independently invoke actionDecideGfpConsumption approve=true with the operator own valid synthetic PIN.
+- Expected: Require GFP decision/management authority at each server boundary.
+- Actual: Government inventory ownership becomes COMPANY; separate pending consumption becomes CONSUMED. PIN checks identity but not authorization.
+- Source: `src/app/actions.ts actionCheckinGfp, actionDecideGfpConsumption`
+
+#### AUTH-016 — CM number authority: OPERATOR can assign controlled master number
+- Module: CM number authority | Severity: **high** | Status: REPRODUCED on main fe46901 (#148/#150/#151), fresh isolated synthetic fixture only; also reproduced on a973137
+- Steps: Create pending controlled-number request as administrator. Invoke actionAssignCmNumber from genuine OPERATOR session with a unique overrideNumber.
+- Expected: Only CM number managers may assign/register controlled numbers.
+- Actual: Request becomes ASSIGNED and master registry entry is created without CM authority.
+- Source: `src/app/actions.ts actionAssignCmNumber`
+
+#### AUTH-017 — CM approval: board drag bypasses authority, votes and formal document release
+- Module: CM approval | Severity: **high** | Status: REPRODUCED on main fe46901 (#148/#150/#151), fresh isolated synthetic fixture only; also reproduced on a973137
+- Steps: Create submitted document ECR without board votes. OPERATOR calls actionMoveCmBoardCard with APPROVED. On a separate document ECR pass column=RELEASED, isDocumentEcr=false.
+- Expected: Server resolves actual document type, validates authority and completed approvals; formal release is mandatory.
+- Actual: First ECR becomes APPROVED without two votes. Second becomes IMPLEMENTED via caller-controlled type flag with no released library document.
+- Source: `src/app/actions.ts actionMoveCmBoardCard; src/lib/services/cm-library.ts moveChangeRequestColumn`
+
+#### CM-001 — CM request ownership: OPERATOR cancels another person pending number request
+- Module: CM request ownership | Severity: **med** | Status: REPRODUCED on main fe46901 (#148/#150/#151), fresh isolated synthetic fixture only; also reproduced on a973137
+- Steps: Create a pending number request owned by ADMIN. OPERATOR calls actionCancelCmNumberRequest with that requestId.
+- Expected: Only request owner or CM manager can cancel.
+- Actual: Foreign request becomes CANCELLED.
+- Source: `src/app/actions.ts actionCancelCmNumberRequest; src/lib/services/cm-numbers.ts cancelNumberRequest`
+
+#### MFA-001 — MFA factor replay: concurrent requests accept same factor twice
+- Module: MFA factor replay | Severity: **high** | Status: REPRODUCED on main fe46901 (#148/#150/#151), fresh isolated synthetic fixture only; also reproduced on a973137
+- Steps: Enroll synthetic account. Create two pending login challenges. Verify both concurrently with the same unused recovery code; repeat with same next-step TOTP code on fresh challenges.
+- Expected: Each recovery code/TOTP step must be atomically consumed once across challenges.
+- Actual: Both concurrent verifications succeed for recovery and for TOTP. Sequential replay and ordinary five-attempt lockout do pass. Direct service concurrency test, not production exploitation.
+- Source: `src/lib/services/mfa.ts consumeFactor, verifyChallenge`
+
+#### MFA-002 — MFA challenge replay: one challenge succeeds twice concurrently
+- Module: MFA challenge replay | Severity: **high** | Status: REPRODUCED on main fe46901 (#148/#150/#151), fresh isolated synthetic fixture only; also reproduced on a973137
+- Steps: Create one challenge for enabled account. Concurrently verify same token using two distinct unused valid recovery codes.
+- Expected: A challenge can be claimed/consumed once before a session is issued.
+- Actual: Both calls return ok=true for the same challenge.
+- Source: `src/lib/services/mfa.ts verifyChallenge`
+
+#### GFP-001 — GFP audit recurrence: repeated completion duplicates next audit
+- Module: GFP audit recurrence | Severity: **med** | Status: REPRODUCED on main fe46901 (#148/#150/#151), fresh isolated synthetic fixture only; also reproduced on a973137
+- Steps: Schedule property audit, complete once, then repeat actionCompleteGfpAudit with same auditId.
+- Expected: Repeat is rejected or idempotent with one next scheduled audit.
+- Actual: Two SCHEDULED follow-up audits exist.
+- Source: `src/lib/services/gfp.ts completeGfpAudit`
+
+#### GFP-002 — GFP consumption: partial quantity retires whole property but leaves stock unchanged
+- Module: GFP consumption | Severity: **high** | Status: REPRODUCED on main fe46901 (#148/#150/#151), fresh isolated synthetic fixture only; also reproduced on a973137
+- Steps: Create government material property linked to ten-unit inventory. Request quantity=2 and approve with authorized administrator own valid synthetic PIN.
+- Expected: Consume exactly two units, preserve eight units and appropriate remaining property state.
+- Actual: Request becomes CONSUMED, linked inventory remains ten on hand, and property is marked wholly CONSUMED.
+- Source: `src/lib/services/gfp.ts requestGfpConsumption, decideGfpConsumption`
+
+#### GFP-003 — GFP consumption validation: negative quantity creates pending request
+- Module: GFP consumption validation | Severity: **med** | Status: REPRODUCED on main fe46901 (#148/#150/#151), fresh isolated synthetic fixture only; also reproduced on a973137
+- Steps: On fresh active GFP material call actionRequestGfpConsumption quantity=-2.
+- Expected: Reject nonpositive/nonfinite/unsupported quantity before request writes.
+- Actual: Negative quantity persists in a pending consumption request.
+- Source: `src/lib/services/gfp.ts requestGfpConsumption`
+
+#### GFP-004 — GFP custody race: concurrent checkout records two holders
+- Module: GFP custody race | Severity: **med** | Status: REPRODUCED on main fe46901 (#148/#150/#151), fresh isolated synthetic fixture only; also reproduced on a973137
+- Steps: On available property concurrently call checkoutGfp for two different synthetic employees.
+- Expected: At most one OPEN checkout/holder per property.
+- Actual: Two OPEN custody history records exist while current property stores only one holder.
+- Source: `src/lib/services/gfp.ts checkoutGfp`
+
+#### GFP-005 — GFP audit identity: unrelated property can complete another property audit
+- Module: GFP audit identity | Severity: **high** | Status: REPRODUCED on main fe46901 (#148/#150/#151), fresh isolated synthetic fixture only; also reproduced on a973137
+- Steps: Create audit for property B. Call completeGfpAudit with auditId from B but propertyId from A.
+- Expected: Reject mismatched audit/property identity before evidence or scheduling changes.
+- Actual: B audit changes to COMPLETED while compliance evidence and next schedule are written under A.
+- Source: `src/lib/services/gfp.ts completeGfpAudit`
+
+#### IMPORT-001 — Import numeric validation: malformed part cost silently becomes zero
+- Module: Import numeric validation | Severity: **med** | Status: REPRODUCED on main fe46901 (#148/#150/#151), fresh isolated synthetic fixture only; also reproduced on a973137
+- Steps: Use complete parts CSV template row with standardCost=not-a-number.
+- Expected: Report row validation error, no new part.
+- Actual: Import reports created=1 and stores standardCost=0.
+- Source: `src/lib/services/data-import.ts num, runImport`
+
+#### IMPORT-002 — Import numeric ranges: negative cost and reversed stock limits accepted
+- Module: Import numeric ranges | Severity: **med** | Status: REPRODUCED on main fe46901 (#148/#150/#151), fresh isolated synthetic fixture only; also reproduced on a973137
+- Steps: Use otherwise valid part row with standardCost=-20, minStock=50, maxStock=10.
+- Expected: Reject invalid monetary/inventory configuration.
+- Actual: Part is created with negative cost and reversed limits.
+- Source: `src/lib/services/data-import.ts runImport`
+
+#### IMPORT-003 — People import: cyclic manager reporting chain accepted
+- Module: People import | Severity: **med** | Status: REPRODUCED on main fe46901 (#148/#150/#151), fresh isolated synthetic fixture only; also reproduced on a973137
+- Steps: Import worker reporting to boss, then update boss managerEmail to worker while worker still reports to boss.
+- Expected: Detect/reject reporting cycles before applying manager links.
+- Actual: Each user managerId points to the other, creating an organizational cycle.
+- Source: `src/lib/services/data-import.ts runImport manager-link second pass`
+
+#### MRB-004 — Partial supplier return: returning two removes all five held units
+- Module: Partial supplier return | Severity: **high** | Status: REPRODUCED on main fe46901 (#148/#150/#151), fresh isolated synthetic fixture only; also reproduced on a973137
+- Steps: Fail a five-unit receipt, retaining original quarantine hold. Disposition RETURN_TO_SUPPLIER quantity=2. Set known supplier in fixture explicitly to bypass already-tracked QA-002 supplier loss.
+- Expected: Return two, leave three held/quarantined and unresolved remainder tracked.
+- Actual: Shipment is for two but inventory on hand and quarantine become zero.
+- Source: `src/lib/services/supply-chain.ts dispositionMrb RETURN_TO_SUPPLIER`
+
+#### MRB-005 — Rework completion: original quarantine remains and duplicate stock is manufactured
+- Module: Rework completion | Severity: **high** | Status: REPRODUCED on main fe46901 (#148/#150/#151), fresh isolated synthetic fixture only; also reproduced on a973137
+- Steps: Fail five-unit receipt. REWORK disposition creates linked five-unit WO. In fixture simulate completed physical traveler steps and valid Receiving-putaway state, then completeWorkOrderToStock.
+- Expected: Conforming output replaces/consumes original material; total remains five and original MRB hold is resolved.
+- Actual: Total inventory becomes ten: original five remain quarantined plus five new available units. This is a completion-service conservation probe, not a full real-world rework traveler acceptance.
+- Source: `src/lib/services/order-fulfillment.ts completeWorkOrderToStock; src/lib/services/supply-chain.ts dispositionMrb`
+
+#### MRB-006 — Partial use-as-is: two-unit disposition releases all five held units
+- Module: Partial use-as-is | Severity: **high** | Status: REPRODUCED on main fe46901 (#148/#150/#151), fresh isolated synthetic fixture only; also reproduced on a973137
+- Steps: Fail five-unit receipt and disposition USE_AS_IS quantity=2.
+- Expected: Make two available, retain three quarantined and unresolved remainder.
+- Actual: All five become available and hold is cleared.
+- Source: `src/lib/services/supply-chain.ts dispositionMrb USE_AS_IS`
+
+#### MRB-007 — MRB quantity validation: nonscrap decision exceeds held inventory
+- Module: MRB quantity validation | Severity: **high** | Status: REPRODUCED on main fe46901 (#148/#150/#151), fresh isolated synthetic fixture only; also reproduced on a973137
+- Steps: Create five-unit held case. Disposition RETURN_TO_SUPPLIER quantity=500.
+- Expected: Reject amount greater than physically held material before creating shipment/disposition.
+- Actual: 500-unit disposition and return shipment are accepted against five held units; current upper-bound check applies only to SCRAP.
+- Source: `src/lib/services/supply-chain.ts dispositionMrb`
+
+#### QA-003 — Audit finding lifecycle: arbitrary status bypasses defined workflow
+- Module: Audit finding lifecycle | Severity: **med** | Status: REPRODUCED on main fe46901 (#148/#150/#151), fresh isolated synthetic fixture only; also reproduced on a973137
+- Steps: Create and close real synthetic audit finding, then authorized actionUpdateAuditFinding status=QA_INVALID.
+- Expected: Restrict to OPEN/IN_PROGRESS/REINSPECT/CLOSED.
+- Actual: QA_INVALID persists and prior closedAt is cleared.
+- Source: `src/lib/services/audits.ts updateAuditFinding`
+
+#### QA-004 — Audit atomicity: rejected finding leaves partial inspection history
+- Module: Audit atomicity | Severity: **med** | Status: REPRODUCED on main fe46901 (#148/#150/#151), fresh isolated synthetic fixture only; also reproduced on a973137
+- Steps: Record current qualityInspection count. Call saveAudit with NCR finding and invalid reinspectBy date; catch date validation failure.
+- Expected: Rollback rejected audit run and its findings together.
+- Actual: Inspection-history count increases although finding insert failed, leaving incomplete evidence.
+- Source: `src/lib/services/audits.ts saveAudit`
+
+### Next work / limits
+
+1. Fix/independently retest **AUTH-011** immediately, then reset/MFA atomicity and CM/GFP boundaries. Current evidence proves a local genuine-session privilege escalation, not a production action.
+2. Continue positive workflows for **240 wholly untested actions and 76 denial-only functions**. Remaining targets include further admin/setup, inventory/location/cycle counts, budgets/CM edge cases, actual rework reinspection and complete shipment→invoice→cash/receipt→AP variants.
+3. Retest remaining workflow follow-up PRs after they merge; financial #151 is now independently verified. **ACCT-009 and QA-002 still reproduce on this baseline**. Controller-only expense processing remains a policy question (ACCT-009), not proved money loss.
+4. Evidence and scripts: `/workspace/protessera-dryrun/round7-results/`, `/workspace/erpsystem-qa150/scripts/qa-*.ts`; source inventory and summary are synchronized with this report. Main148 and main150 evidence retained separately inround5-results andround6-results. Previous counts/claims below are historical snapshots, not assertions against this latest main.
+
+---
 
 ## Release verification — 2026-11-10 03:25 PM PST
 
@@ -12,23 +241,23 @@ Verified: certified-BOM production gates; customer/item/forecast/finance permiss
 
 ## Honest coverage and safety
 
-This is a persistent, incomplete QA register—not a claim that every function works. Latest isolated acceptance baseline: **3de5ba17f99eecc99f357e27dbfc92fc2c06b28e** (main #143–146). Prior #142 evidence is preserved historically. Current worktree `/workspace/erpsystem-qa-current`; fresh synthetic fixture and production-build servers on loopback ports3096/3097. #147 is a parallel fix task and was not part of this baseline. No product fixes or merges were performed by this testing pass.
+This is a persistent, incomplete QA register—not a claim that every function works. Latest source/acceptance baseline: **fe46901cd22e85c77cbdc920019b83846511f11a** (main #148/#150/#151). Inherited #142–146 coverage is retained and explicitly historical unless retested below. Current synthetic worktree `/workspace/erpsystem-qa150`, production-build servers on loopback ports 3126/3127. #147 was closed unmerged and superseded by merged #148. This testing task made no product fixes or merges.
 
 All mutation tests use the same disposable, loopback-only WASM PostgreSQL fixture containing synthetic data. Environment cleared before launch; no production credentials loaded, no real email sent, no Stripe calls/charges, no real customer data changed. No production writes. Rejected operations intentionally leave some corrupted synthetic records for evidence.
 
 Authorization follow-up now includes **genuine password login and server-issued sessions for six roles** on a strict-auth local server with DEMO_MODE=0. OPERATOR customer/item/forecast/GL writes, unauthorized QA acceptance, ACCOUNTING immediate-post and concurrent approval defects were reproduced via actual HTTP requests. Native emitted forms were used where available; client-wrapped actions used canonical React encodeReply/Next-Action RPC metadata from this local build. No session tokens were forged, extracted from another account, or published. Anonymous page/customer-write denial and logout revocation passed. **This proves local authenticated HTTP defects, not production exploitation.**
 
-**Callable functions (actions + API handlers + exported library/service functions): 619 tested — 577 pass / 42 fail; 929 untested of 1,548.**
-**Full source inventory including pages/models: 795 tested — 752 pass / 43 fail; 1,173 untested of 1,968.**
+**Callable functions (actions + API handlers + exported library/service functions): 717 tested — 673 pass / 44 fail; 832 untested of 1,549.**
+**Full source inventory including pages/models: 893 tested — 848 pass / 45 fail; 1,076 untested of 1,969.**
 
 A pass means only the named scenario, not every branch/argument/state or the whole module. A function with any reproduced failure stays FAIL even when other scenarios pass. Models remain untested CRUD acceptance; page passes are server render only.
 
 | Inventory kind | Pass | Fail | Untested | Scope |
 |---|---:|---:|---:|---|
 | page | 175 | 1 | 15 | Server render only; UI actions still need acceptance |
-| action | 260 | 28 | 285 | Named native-HTTP/direct-handler scenarios; see evidence |
+| action | 303 | 30 | 240 | Named native-HTTP/direct-handler scenarios; see evidence |
 | api | 12 | 0 | 13 | Specific request/response only |
-| service | 305 | 14 | 631 | Named direct calls/guards, not exhaustive branches |
+| service | 358 | 14 | 579 | Named direct calls/guards, not exhaustive branches |
 | model | 0 | 0 | 229 | Schema loads; per-model CRUD/permissions not accepted |
 
 ## Historical critical update (3de5ba1 sweep; current release statuses above take precedence)
@@ -87,10 +316,10 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 
 ## Bug register
 
-**77 tracked entries (51 historical + 26 new; fixed entries retained):** 22 historical observations/UX gaps + 4 first-pass defects + 9 first-continuation defects + 16 second-continuation findings (15 defects + 1 policy gap). Historical/UI-only reports remain explicitly labeled. No product fixes or merges.
+**101 tracked entries (including fixed and historical; 24 added in latest pass):** 22 historical observations/UX gaps + 4 first-pass defects + 9 first-continuation defects + 16 second-continuation findings (15 defects + 1 policy gap). Historical/UI-only reports remain explicitly labeled. No product fixes or merges.
 
 ### ACCT-006 — Concurrent approval double-applies one journal to account balances
-- Module: Accounting / concurrent approval | Severity: **high** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Accounting / concurrent approval | Severity: **high** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.; independently retested PASS on fe46901 (latest main, synthetic only)
 - Steps: Create pending balanced JE of 10 against isolated fresh accounts; invoke approveJournal concurrently twice. Also repeat via two genuine ACCOUNTING-session HTTP actionApproveJournal requests.
 - Expected: One posted entry and one balance application: debit account=10.
 - Actual: One journal and its lines total 10, but the debit account balance becomes 20. Reproduced in both service calls and authenticated HTTP requests, so cached account balances no longer reconcile to posted lines.
@@ -98,7 +327,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts`. Original reproduction is retained as history.
 
 ### AUTH-005 — Operator without qa.inspect can accept a receiving inspection over HTTP
-- Module: Accounts / QA acceptance | Severity: **high** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Accounts / QA acceptance | Severity: **high** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.; independently retested PASS on fe46901 (latest main, synthetic only)
 - Steps: Password-login as synthetic OPERATOR; verify qa.inspect=false; submit actual actionCompleteReceivingInspection RPC with a pending fixture inspection, PASS and a local evidence URL.
 - Expected: Reject before inspection/results/status mutation.
 - Actual: Inspection changes PENDING→PASSED under the unauthorized real session. Anonymous customer writes are blocked; logged-in privilege checks are the defect.
@@ -106,7 +335,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts`. Original reproduction is retained as history.
 
 ### MRB-001 — Partial scrap disposition removes all quarantined stock
-- Module: MRB / inventory reconciliation | Severity: **high** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: MRB / inventory reconciliation | Severity: **high** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.; independently retested PASS on fe46901 (latest main, synthetic only)
 - Steps: Receive and fail five units at unit cost 10; dispositionMrb SCRAP quantity 2; sum remaining on-hand for that new part.
 - Expected: Remove two and retain three units with an appropriate remaining hold/disposition state.
 - Actual: All five units are removed: on-hand=0 rather than 3. Code zeros the entire held item while the disposition/material transaction quantity is only 2.
@@ -114,7 +343,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts`. Original reproduction is retained as history.
 
 ### SERIAL-001 — Serialized receiving accepts missing, mismatched and duplicate serial lists
-- Module: Receiving / serialized material | Severity: **high** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Receiving / serialized material | Severity: **high** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.; independently retested PASS on fe46901 (latest main, synthetic only)
 - Steps: Create separate serialized parts and two-unit POs. Receive with no serial list, a one-serial list, or the same serial repeated twice; count receipts and PO quantities.
 - Expected: Require one unique valid serial per unit before receipt/inventory/PO writes.
 - Actual: All three invalid cases create receipts and accept quantity 2. isSerialized/serial-count/uniqueness are not validated in this service path.
@@ -122,7 +351,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts`. Original reproduction is retained as history.
 
 ### SERIAL-002 — Valid received serials never become selectable stock serial identities
-- Module: Receiving / serial trace and kitting | Severity: **high** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Receiving / serial trace and kitting | Severity: **high** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.; independently retested PASS on fe46901 (latest main, synthetic only)
 - Steps: Receive a new serialized two-unit part with two distinct serial strings; query listStockSerialsForParts for that part.
 - Expected: Create/associate two IN_STOCK serial identities usable by serial trace, kit allocation and installation.
 - Actual: Stock quantity is received but selectable serial identities=0 instead of 2. Strings are stored only in receipt-line JSON; no SerialNumber records are created.
@@ -146,7 +375,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts`. Original reproduction is retained as history.
 
 ### ACCT-007 — Journal approval checks posting permission instead of approval permission
-- Module: Accounting / individual approval permissions | Severity: **high** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Accounting / individual approval permissions | Severity: **high** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.; independently retested PASS on fe46901 (latest main, synthetic only)
 - Steps: Password-login as synthetic EXECUTIVE; assert accounting.journal.approve=true and accounting.journal.post=false; submit actionApproveJournal for another person’s pending JE.
 - Expected: Dedicated journal approval grant authorizes approval, without needing posting permission.
 - Actual: Request is denied and JE stays PENDING_APPROVAL because the action checks accounting.journal.post. The distinct approval grant/default is ignored.
@@ -154,7 +383,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts`. Original reproduction is retained as history.
 
 ### DEMO-001 — Concurrent demo pool refills exceed configured spare target
-- Module: Demo / pool concurrency | Severity: **high** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Demo / pool concurrency | Severity: **high** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.; independently retested PASS on fe46901 (latest main, synthetic only)
 - Steps: With no READY spares and DEMO_POOL_SIZE=2, run three ensureDemoPool calls concurrently against the disposable fixture; count READY rows after all settle.
 - Expected: Refill coordination respects configured total spare target and in-flight limit.
 - Actual: Each call returns 2; six READY schemas remain while target=2. Sequential refill is idempotent, concurrent refill is not. Reproduced twice.
@@ -169,7 +398,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Suspect: `src/lib/services/receiving-inspection.ts:568-577; src/lib/services/supply-chain.ts:1145-1175`
 
 ### MRB-002 — Negative MRB disposition quantity persists
-- Module: MRB / input validation | Severity: **med** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: MRB / input validation | Severity: **med** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.; independently retested PASS on fe46901 (latest main, synthetic only)
 - Steps: Create synthetic open MRB holding material; call dispositionMrb USE_AS_IS quantity -1; compare disposition rows.
 - Expected: Reject nonpositive quantity before any disposition, stock release or case-state change.
 - Actual: A disposition row with negative quantity is created; the operation also follows its normal release path.
@@ -177,7 +406,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts`. Original reproduction is retained as history.
 
 ### MRB-003 — Already-dispositioned MRB accepts a second decision
-- Module: MRB / repeat mutations | Severity: **high** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: MRB / repeat mutations | Severity: **high** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.; independently retested PASS on fe46901 (latest main, synthetic only)
 - Steps: Create MRB; complete USE_AS_IS for its held quantity; repeat dispositionMrb on the same case; count decisions.
 - Expected: Reject or return existing disposition without another decision or downstream mutation.
 - Actual: A second disposition record is created on the already DISPOSITIONED case. No case-status/idempotency guard runs.
@@ -482,7 +711,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Next modules: PMO/program/project/WBS/budget/risk/issue/requirements; HR/time; PLM/ECO/ECR/CM after #143; inventory/GFP/MRP; purchasing policy thresholds; admin/settings/import/accounts/MFA; billing offline mocks only.
 - Needs UI pass: cookie overlay/autofill, visual buttons/selects, docs editor, layout, toasts, cameras/microphone, printing/downloads and production-only/intermittent historical incidents. No destructive production verification.
 
-## Current-main continuation (2026-11-10)
+## Historical continuation (#146 baseline; 2026-11-10)
 
 Latest progress: **795 / 1968 inventory items (752 pass / 43 fail)**; **619 / 1548 callable functions (577 pass / 42 fail)**. **285 actions remain untested. 26 new findings; 77 total tracked entries, including resolved/historical entries.** Prior 444/1949 counts were from #142; the source inventory is refreshed for #146, preserving stable IDs for matching symbols.
 
@@ -524,7 +753,7 @@ Evidence: `/workspace/protessera-dryrun/current-results/`; scripts in `/workspac
 ### New findings
 
 #### AUTH-006 — Operator can self-grant permission administration
-- Module: Accounts / privilege escalation | Severity: **critical** | Status: **Fixed** — [PR #150](https://github.com/jmwilson92/erpsystem/pull/150); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Accounts / privilege escalation | Severity: **critical** | Status: **Fixed** — [PR #150](https://github.com/jmwilson92/erpsystem/pull/150); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.; independently retested PASS on fe46901 (latest main, synthetic only)
 - Steps: Password-login as a fresh OPERATOR with admin.permissions=false; invoke actionGrantUserPermission for own userId, admin.permissions, allowed=true; query effective permission.
 - Expected: Reject before any permission mutation.
 - Actual: Effective admin.permissions becomes true. Handler calls grant service without authenticating/authorizing a permission administrator. Genuine server-issued session; no forged session.
@@ -532,7 +761,7 @@ Evidence: `/workspace/protessera-dryrun/current-results/`; scripts in `/workspac
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-permissions.ts`. Original reproduction is retained as history.
 
 #### AUTH-007 — Operator can join a privileged permission group
-- Module: Accounts / privileged group membership | Severity: **critical** | Status: **Fixed** — [PR #150](https://github.com/jmwilson92/erpsystem/pull/150); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Accounts / privileged group membership | Severity: **critical** | Status: **Fixed** — [PR #150](https://github.com/jmwilson92/erpsystem/pull/150); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.; independently retested PASS on fe46901 (latest main, synthetic only)
 - Steps: Create isolated group containing admin.permissions as ADMIN; login fresh OPERATOR and invoke actionAssignUserGroup with that group and own userId.
 - Expected: Only authorized permission administrators may assign/remove memberships.
 - Actual: OPERATOR gains admin.permissions by joining the privileged group. Self-grant cleanup between probes kept tests independent.
@@ -540,7 +769,7 @@ Evidence: `/workspace/protessera-dryrun/current-results/`; scripts in `/workspac
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-permissions.ts`. Original reproduction is retained as history.
 
 #### AUTH-008 — Operator can rename the company and replace its profile
-- Module: Admin / company profile | Severity: **high** | Status: **Fixed** — [PR #150](https://github.com/jmwilson92/erpsystem/pull/150); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Admin / company profile | Severity: **high** | Status: **Fixed** — [PR #150](https://github.com/jmwilson92/erpsystem/pull/150); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.; independently retested PASS on fe46901 (latest main, synthetic only)
 - Steps: Login OPERATOR; submit actionSaveCompanyProfile with synthetic name, tagline/departments; compare CompanySettings then restore fixture profile.
 - Expected: Company profile mutation requires administrator authority.
 - Actual: Unauthorized company name persists. actionSaveCompanyOps is correctly denied, but the neighboring profile handler has no privilege gate.
@@ -548,7 +777,7 @@ Evidence: `/workspace/protessera-dryrun/current-results/`; scripts in `/workspac
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-permissions.ts`. Original reproduction is retained as history.
 
 #### AUTH-009 — Operator can post bank journals and mark transactions reconciled
-- Module: Accounting / bank permissions | Severity: **high** | Status: **Fixed** — [PR #150](https://github.com/jmwilson92/erpsystem/pull/150); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Accounting / bank permissions | Severity: **high** | Status: **Fixed** — [PR #150](https://github.com/jmwilson92/erpsystem/pull/150); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.; independently retested PASS on fe46901 (latest main, synthetic only)
 - Steps: Login OPERATOR with accounting.journal.post=false; actionCategorizeBankTxn on unmatched synthetic withdrawal; separately actionReconcileBankTxn on a matched transaction.
 - Expected: Require accounting authority before categorization/posting or reconciliation.
 - Actual: Categorization creates POSTED BANK journal and MATCHED transaction; reconciliation changes MATCHED→RECONCILED under the operator session.
@@ -556,7 +785,7 @@ Evidence: `/workspace/protessera-dryrun/current-results/`; scripts in `/workspac
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-permissions.ts`. Original reproduction is retained as history.
 
 #### AUTH-010 — Operator can create arbitrary opening GL balances and edit accounts
-- Module: Accounting / chart of accounts | Severity: **high** | Status: **Fixed** — [PR #150](https://github.com/jmwilson92/erpsystem/pull/150); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Accounting / chart of accounts | Severity: **high** | Status: **Fixed** — [PR #150](https://github.com/jmwilson92/erpsystem/pull/150); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.; independently retested PASS on fe46901 (latest main, synthetic only)
 - Steps: Login fresh OPERATOR; actionCreateAccount with unique code and balance=12345; independently actionUpdateAccount to rename/deactivate isolated expense account.
 - Expected: Both chart mutations require accounting/admin authority.
 - Actual: Account with arbitrary opening balance is created; separate edit deactivates existing account. Both operations persist over genuine authenticated HTTP.
@@ -564,7 +793,7 @@ Evidence: `/workspace/protessera-dryrun/current-results/`; scripts in `/workspac
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-permissions.ts`. Original reproduction is retained as history.
 
 #### PERM-001 — Permanent permission regrant retains expired temporary expiry
-- Module: Accounts / grant expiry | Severity: **med** | Status: **Fixed** — [PR #150](https://github.com/jmwilson92/erpsystem/pull/150); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Accounts / grant expiry | Severity: **med** | Status: **Fixed** — [PR #150](https://github.com/jmwilson92/erpsystem/pull/150); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.; independently retested PASS on fe46901 (latest main, synthetic only)
 - Steps: Give OPERATOR temporary budgets.manage, expire it, then invoke administrator actionGrantUserPermission allowed=true.
 - Expected: Permanent regrant clears expiresAt and makes permission effective.
 - Actual: Grant remains ineffective because upsert changes allowed but retains the expired expiresAt. Active temporary grant and expiration themselves pass.
@@ -572,7 +801,7 @@ Evidence: `/workspace/protessera-dryrun/current-results/`; scripts in `/workspac
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-permissions.ts`. Original reproduction is retained as history.
 
 #### PERM-002 — Unknown permission-request decision silently grants permanently
-- Module: Accounts / decision validation | Severity: **high** | Status: **Fixed** — [PR #150](https://github.com/jmwilson92/erpsystem/pull/150); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Accounts / decision validation | Severity: **high** | Status: **Fixed** — [PR #150](https://github.com/jmwilson92/erpsystem/pull/150); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.; independently retested PASS on fe46901 (latest main, synthetic only)
 - Steps: Create pending synthetic request for accounting.controller; ADMIN submits actionDecidePermissionRequest decision=QA_INVALID.
 - Expected: Reject unsupported decision without granting or deciding request.
 - Actual: Any non-DENY/non-GRANT_ONCE string takes permanent-GRANT path; requested controller permission becomes effective. Admin authorization exists, but enum validation does not.
@@ -657,7 +886,7 @@ Evidence: `/workspace/protessera-dryrun/current-results/`; scripts in `/workspac
 - Source: `src/lib/services/maintenance.ts:180-224`
 
 #### BANK-001 — Recategorizing matched bank transaction posts cash movement twice
-- Module: Accounting / bank reconciliation | Severity: **high** | Status: **Fixed** — [PR #151](https://github.com/jmwilson92/erpsystem/pull/151); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Accounting / bank reconciliation | Severity: **high** | Status: **Fixed** — [PR #151](https://github.com/jmwilson92/erpsystem/pull/151); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.; independently retested PASS on fe46901 (latest main, synthetic only)
 - Steps: Connect isolated offline bank GL; import -25 withdrawal; categorize to expense; repeat actionCategorizeBankTxn before reconciliation.
 - Expected: Reject/reuse prior journal or explicitly reverse/reclassify without another cash movement.
 - Actual: Two POSTED BANK journals reference same bank transaction; cash moves -50 for -25 withdrawal while bank transaction points only to latest journal.
@@ -665,7 +894,7 @@ Evidence: `/workspace/protessera-dryrun/current-results/`; scripts in `/workspac
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-finance.ts`. Original reproduction is retained as history.
 
 #### BANK-002 — Malformed bank amount imports silently as zero
-- Module: Accounting / bank import validation | Severity: **med** | Status: **Fixed** — [PR #151](https://github.com/jmwilson92/erpsystem/pull/151); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Accounting / bank import validation | Severity: **med** | Status: **Fixed** — [PR #151](https://github.com/jmwilson92/erpsystem/pull/151); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.; independently retested PASS on fe46901 (latest main, synthetic only)
 - Steps: Import CSV date,description,amount with numeric field not-a-number.
 - Expected: Return row validation error and do not import.
 - Actual: Row imports with amount=0, imported=1 and no numeric error. OFX FITID and ordinary repeated CSV dedupe pass.
@@ -673,7 +902,7 @@ Evidence: `/workspace/protessera-dryrun/current-results/`; scripts in `/workspac
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-finance.ts`. Original reproduction is retained as history.
 
 #### ACCT-008 — Rejected manual vendor invoice posting leaves an OPEN payable
-- Module: Accounting / AP invoice rollback | Severity: **high** | Status: **Fixed** — [PR #151](https://github.com/jmwilson92/erpsystem/pull/151); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Accounting / AP invoice rollback | Severity: **high** | Status: **Fixed** — [PR #151](https://github.com/jmwilson92/erpsystem/pull/151); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.; independently retested PASS on fe46901 (latest main, synthetic only)
 - Steps: Close books through2099 in synthetic fixture; administrator actionCreateVendorApInvoice amount10; compare AP invoice rows and posting result; reopen fixture books.
 - Expected: Failure rolls back invoice and journal together.
 - Actual: Ledger rejects closed period but OPEN AP voucher remains. This is distinct from AR/AP payment rollback fixed in #144.
@@ -688,7 +917,7 @@ Evidence: `/workspace/protessera-dryrun/current-results/`; scripts in `/workspac
 - Source: `src/lib/services/hr.ts:472-505; src/lib/services/gaap.ts:535-543`
 
 #### ACCT-010 — Generic HR expense transition marks PAID without a reimbursement journal
-- Module: Accounting / expense payment bypass | Severity: **high** | Status: **Fixed** — [PR #151](https://github.com/jmwilson92/erpsystem/pull/151); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Accounting / expense payment bypass | Severity: **high** | Status: **Fixed** — [PR #151](https://github.com/jmwilson92/erpsystem/pull/151); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.; independently retested PASS on fe46901 (latest main, synthetic only)
 - Steps: Create APPROVED employee expense20; login HR (not accounting authority); actionAdvanceExpense status=PAID.
 - Expected: Payment requires accounting reimbursement path and balanced journal, or reject HR-only request.
 - Actual: Report becomes PAID with zero EXPENSE journals, bypassing actionReimburseExpense/accounting gate.
@@ -696,7 +925,7 @@ Evidence: `/workspace/protessera-dryrun/current-results/`; scripts in `/workspac
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-finance.ts`. Original reproduction is retained as history.
 
 #### RCV-001 — Duplicate PO-line entries in one request overreceive inventory
-- Module: Receiving / overreceipt validation | Severity: **high** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Receiving / overreceipt validation | Severity: **high** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.; independently retested PASS on fe46901 (latest main, synthetic only)
 - Steps: Create two-unit PO; receivePurchaseOrder lines includes the same poLineId twice with quantityReceived2 each.
 - Expected: Aggregate/reject duplicate submitted line IDs before writes; at most2 units received.
 - Actual: Receipt/inventory creates4 units against a two-unit PO. Per-entry validation compares each against original open quantity independently.
@@ -704,7 +933,7 @@ Evidence: `/workspace/protessera-dryrun/current-results/`; scripts in `/workspac
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts`. Original reproduction is retained as history.
 
 #### RCV-002 — Closed-short purchase order still accepts new material
-- Module: Receiving / closed order lifecycle | Severity: **high** | Status: **Fixed** — [PR #151](https://github.com/jmwilson92/erpsystem/pull/151); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Receiving / closed order lifecycle | Severity: **high** | Status: **Fixed** — [PR #151](https://github.com/jmwilson92/erpsystem/pull/151); synthetic local-fixture retest on released main `fe46901cd22e85c77cbdc920019b83846511f11a` (2026-11-10 03:25 PM PST). Production smoke is read-only, not a customer-data mutation test.; independently retested PASS on fe46901 (latest main, synthetic only)
 - Steps: Create two-unit PO; closePurchaseOrderFromReceiving short=true with reason; then receivePurchaseOrder quantity2.
 - Expected: CLOSED/CANCELLED purchase order rejects receipt before stock/AP writes.
 - Actual: Closed-short PO accepts receipt and stocks material. Only PENDING_REAPPROVAL is gated at entry.
@@ -791,1998 +1020,1999 @@ Records: customer https://www.protessera.com/customers/cmwa4j3fq000108l0g7br5g7r
 
 ## Full source-derived checklist
 
-PASS = named scenario only; FAIL = at least one reproduced failure; UNTESTED = not accepted. The86 low-privilege guard-only functions are explicitly labeled in evidence and still need positive workflow acceptance. Models remain untested per-model CRUD/authorization. Source lines now refer to current main3de5ba1. Historical evidence is retained; verified fixes may supersede old failure evidence.
+PASS = named scenario only, FAIL = at least one reproduced unresolved scenario, UNTESTED = not accepted. Mixed historical coverage is labeled by evidence; latest refs/lines usefe46901. 76 functions remain denial-only and require valid workflow acceptance. Models remain untested as complete CRUD/authorization units.
 
 ### PAGE checklist
 
 | ID | Module | Function / route / model | Source | Status | Evidence / next step |
 |---|---|---|---|---|---|
-| PAGE-0001 | Accounts / Roles | /account | `src/app/account/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0002 | Accounting / GovCon | /accounting/account/[id] | `src/app/accounting/account/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0003 | Accounting / GovCon | /accounting/banking | `src/app/accounting/banking/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0004 | Accounting / GovCon | /accounting/govcon | `src/app/accounting/govcon/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0005 | Accounting / GovCon | /accounting | `src/app/accounting/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /accounting |
-| PAGE-0006 | Accounting / GovCon | /accounting/payroll | `src/app/accounting/payroll/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0007 | Accounting / GovCon | /accounting/paystub/[id] | `src/app/accounting/paystub/[id]/page.tsx:1` | UNTESTED | Not yet exercised |
-| PAGE-0008 | Accounting / GovCon | /accounting/reports/print | `src/app/accounting/reports/print/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0009 | Admin / Settings | /admin/import | `src/app/admin/import/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0010 | Admin / Settings | /admin/insights | `src/app/admin/insights/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0011 | Accounts / Roles | /admin/permissions | `src/app/admin/permissions/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /admin/permissions |
-| PAGE-0012 | Admin / Settings | /admin/settings | `src/app/admin/settings/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /admin/settings |
-| PAGE-0013 | Admin / Settings | /admin/support/[id] | `src/app/admin/support/[id]/page.tsx:1` | UNTESTED | Not yet exercised |
-| PAGE-0014 | Admin / Settings | /admin/support | `src/app/admin/support/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0015 | Admin / Settings | /admin/tenants/[tenantId] | `src/app/admin/tenants/[tenantId]/page.tsx:1` | UNTESTED | Not yet exercised |
-| PAGE-0016 | Admin / Settings | /admin/tenants | `src/app/admin/tenants/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0017 | Platform / Other | /ai | `src/app/ai/page.tsx:1` | FAIL | HTTP render only; buttons/visuals need UI pass; current/manual-ui-results.json: FAIL Carina settings voice examples advertise live plant query and finish-WO mutation despite read-only help; current/round3-ai-help-results.json: PASS Carina browser AI disclosure, safe fallback and feedback roundtrip |
-| PAGE-0018 | Platform / Other | /approvals | `src/app/approvals/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0019 | Service / Assets | /assets/[id] | `src/app/assets/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0020 | Service / Assets | /assets | `src/app/assets/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0021 | Billing / Founding | /billing | `src/app/billing/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0022 | PLM / BOM / ECO | /bom/[id] | `src/app/bom/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0023 | PLM / BOM / ECO | /bom | `src/app/bom/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0024 | PMO / Budgets | /budgets/[id] | `src/app/budgets/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0025 | PMO / Budgets | /budgets | `src/app/budgets/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0026 | PLM / BOM / ECO | /cm/ecr/[id] | `src/app/cm/ecr/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0027 | PLM / BOM / ECO | /cm/ecr | `src/app/cm/ecr/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0028 | PLM / BOM / ECO | /cm | `src/app/cm/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0029 | Platform / Other | /compare/protessera-vs-jobboss | `src/app/compare/protessera-vs-jobboss/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0030 | Platform / Other | /compare/protessera-vs-proshop | `src/app/compare/protessera-vs-proshop/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0031 | CRM / Sales | /crm/[id] | `src/app/crm/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0032 | CRM / Sales | /crm/contacts | `src/app/crm/contacts/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0033 | CRM / Sales | /crm/leads | `src/app/crm/leads/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0034 | CRM / Sales | /crm | `src/app/crm/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0035 | CRM / Sales | /customers/[id] | `src/app/customers/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0036 | CRM / Sales | /customers/new | `src/app/customers/new/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0037 | CRM / Sales | /customers | `src/app/customers/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /customers |
-| PAGE-0038 | Demo / Tenancy | /demo | `src/app/demo/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0039 | Docs | /docs/new | `src/app/docs/new/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0040 | Docs | /docs | `src/app/docs/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /docs |
-| PAGE-0041 | Docs | /docs/pages/[id]/edit | `src/app/docs/pages/[id]/edit/page.tsx:1` | PASS | ; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /docs/pages/cmwba8rxc0031b5a1k12xqc55/edit |
-| PAGE-0042 | Docs | /docs/pages/[id]/history | `src/app/docs/pages/[id]/history/page.tsx:1` | PASS | ; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /docs/pages/cmwba8rxc0031b5a1k12xqc55/history |
-| PAGE-0043 | Docs | /docs/pages/[id] | `src/app/docs/pages/[id]/page.tsx:1` | PASS | ; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /docs/pages/cmwba8rxc0031b5a1k12xqc55 |
-| PAGE-0044 | Platform / Other | /email | `src/app/email/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0045 | PLM / BOM / ECO | /engineering/[discipline] | `src/app/engineering/[discipline]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0046 | PLM / BOM / ECO | /engineering | `src/app/engineering/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0047 | PLM / BOM / ECO | /engineering/tasks/[id] | `src/app/engineering/tasks/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0048 | PLM / BOM / ECO | /engineering/tasks | `src/app/engineering/tasks/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0049 | PLM / BOM / ECO | /engineering/tickets/[id] | `src/app/engineering/tickets/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0050 | Service / Assets | /fleet/[id] | `src/app/fleet/[id]/page.tsx:1` | PASS | ; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /fleet/cmwba8sex0024b4a1ye1372kl |
-| PAGE-0051 | Service / Assets | /fleet | `src/app/fleet/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /fleet |
-| PAGE-0052 | Platform / Other | /floor | `src/app/floor/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0053 | Platform / Other | /government-property/[id] | `src/app/government-property/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0054 | Platform / Other | /government-property | `src/app/government-property/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0055 | Platform / Other | /guides | `src/app/guides/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0191 | Platform / Other | /help/[slug] | `src/app/help/[slug]/page.tsx:1` | PASS | ; current/round3-ai-help-results.json: PASS Carina browser AI disclosure, safe fallback and feedback roundtrip |
-| PAGE-0056 | Accounts / Roles | /hr/onboarding/[id] | `src/app/hr/onboarding/[id]/page.tsx:1` | PASS | ; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /hr/onboarding/cmwba8oqs002ib5a1kr8yekak |
-| PAGE-0057 | Accounts / Roles | /hr/onboarding | `src/app/hr/onboarding/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0058 | HR / Time | /hr | `src/app/hr/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /hr |
-| PAGE-0059 | HR / Time | /hr/person/[id] | `src/app/hr/person/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0060 | HR / Time | /hr/timesheet/[id] | `src/app/hr/timesheet/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0061 | HR / Time | /hr/timesheet | `src/app/hr/timesheet/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /hr/timesheet |
-| PAGE-0062 | Inventory / Kitting | /inventory/committed/[partId] | `src/app/inventory/committed/[partId]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0063 | Inventory / Kitting | /inventory/cycle-counts/[id] | `src/app/inventory/cycle-counts/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0064 | Inventory / Kitting | /inventory/cycle-counts | `src/app/inventory/cycle-counts/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0065 | Inventory / Kitting | /inventory/expiring | `src/app/inventory/expiring/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0066 | Inventory / Kitting | /inventory | `src/app/inventory/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0067 | Accounts / Roles | /invite/[token] | `src/app/invite/[token]/page.tsx:1` | UNTESTED | Not yet exercised |
-| PAGE-0068 | Inventory / Kitting | /items/[id] | `src/app/items/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0069 | Inventory / Kitting | /items/new | `src/app/items/new/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0070 | Inventory / Kitting | /items | `src/app/items/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /items |
-| PAGE-0071 | Inventory / Kitting | /kitting | `src/app/kitting/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0072 | Platform / Other | /leadership | `src/app/leadership/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0073 | Platform / Other | /legal/[slug] | `src/app/legal/[slug]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0074 | Platform / Other | /legal | `src/app/legal/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0075 | Accounts / Roles | /login | `src/app/login/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0076 | Accounts / Roles | /login/verify | `src/app/login/verify/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0077 | Shipping / Logistics | /logistics/landed/[receiptId] | `src/app/logistics/landed/[receiptId]/page.tsx:1` | PASS | ; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /logistics/landed/cmwba8t360003aea1dcrgujhn |
-| PAGE-0078 | Shipping / Logistics | /logistics | `src/app/logistics/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /logistics |
-| PAGE-0079 | Service / Assets | /maintenance/[id] | `src/app/maintenance/[id]/page.tsx:1` | PASS | ; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /maintenance/cmwba8sn7002fb4a16avjl1sb |
-| PAGE-0080 | Service / Assets | /maintenance | `src/app/maintenance/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /maintenance |
-| PAGE-0081 | Platform / Other | /module-off | `src/app/module-off/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0082 | Quality / NCR | /mrb/cars/[id] | `src/app/mrb/cars/[id]/page.tsx:1` | UNTESTED | Not yet exercised |
-| PAGE-0083 | Quality / NCR | /mrb/cars | `src/app/mrb/cars/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0084 | Quality / NCR | /mrb | `src/app/mrb/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0085 | Platform / Other | /no-access | `src/app/no-access/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0086 | Accounts / Roles | /onboard/[token] | `src/app/onboard/[token]/page.tsx:1` | UNTESTED | Not yet exercised |
-| PAGE-0087 | Platform / Other | / | `src/app/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration / |
-| PAGE-0088 | Inventory / Kitting | /parts/[id] | `src/app/parts/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0089 | Planning / Scheduling | /planning/forecasts/[id] | `src/app/planning/forecasts/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0090 | Planning / Scheduling | /planning/forecasts/new | `src/app/planning/forecasts/new/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0091 | Planning / Scheduling | /planning/forecasts | `src/app/planning/forecasts/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0092 | Planning / Scheduling | /planning/mrs/[id] | `src/app/planning/mrs/[id]/page.tsx:1` | UNTESTED | Not yet exercised |
-| PAGE-0093 | Planning / Scheduling | /planning/mrs | `src/app/planning/mrs/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0094 | Planning / Scheduling | /planning | `src/app/planning/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0095 | PMO / Budgets | /pmo/alerts | `src/app/pmo/alerts/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0096 | PMO / Budgets | /pmo | `src/app/pmo/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /pmo |
-| PAGE-0097 | PMO / Budgets | /pmo/pi | `src/app/pmo/pi/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0098 | PMO / Budgets | /pmo/programs/[id] | `src/app/pmo/programs/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0099 | PMO / Budgets | /pmo/programs/new | `src/app/pmo/programs/new/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0100 | PMO / Budgets | /pmo/programs | `src/app/pmo/programs/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0101 | PMO / Budgets | /pmo/projects/[id] | `src/app/pmo/projects/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /pmo/projects/cmwba8mjm000lb4a1euq1t5lu |
-| PAGE-0102 | PMO / Budgets | /pmo/projects/[id]/reports | `src/app/pmo/projects/[id]/reports/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0103 | PMO / Budgets | /pmo/projects/new | `src/app/pmo/projects/new/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0104 | PMO / Budgets | /pmo/projects | `src/app/pmo/projects/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0105 | PMO / Budgets | /pmo/wbs/[id] | `src/app/pmo/wbs/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0106 | PMO / Budgets | /pmo/wbs | `src/app/pmo/wbs/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0107 | HR / Time | /preview/demo-hub | `src/app/preview/demo-hub/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0108 | HR / Time | /preview | `src/app/preview/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0109 | HR / Time | /preview/splash | `src/app/preview/splash/page.tsx:1` | UNTESTED | Not yet exercised |
-| PAGE-0110 | Accounts / Roles | /preview/tenant-login | `src/app/preview/tenant-login/page.tsx:1` | UNTESTED | Not yet exercised |
-| PAGE-0111 | HR / Time | /preview/url-map | `src/app/preview/url-map/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0112 | Billing / Founding | /pricing | `src/app/pricing/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0113 | Platform / Other | /print/labels | `src/app/print/labels/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0114 | Platform / Other | /print/material-shortage/[workOrderId] | `src/app/print/material-shortage/[workOrderId]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0115 | Platform / Other | /print/packing-list/[id] | `src/app/print/packing-list/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0116 | Platform / Other | /print/po/[id] | `src/app/print/po/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0117 | Reports | /print/report | `src/app/print/report/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0118 | Service / Assets | /print/rma-packing-list/[id] | `src/app/print/rma-packing-list/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0119 | Platform / Other | /print/statement/[id] | `src/app/print/statement/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0120 | HR / Time | /print/timesheet/[id] | `src/app/print/timesheet/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0121 | PLM / BOM / ECO | /products/[id] | `src/app/products/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /products/cmwba8lf90002b4a1umv25xpr |
-| PAGE-0122 | PLM / BOM / ECO | /products/new | `src/app/products/new/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0123 | PLM / BOM / ECO | /products | `src/app/products/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /products |
-| PAGE-0124 | Platform / Other | /projects/[id] | `src/app/projects/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0125 | Platform / Other | /projects | `src/app/projects/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0126 | Purchasing / Receiving | /purchasing/approvals | `src/app/purchasing/approvals/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0127 | Purchasing / Receiving | /purchasing | `src/app/purchasing/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /purchasing |
-| PAGE-0128 | Purchasing / Receiving | /purchasing/po/[id] | `src/app/purchasing/po/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0129 | Purchasing / Receiving | /purchasing/po | `src/app/purchasing/po/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0130 | Purchasing / Receiving | /purchasing/pr/[id] | `src/app/purchasing/pr/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0131 | Purchasing / Receiving | /purchasing/pr/new | `src/app/purchasing/pr/new/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0132 | Platform / Other | /qa | `src/app/qa/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /qa |
-| PAGE-0133 | Quality / NCR | /quality/ncr/[id] | `src/app/quality/ncr/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0134 | Quality / NCR | /quality | `src/app/quality/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0135 | PMO / Budgets | /quality/programs/[key]/inspect/[itemId] | `src/app/quality/programs/[key]/inspect/[itemId]/page.tsx:1` | UNTESTED | Not yet exercised |
-| PAGE-0136 | PMO / Budgets | /quality/programs/[key] | `src/app/quality/programs/[key]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0137 | PMO / Budgets | /quality/programs/incident/[id] | `src/app/quality/programs/incident/[id]/page.tsx:1` | UNTESTED | Not yet exercised |
-| PAGE-0138 | PMO / Budgets | /quality/programs | `src/app/quality/programs/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0139 | PMO / Budgets | /quality/programs/tools/[id]/label | `src/app/quality/programs/tools/[id]/label/page.tsx:1` | UNTESTED | Not yet exercised |
-| PAGE-0140 | PMO / Budgets | /quality/programs/tools | `src/app/quality/programs/tools/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0141 | PMO / Budgets | /quality/programs/tools/report/[id] | `src/app/quality/programs/tools/report/[id]/page.tsx:1` | UNTESTED | Not yet exercised |
-| PAGE-0142 | Platform / Other | /radiators | `src/app/radiators/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0143 | Purchasing / Receiving | /receiving/[id] | `src/app/receiving/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0144 | Purchasing / Receiving | /receiving/new-gfp | `src/app/receiving/new-gfp/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0145 | Purchasing / Receiving | /receiving | `src/app/receiving/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /receiving |
-| PAGE-0146 | HR / Time | /recruiting/[id] | `src/app/recruiting/[id]/page.tsx:1` | PASS | ; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /recruiting/cmwba8olp002db5a1qpacruym |
-| PAGE-0147 | HR / Time | /recruiting/candidates/[id] | `src/app/recruiting/candidates/[id]/page.tsx:1` | PASS | ; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /recruiting/candidates/cmwba8oo8002fb5a1i6jc44it |
-| PAGE-0148 | HR / Time | /recruiting | `src/app/recruiting/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /recruiting |
-| PAGE-0149 | Reports | /reports/builder | `src/app/reports/builder/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0150 | Reports | /reports | `src/app/reports/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0151 | PLM / BOM / ECO | /requirements | `src/app/requirements/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0152 | Service / Assets | /rma/[id] | `src/app/rma/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0153 | Service / Assets | /rma/new | `src/app/rma/new/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0154 | Service / Assets | /rma | `src/app/rma/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0155 | CRM / Sales | /sales/[id] | `src/app/sales/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0156 | CRM / Sales | /sales/new | `src/app/sales/new/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0157 | CRM / Sales | /sales | `src/app/sales/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0158 | CRM / Sales | /sales/quotes/[id] | `src/app/sales/quotes/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0159 | CRM / Sales | /sales/quotes/new | `src/app/sales/quotes/new/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0160 | CRM / Sales | /sales/quotes | `src/app/sales/quotes/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0161 | Service / Assets | /service/[id] | `src/app/service/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0162 | Service / Assets | /service/assets | `src/app/service/assets/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0163 | Service / Assets | /service | `src/app/service/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0164 | Admin / Settings | /setup | `src/app/setup/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0165 | Shipping / Logistics | /shipping/[id] | `src/app/shipping/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0166 | Shipping / Logistics | /shipping | `src/app/shipping/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0167 | Accounts / Roles | /signup/complete | `src/app/signup/complete/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0168 | Accounts / Roles | /signup | `src/app/signup/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0169 | Purchasing / Receiving | /suppliers/[id] | `src/app/suppliers/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0170 | Purchasing / Receiving | /suppliers | `src/app/suppliers/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0171 | Platform / Other | /support/[id] | `src/app/support/[id]/page.tsx:1` | UNTESTED | Not yet exercised |
-| PAGE-0172 | Platform / Other | /support | `src/app/support/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0173 | Platform / Other | /support/t/[token] | `src/app/support/t/[token]/page.tsx:1` | UNTESTED | Not yet exercised |
-| PAGE-0174 | Manufacturing / Test | /test-center | `src/app/test-center/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0175 | Manufacturing / Test | /test-procedures/[id] | `src/app/test-procedures/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0176 | Manufacturing / Test | /test-procedures | `src/app/test-procedures/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0177 | Manufacturing / Test | /trace/serials/[serial] | `src/app/trace/serials/[serial]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0178 | Manufacturing / Test | /trace/serials | `src/app/trace/serials/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0179 | Inventory / Kitting | /uom | `src/app/uom/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0180 | Platform / Other | /value-stream | `src/app/value-stream/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0181 | Service / Assets | /virtual-assets/[id] | `src/app/virtual-assets/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0182 | Service / Assets | /virtual-assets | `src/app/virtual-assets/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0183 | Platform / Other | /welcome | `src/app/welcome/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0184 | Manufacturing / Test | /work-instructions/[id] | `src/app/work-instructions/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0185 | Manufacturing / Test | /work-instructions/new | `src/app/work-instructions/new/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0186 | Manufacturing / Test | /work-instructions | `src/app/work-instructions/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0187 | Manufacturing / Test | /work-orders/[id] | `src/app/work-orders/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0188 | Manufacturing / Test | /work-orders | `src/app/work-orders/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /work-orders |
-| PAGE-0189 | Manufacturing / Test | /workcenters/[id] | `src/app/workcenters/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0190 | Manufacturing / Test | /workcenters | `src/app/workcenters/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0001 | Accounts / Roles | /account | src/app/account/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass; main151: PASS Desktop new-priority page hydration /account |
+| PAGE-0002 | Accounting / GovCon | /accounting/account/[id] | src/app/accounting/account/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0003 | Accounting / GovCon | /accounting/banking | src/app/accounting/banking/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0004 | Accounting / GovCon | /accounting/govcon | src/app/accounting/govcon/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0005 | Accounting / GovCon | /accounting | src/app/accounting/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /accounting |
+| PAGE-0006 | Accounting / GovCon | /accounting/payroll | src/app/accounting/payroll/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0007 | Accounting / GovCon | /accounting/paystub/[id] | src/app/accounting/paystub/[id]/page.tsx:1 | UNTESTED | Not exercised in a named acceptance scenario |
+| PAGE-0008 | Accounting / GovCon | /accounting/reports/print | src/app/accounting/reports/print/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0009 | Admin / Settings | /admin/import | src/app/admin/import/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass; main151: PASS Desktop new-priority page hydration /admin/import |
+| PAGE-0010 | Admin / Settings | /admin/insights | src/app/admin/insights/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0011 | Accounts / Roles | /admin/permissions | src/app/admin/permissions/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /admin/permissions; main151: PASS Desktop new-priority page hydration /admin/permissions |
+| PAGE-0012 | Admin / Settings | /admin/settings | src/app/admin/settings/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /admin/settings; main151: PASS Desktop new-priority page hydration /admin/settings |
+| PAGE-0013 | Admin / Settings | /admin/support/[id] | src/app/admin/support/[id]/page.tsx:1 | UNTESTED | Not exercised in a named acceptance scenario |
+| PAGE-0014 | Admin / Settings | /admin/support | src/app/admin/support/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0015 | Admin / Settings | /admin/tenants/[tenantId] | src/app/admin/tenants/[tenantId]/page.tsx:1 | UNTESTED | Not exercised in a named acceptance scenario |
+| PAGE-0016 | Admin / Settings | /admin/tenants | src/app/admin/tenants/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0017 | Platform / Other | /ai | src/app/ai/page.tsx:1 | FAIL | HTTP render only; buttons/visuals need UI pass; current/manual-ui-results.json: FAIL Carina settings voice examples advertise live plant query and finish-WO mutation despite read-only help; current/round3-ai-help-results.json: PASS Carina browser AI disclosure, safe fallback and feedback roundtrip |
+| PAGE-0018 | Platform / Other | /approvals | src/app/approvals/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0019 | Service / Assets | /assets/[id] | src/app/assets/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0020 | Service / Assets | /assets | src/app/assets/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0021 | Billing / Founding | /billing | src/app/billing/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0022 | PLM / BOM / ECO | /bom/[id] | src/app/bom/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0023 | PLM / BOM / ECO | /bom | src/app/bom/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0024 | PMO / Budgets | /budgets/[id] | src/app/budgets/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0025 | PMO / Budgets | /budgets | src/app/budgets/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0026 | PLM / BOM / ECO | /cm/ecr/[id] | src/app/cm/ecr/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass; main151: PASS Desktop new-priority page hydration /cm/ecr/cmwbbjbch000e34a1f3h61s66 |
+| PAGE-0027 | PLM / BOM / ECO | /cm/ecr | src/app/cm/ecr/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0028 | PLM / BOM / ECO | /cm | src/app/cm/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass; main151: PASS Desktop new-priority page hydration /cm |
+| PAGE-0029 | Platform / Other | /compare/protessera-vs-jobboss | src/app/compare/protessera-vs-jobboss/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0030 | Platform / Other | /compare/protessera-vs-proshop | src/app/compare/protessera-vs-proshop/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0031 | CRM / Sales | /crm/[id] | src/app/crm/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0032 | CRM / Sales | /crm/contacts | src/app/crm/contacts/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0033 | CRM / Sales | /crm/leads | src/app/crm/leads/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0034 | CRM / Sales | /crm | src/app/crm/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0035 | CRM / Sales | /customers/[id] | src/app/customers/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0036 | CRM / Sales | /customers/new | src/app/customers/new/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0037 | CRM / Sales | /customers | src/app/customers/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /customers |
+| PAGE-0038 | Demo / Tenancy | /demo | src/app/demo/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0039 | Docs | /docs/new | src/app/docs/new/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0040 | Docs | /docs | src/app/docs/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /docs |
+| PAGE-0041 | Docs | /docs/pages/[id]/edit | src/app/docs/pages/[id]/edit/page.tsx:1 | PASS | ; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /docs/pages/cmwba8rxc0031b5a1k12xqc55/edit |
+| PAGE-0042 | Docs | /docs/pages/[id]/history | src/app/docs/pages/[id]/history/page.tsx:1 | PASS | ; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /docs/pages/cmwba8rxc0031b5a1k12xqc55/history |
+| PAGE-0043 | Docs | /docs/pages/[id] | src/app/docs/pages/[id]/page.tsx:1 | PASS | ; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /docs/pages/cmwba8rxc0031b5a1k12xqc55 |
+| PAGE-0044 | Platform / Other | /email | src/app/email/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0045 | PLM / BOM / ECO | /engineering/[discipline] | src/app/engineering/[discipline]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0046 | PLM / BOM / ECO | /engineering | src/app/engineering/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0047 | PLM / BOM / ECO | /engineering/tasks/[id] | src/app/engineering/tasks/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0048 | PLM / BOM / ECO | /engineering/tasks | src/app/engineering/tasks/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0049 | PLM / BOM / ECO | /engineering/tickets/[id] | src/app/engineering/tickets/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0050 | Service / Assets | /fleet/[id] | src/app/fleet/[id]/page.tsx:1 | PASS | ; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /fleet/cmwba8sex0024b4a1ye1372kl |
+| PAGE-0051 | Service / Assets | /fleet | src/app/fleet/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /fleet |
+| PAGE-0052 | Platform / Other | /floor | src/app/floor/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0053 | Platform / Other | /government-property/[id] | src/app/government-property/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass; main151: PASS Desktop new-priority page hydration /government-property/cmwbbfpbl00g95aa1bmecg2ih |
+| PAGE-0054 | Platform / Other | /government-property | src/app/government-property/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass; main151: PASS Desktop new-priority page hydration /government-property |
+| PAGE-0055 | Platform / Other | /guides | src/app/guides/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0191 | Platform / Other | /help/[slug] | src/app/help/[slug]/page.tsx:1 | PASS | ; current/round3-ai-help-results.json: PASS Carina browser AI disclosure, safe fallback and feedback roundtrip |
+| PAGE-0056 | Accounts / Roles | /hr/onboarding/[id] | src/app/hr/onboarding/[id]/page.tsx:1 | PASS | ; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /hr/onboarding/cmwba8oqs002ib5a1kr8yekak |
+| PAGE-0057 | Accounts / Roles | /hr/onboarding | src/app/hr/onboarding/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0058 | HR / Time | /hr | src/app/hr/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /hr |
+| PAGE-0059 | HR / Time | /hr/person/[id] | src/app/hr/person/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0060 | HR / Time | /hr/timesheet/[id] | src/app/hr/timesheet/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0061 | HR / Time | /hr/timesheet | src/app/hr/timesheet/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /hr/timesheet |
+| PAGE-0062 | Inventory / Kitting | /inventory/committed/[partId] | src/app/inventory/committed/[partId]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0063 | Inventory / Kitting | /inventory/cycle-counts/[id] | src/app/inventory/cycle-counts/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0064 | Inventory / Kitting | /inventory/cycle-counts | src/app/inventory/cycle-counts/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0065 | Inventory / Kitting | /inventory/expiring | src/app/inventory/expiring/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0066 | Inventory / Kitting | /inventory | src/app/inventory/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0067 | Accounts / Roles | /invite/[token] | src/app/invite/[token]/page.tsx:1 | UNTESTED | Not exercised in a named acceptance scenario |
+| PAGE-0068 | Inventory / Kitting | /items/[id] | src/app/items/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0069 | Inventory / Kitting | /items/new | src/app/items/new/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0070 | Inventory / Kitting | /items | src/app/items/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /items |
+| PAGE-0071 | Inventory / Kitting | /kitting | src/app/kitting/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0072 | Platform / Other | /leadership | src/app/leadership/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0073 | Platform / Other | /legal/[slug] | src/app/legal/[slug]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0074 | Platform / Other | /legal | src/app/legal/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0075 | Accounts / Roles | /login | src/app/login/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0076 | Accounts / Roles | /login/verify | src/app/login/verify/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0077 | Shipping / Logistics | /logistics/landed/[receiptId] | src/app/logistics/landed/[receiptId]/page.tsx:1 | PASS | ; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /logistics/landed/cmwba8t360003aea1dcrgujhn |
+| PAGE-0078 | Shipping / Logistics | /logistics | src/app/logistics/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /logistics |
+| PAGE-0079 | Service / Assets | /maintenance/[id] | src/app/maintenance/[id]/page.tsx:1 | PASS | ; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /maintenance/cmwba8sn7002fb4a16avjl1sb |
+| PAGE-0080 | Service / Assets | /maintenance | src/app/maintenance/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /maintenance |
+| PAGE-0081 | Platform / Other | /module-off | src/app/module-off/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0082 | Quality / NCR | /mrb/cars/[id] | src/app/mrb/cars/[id]/page.tsx:1 | UNTESTED | Not exercised in a named acceptance scenario |
+| PAGE-0083 | Quality / NCR | /mrb/cars | src/app/mrb/cars/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0084 | Quality / NCR | /mrb | src/app/mrb/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass; main151: PASS Desktop new-priority page hydration /mrb |
+| PAGE-0085 | Platform / Other | /no-access | src/app/no-access/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0086 | Accounts / Roles | /onboard/[token] | src/app/onboard/[token]/page.tsx:1 | UNTESTED | Not exercised in a named acceptance scenario |
+| PAGE-0087 | Platform / Other | / | src/app/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration / |
+| PAGE-0088 | Inventory / Kitting | /parts/[id] | src/app/parts/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0089 | Planning / Scheduling | /planning/forecasts/[id] | src/app/planning/forecasts/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0090 | Planning / Scheduling | /planning/forecasts/new | src/app/planning/forecasts/new/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0091 | Planning / Scheduling | /planning/forecasts | src/app/planning/forecasts/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0092 | Planning / Scheduling | /planning/mrs/[id] | src/app/planning/mrs/[id]/page.tsx:1 | UNTESTED | Not exercised in a named acceptance scenario |
+| PAGE-0093 | Planning / Scheduling | /planning/mrs | src/app/planning/mrs/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0094 | Planning / Scheduling | /planning | src/app/planning/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0095 | PMO / Budgets | /pmo/alerts | src/app/pmo/alerts/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0096 | PMO / Budgets | /pmo | src/app/pmo/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /pmo |
+| PAGE-0097 | PMO / Budgets | /pmo/pi | src/app/pmo/pi/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0098 | PMO / Budgets | /pmo/programs/[id] | src/app/pmo/programs/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0099 | PMO / Budgets | /pmo/programs/new | src/app/pmo/programs/new/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0100 | PMO / Budgets | /pmo/programs | src/app/pmo/programs/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0101 | PMO / Budgets | /pmo/projects/[id] | src/app/pmo/projects/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /pmo/projects/cmwba8mjm000lb4a1euq1t5lu |
+| PAGE-0102 | PMO / Budgets | /pmo/projects/[id]/reports | src/app/pmo/projects/[id]/reports/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0103 | PMO / Budgets | /pmo/projects/new | src/app/pmo/projects/new/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0104 | PMO / Budgets | /pmo/projects | src/app/pmo/projects/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0105 | PMO / Budgets | /pmo/wbs/[id] | src/app/pmo/wbs/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0106 | PMO / Budgets | /pmo/wbs | src/app/pmo/wbs/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0107 | HR / Time | /preview/demo-hub | src/app/preview/demo-hub/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0108 | HR / Time | /preview | src/app/preview/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0109 | HR / Time | /preview/splash | src/app/preview/splash/page.tsx:1 | UNTESTED | Not exercised in a named acceptance scenario |
+| PAGE-0110 | Accounts / Roles | /preview/tenant-login | src/app/preview/tenant-login/page.tsx:1 | UNTESTED | Not exercised in a named acceptance scenario |
+| PAGE-0111 | HR / Time | /preview/url-map | src/app/preview/url-map/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0112 | Billing / Founding | /pricing | src/app/pricing/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0113 | Platform / Other | /print/labels | src/app/print/labels/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0114 | Platform / Other | /print/material-shortage/[workOrderId] | src/app/print/material-shortage/[workOrderId]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0115 | Platform / Other | /print/packing-list/[id] | src/app/print/packing-list/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0116 | Platform / Other | /print/po/[id] | src/app/print/po/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0117 | Reports | /print/report | src/app/print/report/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0118 | Service / Assets | /print/rma-packing-list/[id] | src/app/print/rma-packing-list/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0119 | Platform / Other | /print/statement/[id] | src/app/print/statement/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0120 | HR / Time | /print/timesheet/[id] | src/app/print/timesheet/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0121 | PLM / BOM / ECO | /products/[id] | src/app/products/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /products/cmwba8lf90002b4a1umv25xpr |
+| PAGE-0122 | PLM / BOM / ECO | /products/new | src/app/products/new/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0123 | PLM / BOM / ECO | /products | src/app/products/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /products |
+| PAGE-0124 | Platform / Other | /projects/[id] | src/app/projects/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0125 | Platform / Other | /projects | src/app/projects/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0126 | Purchasing / Receiving | /purchasing/approvals | src/app/purchasing/approvals/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0127 | Purchasing / Receiving | /purchasing | src/app/purchasing/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /purchasing |
+| PAGE-0128 | Purchasing / Receiving | /purchasing/po/[id] | src/app/purchasing/po/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0129 | Purchasing / Receiving | /purchasing/po | src/app/purchasing/po/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0130 | Purchasing / Receiving | /purchasing/pr/[id] | src/app/purchasing/pr/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0131 | Purchasing / Receiving | /purchasing/pr/new | src/app/purchasing/pr/new/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0132 | Platform / Other | /qa | src/app/qa/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /qa |
+| PAGE-0133 | Quality / NCR | /quality/ncr/[id] | src/app/quality/ncr/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0134 | Quality / NCR | /quality | src/app/quality/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0135 | PMO / Budgets | /quality/programs/[key]/inspect/[itemId] | src/app/quality/programs/[key]/inspect/[itemId]/page.tsx:1 | UNTESTED | Not exercised in a named acceptance scenario |
+| PAGE-0136 | PMO / Budgets | /quality/programs/[key] | src/app/quality/programs/[key]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass; main151: PASS Desktop new-priority page hydration /quality/programs/audits |
+| PAGE-0137 | PMO / Budgets | /quality/programs/incident/[id] | src/app/quality/programs/incident/[id]/page.tsx:1 | UNTESTED | Not exercised in a named acceptance scenario |
+| PAGE-0138 | PMO / Budgets | /quality/programs | src/app/quality/programs/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0139 | PMO / Budgets | /quality/programs/tools/[id]/label | src/app/quality/programs/tools/[id]/label/page.tsx:1 | UNTESTED | Not exercised in a named acceptance scenario |
+| PAGE-0140 | PMO / Budgets | /quality/programs/tools | src/app/quality/programs/tools/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0141 | PMO / Budgets | /quality/programs/tools/report/[id] | src/app/quality/programs/tools/report/[id]/page.tsx:1 | UNTESTED | Not exercised in a named acceptance scenario |
+| PAGE-0142 | Platform / Other | /radiators | src/app/radiators/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0143 | Purchasing / Receiving | /receiving/[id] | src/app/receiving/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0144 | Purchasing / Receiving | /receiving/new-gfp | src/app/receiving/new-gfp/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass; main151: PASS Desktop new-priority page hydration /receiving/new-gfp |
+| PAGE-0145 | Purchasing / Receiving | /receiving | src/app/receiving/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /receiving |
+| PAGE-0146 | HR / Time | /recruiting/[id] | src/app/recruiting/[id]/page.tsx:1 | PASS | ; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /recruiting/cmwba8olp002db5a1qpacruym |
+| PAGE-0147 | HR / Time | /recruiting/candidates/[id] | src/app/recruiting/candidates/[id]/page.tsx:1 | PASS | ; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /recruiting/candidates/cmwba8oo8002fb5a1i6jc44it |
+| PAGE-0148 | HR / Time | /recruiting | src/app/recruiting/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /recruiting |
+| PAGE-0149 | Reports | /reports/builder | src/app/reports/builder/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0150 | Reports | /reports | src/app/reports/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0151 | PLM / BOM / ECO | /requirements | src/app/requirements/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0152 | Service / Assets | /rma/[id] | src/app/rma/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0153 | Service / Assets | /rma/new | src/app/rma/new/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0154 | Service / Assets | /rma | src/app/rma/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0155 | CRM / Sales | /sales/[id] | src/app/sales/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0156 | CRM / Sales | /sales/new | src/app/sales/new/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0157 | CRM / Sales | /sales | src/app/sales/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0158 | CRM / Sales | /sales/quotes/[id] | src/app/sales/quotes/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0159 | CRM / Sales | /sales/quotes/new | src/app/sales/quotes/new/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0160 | CRM / Sales | /sales/quotes | src/app/sales/quotes/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0161 | Service / Assets | /service/[id] | src/app/service/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0162 | Service / Assets | /service/assets | src/app/service/assets/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0163 | Service / Assets | /service | src/app/service/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0164 | Admin / Settings | /setup | src/app/setup/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0165 | Shipping / Logistics | /shipping/[id] | src/app/shipping/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0166 | Shipping / Logistics | /shipping | src/app/shipping/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0167 | Accounts / Roles | /signup/complete | src/app/signup/complete/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0168 | Accounts / Roles | /signup | src/app/signup/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0169 | Purchasing / Receiving | /suppliers/[id] | src/app/suppliers/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0170 | Purchasing / Receiving | /suppliers | src/app/suppliers/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0171 | Platform / Other | /support/[id] | src/app/support/[id]/page.tsx:1 | UNTESTED | Not exercised in a named acceptance scenario |
+| PAGE-0172 | Platform / Other | /support | src/app/support/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0173 | Platform / Other | /support/t/[token] | src/app/support/t/[token]/page.tsx:1 | UNTESTED | Not exercised in a named acceptance scenario |
+| PAGE-0174 | Manufacturing / Test | /test-center | src/app/test-center/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0175 | Manufacturing / Test | /test-procedures/[id] | src/app/test-procedures/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0176 | Manufacturing / Test | /test-procedures | src/app/test-procedures/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0177 | Manufacturing / Test | /trace/serials/[serial] | src/app/trace/serials/[serial]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0178 | Manufacturing / Test | /trace/serials | src/app/trace/serials/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0179 | Inventory / Kitting | /uom | src/app/uom/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0180 | Platform / Other | /value-stream | src/app/value-stream/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0181 | Service / Assets | /virtual-assets/[id] | src/app/virtual-assets/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0182 | Service / Assets | /virtual-assets | src/app/virtual-assets/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0183 | Platform / Other | /welcome | src/app/welcome/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0184 | Manufacturing / Test | /work-instructions/[id] | src/app/work-instructions/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0185 | Manufacturing / Test | /work-instructions/new | src/app/work-instructions/new/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0186 | Manufacturing / Test | /work-instructions | src/app/work-instructions/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0187 | Manufacturing / Test | /work-orders/[id] | src/app/work-orders/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0188 | Manufacturing / Test | /work-orders | src/app/work-orders/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass; current/round3-ui-results.json: PASS Desktop Chromium render/hydration /work-orders |
+| PAGE-0189 | Manufacturing / Test | /workcenters/[id] | src/app/workcenters/[id]/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
+| PAGE-0190 | Manufacturing / Test | /workcenters | src/app/workcenters/page.tsx:1 | PASS | HTTP render only; buttons/visuals need UI pass |
 
 ### ACTION checklist
 
 | ID | Module | Function / route / model | Source | Status | Evidence / next step |
 |---|---|---|---|---|---|
-| ACTION-0001 | Accounts / Roles | actionStartMfa | `src/app/account/mfa-actions.ts:25` | UNTESTED | Not yet exercised |
-| ACTION-0002 | Accounts / Roles | actionConfirmMfa | `src/app/account/mfa-actions.ts:56` | UNTESTED | Not yet exercised |
-| ACTION-0003 | Accounts / Roles | actionDisableMfa | `src/app/account/mfa-actions.ts:74` | UNTESTED | Not yet exercised |
-| ACTION-0004 | Platform / Other | actionReceivePo | `src/app/actions.ts:135` | PASS | finance-supply-results.json: PASS PO receiving action persists dock receipt and material trace |
-| ACTION-0005 | Platform / Other | actionCompleteReceivingPutaway | `src/app/actions.ts:441` | PASS | ; current/round3-receiving-deep-results.json: PASS Mixed QA/Test gates and dock HTTP putaway finish family exactly once |
-| ACTION-0006 | Platform / Other | actionCreateGfpTraveler | `src/app/actions.ts:473` | UNTESTED | Not yet exercised |
-| ACTION-0007 | Platform / Other | actionCloseGfpTraveler | `src/app/actions.ts:531` | UNTESTED | Not yet exercised |
-| ACTION-0008 | Platform / Other | actionClosePurchaseOrder | `src/app/actions.ts:541` | UNTESTED | Not yet exercised |
-| ACTION-0009 | Platform / Other | actionClosePoFromReceiving | `src/app/actions.ts:568` | UNTESTED | Not yet exercised |
-| ACTION-0010 | Platform / Other | actionCreateItemBom | `src/app/actions.ts:572` | UNTESTED | Not yet exercised |
-| ACTION-0011 | Platform / Other | actionAddBomLine | `src/app/actions.ts:580` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionAddBomLine requires bom.edit |
-| ACTION-0012 | Platform / Other | actionQuickCreatePart | `src/app/actions.ts:602` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionQuickCreatePart requires items.manage |
-| ACTION-0013 | Platform / Other | actionRemoveBomLine | `src/app/actions.ts:630` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionRemoveBomLine requires bom.edit |
-| ACTION-0014 | Platform / Other | actionCloseMrbCase | `src/app/actions.ts:643` | PASS | round2-quality-results.json: PASS MRB USE_AS_IS action releases quarantine and close action finalizes; current/round2-quality-results.json: PASS MRB USE_AS_IS action releases quarantine and close action finalizes |
-| ACTION-0015 | Platform / Other | actionDispositionMrb | `src/app/actions.ts:652` | PASS | round2-quality-results.json: PASS MRB USE_AS_IS action releases quarantine and close action finalizes; current/round2-quality-results.json: PASS MRB USE_AS_IS action releases quarantine and close action finalizes |
-| ACTION-0016 | Platform / Other | actionUpdateCar | `src/app/actions.ts:687` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionUpdateCar requires mrb.car.manage |
-| ACTION-0017 | Platform / Other | actionSignOffStep | `src/app/actions.ts:720` | PASS | priority-results.json: PASS Start kitted production and sign traveler via own PIN actions |
-| ACTION-0018 | Platform / Other | actionSendWoToReceivingPutaway | `src/app/actions.ts:775` | PASS | priority-results.json: PASS Completed production handoff then stock action closes WO |
-| ACTION-0019 | Platform / Other | actionUpdateWoStatus | `src/app/actions.ts:814` | UNTESTED | Not yet exercised |
-| ACTION-0020 | Platform / Other | actionSaveWorkCenter | `src/app/actions.ts:839` | UNTESTED | Not yet exercised |
-| ACTION-0021 | Platform / Other | actionReorderWorkCenters | `src/app/actions.ts:877` | UNTESTED | Not yet exercised |
-| ACTION-0022 | Platform / Other | actionScanWorkOrderToStation | `src/app/actions.ts:904` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionScanWorkOrderToStation requires workorders.status.update |
-| ACTION-0023 | Platform / Other | actionReassignWoStation | `src/app/actions.ts:968` | UNTESTED | Not yet exercised |
-| ACTION-0024 | Platform / Other | actionReassignStepStation | `src/app/actions.ts:989` | UNTESTED | Not yet exercised |
-| ACTION-0025 | Platform / Other | actionUpdateWiStepRouting | `src/app/actions.ts:1013` | UNTESTED | Not yet exercised |
-| ACTION-0569 | Platform / Other | actionSetBomPrototypeRequirement | `src/app/actions.ts:1049` | UNTESTED | Not yet exercised |
-| ACTION-0570 | Platform / Other | actionSetBomPrototypeDefault | `src/app/actions.ts:1061` | UNTESTED | Not yet exercised |
-| ACTION-0026 | Platform / Other | actionCertifyBomForPrototype | `src/app/actions.ts:1070` | UNTESTED | Not yet exercised |
-| ACTION-0027 | Platform / Other | actionCertifyBom | `src/app/actions.ts:1080` | UNTESTED | Not yet exercised |
-| ACTION-0028 | Platform / Other | actionCreateWoFromBom | `src/app/actions.ts:1090` | PASS | manufacturing-edge-results.json: PASS Standalone production action uses existing certified BOM without SO |
-| ACTION-0029 | Platform / Other | actionCreateForecast | `src/app/actions.ts:1128` | PASS | priority-results.json: FAIL Permission OPERATOR denied actionCreateForecast; round2-auth-results.json: FAIL Real OPERATOR session denied forecast creation; FIX VERIFIED current 3de5ba1: integrity-retest.log / bom-lifecycle-retest.log and current HTTP retests; current/round2-auth-results.json: PASS Real OPERATOR session denied forecast creation |
-| ACTION-0030 | Platform / Other | actionGenerateMrsFromForecast | `src/app/actions.ts:1215` | UNTESTED | Not yet exercised |
-| ACTION-0031 | Platform / Other | actionUpdateForecast | `src/app/actions.ts:1243` | UNTESTED | Not yet exercised |
-| ACTION-0032 | Platform / Other | actionUpsertForecastLine | `src/app/actions.ts:1272` | UNTESTED | Not yet exercised |
-| ACTION-0033 | Platform / Other | actionRemoveForecastLine | `src/app/actions.ts:1300` | UNTESTED | Not yet exercised |
-| ACTION-0034 | Platform / Other | actionBulkRescheduleUnscheduled | `src/app/actions.ts:1322` | UNTESTED | Not yet exercised |
-| ACTION-0035 | Platform / Other | actionReleaseMaterialRequisition | `src/app/actions.ts:1351` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionReleaseMaterialRequisition requires planning.mrs.release |
-| ACTION-0036 | Platform / Other | actionUpdateMrsLine | `src/app/actions.ts:1392` | UNTESTED | Not yet exercised |
-| ACTION-0037 | Platform / Other | actionAddMrsLine | `src/app/actions.ts:1420` | UNTESTED | Not yet exercised |
-| ACTION-0038 | Platform / Other | actionRemoveMrsLine | `src/app/actions.ts:1437` | UNTESTED | Not yet exercised |
-| ACTION-0039 | Platform / Other | actionCreateRequirement | `src/app/actions.ts:1463` | UNTESTED | Not yet exercised |
-| ACTION-0040 | Platform / Other | actionUpdateRequirementStatus | `src/app/actions.ts:1488` | UNTESTED | Not yet exercised |
-| ACTION-0041 | Platform / Other | actionLinkRequirementWork | `src/app/actions.ts:1511` | UNTESTED | Not yet exercised |
-| ACTION-0042 | Platform / Other | actionRemoveRequirementTrace | `src/app/actions.ts:1531` | UNTESTED | Not yet exercised |
-| ACTION-0043 | Platform / Other | actionLogin | `src/app/actions.ts:1551` | PASS | round2-auth-results.json: PASS Real password login/session identifies ADMIN; round2-auth-results.json: PASS Real password login/session identifies OPERATOR; round2-auth-results.json: PASS Real password login/session identifies QUALITY; round2-auth-results.json: PASS Real password login/session identifies ACCOUNTING; round2-auth-results.json: PASS Real password login/session identifies PURCHASING; round2-auth-results.json: PASS Real password login/session identifies EXECUTIVE; current/round2-auth-results.json: PASS Real password login/session identifies ADMIN; current/round2-auth-results.json: PASS Real password login/session identifies OPERATOR; current/round2-auth-results.json: PASS Real password login/session identifies QUALITY; current/round2-auth-results.json: PASS Real password login/session identifies ACCOUNTING; current/round2-auth-results.json: PASS Real password login/session identifies PURCHASING; current/round2-auth-results.json: PASS Real password login/session identifies EXECUTIVE |
-| ACTION-0044 | Platform / Other | actionVerifyMfa | `src/app/actions.ts:1576` | UNTESTED | Not yet exercised |
-| ACTION-0045 | Platform / Other | actionCancelMfaLogin | `src/app/actions.ts:1590` | UNTESTED | Not yet exercised |
-| ACTION-0046 | Platform / Other | actionBootstrapInstance | `src/app/actions.ts:1596` | UNTESTED | Not yet exercised |
-| ACTION-0047 | Platform / Other | actionLogout | `src/app/actions.ts:1616` | PASS | round2-auth-results.json: PASS Logout revokes actual session and strict page denies; current/round2-auth-results.json: PASS Logout revokes actual session and strict page denies |
-| ACTION-0048 | Platform / Other | actionAcceptInvite | `src/app/actions.ts:1625` | UNTESTED | Not yet exercised |
-| ACTION-0049 | Platform / Other | actionClaimTenant | `src/app/actions.ts:1645` | UNTESTED | Not yet exercised |
-| ACTION-0050 | Platform / Other | actionReissueOnboarding | `src/app/actions.ts:1673` | UNTESTED | Not yet exercised |
-| ACTION-0051 | Platform / Other | actionInviteUser | `src/app/actions.ts:1705` | UNTESTED | Not yet exercised |
-| ACTION-0052 | Platform / Other | actionRequestPasswordReset | `src/app/actions.ts:1735` | UNTESTED | Not yet exercised |
-| ACTION-0053 | Platform / Other | actionChangePassword | `src/app/actions.ts:1809` | UNTESTED | Not yet exercised |
-| ACTION-0054 | Platform / Other | actionAttestDockAcceptance | `src/app/actions.ts:1831` | UNTESTED | Not yet exercised |
-| ACTION-0055 | Platform / Other | actionSendEmail | `src/app/actions.ts:1852` | UNTESTED | Not yet exercised |
-| ACTION-0056 | Platform / Other | actionParseInboundEmail | `src/app/actions.ts:1877` | UNTESTED | Not yet exercised |
-| ACTION-0057 | Platform / Other | actionCreateTaskWo | `src/app/actions.ts:1905` | PASS | priority-results.json: PASS Standalone task WO action creates without sales order |
-| ACTION-0058 | Platform / Other | actionCreateProductionWo | `src/app/actions.ts:1930` | PASS | manufacturing-edge-results.json: PASS Standalone production action uses existing certified BOM without SO |
-| ACTION-0059 | Platform / Other | actionApprovePr | `src/app/actions.ts:1934` | UNTESTED | Not yet exercised |
-| ACTION-0060 | Platform / Other | actionCreateStandalonePr | `src/app/actions.ts:1965` | PASS | priority-results.json: PASS Permission OPERATOR denied purchasing PR action without writes; priority-results.json: PASS Standalone PR draft action + submission routes approvals; round2-auth-results.json: PASS Real OPERATOR cannot create standalone PR; current/round2-auth-results.json: PASS Real OPERATOR cannot create standalone PR |
-| ACTION-0061 | Platform / Other | actionSaveApprovalPolicy | `src/app/actions.ts:2067` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionSaveApprovalPolicy requires purchasing.policy.manage |
-| ACTION-0062 | Platform / Other | actionAttachPrQuote | `src/app/actions.ts:2128` | UNTESTED | Not yet exercised |
-| ACTION-0063 | Platform / Other | actionSaveBuyerPackage | `src/app/actions.ts:2160` | PASS | finance-supply-results.json: PASS PR routing, buyer action, final approval and PO conversion actions |
-| ACTION-0064 | Platform / Other | actionConfirmBuyerPackage | `src/app/actions.ts:2294` | UNTESTED | Not yet exercised |
-| ACTION-0065 | Platform / Other | actionAssignPrBuyer | `src/app/actions.ts:2324` | UNTESTED | Not yet exercised |
-| ACTION-0066 | Platform / Other | actionConvertPrToPo | `src/app/actions.ts:2347` | PASS | finance-supply-results.json: PASS PR routing, buyer action, final approval and PO conversion actions; finance-supply-results.json: PASS Repeated PR-to-PO conversion does not create duplicate |
-| ACTION-0067 | Platform / Other | actionRefreshScorecard | `src/app/actions.ts:2507` | UNTESTED | Not yet exercised |
-| ACTION-0068 | Platform / Other | actionAiChat | `src/app/actions.ts:2514` | UNTESTED | Not yet exercised |
-| ACTION-0069 | Platform / Other | actionAdvanceWiStatus | `src/app/actions.ts:2518` | UNTESTED | Not yet exercised |
-| ACTION-0070 | Platform / Other | actionSubmitWiToCm | `src/app/actions.ts:2557` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionSubmitWiToCm requires wi.release |
-| ACTION-0071 | Platform / Other | actionCreateWiRevision | `src/app/actions.ts:2574` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionCreateWiRevision requires wi.create |
-| ACTION-0072 | Platform / Other | actionCreateWorkInstruction | `src/app/actions.ts:2589` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionCreateWorkInstruction requires wi.create |
-| ACTION-0073 | Platform / Other | actionAddWiStep | `src/app/actions.ts:2700` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionAddWiStep requires wi.edit |
-| ACTION-0074 | Platform / Other | actionLinkWiToBom | `src/app/actions.ts:2761` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionLinkWiToBom requires cm.ecr.manage |
-| ACTION-0075 | Platform / Other | actionVoteCm | `src/app/actions.ts:2784` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionVoteCm requires cm.vote |
-| ACTION-0076 | Platform / Other | actionCreateDocumentEcr | `src/app/actions.ts:2888` | UNTESTED | Not yet exercised |
-| ACTION-0077 | Platform / Other | actionAddEcrAttachments | `src/app/actions.ts:2963` | UNTESTED | Not yet exercised |
-| ACTION-0078 | Platform / Other | actionSetEcrPrimaryAttachment | `src/app/actions.ts:2997` | UNTESTED | Not yet exercised |
-| ACTION-0079 | Platform / Other | actionAddEcrComment | `src/app/actions.ts:3013` | UNTESTED | Not yet exercised |
-| ACTION-0080 | Platform / Other | actionAssignEcrApprovers | `src/app/actions.ts:3028` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionAssignEcrApprovers requires cm.ecr.manage |
-| ACTION-0081 | Platform / Other | actionReleaseDocumentEcr | `src/app/actions.ts:3046` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionReleaseDocumentEcr requires cm.ecr.manage |
-| ACTION-0082 | Platform / Other | actionMoveCmSubmission | `src/app/actions.ts:3066` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionMoveCmSubmission requires cm.ecr.manage |
-| ACTION-0083 | Platform / Other | actionMoveCmBoardCard | `src/app/actions.ts:3096` | UNTESTED | Not yet exercised |
-| ACTION-0084 | Platform / Other | actionCreateCmFolder | `src/app/actions.ts:3151` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionCreateCmFolder requires cm.ecr.manage |
-| ACTION-0085 | Platform / Other | actionDeleteCmFolder | `src/app/actions.ts:3170` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionDeleteCmFolder requires cm.ecr.manage |
-| ACTION-0086 | Platform / Other | actionMoveCmDocument | `src/app/actions.ts:3189` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionMoveCmDocument requires cm.ecr.manage |
-| ACTION-0087 | Platform / Other | actionDeleteCmDocument | `src/app/actions.ts:3203` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionDeleteCmDocument requires cm.ecr.manage |
-| ACTION-0088 | Platform / Other | actionCreateSalesOrder | `src/app/actions.ts:3286` | UNTESTED | Not yet exercised |
-| ACTION-0089 | Platform / Other | actionCreateQuote | `src/app/actions.ts:3346` | PASS | priority-results.json: PASS HTTP action create quote preserves line and PO reference |
-| ACTION-0090 | Platform / Other | actionUpdatePoDeliveryDates | `src/app/actions.ts:3383` | UNTESTED | Not yet exercised |
-| ACTION-0091 | Platform / Other | actionSetWorkOrderDueDate | `src/app/actions.ts:3427` | UNTESTED | Not yet exercised |
-| ACTION-0092 | Platform / Other | actionRequestPermission | `src/app/actions.ts:3455` | UNTESTED | Not yet exercised |
-| ACTION-0093 | Platform / Other | actionDecidePermissionRequest | `src/app/actions.ts:3499` | FAIL | ; current/round3-hr-auth-results.json: PASS Permission request 24h grant/admin denial/repeat decision; current/round3-hr-auth-results.json: FAIL Invalid permission decision must not silently grant permanently |
-| ACTION-0094 | Platform / Other | actionSetMyPin | `src/app/actions.ts:3575` | UNTESTED | Not yet exercised |
-| ACTION-0095 | Platform / Other | actionAdminResetPin | `src/app/actions.ts:3599` | UNTESTED | Not yet exercised |
-| ACTION-0096 | Platform / Other | actionMarkQuoteSent | `src/app/actions.ts:3628` | UNTESTED | Not yet exercised |
-| ACTION-0097 | Platform / Other | actionRecordCustomerPo | `src/app/actions.ts:3654` | PASS | priority-results.json: PASS Customer PO action converts quote to linked SO; priority-results.json: FAIL Repeat customer PO conversion does not regress converted quote; FIX VERIFIED current 3de5ba1: integrity-retest.log / bom-lifecycle-retest.log and current HTTP retests |
-| ACTION-0098 | Platform / Other | actionAcceptQuote | `src/app/actions.ts:3686` | UNTESTED | Not yet exercised |
-| ACTION-0099 | Platform / Other | actionSendQuote | `src/app/actions.ts:3725` | UNTESTED | Not yet exercised |
-| ACTION-0100 | Platform / Other | actionPlanSalesOrder | `src/app/actions.ts:3735` | PASS | manufacturing-edge-results.json: PASS OPERATOR cannot invoke SO planning action |
-| ACTION-0101 | Platform / Other | actionAssessCtp | `src/app/actions.ts:3771` | UNTESTED | Not yet exercised |
-| ACTION-0102 | Platform / Other | actionCreateCustomer | `src/app/actions.ts:3833` | PASS | priority-results.json: PASS HTTP action create customer persists; priority-results.json: PASS HTTP action duplicate preferred customer code safely deconflicts; priority-results.json: FAIL Permission OPERATOR denied actionCreateCustomer; round2-auth-results.json: FAIL Real OPERATOR session denied customer creation; round2-auth-results.json: PASS Anonymous native POST cannot create customer; FIX VERIFIED current 3de5ba1: integrity-retest.log / bom-lifecycle-retest.log and current HTTP retests; current/round2-auth-results.json: PASS Real OPERATOR session denied customer creation; current/round2-auth-results.json: PASS Anonymous native POST cannot create customer |
-| ACTION-0103 | Platform / Other | actionUpdateCustomer | `src/app/actions.ts:3857` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionUpdateCustomer requires customers.manage |
-| ACTION-0104 | Platform / Other | actionCheckWoMaterials | `src/app/actions.ts:3880` | UNTESTED | Not yet exercised |
-| ACTION-0105 | Platform / Other | actionPlanWoMaterials | `src/app/actions.ts:3906` | UNTESTED | Not yet exercised |
-| ACTION-0106 | Platform / Other | actionPutAwayItemWithLocation | `src/app/actions.ts:3910` | UNTESTED | Not yet exercised |
-| ACTION-0107 | Platform / Other | actionUpdatePartInspectionFlags | `src/app/actions.ts:3925` | UNTESTED | Not yet exercised |
-| ACTION-0108 | Platform / Other | actionCreateItem | `src/app/actions.ts:3967` | PASS | priority-results.json: PASS HTTP action create catalog item persists; priority-results.json: FAIL Permission OPERATOR denied actionCreateItem; round2-auth-results.json: FAIL Real OPERATOR session denied catalog creation; FIX VERIFIED current 3de5ba1: integrity-retest.log / bom-lifecycle-retest.log and current HTTP retests; current/round2-auth-results.json: PASS Real OPERATOR session denied catalog creation |
-| ACTION-0109 | Platform / Other | actionUpdateItem | `src/app/actions.ts:4000` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionUpdateItem requires items.manage |
-| ACTION-0110 | Platform / Other | actionUpsertPartVendor | `src/app/actions.ts:4069` | UNTESTED | Not yet exercised |
-| ACTION-0111 | Platform / Other | actionSaveUomUnit | `src/app/actions.ts:4104` | UNTESTED | Not yet exercised |
-| ACTION-0112 | Platform / Other | actionSaveUomConversion | `src/app/actions.ts:4124` | UNTESTED | Not yet exercised |
-| ACTION-0113 | Platform / Other | actionToggleSupplierAsl | `src/app/actions.ts:4137` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionToggleSupplierAsl requires suppliers.manage |
-| ACTION-0114 | Platform / Other | actionUpdateAslPolicy | `src/app/actions.ts:4158` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionUpdateAslPolicy requires suppliers.manage |
-| ACTION-0115 | Platform / Other | actionUpsertSupplierCert | `src/app/actions.ts:4174` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionUpsertSupplierCert requires suppliers.manage |
-| ACTION-0116 | Platform / Other | actionDeleteSupplierCert | `src/app/actions.ts:4202` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionDeleteSupplierCert requires suppliers.manage |
-| ACTION-0117 | Platform / Other | actionUpdateDepositStatus | `src/app/actions.ts:4213` | UNTESTED | Not yet exercised |
-| ACTION-0118 | Platform / Other | actionCompleteReceivingInspection | `src/app/actions.ts:4240` | FAIL | round2-auth-results.json: FAIL Real OPERATOR denied receiving inspection acceptance; round2-quality-results.json: PASS QC PASS actions create functional test only after both QA gates; current/round2-auth-results.json: FAIL Real OPERATOR denied receiving inspection acceptance; current/round2-quality-results.json: PASS QC PASS actions create functional test only after both QA gates |
-| ACTION-0119 | Platform / Other | actionScanIntoReceivingTraveler | `src/app/actions.ts:4301` | UNTESTED | Not yet exercised |
-| ACTION-0120 | Platform / Other | actionScanOutReceivingTraveler | `src/app/actions.ts:4319` | UNTESTED | Not yet exercised |
-| ACTION-0121 | Platform / Other | actionDeliverTravelerToStation | `src/app/actions.ts:4345` | UNTESTED | Not yet exercised |
-| ACTION-0122 | Platform / Other | actionCreateKit | `src/app/actions.ts:4383` | PASS | priority-results.json: PASS WO materials readiness and kit action create |
-| ACTION-0123 | Platform / Other | actionCompleteKit | `src/app/actions.ts:4416` | PASS | priority-results.json: PASS Complete kit action issues materials without negative stock |
-| ACTION-0124 | Platform / Other | actionAddPrototypeWiStep | `src/app/actions.ts:4450` | UNTESTED | Not yet exercised |
-| ACTION-0125 | Platform / Other | actionRefreshWoEstimate | `src/app/actions.ts:4540` | UNTESTED | Not yet exercised |
-| ACTION-0126 | Platform / Other | actionRescheduleWorkOrder | `src/app/actions.ts:4562` | UNTESTED | Not yet exercised |
-| ACTION-0127 | Platform / Other | actionSavePlanningSettings | `src/app/actions.ts:4601` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionSavePlanningSettings requires admin.users.manage |
-| ACTION-0128 | Platform / Other | actionCreateBudget | `src/app/actions.ts:4632` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionCreateBudget requires budgets.manage |
-| ACTION-0129 | Platform / Other | actionEnsureProjectWbsChargeCodes | `src/app/actions.ts:4687` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionEnsureProjectWbsChargeCodes requires budgets.manage |
-| ACTION-0130 | Platform / Other | actionUpdateBudget | `src/app/actions.ts:4718` | UNTESTED | Not yet exercised |
-| ACTION-0131 | Platform / Other | actionEnactBudget | `src/app/actions.ts:4769` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionEnactBudget requires budgets.manage |
-| ACTION-0132 | Platform / Other | actionCloseBudget | `src/app/actions.ts:4794` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionCloseBudget requires budgets.manage |
-| ACTION-0133 | Platform / Other | actionPostBudgetCharge | `src/app/actions.ts:4812` | UNTESTED | Not yet exercised |
-| ACTION-0134 | Platform / Other | actionSetUserCompensation | `src/app/actions.ts:4843` | UNTESTED | Not yet exercised |
-| ACTION-0135 | Platform / Other | actionFinishPrototypeWo | `src/app/actions.ts:4869` | UNTESTED | Not yet exercised |
-| ACTION-0136 | Platform / Other | actionStartProduction | `src/app/actions.ts:4903` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionStartProduction requires workorders.status.update |
-| ACTION-0137 | Platform / Other | actionCompleteWoToStock | `src/app/actions.ts:4921` | PASS | priority-results.json: PASS Completed production handoff then stock action closes WO; round2-finance-results.json: FAIL Task-only WO completes traveler then official completion without inventory; FIX VERIFIED current 3de5ba1: integrity-retest.log / bom-lifecycle-retest.log and current HTTP retests; current/round2-finance-results.json: PASS Task-only WO completes traveler then official completion without inventory |
-| ACTION-0138 | Platform / Other | actionPutAwayItem | `src/app/actions.ts:4969` | UNTESTED | Not yet exercised |
-| ACTION-0139 | Platform / Other | actionPutAwayAllReceiving | `src/app/actions.ts:4976` | UNTESTED | Not yet exercised |
-| ACTION-0140 | Platform / Other | actionShipSalesOrder | `src/app/actions.ts:4982` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionShipSalesOrder requires sales.order.ship |
-| ACTION-0141 | Platform / Other | actionRunKanbanReplenishment | `src/app/actions.ts:5007` | UNTESTED | Not yet exercised |
-| ACTION-0142 | Platform / Other | actionQueueShipment | `src/app/actions.ts:5019` | UNTESTED | Not yet exercised |
-| ACTION-0143 | Platform / Other | actionCreateManualShipment | `src/app/actions.ts:5035` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionCreateManualShipment requires sales.order.ship |
-| ACTION-0144 | Platform / Other | actionVerifyPackingList | `src/app/actions.ts:5089` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionVerifyPackingList requires sales.order.ship |
-| ACTION-0145 | Platform / Other | actionPackShipment | `src/app/actions.ts:5101` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionPackShipment requires sales.order.ship |
-| ACTION-0146 | Platform / Other | actionRequestCmNumber | `src/app/actions.ts:5132` | UNTESTED | Not yet exercised |
-| ACTION-0147 | Platform / Other | actionAssignCmNumber | `src/app/actions.ts:5152` | UNTESTED | Not yet exercised |
-| ACTION-0148 | Platform / Other | actionRejectCmNumberRequest | `src/app/actions.ts:5166` | UNTESTED | Not yet exercised |
-| ACTION-0149 | Platform / Other | actionCancelCmNumberRequest | `src/app/actions.ts:5180` | UNTESTED | Not yet exercised |
-| ACTION-0150 | Platform / Other | actionRegisterCmNumber | `src/app/actions.ts:5193` | UNTESTED | Not yet exercised |
-| ACTION-0151 | Platform / Other | actionUpdateCmNumberScheme | `src/app/actions.ts:5211` | UNTESTED | Not yet exercised |
-| ACTION-0152 | Platform / Other | actionUpdateRegistryStatus | `src/app/actions.ts:5241` | UNTESTED | Not yet exercised |
-| ACTION-0153 | Platform / Other | actionCreateProduct | `src/app/actions.ts:5258` | PASS | ; current/round3-pmo-plm-results.json: PASS PLM create action persists product and CM folder; current/round3-pmo-plm-results.json: PASS PLM blank name action rejects without product writes |
-| ACTION-0154 | Platform / Other | actionUpdateProduct | `src/app/actions.ts:5277` | PASS | ; current/round3-pmo-plm-results.json: PASS PLM update action persists cost and revision |
-| ACTION-0155 | Platform / Other | actionAdvanceProductLifecycle | `src/app/actions.ts:5295` | PASS | ; current/round3-pmo-plm-results.json: PASS PLM lifecycle action records phase/date/history; current/round3-pmo-plm-results.json: PASS PLM lifecycle invalid phase makes no change |
-| ACTION-0156 | Platform / Other | actionAddProductPart | `src/app/actions.ts:5312` | PASS | ; current/round3-pmo-plm-results.json: PASS PLM part add/remove actions maintain top-level pointer |
-| ACTION-0157 | Platform / Other | actionRemoveProductPart | `src/app/actions.ts:5327` | PASS | ; current/round3-pmo-plm-results.json: PASS PLM part add/remove actions maintain top-level pointer |
-| ACTION-0158 | Platform / Other | actionAddProductDocument | `src/app/actions.ts:5337` | PASS | ; current/round3-pmo-plm-results.json: PASS PLM document add/remove actions persist and remove link |
-| ACTION-0159 | Platform / Other | actionRemoveProductDocument | `src/app/actions.ts:5358` | PASS | ; current/round3-pmo-plm-results.json: PASS PLM document add/remove actions persist and remove link |
-| ACTION-0160 | Platform / Other | actionAddProductRequirement | `src/app/actions.ts:5368` | PASS | ; current/round3-pmo-plm-results.json: PASS PLM requirements create/update/remove actions |
-| ACTION-0161 | Platform / Other | actionUpdateProductRequirement | `src/app/actions.ts:5390` | PASS | ; current/round3-pmo-plm-results.json: PASS PLM requirements create/update/remove actions |
-| ACTION-0162 | Platform / Other | actionRemoveProductRequirement | `src/app/actions.ts:5406` | PASS | ; current/round3-pmo-plm-results.json: PASS PLM requirements create/update/remove actions |
-| ACTION-0163 | Platform / Other | actionAddProductVariant | `src/app/actions.ts:5416` | FAIL | ; current/round3-pmo-plm-results.json: PASS PLM variants unique default and remove actions; current/round3-pmo-plm-results.json: FAIL PLM failed duplicate default variant preserves previous default |
-| ACTION-0164 | Platform / Other | actionRemoveProductVariant | `src/app/actions.ts:5437` | PASS | ; current/round3-pmo-plm-results.json: PASS PLM variants unique default and remove actions |
-| ACTION-0165 | Platform / Other | actionAddProductMilestone | `src/app/actions.ts:5447` | PASS | ; current/round3-pmo-plm-results.json: PASS PLM milestone add/update/remove actions |
-| ACTION-0166 | Platform / Other | actionUpdateProductMilestone | `src/app/actions.ts:5465` | PASS | ; current/round3-pmo-plm-results.json: PASS PLM milestone add/update/remove actions |
-| ACTION-0167 | Platform / Other | actionRemoveProductMilestone | `src/app/actions.ts:5483` | PASS | ; current/round3-pmo-plm-results.json: PASS PLM milestone add/update/remove actions |
-| ACTION-0168 | Platform / Other | actionAddProductMember | `src/app/actions.ts:5493` | PASS | ; current/round3-pmo-plm-results.json: PASS PLM team add/remove actions |
-| ACTION-0169 | Platform / Other | actionRemoveProductMember | `src/app/actions.ts:5506` | PASS | ; current/round3-pmo-plm-results.json: PASS PLM team add/remove actions |
-| ACTION-0170 | Platform / Other | actionCreateProgram | `src/app/actions.ts:5531` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO program create contract update and CLIN actions |
-| ACTION-0171 | Platform / Other | actionUpdateProgramContract | `src/app/actions.ts:5559` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO program create contract update and CLIN actions |
-| ACTION-0172 | Platform / Other | actionAddProgramClin | `src/app/actions.ts:5580` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO program create contract update and CLIN actions |
-| ACTION-0173 | Platform / Other | actionSaveIndirectRate | `src/app/actions.ts:5598` | UNTESTED | Not yet exercised |
-| ACTION-0174 | Platform / Other | actionSetAccountAllowability | `src/app/actions.ts:5617` | UNTESTED | Not yet exercised |
-| ACTION-0175 | Platform / Other | actionSetGovconControls | `src/app/actions.ts:5639` | UNTESTED | Not yet exercised |
-| ACTION-0176 | Platform / Other | actionCreatePmoProject | `src/app/actions.ts:5664` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO project create and charter update actions |
-| ACTION-0177 | Platform / Other | actionUpdateProjectCharter | `src/app/actions.ts:5696` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO project create and charter update actions |
-| ACTION-0178 | Platform / Other | actionAddProjectRisk | `src/app/actions.ts:5741` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO risk create and mitigation update |
-| ACTION-0179 | Platform / Other | actionUpdateProjectRisk | `src/app/actions.ts:5761` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO risk create and mitigation update |
-| ACTION-0180 | Platform / Other | actionAddProjectIssue | `src/app/actions.ts:5775` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO issue create and resolution update |
-| ACTION-0181 | Platform / Other | actionUpdateProjectIssue | `src/app/actions.ts:5789` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO issue create and resolution update |
-| ACTION-0182 | Platform / Other | actionUpsertRaci | `src/app/actions.ts:5803` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO RACI create update delete actions |
-| ACTION-0183 | Platform / Other | actionDeleteRaci | `src/app/actions.ts:5820` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO RACI create update delete actions |
-| ACTION-0184 | Platform / Other | actionAddCommunication | `src/app/actions.ts:5828` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO communication add/delete actions |
-| ACTION-0185 | Platform / Other | actionDeleteCommunication | `src/app/actions.ts:5846` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO communication add/delete actions |
-| ACTION-0186 | Platform / Other | actionAddPmoTask | `src/app/actions.ts:5856` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO task create and DONE action sets percent complete |
-| ACTION-0187 | Platform / Other | actionUpdatePmoTask | `src/app/actions.ts:5878` | FAIL | ; current/round3-pmo-plm-results.json: PASS PMO task create and DONE action sets percent complete; current/round3-pmo-plm-results.json: FAIL PMO task rejects completion above 100 percent |
-| ACTION-0188 | Platform / Other | actionAddPmoMilestone | `src/app/actions.ts:5890` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO milestone create and achieve sets actual date |
-| ACTION-0189 | Platform / Other | actionUpdatePmoMilestone | `src/app/actions.ts:5904` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO milestone create and achieve sets actual date |
-| ACTION-0190 | Platform / Other | actionSaveWikiPage | `src/app/actions.ts:5917` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO wiki create/update body round-trip |
-| ACTION-0191 | Platform / Other | actionCreatePi | `src/app/actions.ts:5933` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO PI and feature action links story points |
-| ACTION-0192 | Platform / Other | actionAddPiFeature | `src/app/actions.ts:5948` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO PI and feature action links story points |
-| ACTION-0193 | Platform / Other | actionAddCostEntry | `src/app/actions.ts:5962` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO cost action reconciles project/product rollups |
-| ACTION-0194 | Platform / Other | actionAddProjectRequirement | `src/app/actions.ts:5980` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO requirement create/sync actions are repeat-idempotent |
-| ACTION-0195 | Platform / Other | actionSyncReqsToProduct | `src/app/actions.ts:5998` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO requirement create/sync actions are repeat-idempotent |
-| ACTION-0196 | Platform / Other | actionSyncMilestonesToProduct | `src/app/actions.ts:6010` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO milestone sync action is repeat-idempotent |
-| ACTION-0197 | Platform / Other | actionLinkProductToProject | `src/app/actions.ts:6022` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO linked product action is repeat-idempotent |
-| ACTION-0198 | Platform / Other | actionCreateWbs | `src/app/actions.ts:6039` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO WBS create/update actions retain hierarchy and progress |
-| ACTION-0199 | Platform / Other | actionUpdateWbs | `src/app/actions.ts:6064` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO WBS create/update actions retain hierarchy and progress |
-| ACTION-0200 | Platform / Other | actionCreateCampaign | `src/app/actions.ts:6093` | UNTESTED | Not yet exercised |
-| ACTION-0201 | Platform / Other | actionUpdateCampaign | `src/app/actions.ts:6118` | UNTESTED | Not yet exercised |
-| ACTION-0202 | Platform / Other | actionCreateSaga | `src/app/actions.ts:6134` | UNTESTED | Not yet exercised |
-| ACTION-0203 | Platform / Other | actionUpdateSaga | `src/app/actions.ts:6171` | UNTESTED | Not yet exercised |
-| ACTION-0204 | Platform / Other | actionCreateEngTask | `src/app/actions.ts:6187` | UNTESTED | Not yet exercised |
-| ACTION-0205 | Platform / Other | actionUpdateEngTask | `src/app/actions.ts:6230` | UNTESTED | Not yet exercised |
-| ACTION-0206 | Platform / Other | actionScanIn | `src/app/actions.ts:6251` | UNTESTED | Not yet exercised |
-| ACTION-0207 | Platform / Other | actionScanOut | `src/app/actions.ts:6268` | UNTESTED | Not yet exercised |
-| ACTION-0208 | Platform / Other | actionBreakDownTask | `src/app/actions.ts:6285` | UNTESTED | Not yet exercised |
-| ACTION-0209 | Platform / Other | actionAddEngDependency | `src/app/actions.ts:6303` | UNTESTED | Not yet exercised |
-| ACTION-0210 | Platform / Other | actionRemoveEngDependency | `src/app/actions.ts:6353` | UNTESTED | Not yet exercised |
-| ACTION-0211 | Platform / Other | actionCreateEngSprint | `src/app/actions.ts:6365` | UNTESTED | Not yet exercised |
-| ACTION-0212 | Platform / Other | actionCreatePlanningQuarter | `src/app/actions.ts:6386` | UNTESTED | Not yet exercised |
-| ACTION-0213 | Platform / Other | actionUpdatePlanningQuarter | `src/app/actions.ts:6406` | UNTESTED | Not yet exercised |
-| ACTION-0214 | Platform / Other | actionCreatePmoSprint | `src/app/actions.ts:6420` | UNTESTED | Not yet exercised |
-| ACTION-0215 | Platform / Other | actionUpsertBusinessPriority | `src/app/actions.ts:6438` | UNTESTED | Not yet exercised |
-| ACTION-0216 | Platform / Other | actionSetPriorityStatus | `src/app/actions.ts:6462` | UNTESTED | Not yet exercised |
-| ACTION-0217 | Platform / Other | actionAssignUserGroup | `src/app/actions.ts:6476` | FAIL | ; current/round3-hr-auth-results.json: PASS Admin permission group create/toggle/assign/remove action chain; current/round3-hr-auth-results.json: FAIL Operator must not self-assign privileged permission group |
-| ACTION-0218 | Platform / Other | actionRemoveUserGroup | `src/app/actions.ts:6488` | PASS | ; current/round3-hr-auth-results.json: PASS Admin permission group create/toggle/assign/remove action chain |
-| ACTION-0219 | Platform / Other | actionGrantUserPermission | `src/app/actions.ts:6500` | FAIL | ; current/round3-hr-auth-results.json: FAIL Individual permanent regrant clears expired temporary expiry; current/round3-hr-auth-results.json: PASS Individual explicit deny overrides role and group grants; current/round3-hr-auth-results.json: FAIL Operator must not self-grant admin.permissions |
-| ACTION-0220 | Platform / Other | actionPostJournal | `src/app/actions.ts:6514` | PASS | priority-results.json: FAIL Permission OPERATOR denied posting journal action; priority-results.json: PASS Journal action creates balanced pending entry; finance-supply-results.json: FAIL Non-controller accountant cannot postNow around required approval; round2-auth-results.json: FAIL Real OPERATOR session denied GL posting; round2-auth-results.json: FAIL Real ACCOUNTING cannot immediately post around required approval; FIX VERIFIED current 3de5ba1: integrity-retest.log / bom-lifecycle-retest.log and current HTTP retests; current/round2-auth-results.json: PASS Real OPERATOR session denied GL posting; current/round2-auth-results.json: PASS Real ACCOUNTING cannot immediately post around required approval |
-| ACTION-0221 | Platform / Other | actionUpdateEngSprint | `src/app/actions.ts:6582` | UNTESTED | Not yet exercised |
-| ACTION-0222 | Platform / Other | actionAssignTaskSprint | `src/app/actions.ts:6598` | UNTESTED | Not yet exercised |
-| ACTION-0223 | Platform / Other | actionAssignSagaSprint | `src/app/actions.ts:6614` | UNTESTED | Not yet exercised |
-| ACTION-0224 | Platform / Other | actionCreateProductionEngIssue | `src/app/actions.ts:6630` | UNTESTED | Not yet exercised |
-| ACTION-0225 | Platform / Other | actionAcceptProductionIssue | `src/app/actions.ts:6660` | UNTESTED | Not yet exercised |
-| ACTION-0226 | Platform / Other | actionUpdateProductionEngIssue | `src/app/actions.ts:6679` | UNTESTED | Not yet exercised |
-| ACTION-0227 | Platform / Other | actionMoveEngWork | `src/app/actions.ts:6704` | UNTESTED | Not yet exercised |
-| ACTION-0228 | Platform / Other | actionCreateSwimLane | `src/app/actions.ts:6727` | UNTESTED | Not yet exercised |
-| ACTION-0229 | Platform / Other | actionRemoveSwimLane | `src/app/actions.ts:6738` | UNTESTED | Not yet exercised |
-| ACTION-0230 | Platform / Other | actionMarkEngAlertRead | `src/app/actions.ts:6748` | UNTESTED | Not yet exercised |
-| ACTION-0231 | Platform / Other | actionAttachGfpDocument | `src/app/actions.ts:6760` | UNTESTED | Not yet exercised |
-| ACTION-0232 | Platform / Other | actionSetGfpAuditInterval | `src/app/actions.ts:6783` | UNTESTED | Not yet exercised |
-| ACTION-0233 | Platform / Other | actionCompleteGfpAudit | `src/app/actions.ts:6794` | UNTESTED | Not yet exercised |
-| ACTION-0234 | Platform / Other | actionCheckoutGfp | `src/app/actions.ts:6808` | UNTESTED | Not yet exercised |
-| ACTION-0235 | Platform / Other | actionCheckinGfp | `src/app/actions.ts:6823` | UNTESTED | Not yet exercised |
-| ACTION-0236 | Platform / Other | actionRequestGfpConsumption | `src/app/actions.ts:6842` | UNTESTED | Not yet exercised |
-| ACTION-0237 | Platform / Other | actionDecideGfpConsumption | `src/app/actions.ts:6859` | UNTESTED | Not yet exercised |
-| ACTION-0238 | Platform / Other | actionCreateVirtualAsset | `src/app/actions.ts:6883` | UNTESTED | Not yet exercised |
-| ACTION-0239 | Platform / Other | actionAssignVirtualAsset | `src/app/actions.ts:6918` | UNTESTED | Not yet exercised |
-| ACTION-0240 | Platform / Other | actionCheckoutVirtualAsset | `src/app/actions.ts:6934` | UNTESTED | Not yet exercised |
-| ACTION-0241 | Platform / Other | actionReturnVirtualAsset | `src/app/actions.ts:6950` | UNTESTED | Not yet exercised |
-| ACTION-0242 | Platform / Other | actionUnassignVirtualAsset | `src/app/actions.ts:6965` | UNTESTED | Not yet exercised |
-| ACTION-0243 | Platform / Other | actionAlignBusinessPriority | `src/app/actions.ts:6981` | UNTESTED | Not yet exercised |
-| ACTION-0244 | Platform / Other | actionAssignWorkCenterStaff | `src/app/actions.ts:7033` | UNTESTED | Not yet exercised |
-| ACTION-0245 | Platform / Other | actionRemoveWorkCenterStaff | `src/app/actions.ts:7048` | UNTESTED | Not yet exercised |
-| ACTION-0246 | Platform / Other | actionCreateAccount | `src/app/actions.ts:7061` | FAIL | ; current/round3-finance-deep-results.json: FAIL Operator cannot create general-ledger accounts |
-| ACTION-0247 | Platform / Other | actionUpdateAccount | `src/app/actions.ts:7091` | FAIL | ; current/round3-finance-deep-results.json: FAIL Operator cannot modify general-ledger accounts |
-| ACTION-0248 | Platform / Other | actionQueueShipmentAndOpen | `src/app/actions.ts:7110` | UNTESTED | Not yet exercised |
-| ACTION-0249 | Platform / Other | actionDecidePto | `src/app/actions.ts:7130` | PASS | ; current/round3-hr-auth-results.json: PASS HR PTO request/approval and missing rejection reason gate |
-| ACTION-0250 | Platform / Other | actionRequestPto | `src/app/actions.ts:7152` | FAIL | ; current/round3-hr-auth-results.json: PASS HR PTO request/approval and missing rejection reason gate; current/round3-hr-auth-results.json: FAIL HR PTO request must belong to logged-in actor; current/round3-hr-auth-results.json: FAIL HR PTO reverse date interval rejected |
-| ACTION-0251 | Platform / Other | actionDecideTimeEntry | `src/app/actions.ts:7173` | UNTESTED | Not yet exercised |
-| ACTION-0252 | Platform / Other | actionAdvanceExpense | `src/app/actions.ts:7195` | FAIL | ; current/round3-finance-deep-results.json: PASS Expense owner submit and unrelated reviewer denial; current/round3-finance-deep-results.json: FAIL HR cannot bypass accounting payment by generic PAID transition; current/round3-finance-deep-results.json: FAIL Operator cannot submit another employee expense report |
-| ACTION-0253 | Platform / Other | actionReimburseExpense | `src/app/actions.ts:7213` | FAIL | ; current/round3-finance-deep-results.json: FAIL Accounting can reimburse already HR-approved expense under journal SoD |
-| ACTION-0254 | Platform / Other | actionUpdateGoalProgress | `src/app/actions.ts:7227` | FAIL | ; current/round3-hr-auth-results.json: PASS HR employee goal create/progress/checkin action chain; current/round3-hr-auth-results.json: PASS HR goal progress clamps to 0..100; current/round3-hr-auth-results.json: FAIL HR operator cannot alter another employee goal progress |
-| ACTION-0255 | Platform / Other | actionSwitchDemoUser | `src/app/actions.ts:7240` | UNTESTED | Not yet exercised |
-| ACTION-0256 | Platform / Other | actionSavePerformanceReview | `src/app/actions.ts:7266` | FAIL | ; current/round3-reviews-results.json: PASS HR manager review requires rationale and can write discussion notes; current/round3-reviews-results.json: FAIL HR manager score must remain within the documented 1-to-5 scale; current/round3-reviews-results.json: PASS HR completed review rejects later manager note mutation |
-| ACTION-0257 | Platform / Other | actionCreateEmployeeGoal | `src/app/actions.ts:7322` | PASS | ; current/round3-hr-auth-results.json: PASS HR employee goal create/progress/checkin action chain |
-| ACTION-0258 | Platform / Other | actionAddEmployeeDocument | `src/app/actions.ts:7356` | PASS | ; current/round3-hr-auth-results.json: PASS HR employee document self-add and unrelated target denial |
-| ACTION-0259 | Platform / Other | actionAddTrainingRecord | `src/app/actions.ts:7396` | PASS | ; current/round3-hr-auth-results.json: PASS HR training cycle create, evidence and toggle action chain |
-| ACTION-0260 | Platform / Other | actionCreateTrainingRequirement | `src/app/actions.ts:7466` | PASS | ; current/round3-hr-auth-results.json: PASS HR training cycle create, evidence and toggle action chain |
-| ACTION-0261 | Platform / Other | actionToggleTrainingRequirement | `src/app/actions.ts:7505` | PASS | ; current/round3-hr-auth-results.json: PASS HR training cycle create, evidence and toggle action chain |
-| ACTION-0262 | Platform / Other | actionAttachTrainingEvidence | `src/app/actions.ts:7526` | PASS | ; current/round3-hr-auth-results.json: PASS HR training cycle create, evidence and toggle action chain |
-| ACTION-0263 | Platform / Other | actionGoalCheckIn | `src/app/actions.ts:7567` | PASS | ; current/round3-hr-auth-results.json: PASS HR employee goal create/progress/checkin action chain; current/round3-hr-auth-results.json: PASS HR goal check-in denies unrelated employee |
-| ACTION-0264 | Platform / Other | actionImportData | `src/app/actions.ts:7600` | UNTESTED | Not yet exercised |
-| ACTION-0265 | Platform / Other | actionAddFeedbackNote | `src/app/actions.ts:7645` | UNTESTED | Not yet exercised |
-| ACTION-0266 | Platform / Other | actionCreatePermissionGroup | `src/app/actions.ts:7681` | PASS | ; current/round3-hr-auth-results.json: PASS Admin permission group create/toggle/assign/remove action chain; current/round3-hr-auth-results.json: PASS Operator cannot create permission group or toggle its grants |
-| ACTION-0267 | Platform / Other | actionToggleGroupPermission | `src/app/actions.ts:7701` | PASS | ; current/round3-hr-auth-results.json: PASS Admin permission group create/toggle/assign/remove action chain; current/round3-hr-auth-results.json: PASS Operator cannot create permission group or toggle its grants |
-| ACTION-0268 | Platform / Other | actionShipReturnShipment | `src/app/actions.ts:7719` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionShipReturnShipment requires sales.order.ship |
-| ACTION-0269 | Platform / Other | actionAddTimesheetEntry | `src/app/actions.ts:7767` | FAIL | ; current/round3-hr-auth-results.json: PASS HR timesheet add/remove native action chain; current/round3-hr-auth-results.json: FAIL HR date-only entry stays in selected local payroll period |
-| ACTION-0270 | Platform / Other | actionRemoveTimesheetEntry | `src/app/actions.ts:7787` | PASS | ; current/round3-hr-auth-results.json: PASS HR timesheet add/remove native action chain; current/round3-hr-auth-results.json: PASS HR timesheet refuses foreign deletion and foreign grid edit |
-| ACTION-0271 | Platform / Other | actionSubmitTimesheet | `src/app/actions.ts:7800` | PASS | ; current/round3-hr-auth-results.json: PASS HR timecard submit and wrong reviewer denial |
-| ACTION-0272 | Platform / Other | actionDecideTimesheetApproval | `src/app/actions.ts:7811` | PASS | ; current/round3-hr-auth-results.json: PASS HR timecard bucket approval and processing to payroll actions |
-| ACTION-0273 | Platform / Other | actionReviewTimecard | `src/app/actions.ts:7838` | PASS | ; current/round3-hr-auth-results.json: PASS HR timecard submit and wrong reviewer denial |
-| ACTION-0274 | Platform / Other | actionSaveTimecardGrid | `src/app/actions.ts:7868` | PASS | ; current/round3-hr-auth-results.json: PASS HR timesheet refuses foreign deletion and foreign grid edit; current/round3-hr-auth-results.json: PASS HR timecard grid saves own hours and rejects daily overflow |
-| ACTION-0275 | Platform / Other | actionProcessTimesheet | `src/app/actions.ts:7891` | PASS | ; current/round3-hr-auth-results.json: PASS HR timecard bucket approval and processing to payroll actions |
-| ACTION-0276 | Platform / Other | actionCreateTestProcedure | `src/app/actions.ts:7907` | UNTESTED | Not yet exercised |
-| ACTION-0277 | Platform / Other | actionAddTestProcedureStep | `src/app/actions.ts:7929` | UNTESTED | Not yet exercised |
-| ACTION-0278 | Platform / Other | actionReleaseTestProcedure | `src/app/actions.ts:7953` | UNTESTED | Not yet exercised |
-| ACTION-0279 | Platform / Other | actionSubmitTestProcedureToCm | `src/app/actions.ts:7978` | UNTESTED | Not yet exercised |
-| ACTION-0280 | Platform / Other | actionRecordTestSignOff | `src/app/actions.ts:7993` | UNTESTED | Not yet exercised |
-| ACTION-0281 | Platform / Other | actionCreateAsset | `src/app/actions.ts:8018` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionCreateAsset requires assets.manage |
-| ACTION-0282 | Platform / Other | actionCheckoutAsset | `src/app/actions.ts:8039` | UNTESTED | Not yet exercised |
-| ACTION-0283 | Platform / Other | actionCheckinAsset | `src/app/actions.ts:8060` | UNTESTED | Not yet exercised |
-| ACTION-0284 | Platform / Other | actionConnectBank | `src/app/actions.ts:8073` | PASS | ; current/round3-finance-deep-results.json: PASS Bank connect/import CSV and repeat import preserve exact balance |
-| ACTION-0285 | Platform / Other | actionImportBankTransactions | `src/app/actions.ts:8094` | PASS | ; current/round3-finance-deep-results.json: PASS Bank connect/import CSV and repeat import preserve exact balance |
-| ACTION-0286 | Platform / Other | actionCategorizeBankTxn | `src/app/actions.ts:8120` | FAIL | ; current/round3-finance-deep-results.json: PASS Bank categorize once posts balanced exact withdrawal; current/round3-finance-deep-results.json: FAIL Bank recategorize matched transaction does not post a second journal; current/round3-finance-deep-results.json: FAIL Bank operator without accounting permission cannot categorize |
-| ACTION-0287 | Platform / Other | actionReconcileBankTxn | `src/app/actions.ts:8133` | FAIL | ; current/round3-finance-deep-results.json: FAIL Bank operator cannot reconcile matched transaction; current/round3-finance-deep-results.json: PASS Bank authorized reconciliation and pre-match gate |
-| ACTION-0288 | Platform / Other | actionReverseJournal | `src/app/actions.ts:8139` | UNTESTED | Not yet exercised |
-| ACTION-0289 | Platform / Other | actionSetSupplier1099 | `src/app/actions.ts:8159` | UNTESTED | Not yet exercised |
-| ACTION-0290 | Platform / Other | actionCreateScheduledReport | `src/app/actions.ts:8179` | UNTESTED | Not yet exercised |
-| ACTION-0291 | Platform / Other | actionToggleScheduledReport | `src/app/actions.ts:8203` | UNTESTED | Not yet exercised |
-| ACTION-0292 | Platform / Other | actionDeleteScheduledReport | `src/app/actions.ts:8218` | UNTESTED | Not yet exercised |
-| ACTION-0293 | Platform / Other | actionRunScheduledReports | `src/app/actions.ts:8231` | UNTESTED | Not yet exercised |
-| ACTION-0294 | Platform / Other | actionReclassifyLines | `src/app/actions.ts:8248` | UNTESTED | Not yet exercised |
-| ACTION-0295 | Platform / Other | actionCreateRecurringJournal | `src/app/actions.ts:8281` | UNTESTED | Not yet exercised |
-| ACTION-0296 | Platform / Other | actionToggleRecurringJournal | `src/app/actions.ts:8322` | UNTESTED | Not yet exercised |
-| ACTION-0297 | Platform / Other | actionDeleteRecurringJournal | `src/app/actions.ts:8341` | UNTESTED | Not yet exercised |
-| ACTION-0298 | Platform / Other | actionRunRecurringJournals | `src/app/actions.ts:8358` | UNTESTED | Not yet exercised |
-| ACTION-0299 | Platform / Other | actionSaveWithholding | `src/app/actions.ts:8377` | UNTESTED | Not yet exercised |
-| ACTION-0300 | Platform / Other | actionCreatePlaidLinkToken | `src/app/actions.ts:8415` | UNTESTED | Not yet exercised |
-| ACTION-0301 | Platform / Other | actionExchangePlaidToken | `src/app/actions.ts:8436` | UNTESTED | Not yet exercised |
-| ACTION-0302 | Platform / Other | actionSyncPlaid | `src/app/actions.ts:8465` | UNTESTED | Not yet exercised |
-| ACTION-0303 | Platform / Other | actionRunPayroll | `src/app/actions.ts:8492` | UNTESTED | Not yet exercised |
-| ACTION-0304 | Platform / Other | actionSavePayrollPolicy | `src/app/actions.ts:8503` | UNTESTED | Not yet exercised |
-| ACTION-0305 | Platform / Other | actionSaveAccountingSettings | `src/app/actions.ts:8557` | UNTESTED | Not yet exercised |
-| ACTION-0306 | Platform / Other | actionSaveReviewPolicy | `src/app/actions.ts:8596` | PASS | ; current/round3-reviews-results.json: PASS HR review policy save and cycle opening are idempotent |
-| ACTION-0307 | Platform / Other | actionOpenDueReviewCycles | `src/app/actions.ts:8619` | PASS | ; current/round3-reviews-results.json: PASS HR review policy save and cycle opening are idempotent |
-| ACTION-0308 | Platform / Other | actionSubmitSelfReview | `src/app/actions.ts:8630` | PASS | ; current/round3-reviews-results.json: PASS HR self-review foreign principal denied and owner submission advances |
-| ACTION-0309 | Platform / Other | actionSignOffReview | `src/app/actions.ts:8658` | PASS | ; current/round3-reviews-results.json: PASS HR employee+manager sign-off completes only after both parties |
-| ACTION-0310 | Platform / Other | actionApproveJournal | `src/app/actions.ts:8678` | FAIL | round2-auth-results.json: FAIL Real ACCOUNTING concurrent approvals apply balances only once; round2-auth-results.json: FAIL Real EXECUTIVE with journal.approve can approve without journal.post; current/round2-auth-results.json: FAIL Real ACCOUNTING concurrent approvals apply balances only once; current/round2-auth-results.json: FAIL Real EXECUTIVE with journal.approve can approve without journal.post |
-| ACTION-0311 | Platform / Other | actionVoidJournal | `src/app/actions.ts:8695` | UNTESTED | Not yet exercised |
-| ACTION-0312 | Platform / Other | actionSetAccountingCloseDate | `src/app/actions.ts:8711` | UNTESTED | Not yet exercised |
-| ACTION-0313 | Platform / Other | actionRecordArPayment | `src/app/actions.ts:8732` | PASS | ; current/round3-finance-deep-results.json: PASS Customer receipt action reconciles AR payments and GL |
-| ACTION-0314 | Platform / Other | actionRecordApPayment | `src/app/actions.ts:8752` | PASS | ; current/round3-finance-deep-results.json: PASS Vendor invoice action and AP payment reconcile exact subtotal/tax/GL |
-| ACTION-0315 | Platform / Other | actionCreateVendorApInvoice | `src/app/actions.ts:8780` | FAIL | ; current/round3-finance-deep-results.json: PASS Vendor invoice action and AP payment reconcile exact subtotal/tax/GL; current/round3-finance-deep-results.json: FAIL Failed closed-period vendor invoice leaves no payable |
-| ACTION-0316 | Platform / Other | actionCreateExpenseEntry | `src/app/actions.ts:8820` | UNTESTED | Not yet exercised |
-| ACTION-0317 | Platform / Other | actionSaveCompanyProfile | `src/app/actions.ts:8851` | FAIL | ; current/round3-docs-assets-results.json: FAIL Admin company profile changes denied to ordinary operator |
-| ACTION-0318 | Platform / Other | actionSaveCompanyOps | `src/app/actions.ts:8882` | PASS | ; current/round3-docs-assets-results.json: PASS Admin company ops action denied to ordinary operator |
-| ACTION-0319 | Platform / Other | actionActivatePlan | `src/app/actions.ts:8915` | UNTESTED | Not yet exercised |
-| ACTION-0320 | Platform / Other | actionStartCheckout | `src/app/actions.ts:8944` | UNTESTED | Not yet exercised |
-| ACTION-0321 | Platform / Other | actionStartTrial | `src/app/actions.ts:9012` | UNTESTED | Not yet exercised |
-| ACTION-0322 | Platform / Other | actionCancelSubscription | `src/app/actions.ts:9022` | UNTESTED | Not yet exercised |
-| ACTION-0323 | Platform / Other | actionCreateQualityItem | `src/app/actions.ts:9034` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionCreateQualityItem requires quality.programs.manage |
-| ACTION-0324 | Platform / Other | actionRecordQualityEvent | `src/app/actions.ts:9067` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionRecordQualityEvent requires quality.programs.manage |
-| ACTION-0325 | Platform / Other | actionSetQualityItemStatus | `src/app/actions.ts:9093` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionSetQualityItemStatus requires quality.programs.manage |
-| ACTION-0326 | Platform / Other | actionCreateToolbox | `src/app/actions.ts:9114` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionCreateToolbox requires quality.programs.manage |
-| ACTION-0327 | Platform / Other | actionCreateTool | `src/app/actions.ts:9138` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionCreateTool requires quality.programs.manage |
-| ACTION-0328 | Platform / Other | actionAssignToolToToolbox | `src/app/actions.ts:9169` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionAssignToolToToolbox requires quality.programs.manage |
-| ACTION-0329 | Platform / Other | actionSaveToolboxInspection | `src/app/actions.ts:9187` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionSaveToolboxInspection requires quality.programs.manage |
-| ACTION-0330 | Platform / Other | actionCreateToolReport | `src/app/actions.ts:9208` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionCreateToolReport requires quality.programs.manage |
-| ACTION-0331 | Platform / Other | actionUpdateToolReportPieces | `src/app/actions.ts:9231` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionUpdateToolReportPieces requires quality.programs.manage |
-| ACTION-0332 | Platform / Other | actionDeclarePieceUnrecoverable | `src/app/actions.ts:9247` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionDeclarePieceUnrecoverable requires quality.programs.manage |
-| ACTION-0333 | Platform / Other | actionPlaceReplacementPr | `src/app/actions.ts:9262` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionPlaceReplacementPr requires quality.programs.manage |
-| ACTION-0334 | Platform / Other | actionUpdateToolReportSteps | `src/app/actions.ts:9282` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionUpdateToolReportSteps requires quality.programs.manage |
-| ACTION-0335 | Platform / Other | actionSetToolReportStatus | `src/app/actions.ts:9298` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionSetToolReportStatus requires quality.programs.manage |
-| ACTION-0336 | Platform / Other | actionSaveInspectionTemplate | `src/app/actions.ts:9319` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionSaveInspectionTemplate requires quality.programs.manage |
-| ACTION-0337 | Platform / Other | actionPerformInspection | `src/app/actions.ts:9340` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionPerformInspection requires quality.programs.manage |
-| ACTION-0338 | Platform / Other | actionRecordHumidity | `src/app/actions.ts:9362` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionRecordHumidity requires quality.programs.manage |
-| ACTION-0339 | Platform / Other | actionSubmitProgramPolicy | `src/app/actions.ts:9386` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionSubmitProgramPolicy requires quality.programs.manage |
-| ACTION-0340 | Platform / Other | actionLinkProgramPolicy | `src/app/actions.ts:9406` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionLinkProgramPolicy requires quality.programs.manage |
-| ACTION-0341 | Platform / Other | actionLogCounterfeitIncident | `src/app/actions.ts:9425` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionLogCounterfeitIncident requires quality.programs.manage |
-| ACTION-0342 | Platform / Other | actionSaveAudit | `src/app/actions.ts:9447` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionSaveAudit requires quality.programs.manage |
-| ACTION-0343 | Platform / Other | actionUpdateAuditFinding | `src/app/actions.ts:9469` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionUpdateAuditFinding requires quality.programs.manage |
-| ACTION-0344 | Platform / Other | actionLinkCalToolToMrb | `src/app/actions.ts:9491` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionLinkCalToolToMrb requires mrb.disposition |
-| ACTION-0345 | Platform / Other | actionSetCalToolDisposition | `src/app/actions.ts:9509` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionSetCalToolDisposition requires mrb.disposition |
-| ACTION-0346 | Platform / Other | actionTriggerIncidentFromMrb | `src/app/actions.ts:9528` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionTriggerIncidentFromMrb requires mrb.disposition |
-| ACTION-0347 | Platform / Other | actionUpdateIncidentSteps | `src/app/actions.ts:9548` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionUpdateIncidentSteps requires quality.programs.manage |
-| ACTION-0348 | Platform / Other | actionSetIncidentResult | `src/app/actions.ts:9564` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionSetIncidentResult requires quality.programs.manage |
-| ACTION-0349 | Platform / Other | actionCreateRequisition | `src/app/actions.ts:9585` | PASS | ; current/round3-hr-auth-results.json: PASS HR recruiting requisition create/update actions; current/round3-hr-auth-results.json: PASS HR operator denied recruiting create action |
-| ACTION-0350 | Platform / Other | actionUpdateRequisitionStatus | `src/app/actions.ts:9612` | PASS | ; current/round3-hr-auth-results.json: PASS HR recruiting requisition create/update actions |
-| ACTION-0351 | Platform / Other | actionAddCandidate | `src/app/actions.ts:9631` | PASS | ; current/round3-hr-auth-results.json: PASS HR candidate create/stage/hire creates one onboarding |
-| ACTION-0352 | Platform / Other | actionMoveCandidateStage | `src/app/actions.ts:9657` | PASS | ; current/round3-hr-auth-results.json: PASS HR candidate create/stage/hire creates one onboarding |
-| ACTION-0353 | Platform / Other | actionRecordBackgroundCheck | `src/app/actions.ts:9684` | PASS | ; current/round3-hr-auth-results.json: PASS HR background record/update actions link candidate |
-| ACTION-0354 | Platform / Other | actionUpdateBackgroundCheck | `src/app/actions.ts:9712` | PASS | ; current/round3-hr-auth-results.json: PASS HR background record/update actions link candidate |
-| ACTION-0355 | Platform / Other | actionCreateOnboarding | `src/app/actions.ts:9735` | PASS | ; current/round3-hr-auth-results.json: PASS HR direct onboarding create action |
-| ACTION-0356 | Platform / Other | actionUpdateOnboarding | `src/app/actions.ts:9762` | PASS | ; current/round3-hr-auth-results.json: PASS HR onboarding update/checklist gate and full completion |
-| ACTION-0357 | Platform / Other | actionSetOnboardingChecklistItem | `src/app/actions.ts:9795` | PASS | ; current/round3-hr-auth-results.json: PASS HR onboarding update/checklist gate and full completion |
-| ACTION-0358 | Platform / Other | actionCompleteOnboarding | `src/app/actions.ts:9816` | PASS | ; current/round3-hr-auth-results.json: PASS HR onboarding update/checklist gate and full completion |
-| ACTION-0359 | Platform / Other | actionClockOutForBreak | `src/app/actions.ts:9831` | UNTESTED | Not yet exercised |
-| ACTION-0360 | Platform / Other | actionReleaseCommitment | `src/app/actions.ts:9842` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionReleaseCommitment requires inventory.putaway |
-| ACTION-0361 | Platform / Other | actionCreateLocation | `src/app/actions.ts:9879` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionCreateLocation requires inventory.locations.manage |
-| ACTION-0362 | Platform / Other | actionConsumeVirtualAsset | `src/app/actions.ts:9928` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionConsumeVirtualAsset requires va.manage |
-| ACTION-0363 | Platform / Other | actionCreateSupplier | `src/app/actions.ts:9988` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionCreateSupplier requires suppliers.manage |
-| ACTION-0364 | Platform / Other | actionMoveWorkOrder | `src/app/actions.ts:10041` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionMoveWorkOrder requires workorders.status.update |
-| ACTION-0365 | Platform / Other | actionCreateCycleCount | `src/app/actions.ts:10072` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionCreateCycleCount requires inventory.cyclecount |
-| ACTION-0366 | Platform / Other | actionRecordCycleCountLine | `src/app/actions.ts:10094` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionRecordCycleCountLine requires inventory.cyclecount |
-| ACTION-0367 | Platform / Other | actionCompleteCycleCount | `src/app/actions.ts:10117` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionCompleteCycleCount requires inventory.cyclecount |
-| ACTION-0368 | Platform / Other | actionCancelCycleCount | `src/app/actions.ts:10138` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionCancelCycleCount requires inventory.cyclecount |
-| ACTION-0369 | Platform / Other | actionSetModuleEnabled | `src/app/actions.ts:10158` | UNTESTED | Not yet exercised |
-| ACTION-0370 | Platform / Other | actionWizardAddPerson | `src/app/actions.ts:10207` | UNTESTED | Not yet exercised |
-| ACTION-0371 | Platform / Other | actionCompleteSetup | `src/app/actions.ts:10245` | UNTESTED | Not yet exercised |
-| ACTION-0372 | Platform / Other | actionCreateRmaRequest | `src/app/actions.ts:10279` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionCreateRmaRequest requires rma.create |
-| ACTION-0373 | Platform / Other | actionIssueRma | `src/app/actions.ts:10315` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionIssueRma requires rma.issue |
-| ACTION-0374 | Platform / Other | actionCreateRepairQuoteForRma | `src/app/actions.ts:10355` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionCreateRepairQuoteForRma requires rma.issue |
-| ACTION-0375 | Platform / Other | actionAcceptRepairQuote | `src/app/actions.ts:10375` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionAcceptRepairQuote requires rma.issue |
-| ACTION-0376 | Platform / Other | actionUpdateRepairQuote | `src/app/actions.ts:10407` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionUpdateRepairQuote requires rma.issue |
-| ACTION-0377 | Platform / Other | actionAdjustRmaQuotePrice | `src/app/actions.ts:10454` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionAdjustRmaQuotePrice requires rma.adjust_price |
-| ACTION-0378 | Platform / Other | actionAssignKitSerialToUnit | `src/app/actions.ts:10479` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionAssignKitSerialToUnit requires serials.manage |
-| ACTION-0379 | Platform / Other | actionInstallSerialOnWo | `src/app/actions.ts:10505` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionInstallSerialOnWo requires serials.manage |
-| ACTION-0380 | Platform / Other | actionRemoveSerialInstall | `src/app/actions.ts:10561` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionRemoveSerialInstall requires serials.manage |
-| ACTION-0381 | Platform / Other | actionAmendPo | `src/app/actions.ts:10595` | UNTESTED | Not yet exercised |
-| ACTION-0382 | Platform / Other | actionDecidePoAmendment | `src/app/actions.ts:10637` | UNTESTED | Not yet exercised |
-| ACTION-0383 | Admin / Settings | actionSetIssueStatus | `src/app/admin/insights/actions.ts:21` | UNTESTED | Not yet exercised |
-| ACTION-0384 | Platform / Other | actionAiChat | `src/app/ai/actions.ts:38` | UNTESTED | Not yet exercised |
-| ACTION-0385 | Platform / Other | actionAiConversation | `src/app/ai/actions.ts:42` | PASS | ; current/round3-ai-help-results.json: PASS Carina anonymous fake source and guestKey cannot grant identity; current/round3-ai-help-results.json: PASS Carina invalid and empty conversation fail before budget reservation; current/round3-ai-help-results.json: PASS Carina mutation, secrets and private-record prompts are read-only refusals; current/round3-ai-help-results.json: PASS Carina absent provider fails safely and records redacted route context; current/round3-ai-help-results.json: PASS Carina rate limit remains atomic across 14 simultaneous real-session requests |
-| ACTION-0386 | Platform / Other | actionCarinaFeatures | `src/app/ai/actions.ts:99` | UNTESTED | Not yet exercised |
-| ACTION-0387 | Platform / Other | actionCarinaCostReport | `src/app/ai/actions.ts:104` | UNTESTED | Not yet exercised |
-| ACTION-0388 | Platform / Other | actionGetAssistantName | `src/app/ai/actions.ts:108` | UNTESTED | Not yet exercised |
-| ACTION-0389 | Platform / Other | actionSetAssistantName | `src/app/ai/actions.ts:122` | UNTESTED | Not yet exercised |
-| ACTION-0390 | Platform / Other | actionGrokStatus | `src/app/ai/actions.ts:144` | UNTESTED | Not yet exercised |
-| ACTION-0391 | Platform / Other | actionProbeGrok | `src/app/ai/actions.ts:152` | UNTESTED | Not yet exercised |
-| ACTION-0392 | Platform / Other | actionVoiceSmokeTest | `src/app/ai/actions.ts:158` | UNTESTED | Not yet exercised |
-| ACTION-0571 | Platform / Other | actionAiFeedback | `src/app/ai/actions.ts:169` | PASS | ; current/round3-ai-help-results.json: PASS Carina feedback is owned by actual signed-in principal |
-| ACTION-0393 | PLM / BOM / ECO | actionVoteCmFriendly | `src/app/cm/vote-actions.ts:15` | UNTESTED | Not yet exercised |
-| ACTION-0394 | CRM / Sales | actionCreateLead | `src/app/crm/actions.ts:39` | PASS | priority-results.json: PASS HTTP action create CRM lead persists; round2-modules-results.json: PASS CRM lead action creates then valid status update persists; round2-modules-results.json: PASS CRM blank lead company is rejected without writes |
-| ACTION-0395 | CRM / Sales | actionUpdateLeadStatus | `src/app/crm/actions.ts:55` | FAIL | round2-modules-results.json: PASS CRM lead action creates then valid status update persists; round2-modules-results.json: FAIL CRM lead status action rejects unknown state |
-| ACTION-0396 | CRM / Sales | actionConvertLead | `src/app/crm/actions.ts:64` | PASS | round2-modules-results.json: PASS CRM lead conversion action links opportunity |
-| ACTION-0397 | CRM / Sales | actionCreateOpportunity | `src/app/crm/actions.ts:82` | PASS | round2-modules-results.json: PASS CRM opportunity create and update actions persist fields |
-| ACTION-0398 | CRM / Sales | actionSetStage | `src/app/crm/actions.ts:99` | PASS | round2-modules-results.json: PASS CRM stage action ignores unknown stage and requires LOST reason; round2-modules-results.json: PASS CRM WON then reopened opportunity clears close timestamp |
-| ACTION-0399 | CRM / Sales | actionUpdateOpportunity | `src/app/crm/actions.ts:116` | FAIL | round2-modules-results.json: PASS CRM opportunity create and update actions persist fields; round2-modules-results.json: FAIL CRM probability update rejects values above 100 percent |
-| ACTION-0400 | CRM / Sales | actionConvertToCustomer | `src/app/crm/actions.ts:138` | PASS | round2-modules-results.json: PASS CRM customer conversion action is repeat-idempotent |
-| ACTION-0401 | CRM / Sales | actionAddActivity | `src/app/crm/actions.ts:154` | PASS | round2-modules-results.json: PASS CRM activity create and completion actions persist |
-| ACTION-0402 | CRM / Sales | actionCompleteActivity | `src/app/crm/actions.ts:170` | PASS | round2-modules-results.json: PASS CRM activity create and completion actions persist |
-| ACTION-0403 | CRM / Sales | actionCreateContact | `src/app/crm/actions.ts:180` | PASS | round2-modules-results.json: PASS CRM contact action creates primary contact |
-| ACTION-0404 | Demo / Tenancy | actionStartTestDrive | `src/app/demo-actions.ts:13` | PASS | demo-results.json: PASS Native demo Start -> server cookie -> ping -> end |
-| ACTION-0405 | Demo / Tenancy | actionEnterExistingDemo | `src/app/demo-actions.ts:103` | UNTESTED | Not yet exercised |
-| ACTION-0406 | Demo / Tenancy | actionEndTestDrive | `src/app/demo-actions.ts:129` | UNTESTED | Not yet exercised |
-| ACTION-0407 | Docs | actionCreateDocSpace | `src/app/docs/actions.ts:20` | PASS | ; current/round3-docs-assets-results.json: PASS Knowledge base create space and controlled page through actions |
-| ACTION-0408 | Docs | actionCreateDocPage | `src/app/docs/actions.ts:26` | PASS | ; current/round3-docs-assets-results.json: PASS Knowledge base create space and controlled page through actions |
-| ACTION-0409 | Docs | actionSaveDocPage | `src/app/docs/actions.ts:33` | PASS | ; current/round3-docs-assets-results.json: PASS Knowledge base save action versions and stale edit rejected; current/round3-docs-assets-results.json: PASS Knowledge base operator denied edit even when action is called directly; current/round3-docs-assets-results.json: PASS Knowledge base editor cannot downgrade controlled page |
-| ACTION-0410 | Docs | actionRestoreDocRevision | `src/app/docs/actions.ts:39` | PASS | ; current/round3-docs-assets-results.json: PASS Knowledge base restore action appends revision without deleting history |
-| ACTION-0411 | Docs | actionSignDocRevision | `src/app/docs/actions.ts:42` | PASS | ; current/round3-docs-assets-results.json: PASS Knowledge base sign action rejects wrong PIN and releases own version |
-| ACTION-0412 | Docs | actionCommentOnDoc | `src/app/docs/actions.ts:45` | PASS | ; current/round3-docs-assets-results.json: PASS Knowledge base comment/resolve actions |
-| ACTION-0413 | Docs | actionResolveDocComment | `src/app/docs/actions.ts:48` | PASS | ; current/round3-docs-assets-results.json: PASS Knowledge base comment/resolve actions |
-| ACTION-0414 | Docs | actionLinkDocRecord | `src/app/docs/actions.ts:51` | PASS | ; current/round3-docs-assets-results.json: PASS Knowledge base record search/link/unlink actions |
-| ACTION-0415 | Docs | actionUnlinkDocRecord | `src/app/docs/actions.ts:57` | PASS | ; current/round3-docs-assets-results.json: PASS Knowledge base record search/link/unlink actions |
-| ACTION-0416 | Docs | actionSearchDocTargets | `src/app/docs/actions.ts:62` | PASS | ; current/round3-docs-assets-results.json: PASS Knowledge base record search/link/unlink actions |
-| ACTION-0417 | Service / Assets | actionCreateVehicle | `src/app/fleet/actions.ts:30` | PASS | ; current/round3-docs-assets-results.json: PASS Fleet create/update actions persist identity and odometer |
-| ACTION-0418 | Service / Assets | actionUpdateVehicle | `src/app/fleet/actions.ts:55` | PASS | ; current/round3-docs-assets-results.json: PASS Fleet create/update actions persist identity and odometer |
-| ACTION-0419 | Service / Assets | actionAddMaintenance | `src/app/fleet/actions.ts:85` | PASS | ; current/round3-docs-assets-results.json: PASS Fleet maintenance schedule/complete action schedules next occurrence |
-| ACTION-0420 | Service / Assets | actionCompleteMaintenance | `src/app/fleet/actions.ts:103` | FAIL | ; current/round3-docs-assets-results.json: PASS Fleet maintenance schedule/complete action schedules next occurrence; current/round3-docs-assets-results.json: FAIL Fleet repeat maintenance completion must not duplicate next scheduled job |
-| ACTION-0421 | Service / Assets | actionAddFuel | `src/app/fleet/actions.ts:119` | FAIL | ; current/round3-docs-assets-results.json: FAIL Fleet fuel action positive/negative validation and odometer |
-| ACTION-0422 | Inventory / Kitting | actionQuarantineExpired | `src/app/inventory/expiring/actions.ts:7` | UNTESTED | Not yet exercised |
-| ACTION-0423 | Shipping / Logistics | actionCreateCarrier | `src/app/logistics/actions.ts:30` | PASS | ; current/round3-docs-assets-results.json: PASS Logistics carrier create/toggle actions |
-| ACTION-0424 | Shipping / Logistics | actionToggleCarrier | `src/app/logistics/actions.ts:46` | PASS | ; current/round3-docs-assets-results.json: PASS Logistics carrier create/toggle actions |
-| ACTION-0425 | Shipping / Logistics | actionRecordFreight | `src/app/logistics/actions.ts:53` | PASS | ; current/round3-docs-assets-results.json: PASS Logistics freight action nonnegative cost guard |
-| ACTION-0426 | Shipping / Logistics | actionAddLandedCost | `src/app/logistics/actions.ts:75` | PASS | ; current/round3-docs-assets-results.json: PASS Logistics landed-cost actions allocate exact charge and repeat no-op |
-| ACTION-0427 | Shipping / Logistics | actionApplyLandedCost | `src/app/logistics/actions.ts:93` | PASS | ; current/round3-docs-assets-results.json: PASS Logistics landed-cost actions allocate exact charge and repeat no-op |
-| ACTION-0428 | Shipping / Logistics | actionSetLineWeight | `src/app/logistics/actions.ts:103` | PASS | ; current/round3-docs-assets-results.json: PASS Logistics landed-cost actions allocate exact charge and repeat no-op |
-| ACTION-0429 | Service / Assets | actionCreateEquipment | `src/app/maintenance/actions.ts:32` | PASS | ; current/round3-docs-assets-results.json: PASS Maintenance equipment create/update actions |
-| ACTION-0430 | Service / Assets | actionUpdateEquipment | `src/app/maintenance/actions.ts:54` | PASS | ; current/round3-docs-assets-results.json: PASS Maintenance equipment create/update actions |
-| ACTION-0431 | Service / Assets | actionRecordMeter | `src/app/maintenance/actions.ts:80` | PASS | ; current/round3-docs-assets-results.json: PASS Maintenance meter action forward-only enforced |
-| ACTION-0432 | Service / Assets | actionAddMaintenance | `src/app/maintenance/actions.ts:95` | PASS | ; current/round3-docs-assets-results.json: PASS Maintenance schedule/complete action schedules next metered PM |
-| ACTION-0433 | Service / Assets | actionCompleteMaintenance | `src/app/maintenance/actions.ts:113` | FAIL | ; current/round3-docs-assets-results.json: PASS Maintenance schedule/complete action schedules next metered PM; current/round3-docs-assets-results.json: FAIL Maintenance repeat completion must not duplicate next scheduled job |
-| ACTION-0434 | Service / Assets | actionStartDowntime | `src/app/maintenance/actions.ts:130` | PASS | ; current/round3-docs-assets-results.json: PASS Maintenance multiple downtime holds keep equipment DOWN until last closes |
-| ACTION-0435 | Service / Assets | actionEndDowntime | `src/app/maintenance/actions.ts:144` | PASS | ; current/round3-docs-assets-results.json: PASS Maintenance multiple downtime holds keep equipment DOWN until last closes |
-| ACTION-0436 | Billing / Founding | actionStartPublicCheckout | `src/app/pricing/actions.ts:23` | UNTESTED | Not yet exercised |
-| ACTION-0437 | Platform / Other | actionBackfillStockSerials | `src/app/serial-backfill-actions.ts:6` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionBackfillStockSerials requires serials.manage |
-| ACTION-0438 | Platform / Other | actionIssueTopUnitSerial | `src/app/serial-wo-actions.ts:6` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionIssueTopUnitSerial requires serials.manage |
-| ACTION-0439 | Platform / Other | listTravelerSerialState | `src/app/serial-wo-actions.ts:37` | UNTESTED | Not yet exercised |
-| ACTION-0440 | Service / Assets | actionCreateTicket | `src/app/service/actions.ts:35` | PASS | priority-results.json: PASS HTTP action create service ticket persists; round2-modules-results.json: PASS Service asset and ticket actions link customer-owned equipment; round2-modules-results.json: PASS Service blank title is rejected without ticket writes |
-| ACTION-0441 | Service / Assets | actionUpdateTicketStatus | `src/app/service/actions.ts:55` | FAIL | round2-modules-results.json: FAIL Service reopening completed ticket clears closedAt; round2-modules-results.json: FAIL Service status action rejects unknown state |
-| ACTION-0442 | Service / Assets | actionScheduleVisit | `src/app/service/actions.ts:65` | PASS | round2-modules-results.json: PASS Service dispatch and start actions move ticket into work |
-| ACTION-0443 | Service / Assets | actionStartVisit | `src/app/service/actions.ts:81` | PASS | round2-modules-results.json: PASS Service dispatch and start actions move ticket into work |
-| ACTION-0444 | Service / Assets | actionCompleteVisit | `src/app/service/actions.ts:95` | PASS | round2-modules-results.json: PASS Service completing last visit closes the job |
-| ACTION-0445 | Service / Assets | actionAddLabor | `src/app/service/actions.ts:111` | PASS | round2-modules-results.json: PASS Service labor/parts actions reconcile billable total; round2-modules-results.json: PASS Service negative labor/part quantities leave no records |
-| ACTION-0446 | Service / Assets | actionAddPartUsage | `src/app/service/actions.ts:127` | PASS | round2-modules-results.json: PASS Service labor/parts actions reconcile billable total; round2-modules-results.json: PASS Service negative labor/part quantities leave no records |
-| ACTION-0447 | Service / Assets | actionRemoveLabor | `src/app/service/actions.ts:152` | PASS | round2-modules-results.json: PASS Service removal actions reconcile billable total to zero |
-| ACTION-0448 | Service / Assets | actionRemovePartUsage | `src/app/service/actions.ts:159` | PASS | round2-modules-results.json: PASS Service removal actions reconcile billable total to zero |
-| ACTION-0449 | Service / Assets | actionCreateInstalledAsset | `src/app/service/actions.ts:166` | PASS | round2-modules-results.json: PASS Service asset and ticket actions link customer-owned equipment |
-| ACTION-0450 | Accounts / Roles | actionStartTrial | `src/app/signup/actions.ts:18` | UNTESTED | Not yet exercised |
-| ACTION-0451 | Platform / Other | actionCreateSupportTicketResult | `src/app/support/actions.ts:102` | UNTESTED | Not yet exercised |
-| ACTION-0452 | Platform / Other | actionFetchSupportThread | `src/app/support/actions.ts:180` | UNTESTED | Not yet exercised |
-| ACTION-0453 | Platform / Other | actionPostSupportMessageResult | `src/app/support/actions.ts:263` | UNTESTED | Not yet exercised |
-| ACTION-0454 | Platform / Other | actionCreateSupportTicket | `src/app/support/actions.ts:299` | UNTESTED | Not yet exercised |
-| ACTION-0455 | Platform / Other | actionPostSupportMessage | `src/app/support/actions.ts:311` | UNTESTED | Not yet exercised |
-| ACTION-0456 | Platform / Other | actionAddSupportNote | `src/app/support/actions.ts:348` | UNTESTED | Not yet exercised |
-| ACTION-0457 | Platform / Other | actionUpdateSupportTicket | `src/app/support/actions.ts:369` | UNTESTED | Not yet exercised |
-| ACTION-0458 | Platform / Other | actionSupportTyping | `src/app/support/actions.ts:398` | UNTESTED | Not yet exercised |
-| ACTION-0459 | Platform / Other | actionTranslateText | `src/app/support/actions.ts:413` | UNTESTED | Not yet exercised |
-| ACTION-0460 | Platform / Other | logAudit | `src/lib/audit.ts:32` | UNTESTED | Not yet exercised |
-| ACTION-0461 | Platform / Other | getAuditTrail | `src/lib/audit.ts:81` | UNTESTED | Not yet exercised |
-| ACTION-0462 | PLM / BOM / ECO | certifyBomForPrototype | `src/lib/services/bom.ts:14` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: certifyBomForPrototype requires bom.certify |
-| ACTION-0463 | PLM / BOM / ECO | certifyBom | `src/lib/services/bom.ts:49` | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: certifyBom requires bom.certify |
-| ACTION-0572 | PLM / BOM / ECO | setBomPrototypeRequirement | `src/lib/services/bom.ts:127` | UNTESTED | Not yet exercised |
-| ACTION-0573 | PLM / BOM / ECO | setBomPrototypeDefault | `src/lib/services/bom.ts:143` | UNTESTED | Not yet exercised |
-| ACTION-0464 | PLM / BOM / ECO | createBomRevision | `src/lib/services/bom.ts:154` | PASS | BOM create revision / add line / compare / where-used |
-| ACTION-0465 | PLM / BOM / ECO | compareBomRevisions | `src/lib/services/bom.ts:230` | PASS | BOM create revision / add line / compare / where-used |
-| ACTION-0466 | PLM / BOM / ECO | whereUsed | `src/lib/services/bom.ts:276` | PASS | BOM create revision / add line / compare / where-used |
-| ACTION-0467 | PLM / BOM / ECO | createOrLinkBom | `src/lib/services/bom.ts:287` | PASS | BOM create revision / add line / compare / where-used |
-| ACTION-0468 | PLM / BOM / ECO | addBomLine | `src/lib/services/bom.ts:305` | PASS | BOM rejects self-reference and zero add quantity |
-| ACTION-0469 | PLM / BOM / ECO | updateBomLine | `src/lib/services/bom.ts:362` | PASS | BOM line UPDATE rejects negative quantity; FIX VERIFIED current 3de5ba1: integrity-retest.log / bom-lifecycle-retest.log and current HTTP retests |
-| ACTION-0470 | PLM / BOM / ECO | removeBomLine | `src/lib/services/bom.ts:389` | UNTESTED | Not yet exercised |
-| ACTION-0471 | Planning / Scheduling | getCapacityAndWorkload | `src/lib/services/capacity.ts:160` | PASS | capacity getCapacityAndWorkload |
-| ACTION-0472 | Planning / Scheduling | assignWorkCenterStaff | `src/lib/services/capacity.ts:485` | UNTESTED | Not yet exercised |
-| ACTION-0473 | Planning / Scheduling | getActiveStaffAssignments | `src/lib/services/capacity.ts:536` | PASS | capacity getActiveStaffAssignments |
-| ACTION-0474 | Planning / Scheduling | removeWorkCenterStaff | `src/lib/services/capacity.ts:559` | UNTESTED | Not yet exercised |
-| ACTION-0475 | CRM / Sales | createCustomer | `src/lib/services/customers.ts:48` | UNTESTED | Not yet exercised |
-| ACTION-0476 | CRM / Sales | updateCustomer | `src/lib/services/customers.ts:82` | UNTESTED | Not yet exercised |
-| ACTION-0477 | Platform / Other | listGfpContracts | `src/lib/services/gfp.ts:8` | UNTESTED | Not yet exercised |
-| ACTION-0478 | Platform / Other | listGfpByContract | `src/lib/services/gfp.ts:20` | UNTESTED | Not yet exercised |
-| ACTION-0479 | Platform / Other | listMasterDd1149 | `src/lib/services/gfp.ts:49` | UNTESTED | Not yet exercised |
-| ACTION-0480 | Platform / Other | attachGfpDocument | `src/lib/services/gfp.ts:62` | UNTESTED | Not yet exercised |
-| ACTION-0481 | Platform / Other | setGfpAuditInterval | `src/lib/services/gfp.ts:104` | UNTESTED | Not yet exercised |
-| ACTION-0482 | Platform / Other | completeGfpAudit | `src/lib/services/gfp.ts:159` | UNTESTED | Not yet exercised |
-| ACTION-0483 | Platform / Other | checkoutGfp | `src/lib/services/gfp.ts:254` | UNTESTED | Not yet exercised |
-| ACTION-0484 | Platform / Other | checkinGfp | `src/lib/services/gfp.ts:302` | UNTESTED | Not yet exercised |
-| ACTION-0485 | Platform / Other | listGfpCheckoutHistory | `src/lib/services/gfp.ts:405` | UNTESTED | Not yet exercised |
-| ACTION-0486 | Platform / Other | searchGfpItems | `src/lib/services/gfp.ts:454` | UNTESTED | Not yet exercised |
-| ACTION-0487 | Platform / Other | requestGfpConsumption | `src/lib/services/gfp.ts:493` | UNTESTED | Not yet exercised |
-| ACTION-0488 | Platform / Other | decideGfpConsumption | `src/lib/services/gfp.ts:539` | UNTESTED | Not yet exercised |
-| ACTION-0489 | Platform / Other | listPendingGfpConsumptions | `src/lib/services/gfp.ts:613` | UNTESTED | Not yet exercised |
-| ACTION-0490 | Platform / Other | listUpcomingGfpAudits | `src/lib/services/gfp.ts:625` | UNTESTED | Not yet exercised |
-| ACTION-0491 | Planning / Scheduling | getPlanningExceptions | `src/lib/services/planning-exceptions.ts:32` | PASS | planning-exceptions getPlanningExceptions |
-| ACTION-0492 | Planning / Scheduling | createForecast | `src/lib/services/planning.ts:43` | PASS | Forecast rejects negative demand quantity; FIX VERIFIED current 3de5ba1: integrity-retest.log / bom-lifecycle-retest.log and current HTTP retests |
-| ACTION-0493 | Planning / Scheduling | getPartSupplySnapshot | `src/lib/services/planning.ts:89` | PASS | Supply snapshot and capable-to-promise |
-| ACTION-0494 | Planning / Scheduling | generateMaterialRequisitionFromForecast | `src/lib/services/planning.ts:144` | UNTESTED | Not yet exercised |
-| ACTION-0495 | Planning / Scheduling | supplyFor | `src/lib/services/planning.ts:186` | UNTESTED | Not yet exercised |
-| ACTION-0496 | Planning / Scheduling | explode | `src/lib/services/planning.ts:197` | UNTESTED | Not yet exercised |
-| ACTION-0497 | Planning / Scheduling | releaseMaterialRequisition | `src/lib/services/planning.ts:395` | UNTESTED | Not yet exercised |
-| ACTION-0498 | Planning / Scheduling | updateMrsLine | `src/lib/services/planning.ts:679` | UNTESTED | Not yet exercised |
-| ACTION-0499 | Planning / Scheduling | addMrsLine | `src/lib/services/planning.ts:751` | UNTESTED | Not yet exercised |
-| ACTION-0500 | Planning / Scheduling | removeMrsLine | `src/lib/services/planning.ts:799` | UNTESTED | Not yet exercised |
-| ACTION-0501 | Planning / Scheduling | updateForecast | `src/lib/services/planning.ts:828` | UNTESTED | Not yet exercised |
-| ACTION-0502 | Planning / Scheduling | upsertForecastLine | `src/lib/services/planning.ts:871` | UNTESTED | Not yet exercised |
-| ACTION-0503 | Planning / Scheduling | removeForecastLine | `src/lib/services/planning.ts:910` | UNTESTED | Not yet exercised |
-| ACTION-0504 | Planning / Scheduling | assessCapableToPromise | `src/lib/services/planning.ts:955` | PASS | Supply snapshot and capable-to-promise |
-| ACTION-0505 | Purchasing / Receiving | getDefaultApprovalPolicy | `src/lib/services/pr-approval.ts:29` | UNTESTED | Not yet exercised |
-| ACTION-0506 | Purchasing / Receiving | listApprovalPolicies | `src/lib/services/pr-approval.ts:43` | UNTESTED | Not yet exercised |
-| ACTION-0507 | Purchasing / Receiving | startPrApprovalWorkflow | `src/lib/services/pr-approval.ts:376` | UNTESTED | Not yet exercised |
-| ACTION-0508 | Purchasing / Receiving | canUserApproveStep | `src/lib/services/pr-approval.ts:637` | PASS | priority-results.json: PASS PR denial wrong-person approval leaves pipeline unchanged |
-| ACTION-0509 | Purchasing / Receiving | decidePrApproval | `src/lib/services/pr-approval.ts:691` | PASS | priority-results.json: PASS PR denial wrong-person approval leaves pipeline unchanged; priority-results.json: FAIL Same admin cannot sign demand AND buyer on same PR; finance-supply-results.json: PASS PR routing, buyer action, final approval and PO conversion actions; FIX VERIFIED current 3de5ba1: integrity-retest.log / bom-lifecycle-retest.log and current HTTP retests |
-| ACTION-0510 | Purchasing / Receiving | getPrApprovals | `src/lib/services/pr-approval.ts:892` | UNTESTED | Not yet exercised |
-| ACTION-0511 | Purchasing / Receiving | listPrApprovalsForUser | `src/lib/services/pr-approval.ts:905` | UNTESTED | Not yet exercised |
-| ACTION-0512 | Purchasing / Receiving | countPrApprovalsForUser | `src/lib/services/pr-approval.ts:972` | UNTESTED | Not yet exercised |
-| ACTION-0513 | Purchasing / Receiving | saveApprovalPolicy | `src/lib/services/pr-approval.ts:979` | UNTESTED | Not yet exercised |
-| ACTION-0514 | Purchasing / Receiving | ensureDefaultPrApprovalPolicy | `src/lib/services/pr-approval.ts:1099` | UNTESTED | Not yet exercised |
-| ACTION-0515 | Purchasing / Receiving | approvalActionLabel | `src/lib/services/pr-approval.ts:1143` | UNTESTED | Not yet exercised |
-| ACTION-0516 | Purchasing / Receiving | saveReceivingDocuments | `src/lib/services/receiving-inspection.ts:39` | UNTESTED | Not yet exercised |
-| ACTION-0517 | Purchasing / Receiving | routeReceivingLineForInspection | `src/lib/services/receiving-inspection.ts:81` | PASS | round2-quality-results.json: PASS QC flagged receipt routes to pending VISUAL/GDT with unavailable stock; current/round2-quality-results.json: PASS QC flagged receipt routes to pending VISUAL/GDT with unavailable stock |
-| ACTION-0518 | Purchasing / Receiving | spawnFunctionalReceivingInspection | `src/lib/services/receiving-inspection.ts:261` | PASS | round2-quality-results.json: PASS QC PASS actions create functional test only after both QA gates; current/round2-quality-results.json: PASS QC PASS actions create functional test only after both QA gates |
-| ACTION-0519 | Purchasing / Receiving | attestDockAcceptance | `src/lib/services/receiving-inspection.ts:393` | UNTESTED | Not yet exercised |
-| ACTION-0520 | Purchasing / Receiving | completeReceivingInspection | `src/lib/services/receiving-inspection.ts:462` | FAIL | round2-quality-results.json: PASS QC completion requires attached evidence and does not mutate on missing docs; round2-quality-results.json: PASS Functional PASS returns receiving traveler READY_TO_STOCK; round2-quality-results.json: PASS Repeated QC completion rejected without duplicate NCR/docs; round2-quality-results.json: PASS QC failure creates NCR/MRB and quarantines all affected material; round2-quality-results.json: FAIL Failed receiving NCR retains source supplier for scorecards; current/round2-quality-results.json: PASS QC completion requires attached evidence and does not mutate on missing docs; current/round2-quality-results.json: PASS Functional PASS returns receiving traveler READY_TO_STOCK; current/round2-quality-results.json: PASS Repeated QC completion rejected without duplicate NCR/docs; current/round2-quality-results.json: PASS QC failure creates NCR/MRB and quarantines all affected material; current/round2-quality-results.json: FAIL Failed receiving NCR retains source supplier for scorecards; current/round3-receiving-deep-results.json: PASS Mixed QA/Test gates and dock HTTP putaway finish family exactly once |
-| ACTION-0521 | Purchasing / Receiving | tryCompleteReceivingTestWo | `src/lib/services/receiving-inspection.ts:698` | UNTESTED | Not yet exercised |
-| ACTION-0522 | Purchasing / Receiving | tryCompleteInventoryReceivingInspections | `src/lib/services/receiving-inspection.ts:762` | PASS | round2-quality-results.json: PASS QC PASS actions create functional test only after both QA gates; current/round2-quality-results.json: PASS QC PASS actions create functional test only after both QA gates |
-| ACTION-0523 | Purchasing / Receiving | completeReceivingAfterInspection | `src/lib/services/receiving-inspection.ts:961` | PASS | round2-quality-results.json: PASS After-inspection putaway service releases stock and completes travelers; current/round2-quality-results.json: PASS After-inspection putaway service releases stock and completes travelers; current/round3-receiving-deep-results.json: PASS Mixed QA/Test gates and dock HTTP putaway finish family exactly once |
-| ACTION-0524 | Purchasing / Receiving | updatePartInspectionFlags | `src/lib/services/receiving-inspection.ts:1117` | UNTESTED | Not yet exercised |
-| ACTION-0525 | Purchasing / Receiving | listOpenTestInspections | `src/lib/services/receiving-inspection.ts:1145` | UNTESTED | Not yet exercised |
-| ACTION-0526 | Purchasing / Receiving | parseTravelerSnapshot | `src/lib/services/receiving.ts:17` | PASS | ; current/round3-receiving-deep-results.json: PASS Mixed receiving partial split keeps QA/Test stock unavailable and plain stock available |
-| ACTION-0527 | Purchasing / Receiving | travelerPurpose | `src/lib/services/receiving.ts:38` | PASS | ; current/round3-receiving-deep-results.json: PASS Mixed receiving partial split keeps QA/Test stock unavailable and plain stock available |
-| ACTION-0528 | Purchasing / Receiving | reconcileRootTravelerStatus | `src/lib/services/receiving.ts:65` | PASS | ; current/round3-receiving-deep-results.json: PASS Mixed QA/Test gates and dock HTTP putaway finish family exactly once |
-| ACTION-0529 | Purchasing / Receiving | nextChildTravelerNumber | `src/lib/services/receiving.ts:162` | UNTESTED | Not yet exercised |
-| ACTION-0530 | Purchasing / Receiving | createReceivingTravelerForPo | `src/lib/services/receiving.ts:211` | PASS | ; current/round3-receiving-deep-results.json: PASS Mixed receiving partial split keeps QA/Test stock unavailable and plain stock available |
-| ACTION-0531 | Purchasing / Receiving | createCustomerGfpTraveler | `src/lib/services/receiving.ts:283` | UNTESTED | Not yet exercised |
-| ACTION-0532 | Purchasing / Receiving | syncReceivingTravelerStatus | `src/lib/services/receiving.ts:361` | PASS | ; current/round3-receiving-deep-results.json: PASS Mixed QA/Test gates and dock HTTP putaway finish family exactly once |
-| ACTION-0533 | Purchasing / Receiving | splitTravelerAfterReceive | `src/lib/services/receiving.ts:443` | PASS | ; current/round3-receiving-deep-results.json: PASS Mixed receiving partial split keeps QA/Test stock unavailable and plain stock available |
-| ACTION-0534 | Purchasing / Receiving | closePurchaseOrderFromReceiving | `src/lib/services/receiving.ts:1132` | PASS | ; current/round3-receiving-deep-results.json: PASS Close receiving PO rejects open quantity and missing short-close reason then records audit |
-| ACTION-0535 | Purchasing / Receiving | closeGfpTraveler | `src/lib/services/receiving.ts:1191` | UNTESTED | Not yet exercised |
-| ACTION-0536 | Purchasing / Receiving | receivePurchaseOrder | `src/lib/services/supply-chain.ts:27` | FAIL | finance-supply-results.json: PASS Receiving overquantity fails without receipts or inventory changes; round2-quality-results.json: PASS QC flagged receipt routes to pending VISUAL/GDT with unavailable stock; round2-quality-results.json: FAIL Serialized receiving rejects missing serials before receipt writes; round2-quality-results.json: FAIL Serialized receiving rejects count mismatch serials before receipt writes; round2-quality-results.json: FAIL Serialized receiving rejects duplicate serials before receipt writes; round2-quality-results.json: FAIL Valid received serials become selectable stock serial identities; current/round2-quality-results.json: PASS QC flagged receipt routes to pending VISUAL/GDT with unavailable stock; current/round2-quality-results.json: FAIL Serialized receiving rejects missing serials before receipt writes; current/round2-quality-results.json: FAIL Serialized receiving rejects count mismatch serials before receipt writes; current/round2-quality-results.json: FAIL Serialized receiving rejects duplicate serials before receipt writes; current/round2-quality-results.json: FAIL Valid received serials become selectable stock serial identities; current/round3-receiving-deep-results.json: PASS Mixed receiving partial split keeps QA/Test stock unavailable and plain stock available; current/round3-receiving-deep-results.json: PASS Mixed receiving remainder consumes only remaining quantities; current/round3-receiving-deep-results.json: FAIL Closed-short purchase order must not accept material; current/round3-receiving-deep-results.json: FAIL Duplicate PO-line entries in one receipt cannot overreceive; current/round3-receiving-deep-results.json: PASS Concurrent receipt requests cannot receive more than open PO balance |
-| ACTION-0537 | Purchasing / Receiving | receiveGfpTraveler | `src/lib/services/supply-chain.ts:755` | UNTESTED | Not yet exercised |
-| ACTION-0538 | Purchasing / Receiving | createNcrAndMrbFromInspection | `src/lib/services/supply-chain.ts:1145` | PASS | round2-quality-results.json: PASS QC failure creates NCR/MRB and quarantines all affected material; current/round2-quality-results.json: PASS QC failure creates NCR/MRB and quarantines all affected material |
-| ACTION-0539 | Purchasing / Receiving | closeMrbCase | `src/lib/services/supply-chain.ts:1250` | PASS | round2-quality-results.json: PASS Open MRB cannot close before disposition; round2-quality-results.json: PASS MRB USE_AS_IS action releases quarantine and close action finalizes; current/round2-quality-results.json: PASS Open MRB cannot close before disposition; current/round2-quality-results.json: PASS MRB USE_AS_IS action releases quarantine and close action finalizes |
-| ACTION-0540 | Purchasing / Receiving | dispositionMrb | `src/lib/services/supply-chain.ts:1277` | FAIL | scripts/verify/chunk-serials-rma.ts; scenario only; round2-quality-results.json: PASS MRB USE_AS_IS action releases quarantine and close action finalizes; round2-quality-results.json: FAIL MRB partial SCRAP preserves remainder quantity; round2-quality-results.json: FAIL MRB rejects negative disposition quantity before writing; round2-quality-results.json: FAIL Repeated MRB disposition cannot create duplicate decisions/postings; current/round2-quality-results.json: PASS MRB USE_AS_IS action releases quarantine and close action finalizes; current/round2-quality-results.json: FAIL MRB partial SCRAP preserves remainder quantity; current/round2-quality-results.json: FAIL MRB rejects negative disposition quantity before writing; current/round2-quality-results.json: FAIL Repeated MRB disposition cannot create duplicate decisions/postings |
-| ACTION-0541 | Purchasing / Receiving | logCarActivity | `src/lib/services/supply-chain.ts:1612` | UNTESTED | Not yet exercised |
-| ACTION-0542 | Purchasing / Receiving | updateCar | `src/lib/services/supply-chain.ts:1636` | UNTESTED | Not yet exercised |
-| ACTION-0543 | Purchasing / Receiving | listOpenCars | `src/lib/services/supply-chain.ts:1786` | UNTESTED | Not yet exercised |
-| ACTION-0544 | Purchasing / Receiving | updateSupplierScorecard | `src/lib/services/supply-chain.ts:1804` | UNTESTED | Not yet exercised |
-| ACTION-0545 | Purchasing / Receiving | getValueStreamMetrics | `src/lib/services/supply-chain.ts:1901` | UNTESTED | Not yet exercised |
-| ACTION-0546 | Purchasing / Receiving | capStatus | `src/lib/services/supply-chain.ts:1974` | UNTESTED | Not yet exercised |
-| ACTION-0547 | Purchasing / Receiving | maxUtil | `src/lib/services/supply-chain.ts:1982` | UNTESTED | Not yet exercised |
-| ACTION-0548 | Manufacturing / Test | getTestCenterQueue | `src/lib/services/test-center.ts:193` | UNTESTED | Not yet exercised |
-| ACTION-0549 | Manufacturing / Test | getQaInspectionQueue | `src/lib/services/test-center.ts:463` | UNTESTED | Not yet exercised |
-| ACTION-0550 | Inventory / Kitting | listUomUnits | `src/lib/services/uom.ts:6` | UNTESTED | Not yet exercised |
-| ACTION-0551 | Inventory / Kitting | saveUomUnit | `src/lib/services/uom.ts:17` | UNTESTED | Not yet exercised |
-| ACTION-0552 | Inventory / Kitting | saveUomConversion | `src/lib/services/uom.ts:60` | UNTESTED | Not yet exercised |
-| ACTION-0553 | Inventory / Kitting | convertQty | `src/lib/services/uom.ts:113` | UNTESTED | Not yet exercised |
-| ACTION-0554 | Service / Assets | listVirtualAssets | `src/lib/services/virtual-assets.ts:6` | UNTESTED | Not yet exercised |
-| ACTION-0555 | Service / Assets | createVirtualAsset | `src/lib/services/virtual-assets.ts:50` | UNTESTED | Not yet exercised |
-| ACTION-0556 | Service / Assets | assignVirtualAsset | `src/lib/services/virtual-assets.ts:104` | UNTESTED | Not yet exercised |
-| ACTION-0557 | Service / Assets | unassignVirtualAsset | `src/lib/services/virtual-assets.ts:149` | UNTESTED | Not yet exercised |
-| ACTION-0558 | Service / Assets | checkoutVirtualAsset | `src/lib/services/virtual-assets.ts:194` | UNTESTED | Not yet exercised |
-| ACTION-0559 | Service / Assets | returnVirtualAsset | `src/lib/services/virtual-assets.ts:235` | UNTESTED | Not yet exercised |
-| ACTION-0560 | Manufacturing / Test | listWorkCenters | `src/lib/services/workcenters.ts:7` | UNTESTED | Not yet exercised |
-| ACTION-0561 | Manufacturing / Test | getDefaultWorkCenter | `src/lib/services/workcenters.ts:20` | UNTESTED | Not yet exercised |
-| ACTION-0562 | Manufacturing / Test | getWorkCenterByCode | `src/lib/services/workcenters.ts:32` | UNTESTED | Not yet exercised |
-| ACTION-0563 | Manufacturing / Test | resolveStepStation | `src/lib/services/workcenters.ts:43` | UNTESTED | Not yet exercised |
-| ACTION-0564 | Manufacturing / Test | saveWorkCenter | `src/lib/services/workcenters.ts:86` | UNTESTED | Not yet exercised |
-| ACTION-0565 | Manufacturing / Test | reassignWorkOrderStation | `src/lib/services/workcenters.ts:157` | UNTESTED | Not yet exercised |
-| ACTION-0566 | Manufacturing / Test | reassignStepStation | `src/lib/services/workcenters.ts:225` | UNTESTED | Not yet exercised |
-| ACTION-0567 | Manufacturing / Test | seedStepAssignments | `src/lib/services/workcenters.ts:292` | UNTESTED | Not yet exercised |
-| ACTION-0568 | Manufacturing / Test | listWorkCenterCodesByArea | `src/lib/services/workcenters.ts:315` | UNTESTED | Not yet exercised |
+| ACTION-0001 | Accounts / Roles | actionStartMfa | src/app/account/mfa-actions.ts:25 | PASS | ; main151: PASS Authenticated self-service MFA enroll confirm disable actions |
+| ACTION-0002 | Accounts / Roles | actionConfirmMfa | src/app/account/mfa-actions.ts:56 | PASS | ; main151: PASS Authenticated self-service MFA enroll confirm disable actions |
+| ACTION-0003 | Accounts / Roles | actionDisableMfa | src/app/account/mfa-actions.ts:74 | PASS | ; main151: PASS Authenticated self-service MFA enroll confirm disable actions |
+| ACTION-0004 | Platform / Other | actionReceivePo | src/app/actions.ts:135 | PASS | finance-supply-results.json: PASS PO receiving action persists dock receipt and material trace |
+| ACTION-0005 | Platform / Other | actionCompleteReceivingPutaway | src/app/actions.ts:441 | PASS | ; current/round3-receiving-deep-results.json: PASS Mixed QA/Test gates and dock HTTP putaway finish family exactly once; main151: PASS Mixed QA/Test gates and dock HTTP putaway finish family exactly once |
+| ACTION-0006 | Platform / Other | actionCreateGfpTraveler | src/app/actions.ts:473 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0007 | Platform / Other | actionCloseGfpTraveler | src/app/actions.ts:531 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0008 | Platform / Other | actionClosePurchaseOrder | src/app/actions.ts:541 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0009 | Platform / Other | actionClosePoFromReceiving | src/app/actions.ts:568 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0010 | Platform / Other | actionCreateItemBom | src/app/actions.ts:572 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0011 | Platform / Other | actionAddBomLine | src/app/actions.ts:580 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionAddBomLine requires bom.edit; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0012 | Platform / Other | actionQuickCreatePart | src/app/actions.ts:602 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionQuickCreatePart requires items.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0013 | Platform / Other | actionRemoveBomLine | src/app/actions.ts:630 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionRemoveBomLine requires bom.edit; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0014 | Platform / Other | actionCloseMrbCase | src/app/actions.ts:643 | PASS | round2-quality-results.json: PASS MRB USE_AS_IS action releases quarantine and close action finalizes; current/round2-quality-results.json: PASS MRB USE_AS_IS action releases quarantine and close action finalizes; main151: PASS MRB USE_AS_IS action releases quarantine and close action finalizes |
+| ACTION-0015 | Platform / Other | actionDispositionMrb | src/app/actions.ts:652 | PASS | round2-quality-results.json: PASS MRB USE_AS_IS action releases quarantine and close action finalizes; current/round2-quality-results.json: PASS MRB USE_AS_IS action releases quarantine and close action finalizes; main151: PASS MRB USE_AS_IS action releases quarantine and close action finalizes |
+| ACTION-0016 | Platform / Other | actionUpdateCar | src/app/actions.ts:687 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionUpdateCar requires mrb.car.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0017 | Platform / Other | actionSignOffStep | src/app/actions.ts:720 | PASS | priority-results.json: PASS Start kitted production and sign traveler via own PIN actions |
+| ACTION-0018 | Platform / Other | actionSendWoToReceivingPutaway | src/app/actions.ts:775 | PASS | priority-results.json: PASS Completed production handoff then stock action closes WO |
+| ACTION-0019 | Platform / Other | actionUpdateWoStatus | src/app/actions.ts:814 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0020 | Platform / Other | actionSaveWorkCenter | src/app/actions.ts:839 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0021 | Platform / Other | actionReorderWorkCenters | src/app/actions.ts:877 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0022 | Platform / Other | actionScanWorkOrderToStation | src/app/actions.ts:904 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionScanWorkOrderToStation requires workorders.status.update; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0023 | Platform / Other | actionReassignWoStation | src/app/actions.ts:968 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0024 | Platform / Other | actionReassignStepStation | src/app/actions.ts:989 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0025 | Platform / Other | actionUpdateWiStepRouting | src/app/actions.ts:1013 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0569 | Platform / Other | actionSetBomPrototypeRequirement | src/app/actions.ts:1049 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0570 | Platform / Other | actionSetBomPrototypeDefault | src/app/actions.ts:1061 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0026 | Platform / Other | actionCertifyBomForPrototype | src/app/actions.ts:1070 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0027 | Platform / Other | actionCertifyBom | src/app/actions.ts:1080 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0028 | Platform / Other | actionCreateWoFromBom | src/app/actions.ts:1090 | PASS | manufacturing-edge-results.json: PASS Standalone production action uses existing certified BOM without SO |
+| ACTION-0029 | Platform / Other | actionCreateForecast | src/app/actions.ts:1128 | PASS | priority-results.json: FAIL Permission OPERATOR denied actionCreateForecast; round2-auth-results.json: FAIL Real OPERATOR session denied forecast creation; FIX VERIFIED current 3de5ba1: integrity-retest.log / bom-lifecycle-retest.log and current HTTP retests; current/round2-auth-results.json: PASS Real OPERATOR session denied forecast creation; main151: PASS Real OPERATOR session denied forecast creation |
+| ACTION-0030 | Platform / Other | actionGenerateMrsFromForecast | src/app/actions.ts:1215 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0031 | Platform / Other | actionUpdateForecast | src/app/actions.ts:1243 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0032 | Platform / Other | actionUpsertForecastLine | src/app/actions.ts:1272 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0033 | Platform / Other | actionRemoveForecastLine | src/app/actions.ts:1300 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0034 | Platform / Other | actionBulkRescheduleUnscheduled | src/app/actions.ts:1322 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0035 | Platform / Other | actionReleaseMaterialRequisition | src/app/actions.ts:1351 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionReleaseMaterialRequisition requires planning.mrs.release; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0036 | Platform / Other | actionUpdateMrsLine | src/app/actions.ts:1392 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0037 | Platform / Other | actionAddMrsLine | src/app/actions.ts:1420 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0038 | Platform / Other | actionRemoveMrsLine | src/app/actions.ts:1437 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0039 | Platform / Other | actionCreateRequirement | src/app/actions.ts:1463 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0040 | Platform / Other | actionUpdateRequirementStatus | src/app/actions.ts:1488 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0041 | Platform / Other | actionLinkRequirementWork | src/app/actions.ts:1511 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0042 | Platform / Other | actionRemoveRequirementTrace | src/app/actions.ts:1531 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0043 | Platform / Other | actionLogin | src/app/actions.ts:1551 | PASS | round2-auth-results.json: PASS Real password login/session identifies ADMIN; round2-auth-results.json: PASS Real password login/session identifies OPERATOR; round2-auth-results.json: PASS Real password login/session identifies QUALITY; round2-auth-results.json: PASS Real password login/session identifies ACCOUNTING; round2-auth-results.json: PASS Real password login/session identifies PURCHASING; round2-auth-results.json: PASS Real password login/session identifies EXECUTIVE; current/round2-auth-results.json: PASS Real password login/session identifies ADMIN; current/round2-auth-results.json: PASS Real password login/session identifies OPERATOR; current/round2-auth-results.json: PASS Real password login/session identifies QUALITY; current/round2-auth-results.json: PASS Real password login/session identifies ACCOUNTING; current/round2-auth-results.json: PASS Real password login/session identifies PURCHASING; current/round2-auth-results.json: PASS Real password login/session identifies EXECUTIVE; main151: PASS Real password login/session identifies ADMIN; main151: PASS Real password login/session identifies OPERATOR; main151: PASS Real password login/session identifies QUALITY; main151: PASS Real password login/session identifies ACCOUNTING; main151: PASS Real password login/session identifies PURCHASING; main151: PASS Real password login/session identifies EXECUTIVE; main151: PASS Password-only MFA login has no session; real factor completes it |
+| ACTION-0044 | Platform / Other | actionVerifyMfa | src/app/actions.ts:1576 | PASS | ; main151: PASS Password-only MFA login has no session; real factor completes it |
+| ACTION-0045 | Platform / Other | actionCancelMfaLogin | src/app/actions.ts:1590 | PASS | ; main151: PASS Cancel pending MFA login clears challenge cookie without session |
+| ACTION-0046 | Platform / Other | actionBootstrapInstance | src/app/actions.ts:1596 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0047 | Platform / Other | actionLogout | src/app/actions.ts:1616 | PASS | round2-auth-results.json: PASS Logout revokes actual session and strict page denies; current/round2-auth-results.json: PASS Logout revokes actual session and strict page denies; main151: PASS Logout revokes actual session and strict page denies |
+| ACTION-0048 | Platform / Other | actionAcceptInvite | src/app/actions.ts:1625 | FAIL | ; main151: PASS Weak invite password rejected without consuming invite; main151: PASS Invite acceptance creates user and real session; reuse is denied; main151: FAIL Password reset revokes preexisting signed-in sessions; main151: FAIL Password reset cannot restore a role revoked after token issuance; main151: FAIL Password reset on MFA-enabled account cannot skip second factor |
+| ACTION-0049 | Platform / Other | actionClaimTenant | src/app/actions.ts:1645 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0050 | Platform / Other | actionReissueOnboarding | src/app/actions.ts:1673 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0051 | Platform / Other | actionInviteUser | src/app/actions.ts:1705 | PASS | ; main151: PASS Admin invite writes local-only mail and hashed single-use token |
+| ACTION-0052 | Platform / Other | actionRequestPasswordReset | src/app/actions.ts:1735 | FAIL | ; main151: PASS Password reset uniform response for existing and nonexistent users; main151: FAIL Password reset cannot restore a role revoked after token issuance |
+| ACTION-0053 | Platform / Other | actionChangePassword | src/app/actions.ts:1809 | PASS | ; main151: PASS Self-service password change rejects wrong current password then rotates session |
+| ACTION-0054 | Platform / Other | actionAttestDockAcceptance | src/app/actions.ts:1831 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0055 | Platform / Other | actionSendEmail | src/app/actions.ts:1852 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0056 | Platform / Other | actionParseInboundEmail | src/app/actions.ts:1877 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0057 | Platform / Other | actionCreateTaskWo | src/app/actions.ts:1905 | PASS | priority-results.json: PASS Standalone task WO action creates without sales order |
+| ACTION-0058 | Platform / Other | actionCreateProductionWo | src/app/actions.ts:1930 | PASS | manufacturing-edge-results.json: PASS Standalone production action uses existing certified BOM without SO |
+| ACTION-0059 | Platform / Other | actionApprovePr | src/app/actions.ts:1934 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0060 | Platform / Other | actionCreateStandalonePr | src/app/actions.ts:1965 | PASS | priority-results.json: PASS Permission OPERATOR denied purchasing PR action without writes; priority-results.json: PASS Standalone PR draft action + submission routes approvals; round2-auth-results.json: PASS Real OPERATOR cannot create standalone PR; current/round2-auth-results.json: PASS Real OPERATOR cannot create standalone PR; main151: PASS Real OPERATOR cannot create standalone PR |
+| ACTION-0061 | Platform / Other | actionSaveApprovalPolicy | src/app/actions.ts:2067 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionSaveApprovalPolicy requires purchasing.policy.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0062 | Platform / Other | actionAttachPrQuote | src/app/actions.ts:2128 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0063 | Platform / Other | actionSaveBuyerPackage | src/app/actions.ts:2160 | PASS | finance-supply-results.json: PASS PR routing, buyer action, final approval and PO conversion actions |
+| ACTION-0064 | Platform / Other | actionConfirmBuyerPackage | src/app/actions.ts:2294 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0065 | Platform / Other | actionAssignPrBuyer | src/app/actions.ts:2324 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0066 | Platform / Other | actionConvertPrToPo | src/app/actions.ts:2347 | PASS | finance-supply-results.json: PASS PR routing, buyer action, final approval and PO conversion actions; finance-supply-results.json: PASS Repeated PR-to-PO conversion does not create duplicate |
+| ACTION-0067 | Platform / Other | actionRefreshScorecard | src/app/actions.ts:2507 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0068 | Platform / Other | actionAiChat | src/app/actions.ts:2514 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0069 | Platform / Other | actionAdvanceWiStatus | src/app/actions.ts:2518 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0070 | Platform / Other | actionSubmitWiToCm | src/app/actions.ts:2557 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionSubmitWiToCm requires wi.release; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0071 | Platform / Other | actionCreateWiRevision | src/app/actions.ts:2574 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionCreateWiRevision requires wi.create; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0072 | Platform / Other | actionCreateWorkInstruction | src/app/actions.ts:2589 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionCreateWorkInstruction requires wi.create; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0073 | Platform / Other | actionAddWiStep | src/app/actions.ts:2700 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionAddWiStep requires wi.edit; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0074 | Platform / Other | actionLinkWiToBom | src/app/actions.ts:2761 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionLinkWiToBom requires cm.ecr.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0075 | Platform / Other | actionVoteCm | src/app/actions.ts:2784 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionVoteCm requires cm.vote; main151: PASS Two approver assignment and two own-seat votes approve ECR |
+| ACTION-0076 | Platform / Other | actionCreateDocumentEcr | src/app/actions.ts:2888 | PASS | ; main151: PASS Create document ECR action reserves drawing and seeds attachments |
+| ACTION-0077 | Platform / Other | actionAddEcrAttachments | src/app/actions.ts:2963 | PASS | ; main151: PASS Attachment add primary selection and comment actions |
+| ACTION-0078 | Platform / Other | actionSetEcrPrimaryAttachment | src/app/actions.ts:2997 | PASS | ; main151: PASS Attachment add primary selection and comment actions |
+| ACTION-0079 | Platform / Other | actionAddEcrComment | src/app/actions.ts:3013 | PASS | ; main151: PASS Attachment add primary selection and comment actions |
+| ACTION-0080 | Platform / Other | actionAssignEcrApprovers | src/app/actions.ts:3028 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionAssignEcrApprovers requires cm.ecr.manage; main151: PASS Two approver assignment and two own-seat votes approve ECR |
+| ACTION-0081 | Platform / Other | actionReleaseDocumentEcr | src/app/actions.ts:3046 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionReleaseDocumentEcr requires cm.ecr.manage; main151: PASS Approved ECR release creates library document and registry link |
+| ACTION-0082 | Platform / Other | actionMoveCmSubmission | src/app/actions.ts:3066 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionMoveCmSubmission requires cm.ecr.manage; main151: PASS Guarded CM submission move accepted for normal review transition |
+| ACTION-0083 | Platform / Other | actionMoveCmBoardCard | src/app/actions.ts:3096 | FAIL | ; main151: FAIL Nonprivileged board move cannot approve ECR without two votes; main151: FAIL Document ECR cannot fake non-document drag to Released |
+| ACTION-0084 | Platform / Other | actionCreateCmFolder | src/app/actions.ts:3151 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionCreateCmFolder requires cm.ecr.manage; main151: PASS Create product library folder through guarded action |
+| ACTION-0085 | Platform / Other | actionDeleteCmFolder | src/app/actions.ts:3170 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionDeleteCmFolder requires cm.ecr.manage; main151: PASS Guarded document move delete and folder delete positive acceptance |
+| ACTION-0086 | Platform / Other | actionMoveCmDocument | src/app/actions.ts:3189 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionMoveCmDocument requires cm.ecr.manage; main151: PASS Guarded document move delete and folder delete positive acceptance |
+| ACTION-0087 | Platform / Other | actionDeleteCmDocument | src/app/actions.ts:3203 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionDeleteCmDocument requires cm.ecr.manage; main151: PASS Guarded document move delete and folder delete positive acceptance |
+| ACTION-0088 | Platform / Other | actionCreateSalesOrder | src/app/actions.ts:3286 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0089 | Platform / Other | actionCreateQuote | src/app/actions.ts:3346 | PASS | priority-results.json: PASS HTTP action create quote preserves line and PO reference |
+| ACTION-0090 | Platform / Other | actionUpdatePoDeliveryDates | src/app/actions.ts:3383 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0091 | Platform / Other | actionSetWorkOrderDueDate | src/app/actions.ts:3427 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0092 | Platform / Other | actionRequestPermission | src/app/actions.ts:3455 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0093 | Platform / Other | actionDecidePermissionRequest | src/app/actions.ts:3499 | PASS | ; current/round3-hr-auth-results.json: PASS Permission request 24h grant/admin denial/repeat decision; current/round3-hr-auth-results.json: FAIL Invalid permission decision must not silently grant permanently; main151: PASS Permission request 24h grant/admin denial/repeat decision; main151: PASS Invalid permission decision must not silently grant permanently |
+| ACTION-0094 | Platform / Other | actionSetMyPin | src/app/actions.ts:3576 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0095 | Platform / Other | actionAdminResetPin | src/app/actions.ts:3600 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0096 | Platform / Other | actionMarkQuoteSent | src/app/actions.ts:3629 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0097 | Platform / Other | actionRecordCustomerPo | src/app/actions.ts:3655 | PASS | priority-results.json: PASS Customer PO action converts quote to linked SO; priority-results.json: FAIL Repeat customer PO conversion does not regress converted quote; FIX VERIFIED current 3de5ba1: integrity-retest.log / bom-lifecycle-retest.log and current HTTP retests |
+| ACTION-0098 | Platform / Other | actionAcceptQuote | src/app/actions.ts:3687 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0099 | Platform / Other | actionSendQuote | src/app/actions.ts:3726 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0100 | Platform / Other | actionPlanSalesOrder | src/app/actions.ts:3736 | PASS | manufacturing-edge-results.json: PASS OPERATOR cannot invoke SO planning action |
+| ACTION-0101 | Platform / Other | actionAssessCtp | src/app/actions.ts:3772 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0102 | Platform / Other | actionCreateCustomer | src/app/actions.ts:3834 | PASS | priority-results.json: PASS HTTP action create customer persists; priority-results.json: PASS HTTP action duplicate preferred customer code safely deconflicts; priority-results.json: FAIL Permission OPERATOR denied actionCreateCustomer; round2-auth-results.json: FAIL Real OPERATOR session denied customer creation; round2-auth-results.json: PASS Anonymous native POST cannot create customer; FIX VERIFIED current 3de5ba1: integrity-retest.log / bom-lifecycle-retest.log and current HTTP retests; current/round2-auth-results.json: PASS Real OPERATOR session denied customer creation; current/round2-auth-results.json: PASS Anonymous native POST cannot create customer; main151: PASS Real OPERATOR session denied customer creation; main151: PASS Anonymous native POST cannot create customer |
+| ACTION-0103 | Platform / Other | actionUpdateCustomer | src/app/actions.ts:3858 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionUpdateCustomer requires customers.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0104 | Platform / Other | actionCheckWoMaterials | src/app/actions.ts:3881 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0105 | Platform / Other | actionPlanWoMaterials | src/app/actions.ts:3907 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0106 | Platform / Other | actionPutAwayItemWithLocation | src/app/actions.ts:3911 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0107 | Platform / Other | actionUpdatePartInspectionFlags | src/app/actions.ts:3926 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0108 | Platform / Other | actionCreateItem | src/app/actions.ts:3968 | PASS | priority-results.json: PASS HTTP action create catalog item persists; priority-results.json: FAIL Permission OPERATOR denied actionCreateItem; round2-auth-results.json: FAIL Real OPERATOR session denied catalog creation; FIX VERIFIED current 3de5ba1: integrity-retest.log / bom-lifecycle-retest.log and current HTTP retests; current/round2-auth-results.json: PASS Real OPERATOR session denied catalog creation; main151: PASS Real OPERATOR session denied catalog creation |
+| ACTION-0109 | Platform / Other | actionUpdateItem | src/app/actions.ts:4001 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionUpdateItem requires items.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0110 | Platform / Other | actionUpsertPartVendor | src/app/actions.ts:4070 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0111 | Platform / Other | actionSaveUomUnit | src/app/actions.ts:4105 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0112 | Platform / Other | actionSaveUomConversion | src/app/actions.ts:4125 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0113 | Platform / Other | actionToggleSupplierAsl | src/app/actions.ts:4138 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionToggleSupplierAsl requires suppliers.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0114 | Platform / Other | actionUpdateAslPolicy | src/app/actions.ts:4159 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionUpdateAslPolicy requires suppliers.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0115 | Platform / Other | actionUpsertSupplierCert | src/app/actions.ts:4175 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionUpsertSupplierCert requires suppliers.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0116 | Platform / Other | actionDeleteSupplierCert | src/app/actions.ts:4203 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionDeleteSupplierCert requires suppliers.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0117 | Platform / Other | actionUpdateDepositStatus | src/app/actions.ts:4214 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0118 | Platform / Other | actionCompleteReceivingInspection | src/app/actions.ts:4241 | PASS | round2-auth-results.json: FAIL Real OPERATOR denied receiving inspection acceptance; round2-quality-results.json: PASS QC PASS actions create functional test only after both QA gates; current/round2-auth-results.json: FAIL Real OPERATOR denied receiving inspection acceptance; current/round2-quality-results.json: PASS QC PASS actions create functional test only after both QA gates; main151: PASS Real OPERATOR denied receiving inspection acceptance; main151: PASS QC PASS actions create functional test only after both QA gates |
+| ACTION-0119 | Platform / Other | actionScanIntoReceivingTraveler | src/app/actions.ts:4306 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0120 | Platform / Other | actionScanOutReceivingTraveler | src/app/actions.ts:4324 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0121 | Platform / Other | actionDeliverTravelerToStation | src/app/actions.ts:4350 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0122 | Platform / Other | actionCreateKit | src/app/actions.ts:4388 | PASS | priority-results.json: PASS WO materials readiness and kit action create |
+| ACTION-0123 | Platform / Other | actionCompleteKit | src/app/actions.ts:4421 | PASS | priority-results.json: PASS Complete kit action issues materials without negative stock |
+| ACTION-0124 | Platform / Other | actionAddPrototypeWiStep | src/app/actions.ts:4455 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0125 | Platform / Other | actionRefreshWoEstimate | src/app/actions.ts:4545 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0126 | Platform / Other | actionRescheduleWorkOrder | src/app/actions.ts:4567 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0127 | Platform / Other | actionSavePlanningSettings | src/app/actions.ts:4606 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionSavePlanningSettings requires admin.users.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0128 | Platform / Other | actionCreateBudget | src/app/actions.ts:4637 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionCreateBudget requires budgets.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0129 | Platform / Other | actionEnsureProjectWbsChargeCodes | src/app/actions.ts:4692 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionEnsureProjectWbsChargeCodes requires budgets.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0130 | Platform / Other | actionUpdateBudget | src/app/actions.ts:4723 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0131 | Platform / Other | actionEnactBudget | src/app/actions.ts:4774 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionEnactBudget requires budgets.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0132 | Platform / Other | actionCloseBudget | src/app/actions.ts:4799 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionCloseBudget requires budgets.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0133 | Platform / Other | actionPostBudgetCharge | src/app/actions.ts:4817 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0134 | Platform / Other | actionSetUserCompensation | src/app/actions.ts:4848 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0135 | Platform / Other | actionFinishPrototypeWo | src/app/actions.ts:4874 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0136 | Platform / Other | actionStartProduction | src/app/actions.ts:4908 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionStartProduction requires workorders.status.update; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0137 | Platform / Other | actionCompleteWoToStock | src/app/actions.ts:4926 | PASS | priority-results.json: PASS Completed production handoff then stock action closes WO; round2-finance-results.json: FAIL Task-only WO completes traveler then official completion without inventory; FIX VERIFIED current 3de5ba1: integrity-retest.log / bom-lifecycle-retest.log and current HTTP retests; current/round2-finance-results.json: PASS Task-only WO completes traveler then official completion without inventory |
+| ACTION-0138 | Platform / Other | actionPutAwayItem | src/app/actions.ts:4974 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0139 | Platform / Other | actionPutAwayAllReceiving | src/app/actions.ts:4981 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0140 | Platform / Other | actionShipSalesOrder | src/app/actions.ts:4987 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionShipSalesOrder requires sales.order.ship; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0141 | Platform / Other | actionRunKanbanReplenishment | src/app/actions.ts:5012 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0142 | Platform / Other | actionQueueShipment | src/app/actions.ts:5024 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0143 | Platform / Other | actionCreateManualShipment | src/app/actions.ts:5040 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionCreateManualShipment requires sales.order.ship; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0144 | Platform / Other | actionVerifyPackingList | src/app/actions.ts:5094 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionVerifyPackingList requires sales.order.ship; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0145 | Platform / Other | actionPackShipment | src/app/actions.ts:5106 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionPackShipment requires sales.order.ship; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0146 | Platform / Other | actionRequestCmNumber | src/app/actions.ts:5137 | PASS | ; main151: PASS Request controlled number via action and assign master registry |
+| ACTION-0147 | Platform / Other | actionAssignCmNumber | src/app/actions.ts:5157 | FAIL | ; main151: PASS Request controlled number via action and assign master registry; main151: FAIL Operator cannot assign controlled master number |
+| ACTION-0148 | Platform / Other | actionRejectCmNumberRequest | src/app/actions.ts:5171 | PASS | ; main151: PASS Reject number request and cancel own pending request actions |
+| ACTION-0149 | Platform / Other | actionCancelCmNumberRequest | src/app/actions.ts:5185 | FAIL | ; main151: PASS Reject number request and cancel own pending request actions; main151: FAIL Operator cannot cancel someone else number request |
+| ACTION-0150 | Platform / Other | actionRegisterCmNumber | src/app/actions.ts:5198 | PASS | ; main151: PASS Manual master registration and scheme editing actions |
+| ACTION-0151 | Platform / Other | actionUpdateCmNumberScheme | src/app/actions.ts:5216 | PASS | ; main151: PASS Manual master registration and scheme editing actions |
+| ACTION-0152 | Platform / Other | actionUpdateRegistryStatus | src/app/actions.ts:5246 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0153 | Platform / Other | actionCreateProduct | src/app/actions.ts:5263 | PASS | ; current/round3-pmo-plm-results.json: PASS PLM create action persists product and CM folder; current/round3-pmo-plm-results.json: PASS PLM blank name action rejects without product writes |
+| ACTION-0154 | Platform / Other | actionUpdateProduct | src/app/actions.ts:5282 | PASS | ; current/round3-pmo-plm-results.json: PASS PLM update action persists cost and revision |
+| ACTION-0155 | Platform / Other | actionAdvanceProductLifecycle | src/app/actions.ts:5300 | PASS | ; current/round3-pmo-plm-results.json: PASS PLM lifecycle action records phase/date/history; current/round3-pmo-plm-results.json: PASS PLM lifecycle invalid phase makes no change |
+| ACTION-0156 | Platform / Other | actionAddProductPart | src/app/actions.ts:5317 | PASS | ; current/round3-pmo-plm-results.json: PASS PLM part add/remove actions maintain top-level pointer |
+| ACTION-0157 | Platform / Other | actionRemoveProductPart | src/app/actions.ts:5332 | PASS | ; current/round3-pmo-plm-results.json: PASS PLM part add/remove actions maintain top-level pointer |
+| ACTION-0158 | Platform / Other | actionAddProductDocument | src/app/actions.ts:5342 | PASS | ; current/round3-pmo-plm-results.json: PASS PLM document add/remove actions persist and remove link |
+| ACTION-0159 | Platform / Other | actionRemoveProductDocument | src/app/actions.ts:5363 | PASS | ; current/round3-pmo-plm-results.json: PASS PLM document add/remove actions persist and remove link |
+| ACTION-0160 | Platform / Other | actionAddProductRequirement | src/app/actions.ts:5373 | PASS | ; current/round3-pmo-plm-results.json: PASS PLM requirements create/update/remove actions |
+| ACTION-0161 | Platform / Other | actionUpdateProductRequirement | src/app/actions.ts:5395 | PASS | ; current/round3-pmo-plm-results.json: PASS PLM requirements create/update/remove actions |
+| ACTION-0162 | Platform / Other | actionRemoveProductRequirement | src/app/actions.ts:5411 | PASS | ; current/round3-pmo-plm-results.json: PASS PLM requirements create/update/remove actions |
+| ACTION-0163 | Platform / Other | actionAddProductVariant | src/app/actions.ts:5421 | FAIL | ; current/round3-pmo-plm-results.json: PASS PLM variants unique default and remove actions; current/round3-pmo-plm-results.json: FAIL PLM failed duplicate default variant preserves previous default |
+| ACTION-0164 | Platform / Other | actionRemoveProductVariant | src/app/actions.ts:5442 | PASS | ; current/round3-pmo-plm-results.json: PASS PLM variants unique default and remove actions |
+| ACTION-0165 | Platform / Other | actionAddProductMilestone | src/app/actions.ts:5452 | PASS | ; current/round3-pmo-plm-results.json: PASS PLM milestone add/update/remove actions |
+| ACTION-0166 | Platform / Other | actionUpdateProductMilestone | src/app/actions.ts:5470 | PASS | ; current/round3-pmo-plm-results.json: PASS PLM milestone add/update/remove actions |
+| ACTION-0167 | Platform / Other | actionRemoveProductMilestone | src/app/actions.ts:5488 | PASS | ; current/round3-pmo-plm-results.json: PASS PLM milestone add/update/remove actions |
+| ACTION-0168 | Platform / Other | actionAddProductMember | src/app/actions.ts:5498 | PASS | ; current/round3-pmo-plm-results.json: PASS PLM team add/remove actions |
+| ACTION-0169 | Platform / Other | actionRemoveProductMember | src/app/actions.ts:5511 | PASS | ; current/round3-pmo-plm-results.json: PASS PLM team add/remove actions |
+| ACTION-0170 | Platform / Other | actionCreateProgram | src/app/actions.ts:5536 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO program create contract update and CLIN actions |
+| ACTION-0171 | Platform / Other | actionUpdateProgramContract | src/app/actions.ts:5564 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO program create contract update and CLIN actions |
+| ACTION-0172 | Platform / Other | actionAddProgramClin | src/app/actions.ts:5585 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO program create contract update and CLIN actions |
+| ACTION-0173 | Platform / Other | actionSaveIndirectRate | src/app/actions.ts:5603 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0174 | Platform / Other | actionSetAccountAllowability | src/app/actions.ts:5622 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0175 | Platform / Other | actionSetGovconControls | src/app/actions.ts:5644 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0176 | Platform / Other | actionCreatePmoProject | src/app/actions.ts:5669 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO project create and charter update actions |
+| ACTION-0177 | Platform / Other | actionUpdateProjectCharter | src/app/actions.ts:5701 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO project create and charter update actions |
+| ACTION-0178 | Platform / Other | actionAddProjectRisk | src/app/actions.ts:5746 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO risk create and mitigation update |
+| ACTION-0179 | Platform / Other | actionUpdateProjectRisk | src/app/actions.ts:5766 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO risk create and mitigation update |
+| ACTION-0180 | Platform / Other | actionAddProjectIssue | src/app/actions.ts:5780 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO issue create and resolution update |
+| ACTION-0181 | Platform / Other | actionUpdateProjectIssue | src/app/actions.ts:5794 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO issue create and resolution update |
+| ACTION-0182 | Platform / Other | actionUpsertRaci | src/app/actions.ts:5808 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO RACI create update delete actions |
+| ACTION-0183 | Platform / Other | actionDeleteRaci | src/app/actions.ts:5825 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO RACI create update delete actions |
+| ACTION-0184 | Platform / Other | actionAddCommunication | src/app/actions.ts:5833 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO communication add/delete actions |
+| ACTION-0185 | Platform / Other | actionDeleteCommunication | src/app/actions.ts:5851 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO communication add/delete actions |
+| ACTION-0186 | Platform / Other | actionAddPmoTask | src/app/actions.ts:5861 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO task create and DONE action sets percent complete |
+| ACTION-0187 | Platform / Other | actionUpdatePmoTask | src/app/actions.ts:5883 | FAIL | ; current/round3-pmo-plm-results.json: PASS PMO task create and DONE action sets percent complete; current/round3-pmo-plm-results.json: FAIL PMO task rejects completion above 100 percent |
+| ACTION-0188 | Platform / Other | actionAddPmoMilestone | src/app/actions.ts:5895 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO milestone create and achieve sets actual date |
+| ACTION-0189 | Platform / Other | actionUpdatePmoMilestone | src/app/actions.ts:5909 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO milestone create and achieve sets actual date |
+| ACTION-0190 | Platform / Other | actionSaveWikiPage | src/app/actions.ts:5922 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO wiki create/update body round-trip |
+| ACTION-0191 | Platform / Other | actionCreatePi | src/app/actions.ts:5938 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO PI and feature action links story points |
+| ACTION-0192 | Platform / Other | actionAddPiFeature | src/app/actions.ts:5953 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO PI and feature action links story points |
+| ACTION-0193 | Platform / Other | actionAddCostEntry | src/app/actions.ts:5967 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO cost action reconciles project/product rollups |
+| ACTION-0194 | Platform / Other | actionAddProjectRequirement | src/app/actions.ts:5985 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO requirement create/sync actions are repeat-idempotent |
+| ACTION-0195 | Platform / Other | actionSyncReqsToProduct | src/app/actions.ts:6003 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO requirement create/sync actions are repeat-idempotent |
+| ACTION-0196 | Platform / Other | actionSyncMilestonesToProduct | src/app/actions.ts:6015 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO milestone sync action is repeat-idempotent |
+| ACTION-0197 | Platform / Other | actionLinkProductToProject | src/app/actions.ts:6027 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO linked product action is repeat-idempotent |
+| ACTION-0198 | Platform / Other | actionCreateWbs | src/app/actions.ts:6044 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO WBS create/update actions retain hierarchy and progress |
+| ACTION-0199 | Platform / Other | actionUpdateWbs | src/app/actions.ts:6069 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO WBS create/update actions retain hierarchy and progress |
+| ACTION-0200 | Platform / Other | actionCreateCampaign | src/app/actions.ts:6098 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0201 | Platform / Other | actionUpdateCampaign | src/app/actions.ts:6123 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0202 | Platform / Other | actionCreateSaga | src/app/actions.ts:6139 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0203 | Platform / Other | actionUpdateSaga | src/app/actions.ts:6176 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0204 | Platform / Other | actionCreateEngTask | src/app/actions.ts:6192 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0205 | Platform / Other | actionUpdateEngTask | src/app/actions.ts:6235 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0206 | Platform / Other | actionScanIn | src/app/actions.ts:6256 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0207 | Platform / Other | actionScanOut | src/app/actions.ts:6273 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0208 | Platform / Other | actionBreakDownTask | src/app/actions.ts:6290 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0209 | Platform / Other | actionAddEngDependency | src/app/actions.ts:6308 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0210 | Platform / Other | actionRemoveEngDependency | src/app/actions.ts:6358 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0211 | Platform / Other | actionCreateEngSprint | src/app/actions.ts:6370 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0212 | Platform / Other | actionCreatePlanningQuarter | src/app/actions.ts:6391 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0213 | Platform / Other | actionUpdatePlanningQuarter | src/app/actions.ts:6411 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0214 | Platform / Other | actionCreatePmoSprint | src/app/actions.ts:6425 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0215 | Platform / Other | actionUpsertBusinessPriority | src/app/actions.ts:6443 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0216 | Platform / Other | actionSetPriorityStatus | src/app/actions.ts:6467 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0217 | Platform / Other | actionAssignUserGroup | src/app/actions.ts:6481 | PASS | ; current/round3-hr-auth-results.json: PASS Admin permission group create/toggle/assign/remove action chain; current/round3-hr-auth-results.json: FAIL Operator must not self-assign privileged permission group; main151: PASS Admin permission group create/toggle/assign/remove action chain; main151: PASS Operator must not self-assign privileged permission group |
+| ACTION-0218 | Platform / Other | actionRemoveUserGroup | src/app/actions.ts:6495 | PASS | ; current/round3-hr-auth-results.json: PASS Admin permission group create/toggle/assign/remove action chain; main151: PASS Admin permission group create/toggle/assign/remove action chain |
+| ACTION-0219 | Platform / Other | actionGrantUserPermission | src/app/actions.ts:6509 | PASS | ; current/round3-hr-auth-results.json: FAIL Individual permanent regrant clears expired temporary expiry; current/round3-hr-auth-results.json: PASS Individual explicit deny overrides role and group grants; current/round3-hr-auth-results.json: FAIL Operator must not self-grant admin.permissions; main151: PASS Individual permanent regrant clears expired temporary expiry; main151: PASS Individual explicit deny overrides role and group grants; main151: PASS Operator must not self-grant admin.permissions |
+| ACTION-0220 | Platform / Other | actionPostJournal | src/app/actions.ts:6525 | PASS | priority-results.json: FAIL Permission OPERATOR denied posting journal action; priority-results.json: PASS Journal action creates balanced pending entry; finance-supply-results.json: FAIL Non-controller accountant cannot postNow around required approval; round2-auth-results.json: FAIL Real OPERATOR session denied GL posting; round2-auth-results.json: FAIL Real ACCOUNTING cannot immediately post around required approval; FIX VERIFIED current 3de5ba1: integrity-retest.log / bom-lifecycle-retest.log and current HTTP retests; current/round2-auth-results.json: PASS Real OPERATOR session denied GL posting; current/round2-auth-results.json: PASS Real ACCOUNTING cannot immediately post around required approval; main151: PASS Real OPERATOR session denied GL posting; main151: PASS Real ACCOUNTING cannot immediately post around required approval |
+| ACTION-0221 | Platform / Other | actionUpdateEngSprint | src/app/actions.ts:6593 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0222 | Platform / Other | actionAssignTaskSprint | src/app/actions.ts:6609 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0223 | Platform / Other | actionAssignSagaSprint | src/app/actions.ts:6625 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0224 | Platform / Other | actionCreateProductionEngIssue | src/app/actions.ts:6641 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0225 | Platform / Other | actionAcceptProductionIssue | src/app/actions.ts:6671 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0226 | Platform / Other | actionUpdateProductionEngIssue | src/app/actions.ts:6690 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0227 | Platform / Other | actionMoveEngWork | src/app/actions.ts:6715 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0228 | Platform / Other | actionCreateSwimLane | src/app/actions.ts:6738 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0229 | Platform / Other | actionRemoveSwimLane | src/app/actions.ts:6749 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0230 | Platform / Other | actionMarkEngAlertRead | src/app/actions.ts:6759 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0231 | Platform / Other | actionAttachGfpDocument | src/app/actions.ts:6771 | PASS | ; main151: PASS Attach DD1149 via action and list master contract documents |
+| ACTION-0232 | Platform / Other | actionSetGfpAuditInterval | src/app/actions.ts:6794 | PASS | ; main151: PASS Set audit interval schedules one upcoming audit |
+| ACTION-0233 | Platform / Other | actionCompleteGfpAudit | src/app/actions.ts:6805 | PASS | ; main151: PASS Complete physical inventory persists evidence and reschedules |
+| ACTION-0234 | Platform / Other | actionCheckoutGfp | src/app/actions.ts:6819 | PASS | ; main151: PASS Custody checkout and checkin actions preserve named holder/history |
+| ACTION-0235 | Platform / Other | actionCheckinGfp | src/app/actions.ts:6834 | FAIL | ; main151: PASS Custody checkout and checkin actions preserve named holder/history; main151: FAIL Operator without GFP permission cannot transfer government stock |
+| ACTION-0236 | Platform / Other | actionRequestGfpConsumption | src/app/actions.ts:6853 | FAIL | ; main151: FAIL Partial government material consumption deducts exact linked stock |
+| ACTION-0237 | Platform / Other | actionDecideGfpConsumption | src/app/actions.ts:6870 | FAIL | ; main151: FAIL Partial government material consumption deducts exact linked stock; main151: FAIL Operator without GFP permission cannot approve consumption |
+| ACTION-0238 | Platform / Other | actionCreateVirtualAsset | src/app/actions.ts:6894 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0239 | Platform / Other | actionAssignVirtualAsset | src/app/actions.ts:6929 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0240 | Platform / Other | actionCheckoutVirtualAsset | src/app/actions.ts:6945 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0241 | Platform / Other | actionReturnVirtualAsset | src/app/actions.ts:6961 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0242 | Platform / Other | actionUnassignVirtualAsset | src/app/actions.ts:6976 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0243 | Platform / Other | actionAlignBusinessPriority | src/app/actions.ts:6992 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0244 | Platform / Other | actionAssignWorkCenterStaff | src/app/actions.ts:7044 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0245 | Platform / Other | actionRemoveWorkCenterStaff | src/app/actions.ts:7059 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0246 | Platform / Other | actionCreateAccount | src/app/actions.ts:7072 | PASS | ; current/round3-finance-deep-results.json: FAIL Operator cannot create general-ledger accounts; main151: PASS Operator cannot create general-ledger accounts |
+| ACTION-0247 | Platform / Other | actionUpdateAccount | src/app/actions.ts:7103 | PASS | ; current/round3-finance-deep-results.json: FAIL Operator cannot modify general-ledger accounts; main151: PASS Operator cannot modify general-ledger accounts |
+| ACTION-0248 | Platform / Other | actionQueueShipmentAndOpen | src/app/actions.ts:7124 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0249 | Platform / Other | actionDecidePto | src/app/actions.ts:7144 | PASS | ; current/round3-hr-auth-results.json: PASS HR PTO request/approval and missing rejection reason gate; main151: PASS HR PTO request/approval and missing rejection reason gate |
+| ACTION-0250 | Platform / Other | actionRequestPto | src/app/actions.ts:7166 | FAIL | ; current/round3-hr-auth-results.json: PASS HR PTO request/approval and missing rejection reason gate; current/round3-hr-auth-results.json: FAIL HR PTO request must belong to logged-in actor; current/round3-hr-auth-results.json: FAIL HR PTO reverse date interval rejected; main151: PASS HR PTO request/approval and missing rejection reason gate; main151: FAIL HR PTO request must belong to logged-in actor; main151: FAIL HR PTO reverse date interval rejected |
+| ACTION-0251 | Platform / Other | actionDecideTimeEntry | src/app/actions.ts:7187 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0252 | Platform / Other | actionAdvanceExpense | src/app/actions.ts:7209 | FAIL | ; current/round3-finance-deep-results.json: PASS Expense owner submit and unrelated reviewer denial; current/round3-finance-deep-results.json: FAIL HR cannot bypass accounting payment by generic PAID transition; current/round3-finance-deep-results.json: FAIL Operator cannot submit another employee expense report; main151: PASS Expense owner submit and unrelated reviewer denial; main151: PASS HR cannot bypass accounting payment by generic PAID transition; main151: FAIL Operator cannot submit another employee expense report |
+| ACTION-0253 | Platform / Other | actionReimburseExpense | src/app/actions.ts:7227 | FAIL | ; current/round3-finance-deep-results.json: FAIL Accounting can reimburse already HR-approved expense under journal SoD; main151: FAIL Accounting can reimburse already HR-approved expense under journal SoD |
+| ACTION-0254 | Platform / Other | actionUpdateGoalProgress | src/app/actions.ts:7241 | FAIL | ; current/round3-hr-auth-results.json: PASS HR employee goal create/progress/checkin action chain; current/round3-hr-auth-results.json: PASS HR goal progress clamps to 0..100; current/round3-hr-auth-results.json: FAIL HR operator cannot alter another employee goal progress; main151: PASS HR employee goal create/progress/checkin action chain; main151: PASS HR goal progress clamps to 0..100; main151: FAIL HR operator cannot alter another employee goal progress |
+| ACTION-0255 | Platform / Other | actionSwitchDemoUser | src/app/actions.ts:7254 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0256 | Platform / Other | actionSavePerformanceReview | src/app/actions.ts:7280 | FAIL | ; current/round3-reviews-results.json: PASS HR manager review requires rationale and can write discussion notes; current/round3-reviews-results.json: FAIL HR manager score must remain within the documented 1-to-5 scale; current/round3-reviews-results.json: PASS HR completed review rejects later manager note mutation |
+| ACTION-0257 | Platform / Other | actionCreateEmployeeGoal | src/app/actions.ts:7336 | PASS | ; current/round3-hr-auth-results.json: PASS HR employee goal create/progress/checkin action chain; main151: PASS HR employee goal create/progress/checkin action chain |
+| ACTION-0258 | Platform / Other | actionAddEmployeeDocument | src/app/actions.ts:7370 | PASS | ; current/round3-hr-auth-results.json: PASS HR employee document self-add and unrelated target denial; main151: PASS HR employee document self-add and unrelated target denial |
+| ACTION-0259 | Platform / Other | actionAddTrainingRecord | src/app/actions.ts:7410 | PASS | ; current/round3-hr-auth-results.json: PASS HR training cycle create, evidence and toggle action chain; main151: PASS HR training cycle create, evidence and toggle action chain |
+| ACTION-0260 | Platform / Other | actionCreateTrainingRequirement | src/app/actions.ts:7480 | PASS | ; current/round3-hr-auth-results.json: PASS HR training cycle create, evidence and toggle action chain; main151: PASS HR training cycle create, evidence and toggle action chain |
+| ACTION-0261 | Platform / Other | actionToggleTrainingRequirement | src/app/actions.ts:7519 | PASS | ; current/round3-hr-auth-results.json: PASS HR training cycle create, evidence and toggle action chain; main151: PASS HR training cycle create, evidence and toggle action chain |
+| ACTION-0262 | Platform / Other | actionAttachTrainingEvidence | src/app/actions.ts:7540 | PASS | ; current/round3-hr-auth-results.json: PASS HR training cycle create, evidence and toggle action chain; main151: PASS HR training cycle create, evidence and toggle action chain |
+| ACTION-0263 | Platform / Other | actionGoalCheckIn | src/app/actions.ts:7581 | PASS | ; current/round3-hr-auth-results.json: PASS HR employee goal create/progress/checkin action chain; current/round3-hr-auth-results.json: PASS HR goal check-in denies unrelated employee; main151: PASS HR employee goal create/progress/checkin action chain; main151: PASS HR goal check-in denies unrelated employee |
+| ACTION-0264 | Platform / Other | actionImportData | src/app/actions.ts:7614 | PASS | ; main151: PASS Authorized import action creates part using template and decimal cost; main151: PASS Non-admin import action creates no master records; main151: PASS Browser importer creates part and repeat defaults to safe skip |
+| ACTION-0265 | Platform / Other | actionAddFeedbackNote | src/app/actions.ts:7659 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0266 | Platform / Other | actionCreatePermissionGroup | src/app/actions.ts:7695 | PASS | ; current/round3-hr-auth-results.json: PASS Admin permission group create/toggle/assign/remove action chain; current/round3-hr-auth-results.json: PASS Operator cannot create permission group or toggle its grants; main151: PASS Admin permission group create/toggle/assign/remove action chain; main151: PASS Operator cannot create permission group or toggle its grants |
+| ACTION-0267 | Platform / Other | actionToggleGroupPermission | src/app/actions.ts:7715 | PASS | ; current/round3-hr-auth-results.json: PASS Admin permission group create/toggle/assign/remove action chain; current/round3-hr-auth-results.json: PASS Operator cannot create permission group or toggle its grants; main151: PASS Admin permission group create/toggle/assign/remove action chain; main151: PASS Operator cannot create permission group or toggle its grants |
+| ACTION-0268 | Platform / Other | actionShipReturnShipment | src/app/actions.ts:7733 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionShipReturnShipment requires sales.order.ship; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0269 | Platform / Other | actionAddTimesheetEntry | src/app/actions.ts:7781 | FAIL | ; current/round3-hr-auth-results.json: PASS HR timesheet add/remove native action chain; current/round3-hr-auth-results.json: FAIL HR date-only entry stays in selected local payroll period; main151: PASS HR timesheet add/remove native action chain; main151: FAIL HR date-only entry stays in selected local payroll period |
+| ACTION-0270 | Platform / Other | actionRemoveTimesheetEntry | src/app/actions.ts:7801 | PASS | ; current/round3-hr-auth-results.json: PASS HR timesheet add/remove native action chain; current/round3-hr-auth-results.json: PASS HR timesheet refuses foreign deletion and foreign grid edit; main151: PASS HR timesheet add/remove native action chain; main151: PASS HR timesheet refuses foreign deletion and foreign grid edit |
+| ACTION-0271 | Platform / Other | actionSubmitTimesheet | src/app/actions.ts:7814 | PASS | ; current/round3-hr-auth-results.json: PASS HR timecard submit and wrong reviewer denial; main151: PASS HR timecard submit and wrong reviewer denial |
+| ACTION-0272 | Platform / Other | actionDecideTimesheetApproval | src/app/actions.ts:7825 | PASS | ; current/round3-hr-auth-results.json: PASS HR timecard bucket approval and processing to payroll actions; main151: PASS HR timecard bucket approval and processing to payroll actions |
+| ACTION-0273 | Platform / Other | actionReviewTimecard | src/app/actions.ts:7852 | PASS | ; current/round3-hr-auth-results.json: PASS HR timecard submit and wrong reviewer denial; main151: PASS HR timecard submit and wrong reviewer denial |
+| ACTION-0274 | Platform / Other | actionSaveTimecardGrid | src/app/actions.ts:7882 | PASS | ; current/round3-hr-auth-results.json: PASS HR timesheet refuses foreign deletion and foreign grid edit; current/round3-hr-auth-results.json: PASS HR timecard grid saves own hours and rejects daily overflow; main151: PASS HR timesheet refuses foreign deletion and foreign grid edit; main151: PASS HR timecard grid saves own hours and rejects daily overflow |
+| ACTION-0275 | Platform / Other | actionProcessTimesheet | src/app/actions.ts:7905 | PASS | ; current/round3-hr-auth-results.json: PASS HR timecard bucket approval and processing to payroll actions; main151: PASS HR timecard bucket approval and processing to payroll actions |
+| ACTION-0276 | Platform / Other | actionCreateTestProcedure | src/app/actions.ts:7921 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0277 | Platform / Other | actionAddTestProcedureStep | src/app/actions.ts:7943 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0278 | Platform / Other | actionReleaseTestProcedure | src/app/actions.ts:7967 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0279 | Platform / Other | actionSubmitTestProcedureToCm | src/app/actions.ts:7992 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0280 | Platform / Other | actionRecordTestSignOff | src/app/actions.ts:8007 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0281 | Platform / Other | actionCreateAsset | src/app/actions.ts:8032 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionCreateAsset requires assets.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0282 | Platform / Other | actionCheckoutAsset | src/app/actions.ts:8053 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0283 | Platform / Other | actionCheckinAsset | src/app/actions.ts:8074 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0284 | Platform / Other | actionConnectBank | src/app/actions.ts:8087 | PASS | ; current/round3-finance-deep-results.json: PASS Bank connect/import CSV and repeat import preserve exact balance; main151: PASS Bank connect/import CSV and repeat import preserve exact balance |
+| ACTION-0285 | Platform / Other | actionImportBankTransactions | src/app/actions.ts:8108 | PASS | ; current/round3-finance-deep-results.json: PASS Bank connect/import CSV and repeat import preserve exact balance; main151: PASS Bank connect/import CSV and repeat import preserve exact balance |
+| ACTION-0286 | Platform / Other | actionCategorizeBankTxn | src/app/actions.ts:8134 | PASS | ; current/round3-finance-deep-results.json: PASS Bank categorize once posts balanced exact withdrawal; current/round3-finance-deep-results.json: FAIL Bank recategorize matched transaction does not post a second journal; current/round3-finance-deep-results.json: FAIL Bank operator without accounting permission cannot categorize; main151: PASS Bank categorize once posts balanced exact withdrawal; main151: PASS Bank recategorize matched transaction does not post a second journal; main151: PASS Bank operator without accounting permission cannot categorize |
+| ACTION-0287 | Platform / Other | actionReconcileBankTxn | src/app/actions.ts:8148 | PASS | ; current/round3-finance-deep-results.json: FAIL Bank operator cannot reconcile matched transaction; current/round3-finance-deep-results.json: PASS Bank authorized reconciliation and pre-match gate; main151: PASS Bank operator cannot reconcile matched transaction; main151: PASS Bank authorized reconciliation and pre-match gate |
+| ACTION-0288 | Platform / Other | actionReverseJournal | src/app/actions.ts:8156 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0289 | Platform / Other | actionSetSupplier1099 | src/app/actions.ts:8176 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0290 | Platform / Other | actionCreateScheduledReport | src/app/actions.ts:8196 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0291 | Platform / Other | actionToggleScheduledReport | src/app/actions.ts:8220 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0292 | Platform / Other | actionDeleteScheduledReport | src/app/actions.ts:8235 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0293 | Platform / Other | actionRunScheduledReports | src/app/actions.ts:8248 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0294 | Platform / Other | actionReclassifyLines | src/app/actions.ts:8265 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0295 | Platform / Other | actionCreateRecurringJournal | src/app/actions.ts:8298 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0296 | Platform / Other | actionToggleRecurringJournal | src/app/actions.ts:8339 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0297 | Platform / Other | actionDeleteRecurringJournal | src/app/actions.ts:8358 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0298 | Platform / Other | actionRunRecurringJournals | src/app/actions.ts:8375 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0299 | Platform / Other | actionSaveWithholding | src/app/actions.ts:8394 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0300 | Platform / Other | actionCreatePlaidLinkToken | src/app/actions.ts:8432 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0301 | Platform / Other | actionExchangePlaidToken | src/app/actions.ts:8453 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0302 | Platform / Other | actionSyncPlaid | src/app/actions.ts:8482 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0303 | Platform / Other | actionRunPayroll | src/app/actions.ts:8509 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0304 | Platform / Other | actionSavePayrollPolicy | src/app/actions.ts:8520 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0305 | Platform / Other | actionSaveAccountingSettings | src/app/actions.ts:8574 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0306 | Platform / Other | actionSaveReviewPolicy | src/app/actions.ts:8613 | PASS | ; current/round3-reviews-results.json: PASS HR review policy save and cycle opening are idempotent |
+| ACTION-0307 | Platform / Other | actionOpenDueReviewCycles | src/app/actions.ts:8636 | PASS | ; current/round3-reviews-results.json: PASS HR review policy save and cycle opening are idempotent |
+| ACTION-0308 | Platform / Other | actionSubmitSelfReview | src/app/actions.ts:8647 | PASS | ; current/round3-reviews-results.json: PASS HR self-review foreign principal denied and owner submission advances |
+| ACTION-0309 | Platform / Other | actionSignOffReview | src/app/actions.ts:8675 | PASS | ; current/round3-reviews-results.json: PASS HR employee+manager sign-off completes only after both parties |
+| ACTION-0310 | Platform / Other | actionApproveJournal | src/app/actions.ts:8695 | PASS | round2-auth-results.json: FAIL Real ACCOUNTING concurrent approvals apply balances only once; round2-auth-results.json: FAIL Real EXECUTIVE with journal.approve can approve without journal.post; current/round2-auth-results.json: FAIL Real ACCOUNTING concurrent approvals apply balances only once; current/round2-auth-results.json: FAIL Real EXECUTIVE with journal.approve can approve without journal.post; main151: PASS Real ACCOUNTING concurrent approvals apply balances only once; main151: PASS Real EXECUTIVE with journal.approve can approve without journal.post; main151: PASS ACCT-007 approval-only executive succeeds; posting-only grant does not approve |
+| ACTION-0311 | Platform / Other | actionVoidJournal | src/app/actions.ts:8712 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0312 | Platform / Other | actionSetAccountingCloseDate | src/app/actions.ts:8728 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0313 | Platform / Other | actionRecordArPayment | src/app/actions.ts:8749 | PASS | ; current/round3-finance-deep-results.json: PASS Customer receipt action reconciles AR payments and GL; main151: PASS Customer receipt action reconciles AR payments and GL |
+| ACTION-0314 | Platform / Other | actionRecordApPayment | src/app/actions.ts:8769 | PASS | ; current/round3-finance-deep-results.json: PASS Vendor invoice action and AP payment reconcile exact subtotal/tax/GL; main151: PASS Vendor invoice action and AP payment reconcile exact subtotal/tax/GL |
+| ACTION-0315 | Platform / Other | actionCreateVendorApInvoice | src/app/actions.ts:8797 | PASS | ; current/round3-finance-deep-results.json: PASS Vendor invoice action and AP payment reconcile exact subtotal/tax/GL; current/round3-finance-deep-results.json: FAIL Failed closed-period vendor invoice leaves no payable; main151: PASS Vendor invoice action and AP payment reconcile exact subtotal/tax/GL; main151: PASS Failed closed-period vendor invoice leaves no payable |
+| ACTION-0316 | Platform / Other | actionCreateExpenseEntry | src/app/actions.ts:8837 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0317 | Platform / Other | actionSaveCompanyProfile | src/app/actions.ts:8868 | PASS | ; current/round3-docs-assets-results.json: FAIL Admin company profile changes denied to ordinary operator; main151: PASS Admin company profile changes denied to ordinary operator |
+| ACTION-0318 | Platform / Other | actionSaveCompanyOps | src/app/actions.ts:8900 | PASS | ; current/round3-docs-assets-results.json: PASS Admin company ops action denied to ordinary operator; main151: PASS Admin company ops action denied to ordinary operator |
+| ACTION-0319 | Platform / Other | actionActivatePlan | src/app/actions.ts:8933 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0320 | Platform / Other | actionStartCheckout | src/app/actions.ts:8962 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0321 | Platform / Other | actionStartTrial | src/app/actions.ts:9030 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0322 | Platform / Other | actionCancelSubscription | src/app/actions.ts:9040 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0323 | Platform / Other | actionCreateQualityItem | src/app/actions.ts:9052 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionCreateQualityItem requires quality.programs.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0324 | Platform / Other | actionRecordQualityEvent | src/app/actions.ts:9085 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionRecordQualityEvent requires quality.programs.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0325 | Platform / Other | actionSetQualityItemStatus | src/app/actions.ts:9111 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionSetQualityItemStatus requires quality.programs.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0326 | Platform / Other | actionCreateToolbox | src/app/actions.ts:9132 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionCreateToolbox requires quality.programs.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0327 | Platform / Other | actionCreateTool | src/app/actions.ts:9156 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionCreateTool requires quality.programs.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0328 | Platform / Other | actionAssignToolToToolbox | src/app/actions.ts:9187 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionAssignToolToToolbox requires quality.programs.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0329 | Platform / Other | actionSaveToolboxInspection | src/app/actions.ts:9205 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionSaveToolboxInspection requires quality.programs.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0330 | Platform / Other | actionCreateToolReport | src/app/actions.ts:9226 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionCreateToolReport requires quality.programs.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0331 | Platform / Other | actionUpdateToolReportPieces | src/app/actions.ts:9249 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionUpdateToolReportPieces requires quality.programs.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0332 | Platform / Other | actionDeclarePieceUnrecoverable | src/app/actions.ts:9265 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionDeclarePieceUnrecoverable requires quality.programs.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0333 | Platform / Other | actionPlaceReplacementPr | src/app/actions.ts:9280 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionPlaceReplacementPr requires quality.programs.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0334 | Platform / Other | actionUpdateToolReportSteps | src/app/actions.ts:9300 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionUpdateToolReportSteps requires quality.programs.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0335 | Platform / Other | actionSetToolReportStatus | src/app/actions.ts:9316 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionSetToolReportStatus requires quality.programs.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0336 | Platform / Other | actionSaveInspectionTemplate | src/app/actions.ts:9337 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionSaveInspectionTemplate requires quality.programs.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0337 | Platform / Other | actionPerformInspection | src/app/actions.ts:9358 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionPerformInspection requires quality.programs.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0338 | Platform / Other | actionRecordHumidity | src/app/actions.ts:9380 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionRecordHumidity requires quality.programs.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0339 | Platform / Other | actionSubmitProgramPolicy | src/app/actions.ts:9404 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionSubmitProgramPolicy requires quality.programs.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0340 | Platform / Other | actionLinkProgramPolicy | src/app/actions.ts:9424 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionLinkProgramPolicy requires quality.programs.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0341 | Platform / Other | actionLogCounterfeitIncident | src/app/actions.ts:9443 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionLogCounterfeitIncident requires quality.programs.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0342 | Platform / Other | actionSaveAudit | src/app/actions.ts:9465 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionSaveAudit requires quality.programs.manage; main151: PASS Audit action records OK NCR OFI and required reinspection followup |
+| ACTION-0343 | Platform / Other | actionUpdateAuditFinding | src/app/actions.ts:9487 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionUpdateAuditFinding requires quality.programs.manage; main151: PASS Corrective finding transitions through REINSPECT then CLOSED |
+| ACTION-0344 | Platform / Other | actionLinkCalToolToMrb | src/app/actions.ts:9509 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionLinkCalToolToMrb requires mrb.disposition; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0345 | Platform / Other | actionSetCalToolDisposition | src/app/actions.ts:9527 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionSetCalToolDisposition requires mrb.disposition; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0346 | Platform / Other | actionTriggerIncidentFromMrb | src/app/actions.ts:9546 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionTriggerIncidentFromMrb requires mrb.disposition; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0347 | Platform / Other | actionUpdateIncidentSteps | src/app/actions.ts:9566 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionUpdateIncidentSteps requires quality.programs.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0348 | Platform / Other | actionSetIncidentResult | src/app/actions.ts:9582 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionSetIncidentResult requires quality.programs.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0349 | Platform / Other | actionCreateRequisition | src/app/actions.ts:9603 | PASS | ; current/round3-hr-auth-results.json: PASS HR recruiting requisition create/update actions; current/round3-hr-auth-results.json: PASS HR operator denied recruiting create action; main151: PASS HR recruiting requisition create/update actions; main151: PASS HR operator denied recruiting create action |
+| ACTION-0350 | Platform / Other | actionUpdateRequisitionStatus | src/app/actions.ts:9630 | PASS | ; current/round3-hr-auth-results.json: PASS HR recruiting requisition create/update actions; main151: PASS HR recruiting requisition create/update actions |
+| ACTION-0351 | Platform / Other | actionAddCandidate | src/app/actions.ts:9649 | PASS | ; current/round3-hr-auth-results.json: PASS HR candidate create/stage/hire creates one onboarding; main151: PASS HR candidate create/stage/hire creates one onboarding |
+| ACTION-0352 | Platform / Other | actionMoveCandidateStage | src/app/actions.ts:9675 | PASS | ; current/round3-hr-auth-results.json: PASS HR candidate create/stage/hire creates one onboarding; main151: PASS HR candidate create/stage/hire creates one onboarding |
+| ACTION-0353 | Platform / Other | actionRecordBackgroundCheck | src/app/actions.ts:9702 | PASS | ; current/round3-hr-auth-results.json: PASS HR background record/update actions link candidate; main151: PASS HR background record/update actions link candidate |
+| ACTION-0354 | Platform / Other | actionUpdateBackgroundCheck | src/app/actions.ts:9730 | PASS | ; current/round3-hr-auth-results.json: PASS HR background record/update actions link candidate; main151: PASS HR background record/update actions link candidate |
+| ACTION-0355 | Platform / Other | actionCreateOnboarding | src/app/actions.ts:9753 | PASS | ; current/round3-hr-auth-results.json: PASS HR direct onboarding create action; main151: PASS HR direct onboarding create action |
+| ACTION-0356 | Platform / Other | actionUpdateOnboarding | src/app/actions.ts:9780 | PASS | ; current/round3-hr-auth-results.json: PASS HR onboarding update/checklist gate and full completion; main151: PASS HR onboarding update/checklist gate and full completion |
+| ACTION-0357 | Platform / Other | actionSetOnboardingChecklistItem | src/app/actions.ts:9813 | PASS | ; current/round3-hr-auth-results.json: PASS HR onboarding update/checklist gate and full completion; main151: PASS HR onboarding update/checklist gate and full completion |
+| ACTION-0358 | Platform / Other | actionCompleteOnboarding | src/app/actions.ts:9834 | PASS | ; current/round3-hr-auth-results.json: PASS HR onboarding update/checklist gate and full completion; main151: PASS HR onboarding update/checklist gate and full completion |
+| ACTION-0359 | Platform / Other | actionClockOutForBreak | src/app/actions.ts:9849 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0360 | Platform / Other | actionReleaseCommitment | src/app/actions.ts:9860 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionReleaseCommitment requires inventory.putaway; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0361 | Platform / Other | actionCreateLocation | src/app/actions.ts:9897 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionCreateLocation requires inventory.locations.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0362 | Platform / Other | actionConsumeVirtualAsset | src/app/actions.ts:9946 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionConsumeVirtualAsset requires va.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0363 | Platform / Other | actionCreateSupplier | src/app/actions.ts:10006 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionCreateSupplier requires suppliers.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0364 | Platform / Other | actionMoveWorkOrder | src/app/actions.ts:10059 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionMoveWorkOrder requires workorders.status.update; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0365 | Platform / Other | actionCreateCycleCount | src/app/actions.ts:10090 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionCreateCycleCount requires inventory.cyclecount; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0366 | Platform / Other | actionRecordCycleCountLine | src/app/actions.ts:10112 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionRecordCycleCountLine requires inventory.cyclecount; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0367 | Platform / Other | actionCompleteCycleCount | src/app/actions.ts:10135 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionCompleteCycleCount requires inventory.cyclecount; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0368 | Platform / Other | actionCancelCycleCount | src/app/actions.ts:10156 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionCancelCycleCount requires inventory.cyclecount; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0369 | Platform / Other | actionSetModuleEnabled | src/app/actions.ts:10176 | PASS | ; main151: PASS Module toggle obeys authority and roundtrips disabled settings |
+| ACTION-0370 | Platform / Other | actionWizardAddPerson | src/app/actions.ts:10225 | FAIL | ; main151: PASS Setup wizard admin creates a person and completion flag; main151: FAIL Operator cannot self-promote to ADMIN through setup wizard action |
+| ACTION-0371 | Platform / Other | actionCompleteSetup | src/app/actions.ts:10263 | PASS | ; main151: PASS Setup wizard admin creates a person and completion flag |
+| ACTION-0372 | Platform / Other | actionCreateRmaRequest | src/app/actions.ts:10297 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionCreateRmaRequest requires rma.create; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0373 | Platform / Other | actionIssueRma | src/app/actions.ts:10333 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionIssueRma requires rma.issue; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0374 | Platform / Other | actionCreateRepairQuoteForRma | src/app/actions.ts:10373 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionCreateRepairQuoteForRma requires rma.issue; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0375 | Platform / Other | actionAcceptRepairQuote | src/app/actions.ts:10393 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionAcceptRepairQuote requires rma.issue; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0376 | Platform / Other | actionUpdateRepairQuote | src/app/actions.ts:10425 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionUpdateRepairQuote requires rma.issue; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0377 | Platform / Other | actionAdjustRmaQuotePrice | src/app/actions.ts:10472 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionAdjustRmaQuotePrice requires rma.adjust_price; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0378 | Platform / Other | actionAssignKitSerialToUnit | src/app/actions.ts:10497 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionAssignKitSerialToUnit requires serials.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0379 | Platform / Other | actionInstallSerialOnWo | src/app/actions.ts:10523 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionInstallSerialOnWo requires serials.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0380 | Platform / Other | actionRemoveSerialInstall | src/app/actions.ts:10579 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionRemoveSerialInstall requires serials.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0381 | Platform / Other | actionAmendPo | src/app/actions.ts:10613 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0382 | Platform / Other | actionDecidePoAmendment | src/app/actions.ts:10655 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0383 | Admin / Settings | actionSetIssueStatus | src/app/admin/insights/actions.ts:21 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0384 | Platform / Other | actionAiChat | src/app/ai/actions.ts:38 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0385 | Platform / Other | actionAiConversation | src/app/ai/actions.ts:42 | PASS | ; current/round3-ai-help-results.json: PASS Carina anonymous fake source and guestKey cannot grant identity; current/round3-ai-help-results.json: PASS Carina invalid and empty conversation fail before budget reservation; current/round3-ai-help-results.json: PASS Carina mutation, secrets and private-record prompts are read-only refusals; current/round3-ai-help-results.json: PASS Carina absent provider fails safely and records redacted route context; current/round3-ai-help-results.json: PASS Carina rate limit remains atomic across 14 simultaneous real-session requests |
+| ACTION-0386 | Platform / Other | actionCarinaFeatures | src/app/ai/actions.ts:99 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0387 | Platform / Other | actionCarinaCostReport | src/app/ai/actions.ts:104 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0388 | Platform / Other | actionGetAssistantName | src/app/ai/actions.ts:108 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0389 | Platform / Other | actionSetAssistantName | src/app/ai/actions.ts:122 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0390 | Platform / Other | actionGrokStatus | src/app/ai/actions.ts:144 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0391 | Platform / Other | actionProbeGrok | src/app/ai/actions.ts:152 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0392 | Platform / Other | actionVoiceSmokeTest | src/app/ai/actions.ts:158 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0571 | Platform / Other | actionAiFeedback | src/app/ai/actions.ts:169 | PASS | ; current/round3-ai-help-results.json: PASS Carina feedback is owned by actual signed-in principal |
+| ACTION-0393 | PLM / BOM / ECO | actionVoteCmFriendly | src/app/cm/vote-actions.ts:15 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0394 | CRM / Sales | actionCreateLead | src/app/crm/actions.ts:39 | PASS | priority-results.json: PASS HTTP action create CRM lead persists; round2-modules-results.json: PASS CRM lead action creates then valid status update persists; round2-modules-results.json: PASS CRM blank lead company is rejected without writes |
+| ACTION-0395 | CRM / Sales | actionUpdateLeadStatus | src/app/crm/actions.ts:55 | FAIL | round2-modules-results.json: PASS CRM lead action creates then valid status update persists; round2-modules-results.json: FAIL CRM lead status action rejects unknown state |
+| ACTION-0396 | CRM / Sales | actionConvertLead | src/app/crm/actions.ts:64 | PASS | round2-modules-results.json: PASS CRM lead conversion action links opportunity |
+| ACTION-0397 | CRM / Sales | actionCreateOpportunity | src/app/crm/actions.ts:82 | PASS | round2-modules-results.json: PASS CRM opportunity create and update actions persist fields |
+| ACTION-0398 | CRM / Sales | actionSetStage | src/app/crm/actions.ts:99 | PASS | round2-modules-results.json: PASS CRM stage action ignores unknown stage and requires LOST reason; round2-modules-results.json: PASS CRM WON then reopened opportunity clears close timestamp |
+| ACTION-0399 | CRM / Sales | actionUpdateOpportunity | src/app/crm/actions.ts:116 | FAIL | round2-modules-results.json: PASS CRM opportunity create and update actions persist fields; round2-modules-results.json: FAIL CRM probability update rejects values above 100 percent |
+| ACTION-0400 | CRM / Sales | actionConvertToCustomer | src/app/crm/actions.ts:138 | PASS | round2-modules-results.json: PASS CRM customer conversion action is repeat-idempotent |
+| ACTION-0401 | CRM / Sales | actionAddActivity | src/app/crm/actions.ts:154 | PASS | round2-modules-results.json: PASS CRM activity create and completion actions persist |
+| ACTION-0402 | CRM / Sales | actionCompleteActivity | src/app/crm/actions.ts:170 | PASS | round2-modules-results.json: PASS CRM activity create and completion actions persist |
+| ACTION-0403 | CRM / Sales | actionCreateContact | src/app/crm/actions.ts:180 | PASS | round2-modules-results.json: PASS CRM contact action creates primary contact |
+| ACTION-0404 | Demo / Tenancy | actionStartTestDrive | src/app/demo-actions.ts:13 | PASS | demo-results.json: PASS Native demo Start -> server cookie -> ping -> end |
+| ACTION-0405 | Demo / Tenancy | actionEnterExistingDemo | src/app/demo-actions.ts:103 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0406 | Demo / Tenancy | actionEndTestDrive | src/app/demo-actions.ts:129 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0407 | Docs | actionCreateDocSpace | src/app/docs/actions.ts:20 | PASS | ; current/round3-docs-assets-results.json: PASS Knowledge base create space and controlled page through actions; main151: PASS Knowledge base create space and controlled page through actions |
+| ACTION-0408 | Docs | actionCreateDocPage | src/app/docs/actions.ts:26 | PASS | ; current/round3-docs-assets-results.json: PASS Knowledge base create space and controlled page through actions; main151: PASS Knowledge base create space and controlled page through actions |
+| ACTION-0409 | Docs | actionSaveDocPage | src/app/docs/actions.ts:33 | PASS | ; current/round3-docs-assets-results.json: PASS Knowledge base save action versions and stale edit rejected; current/round3-docs-assets-results.json: PASS Knowledge base operator denied edit even when action is called directly; current/round3-docs-assets-results.json: PASS Knowledge base editor cannot downgrade controlled page; main151: PASS Knowledge base save action versions and stale edit rejected; main151: PASS Knowledge base operator denied edit even when action is called directly; main151: PASS Knowledge base editor cannot downgrade controlled page |
+| ACTION-0410 | Docs | actionRestoreDocRevision | src/app/docs/actions.ts:39 | PASS | ; current/round3-docs-assets-results.json: PASS Knowledge base restore action appends revision without deleting history; main151: PASS Knowledge base restore action appends revision without deleting history |
+| ACTION-0411 | Docs | actionSignDocRevision | src/app/docs/actions.ts:42 | PASS | ; current/round3-docs-assets-results.json: PASS Knowledge base sign action rejects wrong PIN and releases own version; main151: PASS Knowledge base sign action rejects wrong PIN and releases own version |
+| ACTION-0412 | Docs | actionCommentOnDoc | src/app/docs/actions.ts:45 | PASS | ; current/round3-docs-assets-results.json: PASS Knowledge base comment/resolve actions; main151: PASS Knowledge base comment/resolve actions |
+| ACTION-0413 | Docs | actionResolveDocComment | src/app/docs/actions.ts:48 | PASS | ; current/round3-docs-assets-results.json: PASS Knowledge base comment/resolve actions; main151: PASS Knowledge base comment/resolve actions |
+| ACTION-0414 | Docs | actionLinkDocRecord | src/app/docs/actions.ts:51 | PASS | ; current/round3-docs-assets-results.json: PASS Knowledge base record search/link/unlink actions; main151: PASS Knowledge base record search/link/unlink actions |
+| ACTION-0415 | Docs | actionUnlinkDocRecord | src/app/docs/actions.ts:57 | PASS | ; current/round3-docs-assets-results.json: PASS Knowledge base record search/link/unlink actions; main151: PASS Knowledge base record search/link/unlink actions |
+| ACTION-0416 | Docs | actionSearchDocTargets | src/app/docs/actions.ts:62 | PASS | ; current/round3-docs-assets-results.json: PASS Knowledge base record search/link/unlink actions; main151: PASS Knowledge base record search/link/unlink actions |
+| ACTION-0417 | Service / Assets | actionCreateVehicle | src/app/fleet/actions.ts:30 | PASS | ; current/round3-docs-assets-results.json: PASS Fleet create/update actions persist identity and odometer; main151: PASS Fleet create/update actions persist identity and odometer |
+| ACTION-0418 | Service / Assets | actionUpdateVehicle | src/app/fleet/actions.ts:55 | PASS | ; current/round3-docs-assets-results.json: PASS Fleet create/update actions persist identity and odometer; main151: PASS Fleet create/update actions persist identity and odometer |
+| ACTION-0419 | Service / Assets | actionAddMaintenance | src/app/fleet/actions.ts:85 | PASS | ; current/round3-docs-assets-results.json: PASS Fleet maintenance schedule/complete action schedules next occurrence; main151: PASS Fleet maintenance schedule/complete action schedules next occurrence |
+| ACTION-0420 | Service / Assets | actionCompleteMaintenance | src/app/fleet/actions.ts:103 | FAIL | ; current/round3-docs-assets-results.json: PASS Fleet maintenance schedule/complete action schedules next occurrence; current/round3-docs-assets-results.json: FAIL Fleet repeat maintenance completion must not duplicate next scheduled job; main151: PASS Fleet maintenance schedule/complete action schedules next occurrence; main151: FAIL Fleet repeat maintenance completion must not duplicate next scheduled job |
+| ACTION-0421 | Service / Assets | actionAddFuel | src/app/fleet/actions.ts:119 | FAIL | ; current/round3-docs-assets-results.json: FAIL Fleet fuel action positive/negative validation and odometer; main151: FAIL Fleet fuel action positive/negative validation and odometer |
+| ACTION-0422 | Inventory / Kitting | actionQuarantineExpired | src/app/inventory/expiring/actions.ts:7 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0423 | Shipping / Logistics | actionCreateCarrier | src/app/logistics/actions.ts:30 | PASS | ; current/round3-docs-assets-results.json: PASS Logistics carrier create/toggle actions; main151: PASS Logistics carrier create/toggle actions |
+| ACTION-0424 | Shipping / Logistics | actionToggleCarrier | src/app/logistics/actions.ts:46 | PASS | ; current/round3-docs-assets-results.json: PASS Logistics carrier create/toggle actions; main151: PASS Logistics carrier create/toggle actions |
+| ACTION-0425 | Shipping / Logistics | actionRecordFreight | src/app/logistics/actions.ts:53 | PASS | ; current/round3-docs-assets-results.json: PASS Logistics freight action nonnegative cost guard; main151: PASS Logistics freight action nonnegative cost guard |
+| ACTION-0426 | Shipping / Logistics | actionAddLandedCost | src/app/logistics/actions.ts:75 | PASS | ; current/round3-docs-assets-results.json: PASS Logistics landed-cost actions allocate exact charge and repeat no-op; main151: PASS Logistics landed-cost actions allocate exact charge and repeat no-op |
+| ACTION-0427 | Shipping / Logistics | actionApplyLandedCost | src/app/logistics/actions.ts:93 | PASS | ; current/round3-docs-assets-results.json: PASS Logistics landed-cost actions allocate exact charge and repeat no-op; main151: PASS Logistics landed-cost actions allocate exact charge and repeat no-op |
+| ACTION-0428 | Shipping / Logistics | actionSetLineWeight | src/app/logistics/actions.ts:103 | PASS | ; current/round3-docs-assets-results.json: PASS Logistics landed-cost actions allocate exact charge and repeat no-op; main151: PASS Logistics landed-cost actions allocate exact charge and repeat no-op |
+| ACTION-0429 | Service / Assets | actionCreateEquipment | src/app/maintenance/actions.ts:32 | PASS | ; current/round3-docs-assets-results.json: PASS Maintenance equipment create/update actions; main151: PASS Maintenance equipment create/update actions |
+| ACTION-0430 | Service / Assets | actionUpdateEquipment | src/app/maintenance/actions.ts:54 | PASS | ; current/round3-docs-assets-results.json: PASS Maintenance equipment create/update actions; main151: PASS Maintenance equipment create/update actions |
+| ACTION-0431 | Service / Assets | actionRecordMeter | src/app/maintenance/actions.ts:80 | PASS | ; current/round3-docs-assets-results.json: PASS Maintenance meter action forward-only enforced; main151: PASS Maintenance meter action forward-only enforced |
+| ACTION-0432 | Service / Assets | actionAddMaintenance | src/app/maintenance/actions.ts:95 | PASS | ; current/round3-docs-assets-results.json: PASS Maintenance schedule/complete action schedules next metered PM; main151: PASS Maintenance schedule/complete action schedules next metered PM |
+| ACTION-0433 | Service / Assets | actionCompleteMaintenance | src/app/maintenance/actions.ts:113 | FAIL | ; current/round3-docs-assets-results.json: PASS Maintenance schedule/complete action schedules next metered PM; current/round3-docs-assets-results.json: FAIL Maintenance repeat completion must not duplicate next scheduled job; main151: PASS Maintenance schedule/complete action schedules next metered PM; main151: FAIL Maintenance repeat completion must not duplicate next scheduled job |
+| ACTION-0434 | Service / Assets | actionStartDowntime | src/app/maintenance/actions.ts:130 | PASS | ; current/round3-docs-assets-results.json: PASS Maintenance multiple downtime holds keep equipment DOWN until last closes; main151: PASS Maintenance multiple downtime holds keep equipment DOWN until last closes |
+| ACTION-0435 | Service / Assets | actionEndDowntime | src/app/maintenance/actions.ts:144 | PASS | ; current/round3-docs-assets-results.json: PASS Maintenance multiple downtime holds keep equipment DOWN until last closes; main151: PASS Maintenance multiple downtime holds keep equipment DOWN until last closes |
+| ACTION-0436 | Billing / Founding | actionStartPublicCheckout | src/app/pricing/actions.ts:23 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0437 | Platform / Other | actionBackfillStockSerials | src/app/serial-backfill-actions.ts:6 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionBackfillStockSerials requires serials.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0438 | Platform / Other | actionIssueTopUnitSerial | src/app/serial-wo-actions.ts:6 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: actionIssueTopUnitSerial requires serials.manage; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0439 | Platform / Other | listTravelerSerialState | src/app/serial-wo-actions.ts:37 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0440 | Service / Assets | actionCreateTicket | src/app/service/actions.ts:35 | PASS | priority-results.json: PASS HTTP action create service ticket persists; round2-modules-results.json: PASS Service asset and ticket actions link customer-owned equipment; round2-modules-results.json: PASS Service blank title is rejected without ticket writes |
+| ACTION-0441 | Service / Assets | actionUpdateTicketStatus | src/app/service/actions.ts:55 | FAIL | round2-modules-results.json: FAIL Service reopening completed ticket clears closedAt; round2-modules-results.json: FAIL Service status action rejects unknown state |
+| ACTION-0442 | Service / Assets | actionScheduleVisit | src/app/service/actions.ts:65 | PASS | round2-modules-results.json: PASS Service dispatch and start actions move ticket into work |
+| ACTION-0443 | Service / Assets | actionStartVisit | src/app/service/actions.ts:81 | PASS | round2-modules-results.json: PASS Service dispatch and start actions move ticket into work |
+| ACTION-0444 | Service / Assets | actionCompleteVisit | src/app/service/actions.ts:95 | PASS | round2-modules-results.json: PASS Service completing last visit closes the job |
+| ACTION-0445 | Service / Assets | actionAddLabor | src/app/service/actions.ts:111 | PASS | round2-modules-results.json: PASS Service labor/parts actions reconcile billable total; round2-modules-results.json: PASS Service negative labor/part quantities leave no records |
+| ACTION-0446 | Service / Assets | actionAddPartUsage | src/app/service/actions.ts:127 | PASS | round2-modules-results.json: PASS Service labor/parts actions reconcile billable total; round2-modules-results.json: PASS Service negative labor/part quantities leave no records |
+| ACTION-0447 | Service / Assets | actionRemoveLabor | src/app/service/actions.ts:152 | PASS | round2-modules-results.json: PASS Service removal actions reconcile billable total to zero |
+| ACTION-0448 | Service / Assets | actionRemovePartUsage | src/app/service/actions.ts:159 | PASS | round2-modules-results.json: PASS Service removal actions reconcile billable total to zero |
+| ACTION-0449 | Service / Assets | actionCreateInstalledAsset | src/app/service/actions.ts:166 | PASS | round2-modules-results.json: PASS Service asset and ticket actions link customer-owned equipment |
+| ACTION-0450 | Accounts / Roles | actionStartTrial | src/app/signup/actions.ts:18 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0451 | Platform / Other | actionCreateSupportTicketResult | src/app/support/actions.ts:102 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0452 | Platform / Other | actionFetchSupportThread | src/app/support/actions.ts:180 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0453 | Platform / Other | actionPostSupportMessageResult | src/app/support/actions.ts:263 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0454 | Platform / Other | actionCreateSupportTicket | src/app/support/actions.ts:299 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0455 | Platform / Other | actionPostSupportMessage | src/app/support/actions.ts:311 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0456 | Platform / Other | actionAddSupportNote | src/app/support/actions.ts:348 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0457 | Platform / Other | actionUpdateSupportTicket | src/app/support/actions.ts:369 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0458 | Platform / Other | actionSupportTyping | src/app/support/actions.ts:398 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0459 | Platform / Other | actionTranslateText | src/app/support/actions.ts:413 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0460 | Platform / Other | logAudit | src/lib/audit.ts:32 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0461 | Platform / Other | getAuditTrail | src/lib/audit.ts:81 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0462 | PLM / BOM / ECO | certifyBomForPrototype | src/lib/services/bom.ts:14 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: certifyBomForPrototype requires bom.certify; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0463 | PLM / BOM / ECO | certifyBom | src/lib/services/bom.ts:49 | PASS | ; current/round3-guards-results.json: PASS Denied VIEWER guard only: certifyBom requires bom.certify; DENIAL-ONLY: positive workflow still untested |
+| ACTION-0572 | PLM / BOM / ECO | setBomPrototypeRequirement | src/lib/services/bom.ts:127 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0573 | PLM / BOM / ECO | setBomPrototypeDefault | src/lib/services/bom.ts:143 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0464 | PLM / BOM / ECO | createBomRevision | src/lib/services/bom.ts:154 | PASS | BOM create revision / add line / compare / where-used |
+| ACTION-0465 | PLM / BOM / ECO | compareBomRevisions | src/lib/services/bom.ts:230 | PASS | BOM create revision / add line / compare / where-used |
+| ACTION-0466 | PLM / BOM / ECO | whereUsed | src/lib/services/bom.ts:276 | PASS | BOM create revision / add line / compare / where-used |
+| ACTION-0467 | PLM / BOM / ECO | createOrLinkBom | src/lib/services/bom.ts:287 | PASS | BOM create revision / add line / compare / where-used |
+| ACTION-0468 | PLM / BOM / ECO | addBomLine | src/lib/services/bom.ts:305 | PASS | BOM rejects self-reference and zero add quantity |
+| ACTION-0469 | PLM / BOM / ECO | updateBomLine | src/lib/services/bom.ts:362 | PASS | BOM line UPDATE rejects negative quantity; FIX VERIFIED current 3de5ba1: integrity-retest.log / bom-lifecycle-retest.log and current HTTP retests |
+| ACTION-0470 | PLM / BOM / ECO | removeBomLine | src/lib/services/bom.ts:389 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0471 | Planning / Scheduling | getCapacityAndWorkload | src/lib/services/capacity.ts:160 | PASS | capacity getCapacityAndWorkload |
+| ACTION-0472 | Planning / Scheduling | assignWorkCenterStaff | src/lib/services/capacity.ts:485 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0473 | Planning / Scheduling | getActiveStaffAssignments | src/lib/services/capacity.ts:536 | PASS | capacity getActiveStaffAssignments |
+| ACTION-0474 | Planning / Scheduling | removeWorkCenterStaff | src/lib/services/capacity.ts:559 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0475 | CRM / Sales | createCustomer | src/lib/services/customers.ts:48 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0476 | CRM / Sales | updateCustomer | src/lib/services/customers.ts:82 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0477 | Platform / Other | listGfpContracts | src/lib/services/gfp.ts:8 | PASS | ; main151: PASS GFP list search and contract readers return seeded property |
+| ACTION-0478 | Platform / Other | listGfpByContract | src/lib/services/gfp.ts:20 | PASS | ; main151: PASS GFP list search and contract readers return seeded property |
+| ACTION-0479 | Platform / Other | listMasterDd1149 | src/lib/services/gfp.ts:49 | PASS | ; main151: PASS Attach DD1149 via action and list master contract documents |
+| ACTION-0480 | Platform / Other | attachGfpDocument | src/lib/services/gfp.ts:62 | PASS | ; main151: PASS Attach DD1149 via action and list master contract documents |
+| ACTION-0481 | Platform / Other | setGfpAuditInterval | src/lib/services/gfp.ts:104 | PASS | ; main151: PASS Set audit interval schedules one upcoming audit |
+| ACTION-0482 | Platform / Other | completeGfpAudit | src/lib/services/gfp.ts:159 | FAIL | ; main151: PASS Complete physical inventory persists evidence and reschedules; main151: FAIL Repeating completed GFP audit must not duplicate next scheduled audit; main151: FAIL Completing audit cannot mismatch property and audit identity |
+| ACTION-0483 | Platform / Other | checkoutGfp | src/lib/services/gfp.ts:254 | FAIL | ; main151: PASS Custody checkout and checkin actions preserve named holder/history; main151: FAIL Concurrent custody checkout yields a single open custody record |
+| ACTION-0484 | Platform / Other | checkinGfp | src/lib/services/gfp.ts:302 | PASS | ; main151: PASS Custody checkout and checkin actions preserve named holder/history; main151: PASS Authorized company transfer changes linked ownership |
+| ACTION-0485 | Platform / Other | listGfpCheckoutHistory | src/lib/services/gfp.ts:405 | PASS | ; main151: PASS Custody checkout and checkin actions preserve named holder/history |
+| ACTION-0486 | Platform / Other | searchGfpItems | src/lib/services/gfp.ts:454 | PASS | ; main151: PASS GFP list search and contract readers return seeded property |
+| ACTION-0487 | Platform / Other | requestGfpConsumption | src/lib/services/gfp.ts:493 | FAIL | ; main151: FAIL Partial government material consumption deducts exact linked stock; main151: FAIL Negative consumption quantity rejected before creating request |
+| ACTION-0488 | Platform / Other | decideGfpConsumption | src/lib/services/gfp.ts:539 | FAIL | ; main151: FAIL Partial government material consumption deducts exact linked stock; main151: PASS GFP rejection preserves property and requires decision notes |
+| ACTION-0489 | Platform / Other | listPendingGfpConsumptions | src/lib/services/gfp.ts:613 | FAIL | ; main151: FAIL Partial government material consumption deducts exact linked stock |
+| ACTION-0490 | Platform / Other | listUpcomingGfpAudits | src/lib/services/gfp.ts:625 | PASS | ; main151: PASS Set audit interval schedules one upcoming audit |
+| ACTION-0491 | Planning / Scheduling | getPlanningExceptions | src/lib/services/planning-exceptions.ts:32 | PASS | planning-exceptions getPlanningExceptions |
+| ACTION-0492 | Planning / Scheduling | createForecast | src/lib/services/planning.ts:43 | PASS | Forecast rejects negative demand quantity; FIX VERIFIED current 3de5ba1: integrity-retest.log / bom-lifecycle-retest.log and current HTTP retests |
+| ACTION-0493 | Planning / Scheduling | getPartSupplySnapshot | src/lib/services/planning.ts:89 | PASS | Supply snapshot and capable-to-promise |
+| ACTION-0494 | Planning / Scheduling | generateMaterialRequisitionFromForecast | src/lib/services/planning.ts:144 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0495 | Planning / Scheduling | supplyFor | src/lib/services/planning.ts:186 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0496 | Planning / Scheduling | explode | src/lib/services/planning.ts:197 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0497 | Planning / Scheduling | releaseMaterialRequisition | src/lib/services/planning.ts:395 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0498 | Planning / Scheduling | updateMrsLine | src/lib/services/planning.ts:679 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0499 | Planning / Scheduling | addMrsLine | src/lib/services/planning.ts:751 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0500 | Planning / Scheduling | removeMrsLine | src/lib/services/planning.ts:799 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0501 | Planning / Scheduling | updateForecast | src/lib/services/planning.ts:828 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0502 | Planning / Scheduling | upsertForecastLine | src/lib/services/planning.ts:871 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0503 | Planning / Scheduling | removeForecastLine | src/lib/services/planning.ts:910 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0504 | Planning / Scheduling | assessCapableToPromise | src/lib/services/planning.ts:955 | PASS | Supply snapshot and capable-to-promise |
+| ACTION-0505 | Purchasing / Receiving | getDefaultApprovalPolicy | src/lib/services/pr-approval.ts:29 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0506 | Purchasing / Receiving | listApprovalPolicies | src/lib/services/pr-approval.ts:43 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0507 | Purchasing / Receiving | startPrApprovalWorkflow | src/lib/services/pr-approval.ts:376 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0508 | Purchasing / Receiving | canUserApproveStep | src/lib/services/pr-approval.ts:637 | PASS | priority-results.json: PASS PR denial wrong-person approval leaves pipeline unchanged |
+| ACTION-0509 | Purchasing / Receiving | decidePrApproval | src/lib/services/pr-approval.ts:691 | PASS | priority-results.json: PASS PR denial wrong-person approval leaves pipeline unchanged; priority-results.json: FAIL Same admin cannot sign demand AND buyer on same PR; finance-supply-results.json: PASS PR routing, buyer action, final approval and PO conversion actions; FIX VERIFIED current 3de5ba1: integrity-retest.log / bom-lifecycle-retest.log and current HTTP retests |
+| ACTION-0510 | Purchasing / Receiving | getPrApprovals | src/lib/services/pr-approval.ts:892 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0511 | Purchasing / Receiving | listPrApprovalsForUser | src/lib/services/pr-approval.ts:905 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0512 | Purchasing / Receiving | countPrApprovalsForUser | src/lib/services/pr-approval.ts:972 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0513 | Purchasing / Receiving | saveApprovalPolicy | src/lib/services/pr-approval.ts:979 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0514 | Purchasing / Receiving | ensureDefaultPrApprovalPolicy | src/lib/services/pr-approval.ts:1099 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0515 | Purchasing / Receiving | approvalActionLabel | src/lib/services/pr-approval.ts:1143 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0516 | Purchasing / Receiving | saveReceivingDocuments | src/lib/services/receiving-inspection.ts:39 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0517 | Purchasing / Receiving | routeReceivingLineForInspection | src/lib/services/receiving-inspection.ts:81 | PASS | round2-quality-results.json: PASS QC flagged receipt routes to pending VISUAL/GDT with unavailable stock; current/round2-quality-results.json: PASS QC flagged receipt routes to pending VISUAL/GDT with unavailable stock; main151: PASS QC flagged receipt routes to pending VISUAL/GDT with unavailable stock |
+| ACTION-0518 | Purchasing / Receiving | spawnFunctionalReceivingInspection | src/lib/services/receiving-inspection.ts:261 | PASS | round2-quality-results.json: PASS QC PASS actions create functional test only after both QA gates; current/round2-quality-results.json: PASS QC PASS actions create functional test only after both QA gates; main151: PASS QC PASS actions create functional test only after both QA gates |
+| ACTION-0519 | Purchasing / Receiving | attestDockAcceptance | src/lib/services/receiving-inspection.ts:393 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0520 | Purchasing / Receiving | completeReceivingInspection | src/lib/services/receiving-inspection.ts:462 | FAIL | round2-quality-results.json: PASS QC completion requires attached evidence and does not mutate on missing docs; round2-quality-results.json: PASS Functional PASS returns receiving traveler READY_TO_STOCK; round2-quality-results.json: PASS Repeated QC completion rejected without duplicate NCR/docs; round2-quality-results.json: PASS QC failure creates NCR/MRB and quarantines all affected material; round2-quality-results.json: FAIL Failed receiving NCR retains source supplier for scorecards; current/round2-quality-results.json: PASS QC completion requires attached evidence and does not mutate on missing docs; current/round2-quality-results.json: PASS Functional PASS returns receiving traveler READY_TO_STOCK; current/round2-quality-results.json: PASS Repeated QC completion rejected without duplicate NCR/docs; current/round2-quality-results.json: PASS QC failure creates NCR/MRB and quarantines all affected material; current/round2-quality-results.json: FAIL Failed receiving NCR retains source supplier for scorecards; current/round3-receiving-deep-results.json: PASS Mixed QA/Test gates and dock HTTP putaway finish family exactly once; main151: PASS QC completion requires attached evidence and does not mutate on missing docs; main151: PASS Functional PASS returns receiving traveler READY_TO_STOCK; main151: PASS Repeated QC completion rejected without duplicate NCR/docs; main151: PASS QC failure creates NCR/MRB and quarantines all affected material; main151: FAIL Failed receiving NCR retains source supplier for scorecards; main151: PASS Mixed QA/Test gates and dock HTTP putaway finish family exactly once |
+| ACTION-0521 | Purchasing / Receiving | tryCompleteReceivingTestWo | src/lib/services/receiving-inspection.ts:698 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0522 | Purchasing / Receiving | tryCompleteInventoryReceivingInspections | src/lib/services/receiving-inspection.ts:762 | PASS | round2-quality-results.json: PASS QC PASS actions create functional test only after both QA gates; current/round2-quality-results.json: PASS QC PASS actions create functional test only after both QA gates; main151: PASS QC PASS actions create functional test only after both QA gates |
+| ACTION-0523 | Purchasing / Receiving | completeReceivingAfterInspection | src/lib/services/receiving-inspection.ts:961 | PASS | round2-quality-results.json: PASS After-inspection putaway service releases stock and completes travelers; current/round2-quality-results.json: PASS After-inspection putaway service releases stock and completes travelers; current/round3-receiving-deep-results.json: PASS Mixed QA/Test gates and dock HTTP putaway finish family exactly once; main151: PASS After-inspection putaway service releases stock and completes travelers; main151: PASS Mixed QA/Test gates and dock HTTP putaway finish family exactly once |
+| ACTION-0524 | Purchasing / Receiving | updatePartInspectionFlags | src/lib/services/receiving-inspection.ts:1125 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0525 | Purchasing / Receiving | listOpenTestInspections | src/lib/services/receiving-inspection.ts:1153 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0526 | Purchasing / Receiving | parseTravelerSnapshot | src/lib/services/receiving.ts:17 | PASS | ; current/round3-receiving-deep-results.json: PASS Mixed receiving partial split keeps QA/Test stock unavailable and plain stock available; main151: PASS Mixed receiving partial split keeps QA/Test stock unavailable and plain stock available |
+| ACTION-0527 | Purchasing / Receiving | travelerPurpose | src/lib/services/receiving.ts:38 | PASS | ; current/round3-receiving-deep-results.json: PASS Mixed receiving partial split keeps QA/Test stock unavailable and plain stock available; main151: PASS Mixed receiving partial split keeps QA/Test stock unavailable and plain stock available |
+| ACTION-0528 | Purchasing / Receiving | reconcileRootTravelerStatus | src/lib/services/receiving.ts:65 | PASS | ; current/round3-receiving-deep-results.json: PASS Mixed QA/Test gates and dock HTTP putaway finish family exactly once; main151: PASS Mixed QA/Test gates and dock HTTP putaway finish family exactly once |
+| ACTION-0529 | Purchasing / Receiving | nextChildTravelerNumber | src/lib/services/receiving.ts:162 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0530 | Purchasing / Receiving | createReceivingTravelerForPo | src/lib/services/receiving.ts:211 | PASS | ; current/round3-receiving-deep-results.json: PASS Mixed receiving partial split keeps QA/Test stock unavailable and plain stock available; main151: PASS Mixed receiving partial split keeps QA/Test stock unavailable and plain stock available |
+| ACTION-0531 | Purchasing / Receiving | createCustomerGfpTraveler | src/lib/services/receiving.ts:283 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0532 | Purchasing / Receiving | syncReceivingTravelerStatus | src/lib/services/receiving.ts:361 | PASS | ; current/round3-receiving-deep-results.json: PASS Mixed QA/Test gates and dock HTTP putaway finish family exactly once; main151: PASS Mixed QA/Test gates and dock HTTP putaway finish family exactly once |
+| ACTION-0533 | Purchasing / Receiving | splitTravelerAfterReceive | src/lib/services/receiving.ts:443 | PASS | ; current/round3-receiving-deep-results.json: PASS Mixed receiving partial split keeps QA/Test stock unavailable and plain stock available; main151: PASS Mixed receiving partial split keeps QA/Test stock unavailable and plain stock available |
+| ACTION-0534 | Purchasing / Receiving | closePurchaseOrderFromReceiving | src/lib/services/receiving.ts:1132 | PASS | ; current/round3-receiving-deep-results.json: PASS Close receiving PO rejects open quantity and missing short-close reason then records audit; main151: PASS Close receiving PO rejects open quantity and missing short-close reason then records audit |
+| ACTION-0535 | Purchasing / Receiving | closeGfpTraveler | src/lib/services/receiving.ts:1191 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0536 | Purchasing / Receiving | receivePurchaseOrder | src/lib/services/supply-chain.ts:27 | PASS | finance-supply-results.json: PASS Receiving overquantity fails without receipts or inventory changes; round2-quality-results.json: PASS QC flagged receipt routes to pending VISUAL/GDT with unavailable stock; round2-quality-results.json: FAIL Serialized receiving rejects missing serials before receipt writes; round2-quality-results.json: FAIL Serialized receiving rejects count mismatch serials before receipt writes; round2-quality-results.json: FAIL Serialized receiving rejects duplicate serials before receipt writes; round2-quality-results.json: FAIL Valid received serials become selectable stock serial identities; current/round2-quality-results.json: PASS QC flagged receipt routes to pending VISUAL/GDT with unavailable stock; current/round2-quality-results.json: FAIL Serialized receiving rejects missing serials before receipt writes; current/round2-quality-results.json: FAIL Serialized receiving rejects count mismatch serials before receipt writes; current/round2-quality-results.json: FAIL Serialized receiving rejects duplicate serials before receipt writes; current/round2-quality-results.json: FAIL Valid received serials become selectable stock serial identities; current/round3-receiving-deep-results.json: PASS Mixed receiving partial split keeps QA/Test stock unavailable and plain stock available; current/round3-receiving-deep-results.json: PASS Mixed receiving remainder consumes only remaining quantities; current/round3-receiving-deep-results.json: FAIL Closed-short purchase order must not accept material; current/round3-receiving-deep-results.json: FAIL Duplicate PO-line entries in one receipt cannot overreceive; current/round3-receiving-deep-results.json: PASS Concurrent receipt requests cannot receive more than open PO balance; main151: PASS QC flagged receipt routes to pending VISUAL/GDT with unavailable stock; main151: PASS Serialized receiving rejects missing serials before receipt writes; main151: PASS Serialized receiving rejects count mismatch serials before receipt writes; main151: PASS Serialized receiving rejects duplicate serials before receipt writes; main151: PASS Valid received serials become selectable stock serial identities; main151: PASS Mixed receiving partial split keeps QA/Test stock unavailable and plain stock available; main151: PASS Mixed receiving remainder consumes only remaining quantities; main151: PASS Closed-short purchase order must not accept material; main151: PASS Duplicate PO-line entries in one receipt cannot overreceive; main151: PASS Concurrent receipt requests cannot receive more than open PO balance; main151: PASS RCV-001/002 duplicate PO lines and terminal PO statuses reject before receipt/stock/AP writes |
+| ACTION-0537 | Purchasing / Receiving | receiveGfpTraveler | src/lib/services/supply-chain.ts:792 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0538 | Purchasing / Receiving | createNcrAndMrbFromInspection | src/lib/services/supply-chain.ts:1182 | PASS | round2-quality-results.json: PASS QC failure creates NCR/MRB and quarantines all affected material; current/round2-quality-results.json: PASS QC failure creates NCR/MRB and quarantines all affected material; main151: PASS QC failure creates NCR/MRB and quarantines all affected material |
+| ACTION-0539 | Purchasing / Receiving | closeMrbCase | src/lib/services/supply-chain.ts:1287 | PASS | round2-quality-results.json: PASS Open MRB cannot close before disposition; round2-quality-results.json: PASS MRB USE_AS_IS action releases quarantine and close action finalizes; current/round2-quality-results.json: PASS Open MRB cannot close before disposition; current/round2-quality-results.json: PASS MRB USE_AS_IS action releases quarantine and close action finalizes; main151: PASS Open MRB cannot close before disposition; main151: PASS MRB USE_AS_IS action releases quarantine and close action finalizes |
+| ACTION-0540 | Purchasing / Receiving | dispositionMrb | src/lib/services/supply-chain.ts:1314 | FAIL | scripts/verify/chunk-serials-rma.ts; scenario only; round2-quality-results.json: PASS MRB USE_AS_IS action releases quarantine and close action finalizes; round2-quality-results.json: FAIL MRB partial SCRAP preserves remainder quantity; round2-quality-results.json: FAIL MRB rejects negative disposition quantity before writing; round2-quality-results.json: FAIL Repeated MRB disposition cannot create duplicate decisions/postings; current/round2-quality-results.json: PASS MRB USE_AS_IS action releases quarantine and close action finalizes; current/round2-quality-results.json: FAIL MRB partial SCRAP preserves remainder quantity; current/round2-quality-results.json: FAIL MRB rejects negative disposition quantity before writing; current/round2-quality-results.json: FAIL Repeated MRB disposition cannot create duplicate decisions/postings; main151: PASS MRB USE_AS_IS action releases quarantine and close action finalizes; main151: PASS MRB partial SCRAP preserves remainder quantity; main151: PASS MRB rejects negative disposition quantity before writing; main151: PASS Repeated MRB disposition cannot create duplicate decisions/postings; main151: PASS MRB rework disposition creates linked typed WO and retains quarantine; main151: PASS MRB repair disposition creates linked REPAIR work order; main151: PASS Full supplier return creates exact shipment and retires returned stock; main151: FAIL Partial supplier return preserves unreturned quarantined quantity; main151: FAIL Partial use-as-is releases only the dispositioned quantity; main151: FAIL Nonscrap MRB quantity cannot exceed held inventory |
+| ACTION-0541 | Purchasing / Receiving | logCarActivity | src/lib/services/supply-chain.ts:1673 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0542 | Purchasing / Receiving | updateCar | src/lib/services/supply-chain.ts:1697 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0543 | Purchasing / Receiving | listOpenCars | src/lib/services/supply-chain.ts:1847 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0544 | Purchasing / Receiving | updateSupplierScorecard | src/lib/services/supply-chain.ts:1865 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0545 | Purchasing / Receiving | getValueStreamMetrics | src/lib/services/supply-chain.ts:1962 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0546 | Purchasing / Receiving | capStatus | src/lib/services/supply-chain.ts:2035 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0547 | Purchasing / Receiving | maxUtil | src/lib/services/supply-chain.ts:2043 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0548 | Manufacturing / Test | getTestCenterQueue | src/lib/services/test-center.ts:193 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0549 | Manufacturing / Test | getQaInspectionQueue | src/lib/services/test-center.ts:463 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0550 | Inventory / Kitting | listUomUnits | src/lib/services/uom.ts:6 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0551 | Inventory / Kitting | saveUomUnit | src/lib/services/uom.ts:17 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0552 | Inventory / Kitting | saveUomConversion | src/lib/services/uom.ts:60 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0553 | Inventory / Kitting | convertQty | src/lib/services/uom.ts:113 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0554 | Service / Assets | listVirtualAssets | src/lib/services/virtual-assets.ts:6 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0555 | Service / Assets | createVirtualAsset | src/lib/services/virtual-assets.ts:50 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0556 | Service / Assets | assignVirtualAsset | src/lib/services/virtual-assets.ts:104 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0557 | Service / Assets | unassignVirtualAsset | src/lib/services/virtual-assets.ts:149 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0558 | Service / Assets | checkoutVirtualAsset | src/lib/services/virtual-assets.ts:194 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0559 | Service / Assets | returnVirtualAsset | src/lib/services/virtual-assets.ts:235 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0560 | Manufacturing / Test | listWorkCenters | src/lib/services/workcenters.ts:7 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0561 | Manufacturing / Test | getDefaultWorkCenter | src/lib/services/workcenters.ts:20 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0562 | Manufacturing / Test | getWorkCenterByCode | src/lib/services/workcenters.ts:32 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0563 | Manufacturing / Test | resolveStepStation | src/lib/services/workcenters.ts:43 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0564 | Manufacturing / Test | saveWorkCenter | src/lib/services/workcenters.ts:86 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0565 | Manufacturing / Test | reassignWorkOrderStation | src/lib/services/workcenters.ts:157 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0566 | Manufacturing / Test | reassignStepStation | src/lib/services/workcenters.ts:225 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0567 | Manufacturing / Test | seedStepAssignments | src/lib/services/workcenters.ts:292 | UNTESTED | Not exercised in a named acceptance scenario |
+| ACTION-0568 | Manufacturing / Test | listWorkCenterCodesByArea | src/lib/services/workcenters.ts:315 | UNTESTED | Not exercised in a named acceptance scenario |
 
 ### API checklist
 
 | ID | Module | Function / route / model | Source | Status | Evidence / next step |
 |---|---|---|---|---|---|
-| API-0001 | Accounting / GovCon | GET /accounting/export | `src/app/accounting/export/route.ts:22` | PASS | API /accounting/export?report=pl; tested request only |
-| API-0002 | Demo / Tenancy | GET /api/cron/drop-orphan-demos | `src/app/api/cron/drop-orphan-demos/route.ts:22` | UNTESTED | Not yet exercised |
-| API-0003 | Demo / Tenancy | GET /api/cron/sweep-demos | `src/app/api/cron/sweep-demos/route.ts:19` | UNTESTED | Not yet exercised |
-| API-0004 | Demo / Tenancy | GET /api/demo/end | `src/app/api/demo/end/route.ts:11` | PASS | demo-results.json: PASS Native demo Start -> server cookie -> ping -> end |
-| API-0005 | Demo / Tenancy | POST /api/demo/end | `src/app/api/demo/end/route.ts:59` | UNTESTED | Not yet exercised |
-| API-0006 | Demo / Tenancy | POST /api/demo/leave | `src/app/api/demo/leave/route.ts:9` | PASS | round2-demo-results.json: PASS Native demo leave clears cookie and destroys only its sandbox |
-| API-0007 | Demo / Tenancy | GET /api/demo/leave | `src/app/api/demo/leave/route.ts:24` | UNTESTED | Not yet exercised |
-| API-0008 | Demo / Tenancy | POST /api/demo/ping | `src/app/api/demo/ping/route.ts:6` | PASS | demo-results.json: PASS Native demo Start -> server cookie -> ping -> end |
-| API-0009 | Demo / Tenancy | GET /api/demo/ping | `src/app/api/demo/ping/route.ts:16` | UNTESTED | Not yet exercised |
-| API-0010 | Demo / Tenancy | GET /api/demo/reset | `src/app/api/demo/reset/route.ts:10` | PASS | round2-demo-results.json: PASS Native demo reset clears cookie and destroys only its sandbox |
-| API-0011 | Platform / Other | POST /api/esd/humidity | `src/app/api/esd/humidity/route.ts:20` | UNTESTED | Not yet exercised |
-| API-0012 | Reports | GET /api/export | `src/app/api/export/route.ts:19` | PASS | API /api/export?entity=parts; tested request only |
-| API-0013 | Platform / Other | GET /api/geocode | `src/app/api/geocode/route.ts:23` | UNTESTED | Not yet exercised |
-| API-0014 | Platform / Other | GET /api/health | `src/app/api/health/route.ts:12` | PASS | API /api/health; tested request only |
-| API-0015 | Platform / Other | POST /api/leads | `src/app/api/leads/route.ts:6` | UNTESTED | Not yet exercised |
-| API-0016 | Platform / Other | GET /api/plaid/link-src | `src/app/api/plaid/link-src/route.ts:24` | UNTESTED | Not yet exercised |
-| API-0017 | Quality / NCR | GET /api/quality/tools/[id]/dxf | `src/app/api/quality/tools/[id]/dxf/route.ts:9` | UNTESTED | Not yet exercised |
-| API-0018 | Platform / Other | GET /api/search | `src/app/api/search/route.ts:19` | PASS | API /api/search?q=QA; tested request only |
-| API-0019 | Platform / Other | GET /api/staff/enter | `src/app/api/staff/enter/route.ts:25` | UNTESTED | Not yet exercised |
-| API-0020 | Billing / Founding | POST /api/stripe/webhook | `src/app/api/stripe/webhook/route.ts:12` | PASS | Invalid Stripe signature rejected; tested request only |
-| API-0021 | Platform / Other | POST /api/telemetry | `src/app/api/telemetry/route.ts:20` | UNTESTED | Not yet exercised |
-| API-0022 | Platform / Other | POST /api/tts | `src/app/api/tts/route.ts:7` | PASS | ; current/round3-ai-help-results.json: PASS Carina TTS unauthenticated and invalid-session calls denied |
-| API-0023 | Reports | GET /reports/builder/export | `src/app/reports/builder/export/route.ts:8` | PASS | API /reports/builder/export?entity=items&cols=partNumber&cols=description; tested request only |
-| API-0024 | Reports | GET /reports/export | `src/app/reports/export/route.ts:7` | PASS | API /reports/export?key=inventory; tested request only |
-| API-0025 | Platform / Other | POST /api/e | `src/app/api/e/route.ts:15` | UNTESTED | Alias of telemetry POST; explicit re-export |
+| API-0001 | Accounting / GovCon | GET /accounting/export | src/app/accounting/export/route.ts:22 | PASS | API /accounting/export?report=pl; tested request only |
+| API-0002 | Demo / Tenancy | GET /api/cron/drop-orphan-demos | src/app/api/cron/drop-orphan-demos/route.ts:22 | UNTESTED | Not exercised in a named acceptance scenario |
+| API-0003 | Demo / Tenancy | GET /api/cron/sweep-demos | src/app/api/cron/sweep-demos/route.ts:19 | UNTESTED | Not exercised in a named acceptance scenario |
+| API-0004 | Demo / Tenancy | GET /api/demo/end | src/app/api/demo/end/route.ts:11 | PASS | demo-results.json: PASS Native demo Start -> server cookie -> ping -> end |
+| API-0005 | Demo / Tenancy | POST /api/demo/end | src/app/api/demo/end/route.ts:59 | UNTESTED | Not exercised in a named acceptance scenario |
+| API-0006 | Demo / Tenancy | POST /api/demo/leave | src/app/api/demo/leave/route.ts:9 | PASS | round2-demo-results.json: PASS Native demo leave clears cookie and destroys only its sandbox |
+| API-0007 | Demo / Tenancy | GET /api/demo/leave | src/app/api/demo/leave/route.ts:24 | UNTESTED | Not exercised in a named acceptance scenario |
+| API-0008 | Demo / Tenancy | POST /api/demo/ping | src/app/api/demo/ping/route.ts:6 | PASS | demo-results.json: PASS Native demo Start -> server cookie -> ping -> end |
+| API-0009 | Demo / Tenancy | GET /api/demo/ping | src/app/api/demo/ping/route.ts:16 | UNTESTED | Not exercised in a named acceptance scenario |
+| API-0010 | Demo / Tenancy | GET /api/demo/reset | src/app/api/demo/reset/route.ts:10 | PASS | round2-demo-results.json: PASS Native demo reset clears cookie and destroys only its sandbox |
+| API-0011 | Platform / Other | POST /api/esd/humidity | src/app/api/esd/humidity/route.ts:20 | UNTESTED | Not exercised in a named acceptance scenario |
+| API-0012 | Reports | GET /api/export | src/app/api/export/route.ts:19 | PASS | API /api/export?entity=parts; tested request only |
+| API-0013 | Platform / Other | GET /api/geocode | src/app/api/geocode/route.ts:23 | UNTESTED | Not exercised in a named acceptance scenario |
+| API-0014 | Platform / Other | GET /api/health | src/app/api/health/route.ts:12 | PASS | API /api/health; tested request only |
+| API-0015 | Platform / Other | POST /api/leads | src/app/api/leads/route.ts:6 | UNTESTED | Not exercised in a named acceptance scenario |
+| API-0016 | Platform / Other | GET /api/plaid/link-src | src/app/api/plaid/link-src/route.ts:24 | UNTESTED | Not exercised in a named acceptance scenario |
+| API-0017 | Quality / NCR | GET /api/quality/tools/[id]/dxf | src/app/api/quality/tools/[id]/dxf/route.ts:9 | UNTESTED | Not exercised in a named acceptance scenario |
+| API-0018 | Platform / Other | GET /api/search | src/app/api/search/route.ts:19 | PASS | API /api/search?q=QA; tested request only |
+| API-0019 | Platform / Other | GET /api/staff/enter | src/app/api/staff/enter/route.ts:25 | UNTESTED | Not exercised in a named acceptance scenario |
+| API-0020 | Billing / Founding | POST /api/stripe/webhook | src/app/api/stripe/webhook/route.ts:12 | PASS | Invalid Stripe signature rejected; tested request only |
+| API-0021 | Platform / Other | POST /api/telemetry | src/app/api/telemetry/route.ts:20 | UNTESTED | Not exercised in a named acceptance scenario |
+| API-0022 | Platform / Other | POST /api/tts | src/app/api/tts/route.ts:7 | PASS | ; current/round3-ai-help-results.json: PASS Carina TTS unauthenticated and invalid-session calls denied |
+| API-0023 | Reports | GET /reports/builder/export | src/app/reports/builder/export/route.ts:8 | PASS | API /reports/builder/export?entity=items&cols=partNumber&cols=description; tested request only |
+| API-0024 | Reports | GET /reports/export | src/app/reports/export/route.ts:7 | PASS | API /reports/export?key=inventory; tested request only |
+| API-0025 | Platform / Other | POST /api/e | src/app/api/e/route.ts:15 | UNTESTED | Alias of telemetry POST; explicit re-export |
 
 ### SERVICE checklist
 
 | ID | Module | Function / route / model | Source | Status | Evidence / next step |
 |---|---|---|---|---|---|
-| SERVICE-0938 | Platform / Other | helpSafetyReply | `src/lib/ai-help/answer.ts:5` | PASS | ; current/round3-ai-help-results.json: PASS Carina mutation, secrets and private-record prompts are read-only refusals |
-| SERVICE-0939 | Platform / Other | helpSystem | `src/lib/ai-help/answer.ts:12` | UNTESTED | Not yet exercised |
-| SERVICE-0940 | Platform / Other | parseHelpAnswer | `src/lib/ai-help/answer.ts:16` | UNTESTED | Not yet exercised |
-| SERVICE-0941 | Platform / Other | answerHelp | `src/lib/ai-help/answer.ts:28` | PASS | ; current/round3-ai-help-results.json: PASS Carina mutation, secrets and private-record prompts are read-only refusals |
-| SERVICE-0942 | PMO / Budgets | redactHelpText | `src/lib/ai-help/budget.ts:5` | PASS | ; current/round3-ai-help-results.json: PASS Carina absent provider fails safely and records redacted route context |
-| SERVICE-0943 | PMO / Budgets | reserveHelpTurn | `src/lib/ai-help/budget.ts:11` | PASS | ; current/round3-ai-help-results.json: PASS Carina rate limit remains atomic across 14 simultaneous real-session requests |
-| SERVICE-0944 | PMO / Budgets | reserveHelpTurnOn | `src/lib/ai-help/budget.ts:15` | PASS | ; current/round3-ai-help-results.json: PASS Carina rate limit remains atomic across 14 simultaneous real-session requests |
-| SERVICE-0945 | PMO / Budgets | logHelpAnswer | `src/lib/ai-help/budget.ts:28` | PASS | ; current/round3-ai-help-results.json: PASS Carina absent provider fails safely and records redacted route context |
-| SERVICE-0946 | Platform / Other | cachedHelp | `src/lib/ai-help/cache.ts:5` | UNTESTED | Not yet exercised |
-| SERVICE-0947 | Platform / Other | helpIdentity | `src/lib/ai-help/identity.ts:5` | UNTESTED | Not yet exercised |
-| SERVICE-0948 | Platform / Other | helpPageContext | `src/lib/ai-help/knowledge.ts:11` | PASS | ; current/round3-ai-help-results.json: PASS Carina absent provider fails safely and records redacted route context |
-| SERVICE-0949 | Platform / Other | retrieveHelp | `src/lib/ai-help/knowledge.ts:19` | UNTESTED | Not yet exercised |
-| SERVICE-0950 | Platform / Other | citation | `src/lib/ai-help/knowledge.ts:37` | UNTESTED | Not yet exercised |
-| SERVICE-0001 | Platform / Other | Analytics | `src/lib/airgap-stubs/analytics.tsx:10` | UNTESTED | Not yet exercised |
-| SERVICE-0002 | Platform / Other | airgapEnabled | `src/lib/airgap.ts:22` | UNTESTED | Not yet exercised |
-| SERVICE-0003 | Platform / Other | conflictingIntegrations | `src/lib/airgap.ts:45` | UNTESTED | Not yet exercised |
-| SERVICE-0004 | Platform / Other | geocodingEnabled | `src/lib/airgap.ts:65` | UNTESTED | Not yet exercised |
-| SERVICE-0005 | Platform / Other | analyticsEnabled | `src/lib/airgap.ts:70` | UNTESTED | Not yet exercised |
-| SERVICE-0006 | Accounts / Roles | requireApiUser | `src/lib/api-auth.ts:10` | UNTESTED | Not yet exercised |
-| SERVICE-0007 | Accounts / Roles | unauthorized | `src/lib/api-auth.ts:22` | UNTESTED | Not yet exercised |
-| SERVICE-0008 | Accounts / Roles | forbidden | `src/lib/api-auth.ts:26` | UNTESTED | Not yet exercised |
-| SERVICE-0009 | Accounts / Roles | requireApiPermission | `src/lib/api-auth.ts:30` | UNTESTED | Not yet exercised |
-| SERVICE-0010 | Accounts / Roles | sessionIdleMinutes | `src/lib/auth-core.ts:47` | PASS | scripts/smoke-unit.ts; scenario only |
-| SERVICE-0011 | Accounts / Roles | lastSeenRefreshMs | `src/lib/auth-core.ts:70` | PASS | scripts/smoke-unit.ts; scenario only |
-| SERVICE-0012 | Accounts / Roles | demoModeEnabled | `src/lib/auth-core.ts:76` | PASS | scripts/verify/chunk-b-auth.ts; scenario only |
-| SERVICE-0013 | Accounts / Roles | assertLoginNotRateLimited | `src/lib/auth-core.ts:91` | PASS | scripts/verify/chunk-b-auth.ts; scenario only |
-| SERVICE-0014 | Accounts / Roles | recordLoginFailure | `src/lib/auth-core.ts:108` | PASS | scripts/verify/chunk-b-auth.ts; scenario only |
-| SERVICE-0015 | Accounts / Roles | clearLoginFailures | `src/lib/auth-core.ts:119` | PASS | scripts/verify/chunk-b-auth.ts; scenario only |
-| SERVICE-0016 | Accounts / Roles | hashPassword | `src/lib/auth-core.ts:125` | UNTESTED | Not yet exercised |
-| SERVICE-0017 | Accounts / Roles | verifyPassword | `src/lib/auth-core.ts:131` | PASS | round2-auth-results.json: PASS Real password login/session identifies ADMIN; round2-auth-results.json: PASS Real password login/session identifies OPERATOR; round2-auth-results.json: PASS Real password login/session identifies QUALITY; round2-auth-results.json: PASS Real password login/session identifies ACCOUNTING; round2-auth-results.json: PASS Real password login/session identifies PURCHASING; round2-auth-results.json: PASS Real password login/session identifies EXECUTIVE; current/round2-auth-results.json: PASS Real password login/session identifies ADMIN; current/round2-auth-results.json: PASS Real password login/session identifies OPERATOR; current/round2-auth-results.json: PASS Real password login/session identifies QUALITY; current/round2-auth-results.json: PASS Real password login/session identifies ACCOUNTING; current/round2-auth-results.json: PASS Real password login/session identifies PURCHASING; current/round2-auth-results.json: PASS Real password login/session identifies EXECUTIVE |
-| SERVICE-0018 | Accounts / Roles | assertPasswordStrength | `src/lib/auth-core.ts:189` | PASS | scripts/smoke-unit.ts; scenario only |
-| SERVICE-0019 | Accounts / Roles | createSession | `src/lib/auth-core.ts:261` | UNTESTED | Not yet exercised |
-| SERVICE-0020 | Accounts / Roles | createTenantSession | `src/lib/auth-core.ts:266` | UNTESTED | Not yet exercised |
-| SERVICE-0021 | Accounts / Roles | getSessionUser | `src/lib/auth-core.ts:278` | PASS | round2-auth-results.json: PASS Real password login/session identifies ADMIN; round2-auth-results.json: PASS Real password login/session identifies OPERATOR; round2-auth-results.json: PASS Real password login/session identifies QUALITY; round2-auth-results.json: PASS Real password login/session identifies ACCOUNTING; round2-auth-results.json: PASS Real password login/session identifies PURCHASING; round2-auth-results.json: PASS Real password login/session identifies EXECUTIVE; current/round2-auth-results.json: PASS Real password login/session identifies ADMIN; current/round2-auth-results.json: PASS Real password login/session identifies OPERATOR; current/round2-auth-results.json: PASS Real password login/session identifies QUALITY; current/round2-auth-results.json: PASS Real password login/session identifies ACCOUNTING; current/round2-auth-results.json: PASS Real password login/session identifies PURCHASING; current/round2-auth-results.json: PASS Real password login/session identifies EXECUTIVE |
-| SERVICE-0022 | Accounts / Roles | destroySession | `src/lib/auth-core.ts:322` | UNTESTED | Not yet exercised |
-| SERVICE-0023 | Accounts / Roles | loginWithPassword | `src/lib/auth-core.ts:342` | PASS | round2-auth-results.json: PASS Real password login/session identifies ADMIN; round2-auth-results.json: PASS Real password login/session identifies OPERATOR; round2-auth-results.json: PASS Real password login/session identifies QUALITY; round2-auth-results.json: PASS Real password login/session identifies ACCOUNTING; round2-auth-results.json: PASS Real password login/session identifies PURCHASING; round2-auth-results.json: PASS Real password login/session identifies EXECUTIVE; current/round2-auth-results.json: PASS Real password login/session identifies ADMIN; current/round2-auth-results.json: PASS Real password login/session identifies OPERATOR; current/round2-auth-results.json: PASS Real password login/session identifies QUALITY; current/round2-auth-results.json: PASS Real password login/session identifies ACCOUNTING; current/round2-auth-results.json: PASS Real password login/session identifies PURCHASING; current/round2-auth-results.json: PASS Real password login/session identifies EXECUTIVE |
-| SERVICE-0024 | Accounts / Roles | completeMfaLogin | `src/lib/auth-core.ts:453` | UNTESTED | Not yet exercised |
-| SERVICE-0025 | Accounts / Roles | hasPendingMfa | `src/lib/auth-core.ts:470` | UNTESTED | Not yet exercised |
-| SERVICE-0026 | Accounts / Roles | cancelMfaLogin | `src/lib/auth-core.ts:476` | UNTESTED | Not yet exercised |
-| SERVICE-0027 | Accounts / Roles | needsBootstrap | `src/lib/auth-core.ts:497` | UNTESTED | Not yet exercised |
-| SERVICE-0028 | Accounts / Roles | bootstrapFirstAdmin | `src/lib/auth-core.ts:518` | UNTESTED | Not yet exercised |
-| SERVICE-0029 | Accounts / Roles | claimTenant | `src/lib/auth-core.ts:565` | UNTESTED | Not yet exercised |
-| SERVICE-0030 | Accounts / Roles | createInvite | `src/lib/auth-core.ts:606` | UNTESTED | Not yet exercised |
-| SERVICE-0031 | Accounts / Roles | getInviteByToken | `src/lib/auth-core.ts:736` | UNTESTED | Not yet exercised |
-| SERVICE-0032 | Accounts / Roles | acceptInvite | `src/lib/auth-core.ts:754` | UNTESTED | Not yet exercised |
-| SERVICE-0033 | Accounts / Roles | changePassword | `src/lib/auth-core.ts:827` | UNTESTED | Not yet exercised |
-| SERVICE-0034 | Accounts / Roles | getCurrentUser | `src/lib/auth.ts:17` | UNTESTED | Not yet exercised |
-| SERVICE-0035 | Accounts / Roles | getUserById | `src/lib/auth.ts:100` | UNTESTED | Not yet exercised |
-| SERVICE-0036 | Accounts / Roles | listUsers | `src/lib/auth.ts:104` | UNTESTED | Not yet exercised |
-| SERVICE-0037 | Accounts / Roles | canAccess | `src/lib/auth.ts:284` | UNTESTED | Not yet exercised |
-| SERVICE-0038 | Accounts / Roles | userHasPermission | `src/lib/auth.ts:387` | PASS | scripts/verify/chunk-h-hr.ts; scenario only; current/round3-hr-auth-results.json: PASS Individual permission temporary grant active then expires; current/round3-hr-auth-results.json: PASS Individual explicit deny overrides role and group grants |
-| SERVICE-0039 | Accounts / Roles | userCanView | `src/lib/auth.ts:544` | UNTESTED | Not yet exercised |
-| SERVICE-0040 | Accounts / Roles | userCanSeeFinancials | `src/lib/auth.ts:555` | UNTESTED | Not yet exercised |
-| SERVICE-0041 | Accounts / Roles | requireUser | `src/lib/auth.ts:562` | UNTESTED | Not yet exercised |
-| SERVICE-0042 | Accounts / Roles | requirePermission | `src/lib/auth.ts:575` | UNTESTED | Not yet exercised |
-| SERVICE-0043 | Platform / Other | code39Bars | `src/lib/barcode.ts:64` | UNTESTED | Not yet exercised |
-| SERVICE-0044 | Platform / Other | carinaAudioGen | `src/lib/carina-audio.ts:10` | UNTESTED | Not yet exercised |
-| SERVICE-0045 | Platform / Other | carinaBumpAudioGen | `src/lib/carina-audio.ts:14` | UNTESTED | Not yet exercised |
-| SERVICE-0046 | Platform / Other | carinaIsAudioCurrent | `src/lib/carina-audio.ts:19` | UNTESTED | Not yet exercised |
-| SERVICE-0047 | Platform / Other | carinaIsSpeaking | `src/lib/carina-audio.ts:23` | UNTESTED | Not yet exercised |
-| SERVICE-0048 | Platform / Other | carinaStopAllAudio | `src/lib/carina-audio.ts:27` | UNTESTED | Not yet exercised |
-| SERVICE-0049 | Platform / Other | carinaPlaySpeech | `src/lib/carina-audio.ts:52` | UNTESTED | Not yet exercised |
-| SERVICE-0050 | Platform / Other | getCatalogAnchor | `src/lib/carina-catalog.ts:753` | UNTESTED | Not yet exercised |
-| SERVICE-0051 | Platform / Other | listCatalogForPrompt | `src/lib/carina-catalog.ts:757` | UNTESTED | Not yet exercised |
-| SERVICE-0052 | Platform / Other | scoreCatalogMatch | `src/lib/carina-catalog.ts:804` | UNTESTED | Not yet exercised |
-| SERVICE-0053 | Platform / Other | wantsPointOnly | `src/lib/carina-catalog.ts:845` | UNTESTED | Not yet exercised |
-| SERVICE-0054 | Platform / Other | bestPointAnchor | `src/lib/carina-catalog.ts:852` | UNTESTED | Not yet exercised |
-| SERVICE-0055 | Platform / Other | inventStepsFromCatalog | `src/lib/carina-catalog.ts:861` | UNTESTED | Not yet exercised |
-| SERVICE-0056 | Platform / Other | resolveAnchorIds | `src/lib/carina-catalog.ts:904` | UNTESTED | Not yet exercised |
-| SERVICE-0057 | Platform / Other | anchorsToTourSteps | `src/lib/carina-catalog.ts:919` | UNTESTED | Not yet exercised |
-| SERVICE-0058 | Platform / Other | resolveLang | `src/lib/carina-language.ts:53` | UNTESTED | Not yet exercised |
-| SERVICE-0059 | Platform / Other | loadStoredLang | `src/lib/carina-language.ts:68` | UNTESTED | Not yet exercised |
-| SERVICE-0060 | Platform / Other | storeLang | `src/lib/carina-language.ts:77` | UNTESTED | Not yet exercised |
-| SERVICE-0061 | Platform / Other | detectLanguageSwitch | `src/lib/carina-language.ts:90` | UNTESTED | Not yet exercised |
-| SERVICE-0062 | Platform / Other | ttsLanguageCode | `src/lib/carina-language.ts:134` | UNTESTED | Not yet exercised |
-| SERVICE-0063 | Platform / Other | enableCarinaVoiceEvent | `src/lib/carina-voice-bus.ts:9` | UNTESTED | Not yet exercised |
-| SERVICE-0064 | Platform / Other | stopCarinaVoiceEvent | `src/lib/carina-voice-bus.ts:13` | UNTESTED | Not yet exercised |
-| SERVICE-0065 | Platform / Other | carinaListenChangedEvent | `src/lib/carina-voice-bus.ts:17` | UNTESTED | Not yet exercised |
-| SERVICE-0066 | Platform / Other | carinaRecAliveEvent | `src/lib/carina-voice-bus.ts:26` | UNTESTED | Not yet exercised |
-| SERVICE-0067 | Platform / Other | persistWantListen | `src/lib/carina-voice-bus.ts:32` | UNTESTED | Not yet exercised |
-| SERVICE-0068 | Platform / Other | readWantListen | `src/lib/carina-voice-bus.ts:44` | UNTESTED | Not yet exercised |
-| SERVICE-0069 | Platform / Other | carinaPointEvent | `src/lib/carina-voice-bus.ts:53` | UNTESTED | Not yet exercised |
-| SERVICE-0070 | Platform / Other | comparePageMetadata | `src/lib/compare/metadata.ts:5` | UNTESTED | Not yet exercised |
-| SERVICE-0071 | Platform / Other | classifyHref | `src/lib/compare/model.ts:31` | UNTESTED | Not yet exercised |
-| SERVICE-0072 | Platform / Other | externalLinkAttrs | `src/lib/compare/model.ts:48` | PASS | scripts/smoke-unit.ts; scenario only |
-| SERVICE-0073 | Platform / Other | parseCompareDocument | `src/lib/compare/model.ts:132` | UNTESTED | Not yet exercised |
-| SERVICE-0074 | Platform / Other | inlineToText | `src/lib/compare/model.ts:175` | UNTESTED | Not yet exercised |
-| SERVICE-0075 | Platform / Other | visibleText | `src/lib/compare/model.ts:185` | PASS | scripts/smoke-unit.ts; scenario only |
-| SERVICE-0076 | Platform / Other | faqEntries | `src/lib/compare/model.ts:224` | UNTESTED | Not yet exercised |
-| SERVICE-0077 | Platform / Other | faqPageJsonLd | `src/lib/compare/model.ts:231` | PASS | scripts/smoke-unit.ts; scenario only |
-| SERVICE-0078 | Platform / Other | walkLinks | `src/lib/compare/model.ts:246` | PASS | scripts/smoke-unit.ts; scenario only |
-| SERVICE-0079 | Platform / Other | demoCta | `src/lib/compare/model.ts:268` | UNTESTED | Not yet exercised |
-| SERVICE-0080 | Platform / Other | subsectionLabel | `src/lib/compare/model.ts:281` | UNTESTED | Not yet exercised |
-| SERVICE-0081 | Platform / Other | headingId | `src/lib/compare/model.ts:291` | UNTESTED | Not yet exercised |
-| SERVICE-0082 | Platform / Other | getComparePage | `src/lib/compare/pages.ts:37` | UNTESTED | Not yet exercised |
-| SERVICE-0083 | Platform / Other | requireComparePage | `src/lib/compare/pages.ts:42` | UNTESTED | Not yet exercised |
-| SERVICE-0084 | Platform / Other | prepareComparePage | `src/lib/compare/pages.ts:54` | PASS | scripts/smoke-unit.ts; scenario only |
-| SERVICE-0085 | Billing / Founding | pricingTableCell | `src/lib/compare/pricing-copy.ts:41` | UNTESTED | Not yet exercised |
-| SERVICE-0086 | Billing / Founding | pricingSetupSentence | `src/lib/compare/pricing-copy.ts:51` | UNTESTED | Not yet exercised |
-| SERVICE-0087 | Billing / Founding | pricingFaqLead | `src/lib/compare/pricing-copy.ts:64` | UNTESTED | Not yet exercised |
-| SERVICE-0088 | Billing / Founding | materializeCompareCopy | `src/lib/compare/pricing-copy.ts:74` | UNTESTED | Not yet exercised |
-| SERVICE-0089 | Platform / Other | fireConfetti | `src/lib/confetti.ts:6` | UNTESTED | Not yet exercised |
-| SERVICE-0090 | Platform / Other | frame | `src/lib/confetti.ts:49` | UNTESTED | Not yet exercised |
-| SERVICE-0091 | Platform / Other | clientForSchema | `src/lib/db.ts:73` | PASS | scripts/test-founding-billing.ts; scenario only |
-| SERVICE-0092 | Platform / Other | isValidSchemaName | `src/lib/db.ts:86` | UNTESTED | Not yet exercised |
-| SERVICE-0093 | Platform / Other | controlPlaneClient | `src/lib/db.ts:97` | PASS | scripts/test-founding-billing.ts; scenario only |
-| SERVICE-0094 | Platform / Other | currentRequestSchema | `src/lib/db.ts:157` | UNTESTED | Not yet exercised |
-| SERVICE-0095 | Platform / Other | sandboxDir | `src/lib/db.ts:202` | UNTESTED | Not yet exercised |
-| SERVICE-0096 | Platform / Other | sandboxDbPath | `src/lib/db.ts:206` | UNTESTED | Not yet exercised |
-| SERVICE-0097 | Platform / Other | materializeSandbox | `src/lib/db.ts:210` | UNTESTED | Not yet exercised |
-| SERVICE-0098 | Platform / Other | destroySandbox | `src/lib/db.ts:216` | UNTESTED | Not yet exercised |
-| SERVICE-0099 | Demo / Tenancy | isAnonymousDemoRequest | `src/lib/demo-request.ts:8` | UNTESTED | Not yet exercised |
-| SERVICE-0100 | Docs | safeDocHref | `src/lib/docs/content.ts:13` | PASS | scripts/test-docs.ts; scenario only |
-| SERVICE-0101 | Docs | parseDocContent | `src/lib/docs/content.ts:24` | PASS | scripts/test-docs.ts; scenario only |
-| SERVICE-0102 | Docs | clean | `src/lib/docs/content.ts:29` | UNTESTED | Not yet exercised |
-| SERVICE-0103 | Docs | docText | `src/lib/docs/content.ts:46` | PASS | scripts/test-docs.ts; scenario only |
-| SERVICE-0104 | Docs | templateContent | `src/lib/docs/content.ts:62` | PASS | scripts/test-docs.ts; scenario only |
-| SERVICE-0105 | Docs | diffDocLines | `src/lib/docs/content.ts:68` | PASS | scripts/test-docs.ts; scenario only |
-| SERVICE-0106 | Platform / Other | toolLabelDxf | `src/lib/dxf.ts:27` | UNTESTED | Not yet exercised |
-| SERVICE-0107 | Platform / Other | holidayDate | `src/lib/federal-holidays.ts:62` | UNTESTED | Not yet exercised |
-| SERVICE-0108 | Platform / Other | computeObservedHolidays | `src/lib/federal-holidays.ts:70` | UNTESTED | Not yet exercised |
-| SERVICE-0109 | Platform / Other | flashToast | `src/lib/flash.ts:16` | UNTESTED | Not yet exercised |
-| SERVICE-0110 | Platform / Other | readFlashToast | `src/lib/flash.ts:31` | UNTESTED | Not yet exercised |
-| SERVICE-0111 | Platform / Other | getTour | `src/lib/guides.ts:812` | UNTESTED | Not yet exercised |
-| SERVICE-0112 | Platform / Other | listToursForAi | `src/lib/guides.ts:817` | UNTESTED | Not yet exercised |
-| SERVICE-0113 | Platform / Other | matchTourFromQuery | `src/lib/guides.ts:835` | UNTESTED | Not yet exercised |
-| SERVICE-0114 | Platform / Other | getLegalDoc | `src/lib/legal-content.ts:293` | UNTESTED | Not yet exercised |
-| SERVICE-0115 | Platform / Other | moduleKeyForPath | `src/lib/modules.ts:161` | PASS | scripts/verify/chunk-b-auth.ts; scenario only |
-| SERVICE-0116 | Platform / Other | isPathEnabled | `src/lib/modules.ts:178` | PASS | scripts/verify/chunk-b-auth.ts; scenario only |
-| SERVICE-0117 | Platform / Other | moduleLabel | `src/lib/modules.ts:183` | UNTESTED | Not yet exercised |
-| SERVICE-0118 | Platform / Other | activeNavHref | `src/lib/navigation.ts:220` | UNTESTED | Not yet exercised |
-| SERVICE-0119 | Platform / Other | createBrandedPdf | `src/lib/pdf.ts:15` | UNTESTED | Not yet exercised |
-| SERVICE-0120 | Platform / Other | generateWorkOrderTravelerPdf | `src/lib/pdf.ts:77` | UNTESTED | Not yet exercised |
-| SERVICE-0121 | Platform / Other | generatePurchaseOrderPdf | `src/lib/pdf.ts:138` | UNTESTED | Not yet exercised |
-| SERVICE-0122 | Admin / Settings | isPlatformContext | `src/lib/platform.ts:13` | UNTESTED | Not yet exercised |
-| SERVICE-0123 | Admin / Settings | isPlatformSupportEnabled | `src/lib/platform.ts:21` | UNTESTED | Not yet exercised |
-| SERVICE-0124 | Platform / Other | workOrderHoldProvenance | `src/lib/provenance.ts:12` | UNTESTED | Not yet exercised |
-| SERVICE-0125 | Platform / Other | workOrderMrbProvenance | `src/lib/provenance.ts:30` | UNTESTED | Not yet exercised |
-| SERVICE-0126 | Platform / Other | workOrderQrPayload | `src/lib/qr.ts:7` | UNTESTED | Not yet exercised |
-| SERVICE-0127 | Platform / Other | generateQrDataUrl | `src/lib/qr.ts:20` | UNTESTED | Not yet exercised |
-| SERVICE-0128 | Platform / Other | generateQrSvg | `src/lib/qr.ts:33` | UNTESTED | Not yet exercised |
-| SERVICE-0129 | Platform / Other | redactSecrets | `src/lib/redact-secrets.ts:18` | PASS | scripts/smoke-unit.ts; scenario only |
-| SERVICE-0130 | Platform / Other | redactError | `src/lib/redact-secrets.ts:30` | UNTESTED | Not yet exercised |
-| SERVICE-0131 | Platform / Other | requestAppUrl | `src/lib/request-app-url.ts:8` | UNTESTED | Not yet exercised |
-| SERVICE-0132 | Platform / Other | publicOriginFromRequest | `src/lib/request-origin.ts:7` | UNTESTED | Not yet exercised |
-| SERVICE-0133 | Platform / Other | publicUrlFromRequest | `src/lib/request-origin.ts:43` | UNTESTED | Not yet exercised |
-| SERVICE-0134 | Accounting / GovCon | get1099Report | `src/lib/services/accounting-reports.ts:16` | PASS | accounting-reports get1099Report |
-| SERVICE-0135 | Accounting / GovCon | setSupplier1099 | `src/lib/services/accounting-reports.ts:67` | UNTESTED | Not yet exercised |
-| SERVICE-0136 | Accounting / GovCon | getBudgetVsActual | `src/lib/services/accounting-reports.ts:94` | PASS | accounting-reports getBudgetVsActual |
-| SERVICE-0137 | Platform / Other | clockOutAllActiveWork | `src/lib/services/active-work.ts:13` | UNTESTED | Not yet exercised |
-| SERVICE-0140 | Platform / Other | processAiQuery | `src/lib/services/ai.ts:10` | UNTESTED | Not yet exercised |
-| SERVICE-0141 | Platform / Other | processAiConversation | `src/lib/services/ai.ts:16` | PASS | ; current/round3-ai-help-results.json: PASS Carina mutation, secrets and private-record prompts are read-only refusals |
-| SERVICE-0142 | Purchasing / Receiving | getAslPolicy | `src/lib/services/asl.ts:13` | UNTESTED | Not yet exercised |
-| SERVICE-0143 | Purchasing / Receiving | updateAslPolicy | `src/lib/services/asl.ts:21` | UNTESTED | Not yet exercised |
-| SERVICE-0144 | Purchasing / Receiving | certIsValid | `src/lib/services/asl.ts:65` | UNTESTED | Not yet exercised |
-| SERVICE-0145 | Purchasing / Receiving | supplierMeetsCertPolicy | `src/lib/services/asl.ts:74` | UNTESTED | Not yet exercised |
-| SERVICE-0146 | Purchasing / Receiving | setSupplierAsl | `src/lib/services/asl.ts:107` | UNTESTED | Not yet exercised |
-| SERVICE-0147 | Purchasing / Receiving | upsertSupplierCertification | `src/lib/services/asl.ts:191` | UNTESTED | Not yet exercised |
-| SERVICE-0148 | Purchasing / Receiving | deleteSupplierCertification | `src/lib/services/asl.ts:240` | UNTESTED | Not yet exercised |
-| SERVICE-0149 | Purchasing / Receiving | refreshCertStatuses | `src/lib/services/asl.ts:257` | UNTESTED | Not yet exercised |
-| SERVICE-0150 | Service / Assets | createAsset | `src/lib/services/assets.ts:10` | UNTESTED | Not yet exercised |
-| SERVICE-0151 | Service / Assets | checkoutAsset | `src/lib/services/assets.ts:46` | UNTESTED | Not yet exercised |
-| SERVICE-0152 | Service / Assets | checkinAsset | `src/lib/services/assets.ts:101` | UNTESTED | Not yet exercised |
-| SERVICE-0153 | Service / Assets | getAssetsOverview | `src/lib/services/assets.ts:135` | PASS | assets getAssetsOverview |
-| SERVICE-0154 | Quality / NCR | saveAudit | `src/lib/services/audits.ts:21` | UNTESTED | Not yet exercised |
-| SERVICE-0155 | Quality / NCR | listAuditFindings | `src/lib/services/audits.ts:88` | UNTESTED | Not yet exercised |
-| SERVICE-0156 | Quality / NCR | updateAuditFinding | `src/lib/services/audits.ts:96` | UNTESTED | Not yet exercised |
-| SERVICE-0157 | Accounting / GovCon | connectBankAccount | `src/lib/services/banking.ts:16` | PASS | ; current/round3-finance-deep-results.json: PASS Bank connect/import CSV and repeat import preserve exact balance |
-| SERVICE-0158 | Accounting / GovCon | parseOfx | `src/lib/services/banking.ts:65` | PASS | ; current/round3-finance-deep-results.json: PASS Bank OFX exact FITID dedupe and parsing |
-| SERVICE-0159 | Accounting / GovCon | looksLikeOfx | `src/lib/services/banking.ts:97` | PASS | ; current/round3-finance-deep-results.json: PASS Bank OFX exact FITID dedupe and parsing |
-| SERVICE-0160 | Accounting / GovCon | importBankData | `src/lib/services/banking.ts:106` | PASS | ; current/round3-finance-deep-results.json: PASS Bank connect/import CSV and repeat import preserve exact balance; current/round3-finance-deep-results.json: PASS Bank OFX exact FITID dedupe and parsing |
-| SERVICE-0161 | Accounting / GovCon | importBankTransactions | `src/lib/services/banking.ts:169` | FAIL | ; current/round3-finance-deep-results.json: PASS Bank connect/import CSV and repeat import preserve exact balance; current/round3-finance-deep-results.json: FAIL Bank malformed numeric amount rejects row instead of importing zero |
-| SERVICE-0162 | Accounting / GovCon | categorizeBankTransaction | `src/lib/services/banking.ts:258` | FAIL | ; current/round3-finance-deep-results.json: PASS Bank categorize once posts balanced exact withdrawal; current/round3-finance-deep-results.json: FAIL Bank recategorize matched transaction does not post a second journal |
-| SERVICE-0163 | Accounting / GovCon | reconcileBankTransaction | `src/lib/services/banking.ts:308` | PASS | ; current/round3-finance-deep-results.json: PASS Bank authorized reconciliation and pre-match gate |
-| SERVICE-0164 | Accounting / GovCon | getBankingOverview | `src/lib/services/banking.ts:321` | PASS | ; current/round3-finance-deep-results.json: PASS Bank connect/import CSV and repeat import preserve exact balance |
-| SERVICE-0165 | Accounting / GovCon | suggestBankCategories | `src/lib/services/banking.ts:373` | UNTESTED | Not yet exercised |
-| SERVICE-0166 | Billing / Founding | raiseArInvoiceForShipment | `src/lib/services/billing.ts:23` | UNTESTED | Not yet exercised |
-| SERVICE-0167 | Billing / Founding | raiseApInvoiceForReceipt | `src/lib/services/billing.ts:125` | UNTESTED | Not yet exercised |
-| SERVICE-0168 | Billing / Founding | createVendorApInvoice | `src/lib/services/billing.ts:197` | FAIL | ; current/round3-finance-deep-results.json: PASS Vendor invoice action and AP payment reconcile exact subtotal/tax/GL; current/round3-finance-deep-results.json: FAIL Failed closed-period vendor invoice leaves no payable |
-| SERVICE-0169 | PMO / Budgets | sanitizeChargeCode | `src/lib/services/budgets.ts:37` | PASS | scripts/smoke-unit.ts; scenario only |
-| SERVICE-0170 | PMO / Budgets | chargeCodeFromBudgetName | `src/lib/services/budgets.ts:49` | PASS | scripts/verify/chunk-b-auth.ts; scenario only |
-| SERVICE-0171 | PMO / Budgets | projectWbsChargeCode | `src/lib/services/budgets.ts:59` | PASS | scripts/verify/chunk-b-auth.ts; scenario only |
-| SERVICE-0172 | PMO / Budgets | wbsCodePathFromLeaf | `src/lib/services/budgets.ts:76` | PASS | scripts/verify/chunk-g-pmo.ts; scenario only |
-| SERVICE-0173 | PMO / Budgets | defaultProjectWbsChargeCode | `src/lib/services/budgets.ts:95` | UNTESTED | Not yet exercised |
-| SERVICE-0174 | PMO / Budgets | ensureProjectWbsChargeCodes | `src/lib/services/budgets.ts:106` | PASS | scripts/verify/chunk-g-pmo.ts; scenario only |
-| SERVICE-0175 | PMO / Budgets | createBudget | `src/lib/services/budgets.ts:209` | UNTESTED | Not yet exercised |
-| SERVICE-0176 | PMO / Budgets | updateBudget | `src/lib/services/budgets.ts:387` | UNTESTED | Not yet exercised |
-| SERVICE-0177 | PMO / Budgets | enactBudget | `src/lib/services/budgets.ts:556` | UNTESTED | Not yet exercised |
-| SERVICE-0178 | PMO / Budgets | closeBudget | `src/lib/services/budgets.ts:637` | UNTESTED | Not yet exercised |
-| SERVICE-0179 | PMO / Budgets | getEnactedChargeCodes | `src/lib/services/budgets.ts:654` | UNTESTED | Not yet exercised |
-| SERVICE-0180 | PMO / Budgets | findBudgetByChargeCode | `src/lib/services/budgets.ts:687` | UNTESTED | Not yet exercised |
-| SERVICE-0181 | PMO / Budgets | resolveUserLaborRate | `src/lib/services/budgets.ts:697` | UNTESTED | Not yet exercised |
-| SERVICE-0182 | PMO / Budgets | setUserCompensation | `src/lib/services/budgets.ts:709` | UNTESTED | Not yet exercised |
-| SERVICE-0183 | PMO / Budgets | postBudgetCharge | `src/lib/services/budgets.ts:751` | UNTESTED | Not yet exercised |
-| SERVICE-0184 | PMO / Budgets | postTimesheetBudgetCharges | `src/lib/services/budgets.ts:927` | UNTESTED | Not yet exercised |
-| SERVICE-0185 | PMO / Budgets | chargeBudgetMaterialFromPr | `src/lib/services/budgets.ts:977` | UNTESTED | Not yet exercised |
-| SERVICE-0186 | PMO / Budgets | listBudgets | `src/lib/services/budgets.ts:1013` | UNTESTED | Not yet exercised |
-| SERVICE-0187 | PMO / Budgets | getBudgetDetail | `src/lib/services/budgets.ts:1047` | UNTESTED | Not yet exercised |
-| SERVICE-0188 | Platform / Other | tryCarinaAction | `src/lib/services/carina-actions.ts:326` | UNTESTED | Not yet exercised |
-| SERVICE-0189 | Platform / Other | carinaUnitEconomics | `src/lib/services/carina-cost.ts:72` | UNTESTED | Not yet exercised |
-| SERVICE-0190 | Platform / Other | formatCarinaCostReport | `src/lib/services/carina-cost.ts:142` | UNTESTED | Not yet exercised |
-| SERVICE-0191 | Platform / Other | getCarinaFeatures | `src/lib/services/carina-features.ts:8` | UNTESTED | Not yet exercised |
-| SERVICE-0192 | Platform / Other | checkCarinaRateLimit | `src/lib/services/carina-rate-limit.ts:38` | UNTESTED | Not yet exercised |
-| SERVICE-0193 | PLM / BOM / ECO | parseEcrAttachments | `src/lib/services/cm-library.ts:18` | UNTESTED | Not yet exercised |
-| SERVICE-0194 | PLM / BOM / ECO | resolvePrimaryDrawing | `src/lib/services/cm-library.ts:50` | UNTESTED | Not yet exercised |
-| SERVICE-0195 | PLM / BOM / ECO | ensureAdminFolder | `src/lib/services/cm-library.ts:67` | UNTESTED | Not yet exercised |
-| SERVICE-0196 | PLM / BOM / ECO | ensureWorkInstructionsFolder | `src/lib/services/cm-library.ts:111` | UNTESTED | Not yet exercised |
-| SERVICE-0197 | PLM / BOM / ECO | retainWorkInstructionMaster | `src/lib/services/cm-library.ts:138` | UNTESTED | Not yet exercised |
-| SERVICE-0198 | PLM / BOM / ECO | createCmFolder | `src/lib/services/cm-library.ts:232` | UNTESTED | Not yet exercised |
-| SERVICE-0199 | PLM / BOM / ECO | updateCmFolder | `src/lib/services/cm-library.ts:311` | UNTESTED | Not yet exercised |
-| SERVICE-0200 | PLM / BOM / ECO | deleteCmFolder | `src/lib/services/cm-library.ts:347` | UNTESTED | Not yet exercised |
-| SERVICE-0201 | PLM / BOM / ECO | moveCmDocument | `src/lib/services/cm-library.ts:382` | UNTESTED | Not yet exercised |
-| SERVICE-0202 | PLM / BOM / ECO | updateCmDocument | `src/lib/services/cm-library.ts:401` | UNTESTED | Not yet exercised |
-| SERVICE-0203 | PLM / BOM / ECO | deleteCmDocument | `src/lib/services/cm-library.ts:441` | UNTESTED | Not yet exercised |
-| SERVICE-0204 | PLM / BOM / ECO | mapCrToColumn | `src/lib/services/cm-library.ts:462` | UNTESTED | Not yet exercised |
-| SERVICE-0205 | PLM / BOM / ECO | mapDocumentEcrToColumn | `src/lib/services/cm-library.ts:484` | UNTESTED | Not yet exercised |
-| SERVICE-0206 | PLM / BOM / ECO | mapWiToColumn | `src/lib/services/cm-library.ts:490` | UNTESTED | Not yet exercised |
-| SERVICE-0207 | PLM / BOM / ECO | mapBomToColumn | `src/lib/services/cm-library.ts:499` | UNTESTED | Not yet exercised |
-| SERVICE-0208 | PLM / BOM / ECO | moveChangeRequestColumn | `src/lib/services/cm-library.ts:508` | UNTESTED | Not yet exercised |
-| SERVICE-0209 | PLM / BOM / ECO | ensureArchiveFolder | `src/lib/services/cm-library.ts:541` | UNTESTED | Not yet exercised |
-| SERVICE-0210 | PLM / BOM / ECO | searchCmDocumentsByNumber | `src/lib/services/cm-library.ts:596` | UNTESTED | Not yet exercised |
-| SERVICE-0211 | PLM / BOM / ECO | createDocumentEcr | `src/lib/services/cm-library.ts:617` | UNTESTED | Not yet exercised |
-| SERVICE-0212 | PLM / BOM / ECO | assignEcrApprovers | `src/lib/services/cm-library.ts:943` | UNTESTED | Not yet exercised |
-| SERVICE-0213 | PLM / BOM / ECO | releaseDocumentEcr | `src/lib/services/cm-library.ts:1009` | UNTESTED | Not yet exercised |
-| SERVICE-0214 | PLM / BOM / ECO | addEcrAttachments | `src/lib/services/cm-library.ts:1195` | UNTESTED | Not yet exercised |
-| SERVICE-0215 | PLM / BOM / ECO | setEcrPrimaryAttachment | `src/lib/services/cm-library.ts:1276` | UNTESTED | Not yet exercised |
-| SERVICE-0216 | PLM / BOM / ECO | addChangeRequestComment | `src/lib/services/cm-library.ts:1316` | UNTESTED | Not yet exercised |
-| SERVICE-0217 | PLM / BOM / ECO | formatNumberFromScheme | `src/lib/services/cm-numbers.ts:49` | UNTESTED | Not yet exercised |
-| SERVICE-0218 | PLM / BOM / ECO | schemeExample | `src/lib/services/cm-numbers.ts:65` | UNTESTED | Not yet exercised |
-| SERVICE-0219 | PLM / BOM / ECO | ensureDefaultNumberSchemes | `src/lib/services/cm-numbers.ts:82` | UNTESTED | Not yet exercised |
-| SERVICE-0220 | PLM / BOM / ECO | listNumberSchemes | `src/lib/services/cm-numbers.ts:113` | UNTESTED | Not yet exercised |
-| SERVICE-0221 | PLM / BOM / ECO | updateNumberScheme | `src/lib/services/cm-numbers.ts:121` | UNTESTED | Not yet exercised |
-| SERVICE-0222 | PLM / BOM / ECO | createNumberRequest | `src/lib/services/cm-numbers.ts:215` | UNTESTED | Not yet exercised |
-| SERVICE-0223 | PLM / BOM / ECO | assignNumberToRequest | `src/lib/services/cm-numbers.ts:297` | UNTESTED | Not yet exercised |
-| SERVICE-0224 | PLM / BOM / ECO | rejectNumberRequest | `src/lib/services/cm-numbers.ts:432` | UNTESTED | Not yet exercised |
-| SERVICE-0225 | PLM / BOM / ECO | cancelNumberRequest | `src/lib/services/cm-numbers.ts:470` | UNTESTED | Not yet exercised |
-| SERVICE-0226 | PLM / BOM / ECO | registerNumberManually | `src/lib/services/cm-numbers.ts:491` | UNTESTED | Not yet exercised |
-| SERVICE-0227 | PLM / BOM / ECO | updateRegistryStatus | `src/lib/services/cm-numbers.ts:548` | UNTESTED | Not yet exercised |
-| SERVICE-0228 | PLM / BOM / ECO | markRegistryInUse | `src/lib/services/cm-numbers.ts:583` | UNTESTED | Not yet exercised |
-| SERVICE-0229 | PLM / BOM / ECO | linkRegistryToReleasedDocument | `src/lib/services/cm-numbers.ts:608` | UNTESTED | Not yet exercised |
-| SERVICE-0230 | PLM / BOM / ECO | listNumberRequests | `src/lib/services/cm-numbers.ts:625` | UNTESTED | Not yet exercised |
-| SERVICE-0231 | PLM / BOM / ECO | listNumberRegistry | `src/lib/services/cm-numbers.ts:640` | UNTESTED | Not yet exercised |
-| SERVICE-0232 | PLM / BOM / ECO | listAvailableNumbersForEcr | `src/lib/services/cm-numbers.ts:678` | UNTESTED | Not yet exercised |
-| SERVICE-0233 | PLM / BOM / ECO | previewNextNumber | `src/lib/services/cm-numbers.ts:701` | UNTESTED | Not yet exercised |
-| SERVICE-0234 | PMO / Budgets | getPartCommittedTotal | `src/lib/services/commitments.ts:19` | UNTESTED | Not yet exercised |
-| SERVICE-0235 | PMO / Budgets | getPartCommitments | `src/lib/services/commitments.ts:31` | UNTESTED | Not yet exercised |
-| SERVICE-0236 | PMO / Budgets | releaseCommitment | `src/lib/services/commitments.ts:89` | UNTESTED | Not yet exercised |
-| SERVICE-0237 | Admin / Settings | getCompanyDepartments | `src/lib/services/company.ts:20` | UNTESTED | Not yet exercised |
-| SERVICE-0238 | Platform / Other | getCustomerCreditSnapshot | `src/lib/services/credit.ts:29` | UNTESTED | Not yet exercised |
-| SERVICE-0239 | Platform / Other | evaluateDepositRequirement | `src/lib/services/credit.ts:90` | UNTESTED | Not yet exercised |
-| SERVICE-0240 | CRM / Sales | listLeads | `src/lib/services/crm.ts:59` | PASS | CRM create/list lead and reject empty company |
-| SERVICE-0241 | CRM / Sales | createLead | `src/lib/services/crm.ts:67` | PASS | CRM create/list lead and reject empty company |
-| SERVICE-0242 | CRM / Sales | updateLeadStatus | `src/lib/services/crm.ts:100` | UNTESTED | Not yet exercised |
-| SERVICE-0243 | CRM / Sales | convertLead | `src/lib/services/crm.ts:117` | PASS | CRM double lead conversion must not duplicate opportunity; FIX VERIFIED current 3de5ba1: integrity-retest.log / bom-lifecycle-retest.log and current HTTP retests |
-| SERVICE-0244 | CRM / Sales | createOpportunity | `src/lib/services/crm.ts:158` | PASS | CRM promote lead and list/get opportunity |
-| SERVICE-0245 | CRM / Sales | listOpportunities | `src/lib/services/crm.ts:199` | PASS | CRM promote lead and list/get opportunity |
-| SERVICE-0246 | CRM / Sales | getOpportunity | `src/lib/services/crm.ts:215` | PASS | CRM promote lead and list/get opportunity |
-| SERVICE-0247 | CRM / Sales | updateOpportunity | `src/lib/services/crm.ts:222` | UNTESTED | Not yet exercised |
-| SERVICE-0248 | CRM / Sales | setStage | `src/lib/services/crm.ts:238` | PASS | CRM lost reason validation / stage transition |
-| SERVICE-0249 | CRM / Sales | convertToCustomer | `src/lib/services/crm.ts:273` | PASS | CRM won deal customer conversion is idempotent |
-| SERVICE-0250 | CRM / Sales | addActivity | `src/lib/services/crm.ts:319` | PASS | CRM task create / complete / open-task summary |
-| SERVICE-0251 | CRM / Sales | completeActivity | `src/lib/services/crm.ts:345` | PASS | CRM task create / complete / open-task summary |
-| SERVICE-0252 | CRM / Sales | getOpenTasks | `src/lib/services/crm.ts:353` | PASS | CRM task create / complete / open-task summary |
-| SERVICE-0253 | CRM / Sales | listContacts | `src/lib/services/crm.ts:363` | PASS | CRM listContacts |
-| SERVICE-0254 | CRM / Sales | createContact | `src/lib/services/crm.ts:371` | UNTESTED | Not yet exercised |
-| SERVICE-0255 | CRM / Sales | getPipeline | `src/lib/services/crm.ts:412` | PASS | CRM getPipeline |
-| SERVICE-0256 | CRM / Sales | getCrmSummary | `src/lib/services/crm.ts:429` | PASS | CRM getCrmSummary |
-| SERVICE-0257 | CRM / Sales | getLostReasons | `src/lib/services/crm.ts:468` | PASS | CRM getLostReasons |
-| SERVICE-0258 | Inventory / Kitting | createCycleCount | `src/lib/services/cycle-counts.ts:8` | PASS | Cycle count create / negative quantity and incomplete completion gates |
-| SERVICE-0259 | Inventory / Kitting | recordCycleCountLine | `src/lib/services/cycle-counts.ts:71` | PASS | Cycle count record all / complete / repeated completion denied |
-| SERVICE-0260 | Inventory / Kitting | completeCycleCount | `src/lib/services/cycle-counts.ts:109` | PASS | Cycle count record all / complete / repeated completion denied |
-| SERVICE-0261 | Inventory / Kitting | cancelCycleCount | `src/lib/services/cycle-counts.ts:213` | UNTESTED | Not yet exercised |
-| SERVICE-0262 | Platform / Other | disciplineForUser | `src/lib/services/dashboard-pulse.ts:39` | UNTESTED | Not yet exercised |
-| SERVICE-0263 | Platform / Other | getDisciplinePulse | `src/lib/services/dashboard-pulse.ts:62` | UNTESTED | Not yet exercised |
-| SERVICE-0264 | Admin / Settings | parseDelimited | `src/lib/services/data-import.ts:21` | UNTESTED | Not yet exercised |
-| SERVICE-0265 | Admin / Settings | runImport | `src/lib/services/data-import.ts:189` | UNTESTED | Not yet exercised |
-| SERVICE-0266 | Demo / Tenancy | reapAbandonedDemos | `src/lib/services/demo-reaper.ts:15` | UNTESTED | Not yet exercised |
-| SERVICE-0267 | Docs | requireDocsAccess | `src/lib/services/docs.ts:24` | UNTESTED | Not yet exercised |
-| SERVICE-0268 | Docs | revisionHash | `src/lib/services/docs.ts:43` | PASS | scripts/test-docs.ts; scenario only |
-| SERVICE-0269 | Docs | createDocSpace | `src/lib/services/docs.ts:48` | PASS | scripts/test-docs.ts; scenario only |
-| SERVICE-0270 | Docs | createDocPage | `src/lib/services/docs.ts:56` | PASS | scripts/test-docs.ts; scenario only |
-| SERVICE-0271 | Docs | saveDocPage | `src/lib/services/docs.ts:77` | PASS | scripts/test-docs.ts; scenario only |
-| SERVICE-0272 | Docs | restoreDocRevision | `src/lib/services/docs.ts:103` | PASS | scripts/test-docs.ts; scenario only |
-| SERVICE-0273 | Docs | signDocRevision | `src/lib/services/docs.ts:111` | PASS | scripts/test-docs.ts; scenario only |
-| SERVICE-0274 | Docs | addDocComment | `src/lib/services/docs.ts:127` | PASS | scripts/test-docs.ts; scenario only |
-| SERVICE-0275 | Docs | resolveDocComment | `src/lib/services/docs.ts:134` | PASS | scripts/test-docs.ts; scenario only |
-| SERVICE-0276 | Docs | searchDocTargets | `src/lib/services/docs.ts:141` | PASS | scripts/test-docs.ts; scenario only |
-| SERVICE-0277 | Docs | linkDocRecord | `src/lib/services/docs.ts:158` | PASS | scripts/test-docs.ts; scenario only |
-| SERVICE-0278 | Docs | unlinkDocRecord | `src/lib/services/docs.ts:168` | PASS | scripts/test-docs.ts; scenario only |
-| SERVICE-0279 | Docs | isDocsSchemaMissing | `src/lib/services/docs.ts:173` | UNTESTED | Not yet exercised |
-| SERVICE-0280 | Platform / Other | sendEmail | `src/lib/services/email.ts:14` | UNTESTED | Not yet exercised |
-| SERVICE-0281 | Platform / Other | composePoEmail | `src/lib/services/email.ts:117` | UNTESTED | Not yet exercised |
-| SERVICE-0282 | Platform / Other | composeQuoteEmail | `src/lib/services/email.ts:165` | UNTESTED | Not yet exercised |
-| SERVICE-0283 | Platform / Other | parseInboundEmail | `src/lib/services/email.ts:241` | UNTESTED | Not yet exercised |
-| SERVICE-0284 | Platform / Other | listEmailMessages | `src/lib/services/email.ts:378` | UNTESTED | Not yet exercised |
-| SERVICE-0285 | PLM / BOM / ECO | createCampaign | `src/lib/services/engineering-work.ts:53` | UNTESTED | Not yet exercised |
-| SERVICE-0286 | PLM / BOM / ECO | updateCampaign | `src/lib/services/engineering-work.ts:102` | UNTESTED | Not yet exercised |
-| SERVICE-0287 | PLM / BOM / ECO | createSaga | `src/lib/services/engineering-work.ts:148` | UNTESTED | Not yet exercised |
-| SERVICE-0288 | PLM / BOM / ECO | updateSaga | `src/lib/services/engineering-work.ts:225` | UNTESTED | Not yet exercised |
-| SERVICE-0289 | PLM / BOM / ECO | createEngTask | `src/lib/services/engineering-work.ts:271` | UNTESTED | Not yet exercised |
-| SERVICE-0290 | PLM / BOM / ECO | updateEngTask | `src/lib/services/engineering-work.ts:388` | UNTESTED | Not yet exercised |
-| SERVICE-0291 | PLM / BOM / ECO | breakDownTask | `src/lib/services/engineering-work.ts:445` | UNTESTED | Not yet exercised |
-| SERVICE-0292 | PLM / BOM / ECO | createProductionEngIssue | `src/lib/services/engineering-work.ts:479` | UNTESTED | Not yet exercised |
-| SERVICE-0293 | PLM / BOM / ECO | acceptProductionIssueAsTask | `src/lib/services/engineering-work.ts:587` | UNTESTED | Not yet exercised |
-| SERVICE-0294 | PLM / BOM / ECO | updateProductionEngIssue | `src/lib/services/engineering-work.ts:630` | UNTESTED | Not yet exercised |
-| SERVICE-0295 | PLM / BOM / ECO | listProductionEngIssues | `src/lib/services/engineering-work.ts:714` | UNTESTED | Not yet exercised |
-| SERVICE-0296 | PLM / BOM / ECO | listProductEngTasks | `src/lib/services/engineering-work.ts:742` | UNTESTED | Not yet exercised |
-| SERVICE-0297 | PLM / BOM / ECO | addEngDependency | `src/lib/services/engineering-work.ts:758` | UNTESTED | Not yet exercised |
-| SERVICE-0298 | PLM / BOM / ECO | ensureDefaultSwimLanes | `src/lib/services/engineering-work.ts:836` | UNTESTED | Not yet exercised |
-| SERVICE-0299 | PLM / BOM / ECO | listSwimLanes | `src/lib/services/engineering-work.ts:853` | UNTESTED | Not yet exercised |
-| SERVICE-0300 | PLM / BOM / ECO | createSwimLane | `src/lib/services/engineering-work.ts:861` | UNTESTED | Not yet exercised |
-| SERVICE-0301 | PLM / BOM / ECO | removeSwimLane | `src/lib/services/engineering-work.ts:885` | UNTESTED | Not yet exercised |
-| SERVICE-0302 | PLM / BOM / ECO | listPmAlerts | `src/lib/services/engineering-work.ts:905` | UNTESTED | Not yet exercised |
-| SERVICE-0303 | PLM / BOM / ECO | markAlertRead | `src/lib/services/engineering-work.ts:919` | UNTESTED | Not yet exercised |
-| SERVICE-0304 | PLM / BOM / ECO | removeEngDependency | `src/lib/services/engineering-work.ts:926` | UNTESTED | Not yet exercised |
-| SERVICE-0305 | PLM / BOM / ECO | listDependenciesForDiscipline | `src/lib/services/engineering-work.ts:930` | UNTESTED | Not yet exercised |
-| SERVICE-0306 | PLM / BOM / ECO | createEngSprint | `src/lib/services/engineering-work.ts:1022` | UNTESTED | Not yet exercised |
-| SERVICE-0307 | PLM / BOM / ECO | updateEngSprint | `src/lib/services/engineering-work.ts:1049` | UNTESTED | Not yet exercised |
-| SERVICE-0308 | PLM / BOM / ECO | listEngSprints | `src/lib/services/engineering-work.ts:1069` | UNTESTED | Not yet exercised |
-| SERVICE-0309 | PLM / BOM / ECO | assignTaskToSprint | `src/lib/services/engineering-work.ts:1092` | UNTESTED | Not yet exercised |
-| SERVICE-0310 | PLM / BOM / ECO | assignSagaToSprint | `src/lib/services/engineering-work.ts:1102` | UNTESTED | Not yet exercised |
-| SERVICE-0311 | PLM / BOM / ECO | getDisciplineBoard | `src/lib/services/engineering-work.ts:1113` | UNTESTED | Not yet exercised |
-| SERVICE-0312 | PLM / BOM / ECO | scanIntoTask | `src/lib/services/engineering-work.ts:1308` | UNTESTED | Not yet exercised |
-| SERVICE-0313 | PLM / BOM / ECO | scanOutOfTask | `src/lib/services/engineering-work.ts:1382` | UNTESTED | Not yet exercised |
-| SERVICE-0314 | PLM / BOM / ECO | createWbsElement | `src/lib/services/engineering-work.ts:1565` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO WBS create/update actions retain hierarchy and progress |
-| SERVICE-0315 | PLM / BOM / ECO | updateWbsElement | `src/lib/services/engineering-work.ts:1645` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO WBS create/update actions retain hierarchy and progress |
-| SERVICE-0316 | PLM / BOM / ECO | getWbsTree | `src/lib/services/engineering-work.ts:1701` | UNTESTED | Not yet exercised |
-| SERVICE-0317 | PLM / BOM / ECO | getWbsDetail | `src/lib/services/engineering-work.ts:1720` | UNTESTED | Not yet exercised |
-| SERVICE-0318 | PLM / BOM / ECO | listCampaignsForProject | `src/lib/services/engineering-work.ts:1752` | UNTESTED | Not yet exercised |
-| SERVICE-0319 | PLM / BOM / ECO | listSagasByDiscipline | `src/lib/services/engineering-work.ts:1773` | UNTESTED | Not yet exercised |
-| SERVICE-0320 | PLM / BOM / ECO | getDisciplineSummaries | `src/lib/services/engineering-work.ts:1802` | UNTESTED | Not yet exercised |
-| SERVICE-0321 | PLM / BOM / ECO | getBurndownData | `src/lib/services/engineering-work.ts:1844` | UNTESTED | Not yet exercised |
-| SERVICE-0322 | PLM / BOM / ECO | listOpenScans | `src/lib/services/engineering-work.ts:1966` | UNTESTED | Not yet exercised |
-| SERVICE-0323 | Service / Assets | createTicket | `src/lib/services/field-service.ts:64` | PASS | Service ticket create/list/detail |
-| SERVICE-0324 | Service / Assets | listTickets | `src/lib/services/field-service.ts:109` | PASS | Service ticket create/list/detail |
-| SERVICE-0325 | Service / Assets | getTicket | `src/lib/services/field-service.ts:143` | PASS | Service ticket create/list/detail |
-| SERVICE-0326 | Service / Assets | updateTicketStatus | `src/lib/services/field-service.ts:156` | UNTESTED | Not yet exercised |
-| SERVICE-0327 | Service / Assets | scheduleVisit | `src/lib/services/field-service.ts:184` | PASS | Service dispatch / start / labor / parts / complete |
-| SERVICE-0328 | Service / Assets | updateVisit | `src/lib/services/field-service.ts:214` | UNTESTED | Not yet exercised |
-| SERVICE-0329 | Service / Assets | startVisit | `src/lib/services/field-service.ts:230` | PASS | Service dispatch / start / labor / parts / complete |
-| SERVICE-0330 | Service / Assets | completeVisit | `src/lib/services/field-service.ts:257` | PASS | Service dispatch / start / labor / parts / complete |
-| SERVICE-0331 | Service / Assets | addLabor | `src/lib/services/field-service.ts:303` | PASS | Service rejects zero/negative labor and parts |
-| SERVICE-0332 | Service / Assets | addPartUsage | `src/lib/services/field-service.ts:326` | PASS | Service rejects zero/negative labor and parts |
-| SERVICE-0333 | Service / Assets | removeLabor | `src/lib/services/field-service.ts:351` | UNTESTED | Not yet exercised |
-| SERVICE-0334 | Service / Assets | removePartUsage | `src/lib/services/field-service.ts:355` | UNTESTED | Not yet exercised |
-| SERVICE-0335 | Service / Assets | getTicketTotals | `src/lib/services/field-service.ts:374` | PASS | Service dispatch / start / labor / parts / complete |
-| SERVICE-0336 | Service / Assets | listInstalledAssets | `src/lib/services/field-service.ts:414` | PASS | Service listInstalledAssets |
-| SERVICE-0337 | Service / Assets | createInstalledAsset | `src/lib/services/field-service.ts:425` | UNTESTED | Not yet exercised |
-| SERVICE-0338 | Service / Assets | isUnderWarranty | `src/lib/services/field-service.ts:458` | UNTESTED | Not yet exercised |
-| SERVICE-0339 | Service / Assets | getServiceSummary | `src/lib/services/field-service.ts:464` | PASS | Service getServiceSummary |
-| SERVICE-0340 | Service / Assets | listVehicles | `src/lib/services/fleet.ts:42` | PASS | fleet listVehicles |
-| SERVICE-0341 | Service / Assets | getVehicle | `src/lib/services/fleet.ts:55` | UNTESTED | Not yet exercised |
-| SERVICE-0342 | Service / Assets | createVehicle | `src/lib/services/fleet.ts:65` | PASS | ; current/round3-docs-assets-results.json: PASS Fleet create/update actions persist identity and odometer |
-| SERVICE-0343 | Service / Assets | updateVehicle | `src/lib/services/fleet.ts:116` | PASS | ; current/round3-docs-assets-results.json: PASS Fleet create/update actions persist identity and odometer |
-| SERVICE-0344 | Service / Assets | recordOdometer | `src/lib/services/fleet.ts:132` | PASS | ; current/round3-docs-assets-results.json: PASS Fleet maintenance schedule/complete action schedules next occurrence |
-| SERVICE-0345 | Service / Assets | addMaintenance | `src/lib/services/fleet.ts:147` | PASS | ; current/round3-docs-assets-results.json: PASS Fleet maintenance schedule/complete action schedules next occurrence |
-| SERVICE-0346 | Service / Assets | completeMaintenance | `src/lib/services/fleet.ts:181` | PASS | ; current/round3-docs-assets-results.json: PASS Fleet maintenance schedule/complete action schedules next occurrence |
-| SERVICE-0347 | Service / Assets | getMaintenanceDue | `src/lib/services/fleet.ts:259` | PASS | fleet getMaintenanceDue |
-| SERVICE-0348 | Service / Assets | getComplianceDue | `src/lib/services/fleet.ts:304` | PASS | fleet getComplianceDue |
-| SERVICE-0349 | Service / Assets | addFuelLog | `src/lib/services/fleet.ts:348` | FAIL | ; current/round3-docs-assets-results.json: FAIL Fleet fuel action positive/negative validation and odometer |
-| SERVICE-0350 | Service / Assets | getVehicleCost | `src/lib/services/fleet.ts:379` | UNTESTED | Not yet exercised |
-| SERVICE-0351 | Billing / Founding | qualifiesForFounding | `src/lib/services/founding-membership.ts:7` | PASS | scripts/test-founding-billing.ts; scenario only |
-| SERVICE-0352 | Billing / Founding | foundingMembership | `src/lib/services/founding-membership.ts:13` | PASS | scripts/test-founding-billing.ts; scenario only |
-| SERVICE-0353 | Billing / Founding | subscriptionFoundingMembership | `src/lib/services/founding-membership.ts:20` | PASS | scripts/test-founding-billing.ts; scenario only |
-| SERVICE-0354 | Billing / Founding | foundingGrant | `src/lib/services/founding-membership.ts:35` | PASS | scripts/test-founding-billing.ts; scenario only |
-| SERVICE-0355 | Billing / Founding | reviewFounderStripeState | `src/lib/services/founding-stripe-review.ts:2` | PASS | scripts/test-founding-billing.ts; scenario only |
-| SERVICE-0356 | Accounting / GovCon | getGaapReportPack | `src/lib/services/gaap.ts:19` | PASS | gaap getGaapReportPack |
-| SERVICE-0357 | Accounting / GovCon | getAccountRegister | `src/lib/services/gaap.ts:137` | UNTESTED | Not yet exercised |
-| SERVICE-0358 | Accounting / GovCon | getMonthEndCloseStatus | `src/lib/services/gaap.ts:225` | PASS | gaap getMonthEndCloseStatus |
-| SERVICE-0359 | Accounting / GovCon | getReclassifyData | `src/lib/services/gaap.ts:313` | PASS | gaap getReclassifyData |
-| SERVICE-0360 | Accounting / GovCon | reclassifyJournalLines | `src/lib/services/gaap.ts:389` | UNTESTED | Not yet exercised |
-| SERVICE-0361 | Accounting / GovCon | postJournal | `src/lib/services/gaap.ts:493` | PASS | GL balanced journal remains pending / idempotency; priority-results.json: PASS Closed-period post rejected with no JE/line writes; round2-finance-results.json: PASS Pending JE does not change isolated account balances; current/round2-finance-results.json: PASS Pending JE does not change isolated account balances |
-| SERVICE-0362 | Accounting / GovCon | getAccountingCloseDate | `src/lib/services/gaap.ts:712` | UNTESTED | Not yet exercised |
-| SERVICE-0363 | Accounting / GovCon | setAccountingCloseDate | `src/lib/services/gaap.ts:746` | PASS | priority-results.json: PASS Closed-period post rejected with no JE/line writes |
-| SERVICE-0364 | Accounting / GovCon | approveJournal | `src/lib/services/gaap.ts:783` | FAIL | priority-results.json: PASS Accounting self-approval denied when separation enabled; priority-results.json: PASS Accounting approval applies once and is repeat safe; round2-finance-results.json: PASS Approved JE reconciles account balances to posted lines; round2-finance-results.json: FAIL Concurrent approvals apply the same JE balances only once; current/round2-finance-results.json: PASS Approved JE reconciles account balances to posted lines; current/round2-finance-results.json: FAIL Concurrent approvals apply the same JE balances only once |
-| SERVICE-0365 | Accounting / GovCon | voidJournal | `src/lib/services/gaap.ts:826` | PASS | round2-finance-results.json: PASS Void unposted journal requires reason and never applies balances; current/round2-finance-results.json: PASS Void unposted journal requires reason and never applies balances |
-| SERVICE-0366 | Accounting / GovCon | listJournalEntries | `src/lib/services/gaap.ts:854` | PASS | gaap listJournalEntries |
-| SERVICE-0367 | Accounting / GovCon | recordArPayment | `src/lib/services/gaap.ts:885` | PASS | finance-supply-results.json: FAIL AR rejected GL posting rolls back payment and invoice; round2-finance-results.json: PASS AR partial/full receipts reconcile subledger and GL; round2-finance-results.json: FAIL AR overpayment cannot disappear from subledger; round2-finance-results.json: FAIL AR payment journal honors supplied historical payment date; FIX VERIFIED current 3de5ba1: integrity-retest.log / bom-lifecycle-retest.log and current HTTP retests; current/round2-finance-results.json: PASS AR partial/full receipts reconcile subledger and GL; current/round2-finance-results.json: PASS AR overpayment cannot disappear from subledger; current/round2-finance-results.json: PASS AR payment journal honors supplied historical payment date; current/round3-finance-deep-results.json: PASS Customer receipt action reconciles AR payments and GL |
-| SERVICE-0368 | Accounting / GovCon | recordApPayment | `src/lib/services/gaap.ts:951` | PASS | finance-supply-results.json: FAIL AP rejected GL posting rolls back payment and invoice; round2-finance-results.json: PASS AP partial/full receipts reconcile subledger and GL; round2-finance-results.json: FAIL AP overpayment cannot disappear from subledger; round2-finance-results.json: FAIL AP payment journal honors supplied historical payment date; FIX VERIFIED current 3de5ba1: integrity-retest.log / bom-lifecycle-retest.log and current HTTP retests; current/round2-finance-results.json: PASS AP partial/full receipts reconcile subledger and GL; current/round2-finance-results.json: PASS AP overpayment cannot disappear from subledger; current/round2-finance-results.json: PASS AP payment journal honors supplied historical payment date; current/round3-finance-deep-results.json: PASS Vendor invoice action and AP payment reconcile exact subtotal/tax/GL |
-| SERVICE-0369 | Accounting / GovCon | createExpenseEntry | `src/lib/services/gaap.ts:1016` | UNTESTED | Not yet exercised |
-| SERVICE-0370 | Accounting / GovCon | reverseJournalEntry | `src/lib/services/gaap.ts:1066` | PASS | finance-supply-results.json: FAIL Journal reversal retains FAR unallowable classification; finance-supply-results.json: PASS Journal reversal is balanced and cannot run twice; round2-finance-results.json: PASS Reversal reconciles original balances back to zero; FIX VERIFIED current 3de5ba1: integrity-retest.log / bom-lifecycle-retest.log and current HTTP retests; current/round2-finance-results.json: PASS Reversal reconciles original balances back to zero |
-| SERVICE-0371 | Accounting / GovCon | runDueAutoReversals | `src/lib/services/gaap.ts:1122` | UNTESTED | Not yet exercised |
-| SERVICE-0372 | Accounting / GovCon | getAccountingOverview | `src/lib/services/gaap.ts:1149` | PASS | gaap getAccountingOverview |
-| SERVICE-0373 | Accounting / GovCon | getCashFlowStatement | `src/lib/services/gaap.ts:1258` | PASS | gaap getCashFlowStatement |
-| SERVICE-0374 | Accounting / GovCon | ensureAccountingDefaults | `src/lib/services/gl-posting.ts:133` | UNTESTED | Not yet exercised |
-| SERVICE-0375 | Accounting / GovCon | ensureFiscalPeriods | `src/lib/services/gl-posting.ts:186` | UNTESTED | Not yet exercised |
-| SERVICE-0376 | Accounting / GovCon | postMaterialIssue | `src/lib/services/gl-posting.ts:331` | PASS | round2-finance-results.json: PASS Manufacturing postings capitalize material/labor/fringe/OH but not G&A; current/round2-finance-results.json: PASS Manufacturing postings capitalize material/labor/fringe/OH but not G&A |
-| SERVICE-0377 | Accounting / GovCon | postDirectLabor | `src/lib/services/gl-posting.ts:356` | PASS | round2-finance-results.json: PASS Manufacturing postings capitalize material/labor/fringe/OH but not G&A; current/round2-finance-results.json: PASS Manufacturing postings capitalize material/labor/fringe/OH but not G&A |
-| SERVICE-0378 | Accounting / GovCon | postWorkOrderCompletion | `src/lib/services/gl-posting.ts:418` | PASS | round2-finance-results.json: PASS Manufacturing completion relieves WIP and reconciles variance; round2-finance-results.json: PASS Repeat completion posting is idempotent; current/round2-finance-results.json: PASS Manufacturing completion relieves WIP and reconciles variance; current/round2-finance-results.json: PASS Repeat completion posting is idempotent |
-| SERVICE-0379 | Accounting / GovCon | postScrap | `src/lib/services/gl-posting.ts:459` | PASS | round2-finance-results.json: PASS GFP scrap never posts company expense; current/round2-finance-results.json: PASS GFP scrap never posts company expense |
-| SERVICE-0380 | Accounting / GovCon | postInventoryAdjustment | `src/lib/services/gl-posting.ts:485` | PASS | round2-finance-results.json: PASS Inventory shortage/surplus and OSP postings are balanced; current/round2-finance-results.json: PASS Inventory shortage/surplus and OSP postings are balanced |
-| SERVICE-0381 | Accounting / GovCon | postOutsideProcessing | `src/lib/services/gl-posting.ts:506` | PASS | round2-finance-results.json: PASS Inventory shortage/surplus and OSP postings are balanced; current/round2-finance-results.json: PASS Inventory shortage/surplus and OSP postings are balanced |
-| SERVICE-0382 | Accounting / GovCon | chargeForSalesOrder | `src/lib/services/gl-posting.ts:530` | UNTESTED | Not yet exercised |
-| SERVICE-0383 | Accounting / GovCon | chargeForPurchaseOrder | `src/lib/services/gl-posting.ts:547` | UNTESTED | Not yet exercised |
-| SERVICE-0384 | Platform / Other | grokConfigured | `src/lib/services/grok.ts:10` | UNTESTED | Not yet exercised |
-| SERVICE-0385 | Platform / Other | grokModel | `src/lib/services/grok.ts:14` | UNTESTED | Not yet exercised |
-| SERVICE-0386 | Platform / Other | grokChat | `src/lib/services/grok.ts:18` | UNTESTED | Not yet exercised |
-| SERVICE-0387 | Platform / Other | grokTranslate | `src/lib/services/grok.ts:56` | UNTESTED | Not yet exercised |
-| SERVICE-0388 | Platform / Other | probeGrok | `src/lib/services/grok.ts:77` | UNTESTED | Not yet exercised |
-| SERVICE-0389 | HR / Time | getTrainingMatrix | `src/lib/services/hr.ts:63` | UNTESTED | Not yet exercised |
-| SERVICE-0390 | HR / Time | getComplianceItems | `src/lib/services/hr.ts:186` | UNTESTED | Not yet exercised |
-| SERVICE-0391 | HR / Time | getHrPersona | `src/lib/services/hr.ts:280` | UNTESTED | Not yet exercised |
-| SERVICE-0392 | HR / Time | canDecideFor | `src/lib/services/hr.ts:303` | UNTESTED | Not yet exercised |
-| SERVICE-0393 | HR / Time | decidePtoRequest | `src/lib/services/hr.ts:317` | PASS | ; current/round3-hr-auth-results.json: PASS HR PTO request/approval and missing rejection reason gate |
-| SERVICE-0394 | HR / Time | createPtoRequest | `src/lib/services/hr.ts:365` | FAIL | ; current/round3-hr-auth-results.json: PASS HR PTO request/approval and missing rejection reason gate; current/round3-hr-auth-results.json: FAIL HR PTO request must belong to logged-in actor; current/round3-hr-auth-results.json: FAIL HR PTO reverse date interval rejected |
-| SERVICE-0395 | HR / Time | decideTimeEntry | `src/lib/services/hr.ts:407` | UNTESTED | Not yet exercised |
-| SERVICE-0396 | HR / Time | getExpenseReimbursements | `src/lib/services/hr.ts:459` | UNTESTED | Not yet exercised |
-| SERVICE-0397 | HR / Time | payExpenseReport | `src/lib/services/hr.ts:472` | FAIL | ; current/round3-finance-deep-results.json: FAIL Accounting can reimburse already HR-approved expense under journal SoD |
-| SERVICE-0398 | HR / Time | advanceExpenseReport | `src/lib/services/hr.ts:521` | FAIL | ; current/round3-finance-deep-results.json: PASS Expense owner submit and unrelated reviewer denial; current/round3-finance-deep-results.json: FAIL HR cannot bypass accounting payment by generic PAID transition |
-| SERVICE-0399 | HR / Time | updateGoalProgress | `src/lib/services/hr.ts:571` | FAIL | ; current/round3-hr-auth-results.json: PASS HR employee goal create/progress/checkin action chain; current/round3-hr-auth-results.json: FAIL HR operator cannot alter another employee goal progress |
-| SERVICE-0400 | HR / Time | certExpiryTone | `src/lib/services/hr.ts:595` | UNTESTED | Not yet exercised |
-| SERVICE-0401 | HR / Time | getPendingApprovals | `src/lib/services/hr.ts:605` | UNTESTED | Not yet exercised |
-| SERVICE-0402 | HR / Time | getEmployeeProfile | `src/lib/services/hr.ts:645` | UNTESTED | Not yet exercised |
-| SERVICE-0403 | HR / Time | getTeamOverview | `src/lib/services/hr.ts:717` | UNTESTED | Not yet exercised |
-| SERVICE-0404 | HR / Time | upsertPerformanceReview | `src/lib/services/hr.ts:738` | UNTESTED | Not yet exercised |
-| SERVICE-0405 | HR / Time | createEmployeeGoal | `src/lib/services/hr.ts:789` | PASS | ; current/round3-hr-auth-results.json: PASS HR employee goal create/progress/checkin action chain |
-| SERVICE-0406 | Quality / NCR | supportsInspections | `src/lib/services/inspections.ts:15` | UNTESTED | Not yet exercised |
-| SERVICE-0407 | Quality / NCR | parseTemplate | `src/lib/services/inspections.ts:22` | UNTESTED | Not yet exercised |
-| SERVICE-0408 | Quality / NCR | setInspectionTemplate | `src/lib/services/inspections.ts:31` | UNTESTED | Not yet exercised |
-| SERVICE-0409 | Quality / NCR | saveInspection | `src/lib/services/inspections.ts:41` | UNTESTED | Not yet exercised |
-| SERVICE-0410 | Quality / NCR | listInspections | `src/lib/services/inspections.ts:83` | UNTESTED | Not yet exercised |
-| SERVICE-0411 | Quality / NCR | recordHumidity | `src/lib/services/inspections.ts:93` | UNTESTED | Not yet exercised |
-| SERVICE-0412 | Quality / NCR | humiditySummary | `src/lib/services/inspections.ts:117` | PASS | inspections humiditySummary |
-| SERVICE-0413 | Quality / NCR | humidityTone | `src/lib/services/inspections.ts:130` | UNTESTED | Not yet exercised |
-| SERVICE-0414 | Quality / NCR | getEsdProgram | `src/lib/services/inspections.ts:134` | PASS | inspections getEsdProgram |
-| SERVICE-0415 | Inventory / Kitting | createPart | `src/lib/services/items.ts:52` | UNTESTED | Not yet exercised |
-| SERVICE-0416 | Inventory / Kitting | updatePart | `src/lib/services/items.ts:111` | UNTESTED | Not yet exercised |
-| SERVICE-0417 | Inventory / Kitting | upsertPartVendor | `src/lib/services/items.ts:216` | UNTESTED | Not yet exercised |
-| SERVICE-0418 | Inventory / Kitting | listApprovedSuppliers | `src/lib/services/items.ts:284` | UNTESTED | Not yet exercised |
-| SERVICE-0419 | Inventory / Kitting | isSupplierApprovedForPo | `src/lib/services/items.ts:294` | UNTESTED | Not yet exercised |
-| SERVICE-0420 | Inventory / Kitting | findKanbanShortages | `src/lib/services/kanban-replenishment.ts:25` | UNTESTED | Not yet exercised |
-| SERVICE-0421 | Inventory / Kitting | ensureKanbanReplenishmentPrs | `src/lib/services/kanban-replenishment.ts:172` | UNTESTED | Not yet exercised |
-| SERVICE-0422 | Inventory / Kitting | getUpcomingKits | `src/lib/services/kitting.ts:38` | UNTESTED | Not yet exercised |
-| SERVICE-0423 | Inventory / Kitting | sweepKitReadiness | `src/lib/services/kitting.ts:90` | UNTESTED | Not yet exercised |
-| SERVICE-0424 | Inventory / Kitting | getKitRefsForMrs | `src/lib/services/kitting.ts:113` | UNTESTED | Not yet exercised |
-| SERVICE-0425 | Platform / Other | listBusinessPriorities | `src/lib/services/leadership.ts:4` | UNTESTED | Not yet exercised |
-| SERVICE-0426 | Platform / Other | upsertBusinessPriority | `src/lib/services/leadership.ts:15` | UNTESTED | Not yet exercised |
-| SERVICE-0427 | Platform / Other | setPriorityStatus | `src/lib/services/leadership.ts:77` | UNTESTED | Not yet exercised |
-| SERVICE-0428 | Platform / Other | getExecutiveKpis | `src/lib/services/leadership.ts:97` | UNTESTED | Not yet exercised |
-| SERVICE-0429 | Admin / Settings | canonicalPayload | `src/lib/services/license.ts:95` | UNTESTED | Not yet exercised |
-| SERVICE-0430 | Admin / Settings | licenseRequired | `src/lib/services/license.ts:109` | UNTESTED | Not yet exercised |
-| SERVICE-0431 | Admin / Settings | getLicenseStatus | `src/lib/services/license.ts:125` | UNTESTED | Not yet exercised |
-| SERVICE-0432 | Admin / Settings | licenseBootLine | `src/lib/services/license.ts:231` | UNTESTED | Not yet exercised |
-| SERVICE-0433 | Shipping / Logistics | listCarriers | `src/lib/services/logistics.ts:31` | UNTESTED | Not yet exercised |
-| SERVICE-0434 | Shipping / Logistics | createCarrier | `src/lib/services/logistics.ts:38` | PASS | ; current/round3-docs-assets-results.json: PASS Logistics carrier create/toggle actions |
-| SERVICE-0435 | Shipping / Logistics | updateCarrier | `src/lib/services/logistics.ts:72` | PASS | ; current/round3-docs-assets-results.json: PASS Logistics carrier create/toggle actions |
-| SERVICE-0436 | Shipping / Logistics | trackingLink | `src/lib/services/logistics.ts:77` | UNTESTED | Not yet exercised |
-| SERVICE-0437 | Shipping / Logistics | recordFreight | `src/lib/services/logistics.ts:89` | PASS | ; current/round3-docs-assets-results.json: PASS Logistics freight action nonnegative cost guard |
-| SERVICE-0438 | Shipping / Logistics | listFreight | `src/lib/services/logistics.ts:123` | UNTESTED | Not yet exercised |
-| SERVICE-0439 | Shipping / Logistics | getFreightSummary | `src/lib/services/logistics.ts:142` | UNTESTED | Not yet exercised |
-| SERVICE-0440 | Shipping / Logistics | addLandedCost | `src/lib/services/logistics.ts:165` | PASS | ; current/round3-docs-assets-results.json: PASS Logistics landed-cost actions allocate exact charge and repeat no-op |
-| SERVICE-0441 | Shipping / Logistics | listLandedCosts | `src/lib/services/logistics.ts:187` | UNTESTED | Not yet exercised |
-| SERVICE-0442 | Shipping / Logistics | previewAllocation | `src/lib/services/logistics.ts:255` | PASS | ; current/round3-docs-assets-results.json: PASS Logistics landed-cost actions allocate exact charge and repeat no-op |
-| SERVICE-0443 | Shipping / Logistics | setReceiptLineWeight | `src/lib/services/logistics.ts:349` | PASS | ; current/round3-docs-assets-results.json: PASS Logistics landed-cost actions allocate exact charge and repeat no-op |
-| SERVICE-0444 | Shipping / Logistics | applyLandedCost | `src/lib/services/logistics.ts:370` | PASS | ; current/round3-docs-assets-results.json: PASS Logistics landed-cost actions allocate exact charge and repeat no-op |
-| SERVICE-0445 | Shipping / Logistics | getReceiptLandedTotals | `src/lib/services/logistics.ts:422` | PASS | ; current/round3-docs-assets-results.json: PASS Logistics landed-cost actions allocate exact charge and repeat no-op |
-| SERVICE-0446 | Shipping / Logistics | getUnappliedCharges | `src/lib/services/logistics.ts:436` | UNTESTED | Not yet exercised |
-| SERVICE-0447 | Service / Assets | listEquipment | `src/lib/services/maintenance.ts:42` | PASS | maintenance listEquipment |
-| SERVICE-0448 | Service / Assets | getEquipment | `src/lib/services/maintenance.ts:52` | UNTESTED | Not yet exercised |
-| SERVICE-0449 | Service / Assets | createEquipment | `src/lib/services/maintenance.ts:63` | PASS | ; current/round3-docs-assets-results.json: PASS Maintenance equipment create/update actions |
-| SERVICE-0450 | Service / Assets | updateEquipment | `src/lib/services/maintenance.ts:108` | PASS | ; current/round3-docs-assets-results.json: PASS Maintenance equipment create/update actions |
-| SERVICE-0451 | Service / Assets | recordMeter | `src/lib/services/maintenance.ts:122` | PASS | ; current/round3-docs-assets-results.json: PASS Maintenance meter action forward-only enforced |
-| SERVICE-0452 | Service / Assets | addMaintenance | `src/lib/services/maintenance.ts:152` | PASS | ; current/round3-docs-assets-results.json: PASS Maintenance schedule/complete action schedules next metered PM |
-| SERVICE-0453 | Service / Assets | completeMaintenance | `src/lib/services/maintenance.ts:180` | PASS | ; current/round3-docs-assets-results.json: PASS Maintenance schedule/complete action schedules next metered PM |
-| SERVICE-0454 | Service / Assets | getMaintenanceDue | `src/lib/services/maintenance.ts:253` | PASS | maintenance getMaintenanceDue |
-| SERVICE-0455 | Service / Assets | startDowntime | `src/lib/services/maintenance.ts:301` | PASS | ; current/round3-docs-assets-results.json: PASS Maintenance multiple downtime holds keep equipment DOWN until last closes |
-| SERVICE-0456 | Service / Assets | endDowntime | `src/lib/services/maintenance.ts:325` | PASS | ; current/round3-docs-assets-results.json: PASS Maintenance multiple downtime holds keep equipment DOWN until last closes |
-| SERVICE-0457 | Service / Assets | getDowntimePareto | `src/lib/services/maintenance.ts:351` | PASS | maintenance getDowntimePareto |
-| SERVICE-0458 | Service / Assets | getAvailability | `src/lib/services/maintenance.ts:381` | PASS | maintenance getAvailability |
-| SERVICE-0459 | Service / Assets | getMaintenanceSummary | `src/lib/services/maintenance.ts:420` | PASS | maintenance getMaintenanceSummary |
-| SERVICE-0460 | Platform / Other | mfaConfigured | `src/lib/services/mfa.ts:51` | UNTESTED | Not yet exercised |
-| SERVICE-0461 | Platform / Other | startEnrolment | `src/lib/services/mfa.ts:104` | UNTESTED | Not yet exercised |
-| SERVICE-0462 | Platform / Other | confirmEnrolment | `src/lib/services/mfa.ts:135` | UNTESTED | Not yet exercised |
-| SERVICE-0463 | Platform / Other | disableMfa | `src/lib/services/mfa.ts:175` | UNTESTED | Not yet exercised |
-| SERVICE-0464 | Platform / Other | getMfaStatus | `src/lib/services/mfa.ts:211` | UNTESTED | Not yet exercised |
-| SERVICE-0465 | Platform / Other | requiresMfa | `src/lib/services/mfa.ts:286` | UNTESTED | Not yet exercised |
-| SERVICE-0466 | Platform / Other | createChallenge | `src/lib/services/mfa.ts:302` | UNTESTED | Not yet exercised |
-| SERVICE-0467 | Platform / Other | verifyChallenge | `src/lib/services/mfa.ts:329` | UNTESTED | Not yet exercised |
-| SERVICE-0468 | Platform / Other | purgeExpiredChallenges | `src/lib/services/mfa.ts:400` | UNTESTED | Not yet exercised |
-| SERVICE-0469 | Platform / Other | isMissingTableError | `src/lib/services/module-health.ts:15` | UNTESTED | Not yet exercised |
-| SERVICE-0470 | Platform / Other | checkModuleHealth | `src/lib/services/module-health.ts:29` | UNTESTED | Not yet exercised |
-| SERVICE-0471 | Platform / Other | getNotificationSummary | `src/lib/services/notifications.ts:24` | UNTESTED | Not yet exercised |
-| SERVICE-0472 | CRM / Sales | recordTrace | `src/lib/services/order-fulfillment.ts:7` | UNTESTED | Not yet exercised |
-| SERVICE-0473 | CRM / Sales | getAvailableQty | `src/lib/services/order-fulfillment.ts:50` | UNTESTED | Not yet exercised |
-| SERVICE-0474 | CRM / Sales | getAvailableInventory | `src/lib/services/order-fulfillment.ts:61` | UNTESTED | Not yet exercised |
-| SERVICE-0475 | CRM / Sales | createSalesOrder | `src/lib/services/order-fulfillment.ts:105` | PASS | scripts/verify/chunk-c2-money-path.ts; scenario only; priority-results.json: PASS Invalid customer FK leaves no sales order or lines; priority-results.json: PASS Invalid second SO line rolls back entire header/lines |
-| SERVICE-0476 | CRM / Sales | createQuote | `src/lib/services/order-fulfillment.ts:215` | UNTESTED | Not yet exercised |
-| SERVICE-0477 | CRM / Sales | convertQuoteToSalesOrder | `src/lib/services/order-fulfillment.ts:285` | UNTESTED | Not yet exercised |
-| SERVICE-0478 | CRM / Sales | planSalesOrderFulfillment | `src/lib/services/order-fulfillment.ts:368` | PASS | scripts/verify/chunk-c2-money-path.ts; scenario only; priority-results.json: PASS Plan linked SO creates production WO from existing certified BOM |
-| SERVICE-0479 | CRM / Sales | checkBomMaterialAvailability | `src/lib/services/order-fulfillment.ts:737` | UNTESTED | Not yet exercised |
-| SERVICE-0480 | CRM / Sales | planWorkOrderMaterials | `src/lib/services/order-fulfillment.ts:788` | PASS | priority-results.json: PASS WO materials readiness and kit action create |
-| SERVICE-0481 | CRM / Sales | refreshWorkOrderMaterialReadiness | `src/lib/services/order-fulfillment.ts:968` | PASS | priority-results.json: PASS WO materials readiness and kit action create |
-| SERVICE-0482 | CRM / Sales | refreshAllWaitingMaterial | `src/lib/services/order-fulfillment.ts:1029` | UNTESTED | Not yet exercised |
-| SERVICE-0483 | CRM / Sales | captureReceivingPhotos | `src/lib/services/order-fulfillment.ts:1042` | UNTESTED | Not yet exercised |
-| SERVICE-0484 | CRM / Sales | putAwayInventory | `src/lib/services/order-fulfillment.ts:1152` | UNTESTED | Not yet exercised |
-| SERVICE-0485 | CRM / Sales | putAwayAllReceiving | `src/lib/services/order-fulfillment.ts:1266` | UNTESTED | Not yet exercised |
-| SERVICE-0486 | CRM / Sales | createKitOrder | `src/lib/services/order-fulfillment.ts:1287` | UNTESTED | Not yet exercised |
-| SERVICE-0487 | CRM / Sales | completeKitOrder | `src/lib/services/order-fulfillment.ts:1362` | PASS | manufacturing-edge-results.json: FAIL Resume multi-line short kit does not duplicate already staged stock; FIX VERIFIED current 3de5ba1: integrity-retest.log / bom-lifecycle-retest.log and current HTTP retests |
-| SERVICE-0488 | CRM / Sales | startProductionFromKit | `src/lib/services/order-fulfillment.ts:1701` | UNTESTED | Not yet exercised |
-| SERVICE-0489 | CRM / Sales | completeWorkOrderToStock | `src/lib/services/order-fulfillment.ts:1731` | PASS | Task-only WO can complete without inventory part; FIX VERIFIED current 3de5ba1: integrity-retest.log / bom-lifecycle-retest.log and current HTTP retests |
-| SERVICE-0490 | CRM / Sales | syncSalesOrderReadyStatus | `src/lib/services/order-fulfillment.ts:1990` | UNTESTED | Not yet exercised |
-| SERVICE-0491 | CRM / Sales | canShipNow | `src/lib/services/order-fulfillment.ts:2022` | UNTESTED | Not yet exercised |
-| SERVICE-0492 | CRM / Sales | ensureShipmentForSalesOrder | `src/lib/services/order-fulfillment.ts:2062` | UNTESTED | Not yet exercised |
-| SERVICE-0493 | CRM / Sales | createManualShipment | `src/lib/services/order-fulfillment.ts:2154` | UNTESTED | Not yet exercised |
-| SERVICE-0494 | CRM / Sales | verifyShipmentPackingList | `src/lib/services/order-fulfillment.ts:2241` | PASS | scripts/verify/chunk-c2-money-path.ts; scenario only |
-| SERVICE-0495 | CRM / Sales | packShipment | `src/lib/services/order-fulfillment.ts:2265` | PASS | scripts/verify/chunk-c2-money-path.ts; scenario only |
-| SERVICE-0496 | CRM / Sales | issueManualShipmentInventory | `src/lib/services/order-fulfillment.ts:2307` | UNTESTED | Not yet exercised |
-| SERVICE-0497 | CRM / Sales | shipSalesOrder | `src/lib/services/order-fulfillment.ts:2404` | PASS | scripts/verify/chunk-c2-money-path.ts; scenario only |
-| SERVICE-0498 | CRM / Sales | getDigitalTraveler | `src/lib/services/order-fulfillment.ts:2688` | UNTESTED | Not yet exercised |
-| SERVICE-0499 | Accounts / Roles | ensurePermissionCatalog | `src/lib/services/permissions.ts:12` | UNTESTED | Not yet exercised |
-| SERVICE-0500 | Accounts / Roles | ensureDefaultPermissionGroups | `src/lib/services/permissions.ts:31` | UNTESTED | Not yet exercised |
-| SERVICE-0501 | Accounts / Roles | listPermissionGroups | `src/lib/services/permissions.ts:152` | UNTESTED | Not yet exercised |
-| SERVICE-0502 | Accounts / Roles | assignUserToGroup | `src/lib/services/permissions.ts:171` | PASS | ; current/round3-hr-auth-results.json: PASS Admin permission group create/toggle/assign/remove action chain |
-| SERVICE-0503 | Accounts / Roles | removeUserFromGroup | `src/lib/services/permissions.ts:187` | PASS | ; current/round3-hr-auth-results.json: PASS Admin permission group create/toggle/assign/remove action chain |
-| SERVICE-0504 | Accounts / Roles | grantUserPermission | `src/lib/services/permissions.ts:201` | FAIL | ; current/round3-hr-auth-results.json: PASS Individual permission temporary grant active then expires; current/round3-hr-auth-results.json: FAIL Individual permanent regrant clears expired temporary expiry |
-| SERVICE-0505 | Accounts / Roles | createPermissionGroup | `src/lib/services/permissions.ts:227` | PASS | ; current/round3-hr-auth-results.json: PASS Admin permission group create/toggle/assign/remove action chain |
-| SERVICE-0506 | Accounts / Roles | toggleGroupPermission | `src/lib/services/permissions.ts:255` | PASS | ; current/round3-hr-auth-results.json: PASS Admin permission group create/toggle/assign/remove action chain |
-| SERVICE-0507 | Platform / Other | plaidEnabled | `src/lib/services/plaid.ts:25` | UNTESTED | Not yet exercised |
-| SERVICE-0508 | Platform / Other | createLinkToken | `src/lib/services/plaid.ts:73` | UNTESTED | Not yet exercised |
-| SERVICE-0509 | Platform / Other | exchangePublicToken | `src/lib/services/plaid.ts:102` | UNTESTED | Not yet exercised |
-| SERVICE-0510 | Platform / Other | syncPlaidTransactions | `src/lib/services/plaid.ts:182` | UNTESTED | Not yet exercised |
-| SERVICE-0511 | Platform / Other | syncAllPlaid | `src/lib/services/plaid.ts:295` | UNTESTED | Not yet exercised |
-| SERVICE-0512 | PMO / Budgets | createProgram | `src/lib/services/pmo.ts:48` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO program create contract update and CLIN actions |
-| SERVICE-0513 | PMO / Budgets | updateProgram | `src/lib/services/pmo.ts:104` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO program create contract update and CLIN actions |
-| SERVICE-0514 | PMO / Budgets | addProgramClin | `src/lib/services/pmo.ts:169` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO program create contract update and CLIN actions |
-| SERVICE-0515 | PMO / Budgets | listPrograms | `src/lib/services/pmo.ts:203` | PASS | pmo listPrograms |
-| SERVICE-0516 | PMO / Budgets | createProject | `src/lib/services/pmo.ts:228` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO project create and charter update actions |
-| SERVICE-0517 | PMO / Budgets | updateProjectCharter | `src/lib/services/pmo.ts:359` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO project create and charter update actions |
-| SERVICE-0518 | PMO / Budgets | addProjectRisk | `src/lib/services/pmo.ts:458` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO risk create and mitigation update |
-| SERVICE-0519 | PMO / Budgets | updateProjectRisk | `src/lib/services/pmo.ts:498` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO risk create and mitigation update |
-| SERVICE-0520 | PMO / Budgets | addProjectIssue | `src/lib/services/pmo.ts:531` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO issue create and resolution update |
-| SERVICE-0521 | PMO / Budgets | updateProjectIssue | `src/lib/services/pmo.ts:558` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO issue create and resolution update |
-| SERVICE-0522 | PMO / Budgets | upsertRaciEntry | `src/lib/services/pmo.ts:580` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO RACI create update delete actions |
-| SERVICE-0523 | PMO / Budgets | deleteRaciEntry | `src/lib/services/pmo.ts:622` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO RACI create update delete actions |
-| SERVICE-0524 | PMO / Budgets | addCommunication | `src/lib/services/pmo.ts:626` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO communication add/delete actions |
-| SERVICE-0525 | PMO / Budgets | deleteCommunication | `src/lib/services/pmo.ts:654` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO communication add/delete actions |
-| SERVICE-0526 | PMO / Budgets | addProjectTask | `src/lib/services/pmo.ts:660` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO task create and DONE action sets percent complete |
-| SERVICE-0527 | PMO / Budgets | updateProjectTask | `src/lib/services/pmo.ts:698` | FAIL | ; current/round3-pmo-plm-results.json: PASS PMO task create and DONE action sets percent complete; current/round3-pmo-plm-results.json: FAIL PMO task rejects completion above 100 percent |
-| SERVICE-0528 | PMO / Budgets | addProjectMilestone | `src/lib/services/pmo.ts:723` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO milestone create and achieve sets actual date |
-| SERVICE-0529 | PMO / Budgets | updateProjectMilestone | `src/lib/services/pmo.ts:744` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO milestone create and achieve sets actual date |
-| SERVICE-0530 | PMO / Budgets | saveWikiPage | `src/lib/services/pmo.ts:768` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO wiki create/update body round-trip |
-| SERVICE-0531 | PMO / Budgets | deleteWikiPage | `src/lib/services/pmo.ts:812` | UNTESTED | Not yet exercised |
-| SERVICE-0532 | PMO / Budgets | createPiIncrement | `src/lib/services/pmo.ts:818` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO PI and feature action links story points |
-| SERVICE-0533 | PMO / Budgets | updatePiIncrement | `src/lib/services/pmo.ts:851` | UNTESTED | Not yet exercised |
-| SERVICE-0534 | PMO / Budgets | addPiFeature | `src/lib/services/pmo.ts:871` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO PI and feature action links story points |
-| SERVICE-0535 | PMO / Budgets | addCostEntry | `src/lib/services/pmo.ts:897` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO cost action reconciles project/product rollups |
-| SERVICE-0536 | PMO / Budgets | recomputeProjectDevelopmentCost | `src/lib/services/pmo.ts:932` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO cost action reconciles project/product rollups |
-| SERVICE-0537 | PMO / Budgets | recomputeProductDevelopmentCost | `src/lib/services/pmo.ts:946` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO cost action reconciles project/product rollups |
-| SERVICE-0538 | PMO / Budgets | syncRequirementsToProduct | `src/lib/services/pmo.ts:973` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO requirement create/sync actions are repeat-idempotent |
-| SERVICE-0539 | PMO / Budgets | syncMilestonesToProduct | `src/lib/services/pmo.ts:1033` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO milestone sync action is repeat-idempotent |
-| SERVICE-0540 | PMO / Budgets | addProjectRequirement | `src/lib/services/pmo.ts:1085` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO requirement create/sync actions are repeat-idempotent |
-| SERVICE-0541 | PMO / Budgets | linkProductToProject | `src/lib/services/pmo.ts:1120` | PASS | ; current/round3-pmo-plm-results.json: PASS PMO linked product action is repeat-idempotent |
-| SERVICE-0542 | PMO / Budgets | getProjectDetail | `src/lib/services/pmo.ts:1141` | UNTESTED | Not yet exercised |
-| SERVICE-0543 | PMO / Budgets | listProjects | `src/lib/services/pmo.ts:1191` | PASS | pmo listProjects |
-| SERVICE-0544 | PMO / Budgets | listPlanningQuarters | `src/lib/services/pmo.ts:1230` | PASS | pmo listPlanningQuarters |
-| SERVICE-0545 | PMO / Budgets | createPlanningQuarter | `src/lib/services/pmo.ts:1242` | UNTESTED | Not yet exercised |
-| SERVICE-0546 | PMO / Budgets | updatePlanningQuarter | `src/lib/services/pmo.ts:1270` | UNTESTED | Not yet exercised |
-| SERVICE-0547 | PMO / Budgets | createPmoSprint | `src/lib/services/pmo.ts:1290` | UNTESTED | Not yet exercised |
-| SERVICE-0548 | Purchasing / Receiving | amendPurchaseOrder | `src/lib/services/po-amend.ts:82` | UNTESTED | Not yet exercised |
-| SERVICE-0549 | Purchasing / Receiving | decidePoAmendment | `src/lib/services/po-amend.ts:155` | UNTESTED | Not yet exercised |
-| SERVICE-0550 | Purchasing / Receiving | listPoAmendmentsForUser | `src/lib/services/po-amend.ts:237` | UNTESTED | Not yet exercised |
-| SERVICE-0551 | Purchasing / Receiving | updatePoDeliveryDates | `src/lib/services/po-amend.ts:292` | UNTESTED | Not yet exercised |
-| SERVICE-0552 | Accounting / GovCon | roundMoney | `src/lib/services/posting-rules.ts:10` | UNTESTED | Not yet exercised |
-| SERVICE-0553 | Accounting / GovCon | roundRate | `src/lib/services/posting-rules.ts:14` | UNTESTED | Not yet exercised |
-| SERVICE-0554 | Accounting / GovCon | journalBalanceError | `src/lib/services/posting-rules.ts:21` | PASS | scripts/smoke-unit.ts; scenario only |
-| SERVICE-0555 | Accounting / GovCon | isPeriodLocked | `src/lib/services/posting-rules.ts:31` | PASS | scripts/smoke-unit.ts; scenario only |
-| SERVICE-0556 | Accounting / GovCon | journalApprovalBlock | `src/lib/services/posting-rules.ts:46` | PASS | scripts/smoke-unit.ts; scenario only |
-| SERVICE-0557 | Accounting / GovCon | netIncurred | `src/lib/services/posting-rules.ts:99` | PASS | scripts/smoke-unit.ts; scenario only |
-| SERVICE-0558 | Accounting / GovCon | allowablePoolCosts | `src/lib/services/posting-rules.ts:147` | PASS | scripts/smoke-unit.ts; scenario only |
-| SERVICE-0559 | Accounting / GovCon | actualIndirectRate | `src/lib/services/posting-rules.ts:156` | PASS | scripts/smoke-unit.ts; scenario only |
-| SERVICE-0560 | Accounting / GovCon | allocateIndirect | `src/lib/services/posting-rules.ts:164` | PASS | scripts/smoke-unit.ts; scenario only |
-| SERVICE-0561 | Accounting / GovCon | programOutlook | `src/lib/services/posting-rules.ts:174` | PASS | scripts/smoke-unit.ts; scenario only |
-| SERVICE-0562 | Accounting / GovCon | completionEntry | `src/lib/services/posting-rules.ts:209` | PASS | scripts/smoke-unit.ts; scenario only |
-| SERVICE-0563 | Accounting / GovCon | provisionalBilling | `src/lib/services/posting-rules.ts:252` | PASS | scripts/smoke-unit.ts; scenario only |
-| SERVICE-0564 | Accounting / GovCon | weekdayShortfalls | `src/lib/services/posting-rules.ts:287` | PASS | scripts/smoke-unit.ts; scenario only |
-| SERVICE-0565 | Accounting / GovCon | describeTimeEdits | `src/lib/services/posting-rules.ts:320` | PASS | scripts/smoke-unit.ts; scenario only |
-| SERVICE-0566 | Accounting / GovCon | gfpContractMatches | `src/lib/services/posting-rules.ts:380` | PASS | scripts/smoke-unit.ts; scenario only |
-| SERVICE-0567 | Purchasing / Receiving | getPrChargeSnapshot | `src/lib/services/pr-buyer.ts:8` | UNTESTED | Not yet exercised |
-| SERVICE-0568 | Purchasing / Receiving | saveBuyerPackage | `src/lib/services/pr-buyer.ts:102` | UNTESTED | Not yet exercised |
-| SERVICE-0569 | Purchasing / Receiving | assignPrBuyer | `src/lib/services/pr-buyer.ts:241` | UNTESTED | Not yet exercised |
-| SERVICE-0570 | Purchasing / Receiving | ensureBuyerScanIn | `src/lib/services/pr-buyer.ts:308` | UNTESTED | Not yet exercised |
-| SERVICE-0571 | Purchasing / Receiving | clockOutBuyerWork | `src/lib/services/pr-buyer.ts:352` | UNTESTED | Not yet exercised |
-| SERVICE-0572 | Purchasing / Receiving | confirmBuyerPackageStep | `src/lib/services/pr-buyer.ts:475` | PASS | priority-results.json: FAIL Same admin cannot sign demand AND buyer on same PR; FIX VERIFIED current 3de5ba1: integrity-retest.log / bom-lifecycle-retest.log and current HTTP retests |
-| SERVICE-0573 | Purchasing / Receiving | isBuyerPackageComplete | `src/lib/services/pr-buyer.ts:648` | UNTESTED | Not yet exercised |
-| SERVICE-0951 | Purchasing / Receiving | assertSeparatePrSigner | `src/lib/services/pr-signers.ts:6` | UNTESTED | Not yet exercised |
-| SERVICE-0574 | PLM / BOM / ECO | createProduct | `src/lib/services/products.ts:67` | PASS | ; current/round3-pmo-plm-results.json: PASS PLM create action persists product and CM folder |
-| SERVICE-0575 | PLM / BOM / ECO | updateProduct | `src/lib/services/products.ts:213` | PASS | ; current/round3-pmo-plm-results.json: PASS PLM update action persists cost and revision |
-| SERVICE-0576 | PLM / BOM / ECO | advanceProductLifecycle | `src/lib/services/products.ts:384` | PASS | ; current/round3-pmo-plm-results.json: PASS PLM lifecycle action records phase/date/history |
-| SERVICE-0577 | PLM / BOM / ECO | addProductPart | `src/lib/services/products.ts:471` | PASS | ; current/round3-pmo-plm-results.json: PASS PLM part add/remove actions maintain top-level pointer |
-| SERVICE-0578 | PLM / BOM / ECO | removeProductPart | `src/lib/services/products.ts:496` | PASS | ; current/round3-pmo-plm-results.json: PASS PLM part add/remove actions maintain top-level pointer |
-| SERVICE-0579 | PLM / BOM / ECO | addProductDocument | `src/lib/services/products.ts:512` | PASS | ; current/round3-pmo-plm-results.json: PASS PLM document add/remove actions persist and remove link |
-| SERVICE-0580 | PLM / BOM / ECO | removeProductDocument | `src/lib/services/products.ts:541` | PASS | ; current/round3-pmo-plm-results.json: PASS PLM document add/remove actions persist and remove link |
-| SERVICE-0581 | PLM / BOM / ECO | addProductRequirement | `src/lib/services/products.ts:545` | PASS | ; current/round3-pmo-plm-results.json: PASS PLM requirements create/update/remove actions |
-| SERVICE-0582 | PLM / BOM / ECO | updateProductRequirement | `src/lib/services/products.ts:582` | PASS | ; current/round3-pmo-plm-results.json: PASS PLM requirements create/update/remove actions |
-| SERVICE-0583 | PLM / BOM / ECO | removeProductRequirement | `src/lib/services/products.ts:616` | PASS | ; current/round3-pmo-plm-results.json: PASS PLM requirements create/update/remove actions |
-| SERVICE-0584 | PLM / BOM / ECO | addProductVariant | `src/lib/services/products.ts:620` | PASS | ; current/round3-pmo-plm-results.json: PASS PLM variants unique default and remove actions |
-| SERVICE-0585 | PLM / BOM / ECO | removeProductVariant | `src/lib/services/products.ts:651` | PASS | ; current/round3-pmo-plm-results.json: PASS PLM variants unique default and remove actions |
-| SERVICE-0586 | PLM / BOM / ECO | addProductMilestone | `src/lib/services/products.ts:655` | PASS | ; current/round3-pmo-plm-results.json: PASS PLM milestone add/update/remove actions |
-| SERVICE-0587 | PLM / BOM / ECO | updateProductMilestone | `src/lib/services/products.ts:681` | PASS | ; current/round3-pmo-plm-results.json: PASS PLM milestone add/update/remove actions |
-| SERVICE-0588 | PLM / BOM / ECO | removeProductMilestone | `src/lib/services/products.ts:703` | PASS | ; current/round3-pmo-plm-results.json: PASS PLM milestone add/update/remove actions |
-| SERVICE-0589 | PLM / BOM / ECO | addProductMember | `src/lib/services/products.ts:707` | PASS | ; current/round3-pmo-plm-results.json: PASS PLM team add/remove actions |
-| SERVICE-0590 | PLM / BOM / ECO | removeProductMember | `src/lib/services/products.ts:723` | PASS | ; current/round3-pmo-plm-results.json: PASS PLM team add/remove actions |
-| SERVICE-0591 | PLM / BOM / ECO | listProducts | `src/lib/services/products.ts:727` | UNTESTED | Not yet exercised |
-| SERVICE-0592 | PLM / BOM / ECO | getProductDetail | `src/lib/services/products.ts:773` | UNTESTED | Not yet exercised |
-| SERVICE-0593 | PLM / BOM / ECO | productFieldsFromForm | `src/lib/services/products.ts:843` | PASS | ; current/round3-pmo-plm-results.json: PASS PLM create action persists product and CM folder |
-| SERVICE-0594 | PMO / Budgets | getProgramFinancials | `src/lib/services/program-financials.ts:40` | UNTESTED | Not yet exercised |
-| SERVICE-0595 | PMO / Budgets | booksIncurredByProgram | `src/lib/services/program-financials.ts:152` | PASS | program-financials booksIncurredByProgram |
-| SERVICE-0596 | PMO / Budgets | computeIndirectRates | `src/lib/services/program-financials.ts:173` | PASS | program-financials computeIndirectRates |
-| SERVICE-0597 | PMO / Budgets | jobCostRows | `src/lib/services/program-financials.ts:240` | PASS | program-financials jobCostRows |
-| SERVICE-0598 | PMO / Budgets | laborDistributionRows | `src/lib/services/program-financials.ts:299` | PASS | program-financials laborDistributionRows |
-| SERVICE-0599 | PMO / Budgets | wipValuationRows | `src/lib/services/program-financials.ts:338` | PASS | program-financials wipValuationRows |
-| SERVICE-0600 | PMO / Budgets | reportProgramPl | `src/lib/services/program-financials.ts:386` | UNTESTED | Not yet exercised |
-| SERVICE-0601 | PMO / Budgets | reportJobProfit | `src/lib/services/program-financials.ts:425` | UNTESTED | Not yet exercised |
-| SERVICE-0602 | PMO / Budgets | reportWipBooks | `src/lib/services/program-financials.ts:462` | UNTESTED | Not yet exercised |
-| SERVICE-0603 | PMO / Budgets | reportLaborDistribution | `src/lib/services/program-financials.ts:471` | UNTESTED | Not yet exercised |
-| SERVICE-0604 | PMO / Budgets | reportIndirectRates | `src/lib/services/program-financials.ts:502` | UNTESTED | Not yet exercised |
-| SERVICE-0605 | PMO / Budgets | reportUnallowables | `src/lib/services/program-financials.ts:525` | UNTESTED | Not yet exercised |
-| SERVICE-0606 | PMO / Budgets | reportIce | `src/lib/services/program-financials.ts:568` | UNTESTED | Not yet exercised |
-| SERVICE-0607 | PMO / Budgets | reportGlDetail | `src/lib/services/program-financials.ts:628` | UNTESTED | Not yet exercised |
-| SERVICE-0608 | PMO / Budgets | submitProgramPolicyToCm | `src/lib/services/program-policy.ts:18` | UNTESTED | Not yet exercised |
-| SERVICE-0609 | PMO / Budgets | linkExistingPolicy | `src/lib/services/program-policy.ts:51` | UNTESTED | Not yet exercised |
-| SERVICE-0610 | PMO / Budgets | getProgramPolicy | `src/lib/services/program-policy.ts:68` | UNTESTED | Not yet exercised |
-| SERVICE-0611 | PMO / Budgets | listPolicyCandidates | `src/lib/services/program-policy.ts:106` | UNTESTED | Not yet exercised |
-| SERVICE-0612 | Purchasing / Receiving | prRequiresCatalogParts | `src/lib/services/purchase-requests.ts:30` | UNTESTED | Not yet exercised |
-| SERVICE-0613 | Purchasing / Receiving | createStandalonePurchaseRequest | `src/lib/services/purchase-requests.ts:55` | PASS | finance-supply-results.json: PASS PR catalog validation rejects unknown/inactive parts before writes; finance-supply-results.json: PASS PR routing, buyer action, final approval and PO conversion actions |
-| SERVICE-0614 | Purchasing / Receiving | submitDraftPurchaseRequest | `src/lib/services/purchase-requests.ts:276` | PASS | priority-results.json: PASS Standalone PR draft action + submission routes approvals |
-| SERVICE-0615 | Quality / NCR | defaultIncidentSteps | `src/lib/services/quality-incidents.ts:14` | UNTESTED | Not yet exercised |
-| SERVICE-0616 | Quality / NCR | linkCalToolToMrb | `src/lib/services/quality-incidents.ts:55` | UNTESTED | Not yet exercised |
-| SERVICE-0617 | Quality / NCR | setCalToolDisposition | `src/lib/services/quality-incidents.ts:78` | UNTESTED | Not yet exercised |
-| SERVICE-0618 | Quality / NCR | triggerIncidentFromMrb | `src/lib/services/quality-incidents.ts:104` | UNTESTED | Not yet exercised |
-| SERVICE-0619 | Quality / NCR | logCounterfeitIncident | `src/lib/services/quality-incidents.ts:147` | UNTESTED | Not yet exercised |
-| SERVICE-0620 | Quality / NCR | sendCounterfeitToMrb | `src/lib/services/quality-incidents.ts:182` | UNTESTED | Not yet exercised |
-| SERVICE-0621 | Quality / NCR | updateIncidentSteps | `src/lib/services/quality-incidents.ts:220` | UNTESTED | Not yet exercised |
-| SERVICE-0622 | Quality / NCR | setIncidentResult | `src/lib/services/quality-incidents.ts:224` | UNTESTED | Not yet exercised |
-| SERVICE-0623 | Quality / NCR | mrbCasesForTools | `src/lib/services/quality-incidents.ts:230` | UNTESTED | Not yet exercised |
-| SERVICE-0624 | Quality / NCR | ensureQualityPrograms | `src/lib/services/quality-programs.ts:31` | UNTESTED | Not yet exercised |
-| SERVICE-0625 | Quality / NCR | statusFor | `src/lib/services/quality-programs.ts:59` | UNTESTED | Not yet exercised |
-| SERVICE-0626 | Quality / NCR | refreshProgramStatuses | `src/lib/services/quality-programs.ts:69` | UNTESTED | Not yet exercised |
-| SERVICE-0627 | Quality / NCR | getProgramByKey | `src/lib/services/quality-programs.ts:79` | UNTESTED | Not yet exercised |
-| SERVICE-0628 | Quality / NCR | createQualityItem | `src/lib/services/quality-programs.ts:83` | UNTESTED | Not yet exercised |
-| SERVICE-0629 | Quality / NCR | setItemStatus | `src/lib/services/quality-programs.ts:131` | UNTESTED | Not yet exercised |
-| SERVICE-0630 | Quality / NCR | recordQualityEvent | `src/lib/services/quality-programs.ts:139` | UNTESTED | Not yet exercised |
-| SERVICE-0631 | Quality / NCR | qualityComplianceSummary | `src/lib/services/quality-programs.ts:193` | PASS | quality-programs qualityComplianceSummary |
-| SERVICE-0632 | Platform / Other | getRadiatorSlides | `src/lib/services/radiators.ts:28` | UNTESTED | Not yet exercised |
-| SERVICE-0633 | Purchasing / Receiving | guideForReceivingInspection | `src/lib/services/receiving-station-guide.ts:28` | UNTESTED | Not yet exercised |
-| SERVICE-0634 | Purchasing / Receiving | batchStationNextGuides | `src/lib/services/receiving-station-guide.ts:159` | UNTESTED | Not yet exercised |
-| SERVICE-0635 | Purchasing / Receiving | defaultStationCode | `src/lib/services/receiving-time.ts:23` | UNTESTED | Not yet exercised |
-| SERVICE-0636 | Purchasing / Receiving | scanIntoReceivingTraveler | `src/lib/services/receiving-time.ts:92` | UNTESTED | Not yet exercised |
-| SERVICE-0637 | Purchasing / Receiving | scanOutOfReceivingTraveler | `src/lib/services/receiving-time.ts:162` | UNTESTED | Not yet exercised |
-| SERVICE-0638 | Purchasing / Receiving | materialHandlerHasOpenWork | `src/lib/services/receiving-time.ts:273` | UNTESTED | Not yet exercised |
-| SERVICE-0639 | Purchasing / Receiving | scanOutFamilyIfNoMhWork | `src/lib/services/receiving-time.ts:355` | UNTESTED | Not yet exercised |
-| SERVICE-0640 | Purchasing / Receiving | deliverTravelerToStation | `src/lib/services/receiving-time.ts:414` | UNTESTED | Not yet exercised |
-| SERVICE-0641 | Purchasing / Receiving | clearTravelerStation | `src/lib/services/receiving-time.ts:519` | UNTESTED | Not yet exercised |
-| SERVICE-0642 | Purchasing / Receiving | stationAreaOf | `src/lib/services/receiving-time.ts:540` | UNTESTED | Not yet exercised |
-| SERVICE-0643 | Purchasing / Receiving | inferDeliverArea | `src/lib/services/receiving-time.ts:555` | UNTESTED | Not yet exercised |
-| SERVICE-0644 | Purchasing / Receiving | nextActionForTraveler | `src/lib/services/receiving-ui.ts:10` | UNTESTED | Not yet exercised |
-| SERVICE-0645 | Purchasing / Receiving | stepperState | `src/lib/services/receiving-ui.ts:254` | UNTESTED | Not yet exercised |
-| SERVICE-0646 | Purchasing / Receiving | listNextLabel | `src/lib/services/receiving-ui.ts:311` | UNTESTED | Not yet exercised |
-| SERVICE-0647 | HR / Time | createRequisition | `src/lib/services/recruiting.ts:66` | PASS | ; current/round3-hr-auth-results.json: PASS HR recruiting requisition create/update actions |
-| SERVICE-0648 | HR / Time | updateRequisitionStatus | `src/lib/services/recruiting.ts:107` | PASS | ; current/round3-hr-auth-results.json: PASS HR recruiting requisition create/update actions |
-| SERVICE-0649 | HR / Time | addCandidate | `src/lib/services/recruiting.ts:120` | PASS | ; current/round3-hr-auth-results.json: PASS HR candidate create/stage/hire creates one onboarding |
-| SERVICE-0650 | HR / Time | moveCandidateStage | `src/lib/services/recruiting.ts:156` | PASS | ; current/round3-hr-auth-results.json: PASS HR candidate create/stage/hire creates one onboarding |
-| SERVICE-0651 | HR / Time | createOnboarding | `src/lib/services/recruiting.ts:208` | PASS | ; current/round3-hr-auth-results.json: PASS HR candidate create/stage/hire creates one onboarding |
-| SERVICE-0652 | HR / Time | updateOnboarding | `src/lib/services/recruiting.ts:251` | PASS | ; current/round3-hr-auth-results.json: PASS HR onboarding update/checklist gate and full completion |
-| SERVICE-0653 | HR / Time | setChecklistItem | `src/lib/services/recruiting.ts:263` | PASS | ; current/round3-hr-auth-results.json: PASS HR onboarding update/checklist gate and full completion |
-| SERVICE-0654 | HR / Time | completeOnboarding | `src/lib/services/recruiting.ts:297` | PASS | ; current/round3-hr-auth-results.json: PASS HR onboarding update/checklist gate and full completion |
-| SERVICE-0655 | HR / Time | recordBackgroundCheck | `src/lib/services/recruiting.ts:331` | PASS | ; current/round3-hr-auth-results.json: PASS HR background record/update actions link candidate |
-| SERVICE-0656 | HR / Time | updateBackgroundCheck | `src/lib/services/recruiting.ts:373` | PASS | ; current/round3-hr-auth-results.json: PASS HR background record/update actions link candidate |
-| SERVICE-0657 | Accounting / GovCon | computeNextRun | `src/lib/services/recurring-journals.ts:22` | UNTESTED | Not yet exercised |
-| SERVICE-0658 | Accounting / GovCon | createRecurringJournal | `src/lib/services/recurring-journals.ts:53` | UNTESTED | Not yet exercised |
-| SERVICE-0659 | Accounting / GovCon | setRecurringJournalActive | `src/lib/services/recurring-journals.ts:87` | UNTESTED | Not yet exercised |
-| SERVICE-0660 | Accounting / GovCon | deleteRecurringJournal | `src/lib/services/recurring-journals.ts:110` | UNTESTED | Not yet exercised |
-| SERVICE-0661 | Accounting / GovCon | listRecurringJournals | `src/lib/services/recurring-journals.ts:114` | UNTESTED | Not yet exercised |
-| SERVICE-0662 | Accounting / GovCon | runDueRecurringJournals | `src/lib/services/recurring-journals.ts:159` | UNTESTED | Not yet exercised |
-| SERVICE-0663 | Reports | runCustomReport | `src/lib/services/report-builder.ts:346` | UNTESTED | Not yet exercised |
-| SERVICE-0664 | Reports | runReport | `src/lib/services/reports.ts:90` | PASS | Report ice run and CSV |
-| SERVICE-0665 | Reports | toCsv | `src/lib/services/reports.ts:447` | PASS | Report ice run and CSV |
-| SERVICE-0666 | PLM / BOM / ECO | createRequirement | `src/lib/services/requirements.ts:43` | UNTESTED | Not yet exercised |
-| SERVICE-0667 | PLM / BOM / ECO | updateRequirementStatus | `src/lib/services/requirements.ts:106` | UNTESTED | Not yet exercised |
-| SERVICE-0668 | PLM / BOM / ECO | linkRequirementToWork | `src/lib/services/requirements.ts:152` | UNTESTED | Not yet exercised |
-| SERVICE-0669 | PLM / BOM / ECO | removeRequirementTrace | `src/lib/services/requirements.ts:203` | UNTESTED | Not yet exercised |
-| SERVICE-0670 | PLM / BOM / ECO | getRequirementsBoard | `src/lib/services/requirements.ts:223` | UNTESTED | Not yet exercised |
-| SERVICE-0671 | HR / Time | getReviewPolicy | `src/lib/services/review-cycles.ts:15` | PASS | ; current/round3-reviews-results.json: PASS HR review policy save and cycle opening are idempotent |
-| SERVICE-0672 | HR / Time | parseReviewQuestions | `src/lib/services/review-cycles.ts:34` | PASS | ; current/round3-reviews-results.json: PASS HR review policy save and cycle opening are idempotent |
-| SERVICE-0673 | HR / Time | saveReviewPolicy | `src/lib/services/review-cycles.ts:51` | PASS | ; current/round3-reviews-results.json: PASS HR review policy save and cycle opening are idempotent |
-| SERVICE-0674 | HR / Time | openDueReviewCycles | `src/lib/services/review-cycles.ts:105` | PASS | ; current/round3-reviews-results.json: PASS HR review policy save and cycle opening are idempotent |
-| SERVICE-0675 | HR / Time | submitSelfReview | `src/lib/services/review-cycles.ts:162` | PASS | ; current/round3-reviews-results.json: PASS HR self-review foreign principal denied and owner submission advances |
-| SERVICE-0676 | HR / Time | saveManagerReviewNotes | `src/lib/services/review-cycles.ts:202` | FAIL | ; current/round3-reviews-results.json: PASS HR manager review requires rationale and can write discussion notes; current/round3-reviews-results.json: FAIL HR manager score must remain within the documented 1-to-5 scale |
-| SERVICE-0677 | HR / Time | signOffReview | `src/lib/services/review-cycles.ts:286` | PASS | ; current/round3-reviews-results.json: PASS HR employee+manager sign-off completes only after both parties |
-| SERVICE-0678 | HR / Time | canViewPerson | `src/lib/services/review-cycles.ts:344` | UNTESTED | Not yet exercised |
-| SERVICE-0679 | HR / Time | getPersonPage | `src/lib/services/review-cycles.ts:355` | UNTESTED | Not yet exercised |
-| SERVICE-0680 | HR / Time | parseSelfRatings | `src/lib/services/review-cycles.ts:388` | UNTESTED | Not yet exercised |
-| SERVICE-0681 | Service / Assets | lookupForRma | `src/lib/services/rma.ts:41` | UNTESTED | Not yet exercised |
-| SERVICE-0682 | Service / Assets | createRmaRequest | `src/lib/services/rma.ts:86` | PASS | scripts/verify/chunk-serials-rma.ts; scenario only |
-| SERVICE-0683 | Service / Assets | issueRma | `src/lib/services/rma.ts:172` | PASS | scripts/verify/chunk-serials-rma.ts; scenario only |
-| SERVICE-0684 | Service / Assets | createRepairQuoteForRma | `src/lib/services/rma.ts:250` | UNTESTED | Not yet exercised |
-| SERVICE-0685 | Service / Assets | acceptRepairQuote | `src/lib/services/rma.ts:310` | PASS | scripts/verify/chunk-serials-rma.ts; scenario only |
-| SERVICE-0686 | Service / Assets | createRepairWorkOrderFromRma | `src/lib/services/rma.ts:351` | UNTESTED | Not yet exercised |
-| SERVICE-0687 | Service / Assets | updateRepairQuote | `src/lib/services/rma.ts:431` | UNTESTED | Not yet exercised |
-| SERVICE-0688 | Service / Assets | adjustRmaQuotePrice | `src/lib/services/rma.ts:518` | PASS | scripts/verify/chunk-serials-rma.ts; scenario only |
-| SERVICE-0689 | Service / Assets | listRmas | `src/lib/services/rma.ts:588` | UNTESTED | Not yet exercised |
-| SERVICE-0690 | Service / Assets | getRmaDetail | `src/lib/services/rma.ts:603` | UNTESTED | Not yet exercised |
-| SERVICE-0691 | Planning / Scheduling | getPlanningSettings | `src/lib/services/schedule.ts:74` | PASS | schedule getPlanningSettings |
-| SERVICE-0692 | Planning / Scheduling | savePlanningSettings | `src/lib/services/schedule.ts:93` | UNTESTED | Not yet exercised |
-| SERVICE-0693 | Planning / Scheduling | isWorkingDay | `src/lib/services/schedule.ts:116` | UNTESTED | Not yet exercised |
-| SERVICE-0694 | Planning / Scheduling | resolveMinutesPerDaySync | `src/lib/services/schedule.ts:127` | UNTESTED | Not yet exercised |
-| SERVICE-0695 | Planning / Scheduling | resolveMinutesPerDay | `src/lib/services/schedule.ts:137` | UNTESTED | Not yet exercised |
-| SERVICE-0696 | Planning / Scheduling | nextWorkingStart | `src/lib/services/schedule.ts:227` | UNTESTED | Not yet exercised |
-| SERVICE-0697 | Planning / Scheduling | endOfWorkingDay | `src/lib/services/schedule.ts:242` | UNTESTED | Not yet exercised |
-| SERVICE-0698 | Planning / Scheduling | subtractWorkingMinutes | `src/lib/services/schedule.ts:256` | UNTESTED | Not yet exercised |
-| SERVICE-0699 | Planning / Scheduling | addWorkingMinutes | `src/lib/services/schedule.ts:297` | UNTESTED | Not yet exercised |
-| SERVICE-0700 | Planning / Scheduling | workingMinutesBetween | `src/lib/services/schedule.ts:342` | UNTESTED | Not yet exercised |
-| SERVICE-0701 | Planning / Scheduling | overlapWorkingHours | `src/lib/services/schedule.ts:383` | UNTESTED | Not yet exercised |
-| SERVICE-0702 | Planning / Scheduling | computeEstimateFromSteps | `src/lib/services/schedule.ts:415` | UNTESTED | Not yet exercised |
-| SERVICE-0703 | Planning / Scheduling | computeWorkOrderEstimate | `src/lib/services/schedule.ts:453` | UNTESTED | Not yet exercised |
-| SERVICE-0704 | Planning / Scheduling | refreshWorkOrderEstimate | `src/lib/services/schedule.ts:506` | UNTESTED | Not yet exercised |
-| SERVICE-0705 | Planning / Scheduling | estimateMinutesForWorkInstructions | `src/lib/services/schedule.ts:530` | UNTESTED | Not yet exercised |
-| SERVICE-0706 | Planning / Scheduling | buildCalendarContext | `src/lib/services/schedule.ts:562` | UNTESTED | Not yet exercised |
-| SERVICE-0707 | Planning / Scheduling | backSchedule | `src/lib/services/schedule.ts:584` | UNTESTED | Not yet exercised |
-| SERVICE-0708 | Planning / Scheduling | forwardSchedule | `src/lib/services/schedule.ts:610` | UNTESTED | Not yet exercised |
-| SERVICE-0709 | Planning / Scheduling | rescheduleWorkOrder | `src/lib/services/schedule.ts:640` | UNTESTED | Not yet exercised |
-| SERVICE-0710 | Planning / Scheduling | resolveBuyLeadDays | `src/lib/services/schedule.ts:754` | UNTESTED | Not yet exercised |
-| SERVICE-0711 | Planning / Scheduling | neededByFromLead | `src/lib/services/schedule.ts:780` | UNTESTED | Not yet exercised |
-| SERVICE-0712 | Planning / Scheduling | defaultChildOffsetMinutes | `src/lib/services/schedule.ts:795` | UNTESTED | Not yet exercised |
-| SERVICE-0713 | Planning / Scheduling | calendarDaysBetween | `src/lib/services/schedule.ts:803` | UNTESTED | Not yet exercised |
-| SERVICE-0714 | Planning / Scheduling | bulkRescheduleOpenWorkOrders | `src/lib/services/schedule.ts:810` | UNTESTED | Not yet exercised |
-| SERVICE-0715 | Planning / Scheduling | reportLabel | `src/lib/services/scheduled-reports.ts:22` | UNTESTED | Not yet exercised |
-| SERVICE-0716 | Planning / Scheduling | createScheduledReport | `src/lib/services/scheduled-reports.ts:33` | UNTESTED | Not yet exercised |
-| SERVICE-0717 | Planning / Scheduling | setScheduledReportActive | `src/lib/services/scheduled-reports.ts:60` | UNTESTED | Not yet exercised |
-| SERVICE-0718 | Planning / Scheduling | deleteScheduledReport | `src/lib/services/scheduled-reports.ts:74` | UNTESTED | Not yet exercised |
-| SERVICE-0719 | Planning / Scheduling | listScheduledReports | `src/lib/services/scheduled-reports.ts:78` | PASS | scheduled-reports listScheduledReports |
-| SERVICE-0720 | Planning / Scheduling | runDueScheduledReports | `src/lib/services/scheduled-reports.ts:141` | UNTESTED | Not yet exercised |
-| SERVICE-0721 | Manufacturing / Test | mintSerial | `src/lib/services/serials.ts:24` | PASS | scripts/verify/chunk-serials-rma.ts; scenario only |
-| SERVICE-0722 | Manufacturing / Test | ensureWorkOrderUnits | `src/lib/services/serials.ts:62` | PASS | scripts/verify/chunk-serials-rma.ts; scenario only |
-| SERVICE-0723 | Manufacturing / Test | assignUnitSerial | `src/lib/services/serials.ts:97` | UNTESTED | Not yet exercised |
-| SERVICE-0724 | Manufacturing / Test | assignKitSerialToUnit | `src/lib/services/serials.ts:152` | PASS | scripts/verify/chunk-serials-rma.ts; scenario only |
-| SERVICE-0725 | Manufacturing / Test | listKitSerialPlan | `src/lib/services/serials.ts:221` | PASS | scripts/verify/chunk-serials-rma.ts; scenario only |
-| SERVICE-0726 | Manufacturing / Test | installSerial | `src/lib/services/serials.ts:234` | PASS | scripts/verify/chunk-serials-rma.ts; scenario only |
-| SERVICE-0727 | Manufacturing / Test | removeSerialInstall | `src/lib/services/serials.ts:319` | PASS | scripts/verify/chunk-serials-rma.ts; scenario only |
-| SERVICE-0728 | Manufacturing / Test | openMrbForTornDownSerial | `src/lib/services/serials.ts:387` | UNTESTED | Not yet exercised |
-| SERVICE-0729 | Manufacturing / Test | getSerialTree | `src/lib/services/serials.ts:468` | PASS | scripts/verify/chunk-serials-rma.ts; scenario only |
-| SERVICE-0730 | Manufacturing / Test | build | `src/lib/services/serials.ts:480` | UNTESTED | Not yet exercised |
-| SERVICE-0731 | Manufacturing / Test | whereUsedSerial | `src/lib/services/serials.ts:539` | UNTESTED | Not yet exercised |
-| SERVICE-0732 | Manufacturing / Test | findSerial | `src/lib/services/serials.ts:557` | UNTESTED | Not yet exercised |
-| SERVICE-0733 | Manufacturing / Test | listSerials | `src/lib/services/serials.ts:574` | UNTESTED | Not yet exercised |
-| SERVICE-0734 | Manufacturing / Test | startWarranty | `src/lib/services/serials.ts:604` | PASS | scripts/verify/chunk-serials-rma.ts; scenario only |
-| SERVICE-0735 | Manufacturing / Test | evaluateWarranty | `src/lib/services/serials.ts:634` | PASS | scripts/verify/chunk-serials-rma.ts; scenario only |
-| SERVICE-0736 | Inventory / Kitting | computeExpiry | `src/lib/services/shelf-life.ts:20` | UNTESTED | Not yet exercised |
-| SERVICE-0737 | Inventory / Kitting | recordLot | `src/lib/services/shelf-life.ts:34` | UNTESTED | Not yet exercised |
-| SERVICE-0738 | Inventory / Kitting | getExpiringLots | `src/lib/services/shelf-life.ts:102` | UNTESTED | Not yet exercised |
-| SERVICE-0739 | Inventory / Kitting | getExpirySummary | `src/lib/services/shelf-life.ts:141` | UNTESTED | Not yet exercised |
-| SERVICE-0740 | Inventory / Kitting | checkLotUsable | `src/lib/services/shelf-life.ts:156` | UNTESTED | Not yet exercised |
-| SERVICE-0741 | Inventory / Kitting | quarantineExpiredLots | `src/lib/services/shelf-life.ts:176` | UNTESTED | Not yet exercised |
-| SERVICE-0742 | Inventory / Kitting | getLotsForPart | `src/lib/services/shelf-life.ts:205` | UNTESTED | Not yet exercised |
-| SERVICE-0743 | Accounts / Roles | verifySignaturePin | `src/lib/services/signature-pin.ts:8` | PASS | scripts/test-docs.ts; scenario only |
-| SERVICE-0744 | Accounts / Roles | captureSignupLead | `src/lib/services/signup-lead.ts:16` | UNTESTED | Not yet exercised |
-| SERVICE-0745 | Manufacturing / Test | listStockSerialsForParts | `src/lib/services/stock-serials.ts:4` | UNTESTED | Not yet exercised |
-| SERVICE-0746 | Billing / Founding | buildIntroScheduleUpdate | `src/lib/services/stripe-intro.ts:14` | PASS | scripts/smoke-unit.ts; scenario only |
-| SERVICE-0747 | Billing / Founding | stripeEnabled | `src/lib/services/stripe.ts:46` | UNTESTED | Not yet exercised |
-| SERVICE-0748 | Billing / Founding | priceIdForPlan | `src/lib/services/stripe.ts:58` | UNTESTED | Not yet exercised |
-| SERVICE-0749 | Billing / Founding | firstYearPriceIdForPlan | `src/lib/services/stripe.ts:63` | UNTESTED | Not yet exercised |
-| SERVICE-0750 | Billing / Founding | retrieveCheckoutSession | `src/lib/services/stripe.ts:165` | PASS | scripts/test-founding-billing.ts; scenario only |
-| SERVICE-0751 | Billing / Founding | createCheckoutSession | `src/lib/services/stripe.ts:215` | PASS | scripts/test-founding-billing.ts; scenario only |
-| SERVICE-0752 | Billing / Founding | createTrialCheckoutSession | `src/lib/services/stripe.ts:313` | UNTESTED | Not yet exercised |
-| SERVICE-0753 | Billing / Founding | ensureIntroRenewalSchedule | `src/lib/services/stripe.ts:401` | PASS | scripts/test-founding-billing.ts; scenario only |
-| SERVICE-0754 | Billing / Founding | verifyWebhook | `src/lib/services/stripe.ts:469` | PASS | scripts/test-founding-billing.ts; scenario only |
-| SERVICE-0755 | Billing / Founding | handleWebhookEvent | `src/lib/services/stripe.ts:537` | PASS | scripts/test-founding-billing.ts; scenario only |
-| SERVICE-0756 | Billing / Founding | owner | `src/lib/services/stripe.ts:552` | UNTESTED | Not yet exercised |
-| SERVICE-0757 | Billing / Founding | membershipFor | `src/lib/services/stripe.ts:567` | UNTESTED | Not yet exercised |
-| SERVICE-0758 | Billing / Founding | subscriptionIdForEvent | `src/lib/services/stripe.ts:632` | PASS | scripts/test-founding-billing.ts; scenario only |
-| SERVICE-0759 | Billing / Founding | isFreeShop | `src/lib/services/subscription-plans.ts:140` | PASS | scripts/smoke-unit.ts; scenario only |
-| SERVICE-0760 | Billing / Founding | paidShopSeats | `src/lib/services/subscription-plans.ts:147` | PASS | scripts/smoke-unit.ts; scenario only |
-| SERVICE-0761 | Billing / Founding | getPlan | `src/lib/services/subscription-plans.ts:184` | PASS | scripts/smoke-unit.ts; scenario only |
-| SERVICE-0762 | Billing / Founding | isPerSeatPlan | `src/lib/services/subscription-plans.ts:188` | UNTESTED | Not yet exercised |
-| SERVICE-0763 | Billing / Founding | normalizeSeats | `src/lib/services/subscription-plans.ts:194` | UNTESTED | Not yet exercised |
-| SERVICE-0764 | Billing / Founding | formatPlanMoney | `src/lib/services/subscription-plans.ts:208` | PASS | scripts/smoke-unit.ts; scenario only |
-| SERVICE-0765 | Billing / Founding | priceCents | `src/lib/services/subscription-plans.ts:212` | UNTESTED | Not yet exercised |
-| SERVICE-0766 | Billing / Founding | firstYearBillingCycles | `src/lib/services/subscription-plans.ts:220` | PASS | scripts/smoke-unit.ts; scenario only |
-| SERVICE-0767 | Billing / Founding | shopFirstYearMonthly | `src/lib/services/subscription-plans.ts:227` | PASS | scripts/smoke-unit.ts; scenario only |
-| SERVICE-0768 | Billing / Founding | firstYearPeriodPriceForPlan | `src/lib/services/subscription-plans.ts:239` | PASS | scripts/smoke-unit.ts; scenario only |
-| SERVICE-0769 | Billing / Founding | periodPriceForPlan | `src/lib/services/subscription-plans.ts:255` | PASS | scripts/smoke-unit.ts; scenario only |
-| SERVICE-0770 | Billing / Founding | annualPriceForPlan | `src/lib/services/subscription-plans.ts:267` | UNTESTED | Not yet exercised |
-| SERVICE-0771 | Billing / Founding | planSeatsLabel | `src/lib/services/subscription-plans.ts:280` | UNTESTED | Not yet exercised |
-| SERVICE-0772 | Billing / Founding | planPriceView | `src/lib/services/subscription-plans.ts:303` | PASS | scripts/smoke-unit.ts; scenario only |
-| SERVICE-0773 | Billing / Founding | firstYearOfferSummary | `src/lib/services/subscription-plans.ts:358` | PASS | scripts/smoke-unit.ts; scenario only |
-| SERVICE-0774 | Billing / Founding | pricingSectionLead | `src/lib/services/subscription-plans.ts:368` | UNTESTED | Not yet exercised |
-| SERVICE-0775 | Billing / Founding | addBillingCycles | `src/lib/services/subscription-plans.ts:373` | UNTESTED | Not yet exercised |
-| SERVICE-0776 | Billing / Founding | getSeatUsage | `src/lib/services/subscription.ts:83` | UNTESTED | Not yet exercised |
-| SERVICE-0777 | Billing / Founding | assertSeatAvailableForInvite | `src/lib/services/subscription.ts:131` | UNTESTED | Not yet exercised |
-| SERVICE-0778 | Billing / Founding | assertSeatAvailableForAccept | `src/lib/services/subscription.ts:184` | UNTESTED | Not yet exercised |
-| SERVICE-0779 | Billing / Founding | getSubscriptionState | `src/lib/services/subscription.ts:242` | PASS | scripts/test-founding-billing.ts; scenario only |
-| SERVICE-0780 | Billing / Founding | startTrial | `src/lib/services/subscription.ts:312` | PASS | scripts/test-founding-billing.ts; scenario only |
-| SERVICE-0781 | Billing / Founding | activatePlan | `src/lib/services/subscription.ts:338` | PASS | scripts/test-founding-billing.ts; scenario only |
-| SERVICE-0782 | Billing / Founding | cancelSubscription | `src/lib/services/subscription.ts:401` | PASS | scripts/test-founding-billing.ts; scenario only |
-| SERVICE-0783 | Platform / Other | isSupportStaffRole | `src/lib/services/support.ts:46` | UNTESTED | Not yet exercised |
-| SERVICE-0784 | Platform / Other | listSupportStaffNotifyEmails | `src/lib/services/support.ts:61` | UNTESTED | Not yet exercised |
-| SERVICE-0785 | Platform / Other | notifySupportStaff | `src/lib/services/support.ts:82` | UNTESTED | Not yet exercised |
-| SERVICE-0786 | Platform / Other | createSupportTicket | `src/lib/services/support.ts:189` | UNTESTED | Not yet exercised |
-| SERVICE-0787 | Platform / Other | createGuestSupportTicket | `src/lib/services/support.ts:265` | UNTESTED | Not yet exercised |
-| SERVICE-0788 | Platform / Other | listMySupportTickets | `src/lib/services/support.ts:345` | UNTESTED | Not yet exercised |
-| SERVICE-0789 | Platform / Other | listSupportTicketsByGuestEmail | `src/lib/services/support.ts:357` | UNTESTED | Not yet exercised |
-| SERVICE-0790 | Platform / Other | listAllSupportTickets | `src/lib/services/support.ts:370` | UNTESTED | Not yet exercised |
-| SERVICE-0791 | Platform / Other | countOpenSupportForStaff | `src/lib/services/support.ts:401` | UNTESTED | Not yet exercised |
-| SERVICE-0792 | Platform / Other | countUnreadRepliesForUser | `src/lib/services/support.ts:410` | UNTESTED | Not yet exercised |
-| SERVICE-0793 | Platform / Other | getSupportTicket | `src/lib/services/support.ts:422` | UNTESTED | Not yet exercised |
-| SERVICE-0794 | Platform / Other | getSupportTicketByGuestToken | `src/lib/services/support.ts:446` | UNTESTED | Not yet exercised |
-| SERVICE-0795 | Platform / Other | canAccessTicket | `src/lib/services/support.ts:463` | UNTESTED | Not yet exercised |
-| SERVICE-0796 | Platform / Other | postSupportMessage | `src/lib/services/support.ts:473` | UNTESTED | Not yet exercised |
-| SERVICE-0797 | Platform / Other | addSupportNote | `src/lib/services/support.ts:570` | UNTESTED | Not yet exercised |
-| SERVICE-0798 | Platform / Other | updateSupportTicket | `src/lib/services/support.ts:606` | UNTESTED | Not yet exercised |
-| SERVICE-0799 | Platform / Other | listPlatformAdmins | `src/lib/services/support.ts:689` | UNTESTED | Not yet exercised |
-| SERVICE-0800 | Platform / Other | isTypingActive | `src/lib/services/support.ts:699` | UNTESTED | Not yet exercised |
-| SERVICE-0801 | Platform / Other | setSupportTyping | `src/lib/services/support.ts:705` | UNTESTED | Not yet exercised |
-| SERVICE-0802 | Platform / Other | markSupportThreadRead | `src/lib/services/support.ts:736` | UNTESTED | Not yet exercised |
-| SERVICE-0803 | Accounting / GovCon | getTaxYear | `src/lib/services/tax-tables.ts:119` | UNTESTED | Not yet exercised |
-| SERVICE-0804 | Accounting / GovCon | annualIncomeTax | `src/lib/services/tax-tables.ts:126` | UNTESTED | Not yet exercised |
-| SERVICE-0805 | Accounting / GovCon | computeFederalWithholding | `src/lib/services/tax-tables.ts:149` | UNTESTED | Not yet exercised |
-| SERVICE-0806 | Accounting / GovCon | computeFica | `src/lib/services/tax-tables.ts:188` | UNTESTED | Not yet exercised |
-| SERVICE-0807 | Platform / Other | recordEvent | `src/lib/services/telemetry.ts:67` | UNTESTED | Not yet exercised |
-| SERVICE-0808 | Platform / Other | trackEvent | `src/lib/services/telemetry.ts:96` | UNTESTED | Not yet exercised |
-| SERVICE-0809 | Platform / Other | getTelemetryHealth | `src/lib/services/telemetry.ts:114` | UNTESTED | Not yet exercised |
-| SERVICE-0810 | Platform / Other | getDemoFunnel | `src/lib/services/telemetry.ts:154` | UNTESTED | Not yet exercised |
-| SERVICE-0811 | Platform / Other | getTopPages | `src/lib/services/telemetry.ts:199` | UNTESTED | Not yet exercised |
-| SERVICE-0812 | Platform / Other | getTopActions | `src/lib/services/telemetry.ts:217` | UNTESTED | Not yet exercised |
-| SERVICE-0813 | Platform / Other | issueFingerprint | `src/lib/services/telemetry.ts:270` | UNTESTED | Not yet exercised |
-| SERVICE-0814 | Platform / Other | getErrorGroups | `src/lib/services/telemetry.ts:308` | UNTESTED | Not yet exercised |
-| SERVICE-0815 | Platform / Other | getIssueTrackingHealth | `src/lib/services/telemetry.ts:415` | UNTESTED | Not yet exercised |
-| SERVICE-0816 | Platform / Other | setIssueStatus | `src/lib/services/telemetry.ts:427` | UNTESTED | Not yet exercised |
-| SERVICE-0817 | Platform / Other | getIssueHistories | `src/lib/services/telemetry.ts:502` | UNTESTED | Not yet exercised |
-| SERVICE-0818 | Platform / Other | getLiveDemos | `src/lib/services/telemetry.ts:566` | UNTESTED | Not yet exercised |
-| SERVICE-0819 | Platform / Other | getDailyStarts | `src/lib/services/telemetry.ts:606` | UNTESTED | Not yet exercised |
-| SERVICE-0820 | Demo / Tenancy | applyHardening | `src/lib/services/tenancy.ts:121` | UNTESTED | Not yet exercised |
-| SERVICE-0821 | Demo / Tenancy | provisionSchema | `src/lib/services/tenancy.ts:129` | UNTESTED | Not yet exercised |
-| SERVICE-0822 | Demo / Tenancy | dropSchema | `src/lib/services/tenancy.ts:149` | PASS | demo-results.json: PASS Demo invalid schema names and public clone/drop protected |
-| SERVICE-0823 | Demo / Tenancy | createTenant | `src/lib/services/tenancy.ts:164` | UNTESTED | Not yet exercised |
-| SERVICE-0824 | Demo / Tenancy | getTenantBySchema | `src/lib/services/tenancy.ts:202` | PASS | demo-results.json: PASS Provision demo registry/schema and read isolated seeded records |
-| SERVICE-0825 | Demo / Tenancy | touchTenant | `src/lib/services/tenancy.ts:208` | PASS | demo-results.json: PASS Demo heartbeat and destroy preserve public and mark registry |
-| SERVICE-0826 | Demo / Tenancy | destroyTenant | `src/lib/services/tenancy.ts:216` | PASS | demo-results.json: PASS Demo heartbeat and destroy preserve public and mark registry |
-| SERVICE-0827 | Demo / Tenancy | sweepIdleDemos | `src/lib/services/tenancy.ts:224` | PASS | demo-results.json: PASS Idle demo sweep removes only expired demo |
-| SERVICE-0828 | Demo / Tenancy | demoSchemaIsLive | `src/lib/services/tenancy.ts:256` | PASS | demo-results.json: PASS Provision demo registry/schema and read isolated seeded records; demo-results.json: PASS Demo heartbeat and destroy preserve public and mark registry |
-| SERVICE-0829 | Demo / Tenancy | tenantClient | `src/lib/services/tenancy.ts:269` | PASS | demo-results.json: PASS Provision demo registry/schema and read isolated seeded records |
-| SERVICE-0830 | Demo / Tenancy | demoTemplateExists | `src/lib/services/tenancy.ts:280` | PASS | demo-results.json: PASS Local demo_template clone and template existence |
-| SERVICE-0831 | Demo / Tenancy | cloneSchema | `src/lib/services/tenancy.ts:294` | PASS | demo-results.json: PASS Demo invalid schema names and public clone/drop protected; demo-results.json: PASS Local demo_template clone and template existence |
-| SERVICE-0832 | Demo / Tenancy | demoPoolTarget | `src/lib/services/tenancy.ts:386` | PASS | round2-demo-results.json: PASS Demo pool warm and sequential refill honor target |
-| SERVICE-0833 | Demo / Tenancy | demoIdleMinutes | `src/lib/services/tenancy.ts:442` | UNTESTED | Not yet exercised |
-| SERVICE-0834 | Demo / Tenancy | warmOneDemo | `src/lib/services/tenancy.ts:448` | PASS | round2-demo-results.json: PASS Demo pool warm and sequential refill honor target |
-| SERVICE-0835 | Demo / Tenancy | ensureDemoPool | `src/lib/services/tenancy.ts:490` | FAIL | round2-demo-results.json: PASS Demo pool warm and sequential refill honor target; round2-demo-results.json: FAIL Concurrent refills cannot exceed configured spare target |
-| SERVICE-0836 | Demo / Tenancy | recycleStalePool | `src/lib/services/tenancy.ts:522` | PASS | round2-demo-results.json: PASS Recycle stale READY schemas preserves active and public fixtures |
-| SERVICE-0837 | Demo / Tenancy | provisionDemo | `src/lib/services/tenancy.ts:577` | PASS | demo-results.json: PASS Provision demo registry/schema and read isolated seeded records; round2-demo-results.json: PASS Concurrent pool claims never share schema, exhausted pool cold-starts |
-| SERVICE-0838 | Demo / Tenancy | provisionCustomerTenant | `src/lib/services/tenancy.ts:628` | UNTESTED | Not yet exercised |
-| SERVICE-0839 | Demo / Tenancy | registerTenantLogin | `src/lib/services/tenancy.ts:788` | UNTESTED | Not yet exercised |
-| SERVICE-0840 | Demo / Tenancy | issueOnboardingLink | `src/lib/services/tenancy.ts:809` | UNTESTED | Not yet exercised |
-| SERVICE-0841 | Demo / Tenancy | tenantBySetupToken | `src/lib/services/tenancy.ts:826` | UNTESTED | Not yet exercised |
-| SERVICE-0842 | Demo / Tenancy | clearSetupToken | `src/lib/services/tenancy.ts:838` | UNTESTED | Not yet exercised |
-| SERVICE-0843 | Demo / Tenancy | tenantByStripe | `src/lib/services/tenancy.ts:848` | UNTESTED | Not yet exercised |
-| SERVICE-0844 | Platform / Other | deriveClaim | `src/lib/services/tenant-activity.ts:50` | PASS | scripts/smoke-unit.ts; scenario only |
-| SERVICE-0845 | Platform / Other | loadTenantActivity | `src/lib/services/tenant-activity.ts:132` | UNTESTED | Not yet exercised |
-| SERVICE-0846 | Platform / Other | loadTenantActivities | `src/lib/services/tenant-activity.ts:178` | UNTESTED | Not yet exercised |
-| SERVICE-0847 | Platform / Other | worker | `src/lib/services/tenant-activity.ts:184` | UNTESTED | Not yet exercised |
-| SERVICE-0848 | Manufacturing / Test | createTestProcedure | `src/lib/services/test-procedures.ts:11` | UNTESTED | Not yet exercised |
-| SERVICE-0849 | Manufacturing / Test | addTestProcedureStep | `src/lib/services/test-procedures.ts:74` | UNTESTED | Not yet exercised |
-| SERVICE-0850 | Manufacturing / Test | submitTestProcedureToCm | `src/lib/services/test-procedures.ts:107` | UNTESTED | Not yet exercised |
-| SERVICE-0851 | Manufacturing / Test | releaseTestProcedure | `src/lib/services/test-procedures.ts:176` | UNTESTED | Not yet exercised |
-| SERVICE-0852 | Manufacturing / Test | listTestProcedures | `src/lib/services/test-procedures.ts:275` | UNTESTED | Not yet exercised |
-| SERVICE-0853 | Manufacturing / Test | getTestProcedureDetail | `src/lib/services/test-procedures.ts:285` | UNTESTED | Not yet exercised |
-| SERVICE-0854 | Manufacturing / Test | recordTestStepSignOff | `src/lib/services/test-procedures.ts:306` | UNTESTED | Not yet exercised |
-| SERVICE-0855 | HR / Time | getPayrollPolicy | `src/lib/services/timesheets.ts:48` | UNTESTED | Not yet exercised |
-| SERVICE-0856 | HR / Time | parseHolidays | `src/lib/services/timesheets.ts:56` | UNTESTED | Not yet exercised |
-| SERVICE-0857 | HR / Time | periodForDate | `src/lib/services/timesheets.ts:83` | UNTESTED | Not yet exercised |
-| SERVICE-0858 | HR / Time | periodDays | `src/lib/services/timesheets.ts:126` | UNTESTED | Not yet exercised |
-| SERVICE-0859 | HR / Time | getOrCreateTimesheet | `src/lib/services/timesheets.ts:144` | PASS | ; current/round3-hr-auth-results.json: PASS HR timesheet add/remove native action chain |
-| SERVICE-0860 | HR / Time | pushApprovedPtoToTimesheets | `src/lib/services/timesheets.ts:272` | UNTESTED | Not yet exercised |
-| SERVICE-0861 | HR / Time | addTimesheetEntry | `src/lib/services/timesheets.ts:291` | FAIL | ; current/round3-hr-auth-results.json: PASS HR timesheet add/remove native action chain; current/round3-hr-auth-results.json: FAIL HR date-only entry stays in selected local payroll period |
-| SERVICE-0862 | HR / Time | attachEntryToTimesheet | `src/lib/services/timesheets.ts:350` | UNTESTED | Not yet exercised |
-| SERVICE-0863 | HR / Time | removeTimesheetEntry | `src/lib/services/timesheets.ts:367` | PASS | ; current/round3-hr-auth-results.json: PASS HR timesheet add/remove native action chain |
-| SERVICE-0864 | HR / Time | submitTimesheet | `src/lib/services/timesheets.ts:384` | PASS | ; current/round3-hr-auth-results.json: PASS HR timecard submit and wrong reviewer denial |
-| SERVICE-0865 | HR / Time | classifyHours | `src/lib/services/timesheets.ts:478` | UNTESTED | Not yet exercised |
-| SERVICE-0866 | HR / Time | saveTimecardGrid | `src/lib/services/timesheets.ts:530` | PASS | ; current/round3-hr-auth-results.json: PASS HR timecard grid saves own hours and rejects daily overflow |
-| SERVICE-0867 | HR / Time | decideTimesheetApproval | `src/lib/services/timesheets.ts:936` | PASS | ; current/round3-hr-auth-results.json: PASS HR timecard bucket approval and processing to payroll actions |
-| SERVICE-0868 | HR / Time | getTimecardReviewQueue | `src/lib/services/timesheets.ts:1013` | UNTESTED | Not yet exercised |
-| SERVICE-0869 | HR / Time | decideReviewerBucketsForTimesheet | `src/lib/services/timesheets.ts:1065` | PASS | ; current/round3-hr-auth-results.json: PASS HR timecard submit and wrong reviewer denial |
-| SERVICE-0870 | HR / Time | processTimesheet | `src/lib/services/timesheets.ts:1103` | PASS | ; current/round3-hr-auth-results.json: PASS HR timecard bucket approval and processing to payroll actions |
-| SERVICE-0871 | HR / Time | getPayStub | `src/lib/services/timesheets.ts:1258` | UNTESTED | Not yet exercised |
-| SERVICE-0872 | HR / Time | getPayrollRun | `src/lib/services/timesheets.ts:1314` | UNTESTED | Not yet exercised |
-| SERVICE-0873 | HR / Time | runPayroll | `src/lib/services/timesheets.ts:1416` | UNTESTED | Not yet exercised |
-| SERVICE-0874 | HR / Time | getTimesheetDetail | `src/lib/services/timesheets.ts:1431` | UNTESTED | Not yet exercised |
-| SERVICE-0875 | HR / Time | listMyTimesheets | `src/lib/services/timesheets.ts:1453` | UNTESTED | Not yet exercised |
-| SERVICE-0876 | HR / Time | getPtoBalances | `src/lib/services/timesheets.ts:1466` | UNTESTED | Not yet exercised |
-| SERVICE-0877 | Quality / NCR | createToolbox | `src/lib/services/tool-control.ts:17` | UNTESTED | Not yet exercised |
-| SERVICE-0878 | Quality / NCR | assignToolToToolbox | `src/lib/services/tool-control.ts:42` | UNTESTED | Not yet exercised |
-| SERVICE-0879 | Quality / NCR | listToolboxes | `src/lib/services/tool-control.ts:54` | UNTESTED | Not yet exercised |
-| SERVICE-0880 | Quality / NCR | saveToolboxInspection | `src/lib/services/tool-control.ts:69` | UNTESTED | Not yet exercised |
-| SERVICE-0881 | Quality / NCR | createToolReport | `src/lib/services/tool-control.ts:90` | UNTESTED | Not yet exercised |
-| SERVICE-0882 | Quality / NCR | updateToolReportPieces | `src/lib/services/tool-control.ts:164` | UNTESTED | Not yet exercised |
-| SERVICE-0883 | Quality / NCR | declarePieceUnrecoverable | `src/lib/services/tool-control.ts:181` | UNTESTED | Not yet exercised |
-| SERVICE-0884 | Quality / NCR | raiseFodIncident | `src/lib/services/tool-control.ts:201` | UNTESTED | Not yet exercised |
-| SERVICE-0885 | Quality / NCR | placeReplacementPr | `src/lib/services/tool-control.ts:218` | UNTESTED | Not yet exercised |
-| SERVICE-0886 | Quality / NCR | updateToolReportSteps | `src/lib/services/tool-control.ts:239` | UNTESTED | Not yet exercised |
-| SERVICE-0887 | Quality / NCR | setToolReportStatus | `src/lib/services/tool-control.ts:243` | UNTESTED | Not yet exercised |
-| SERVICE-0888 | Quality / NCR | parseJson | `src/lib/services/tool-control.ts:258` | UNTESTED | Not yet exercised |
-| SERVICE-0889 | Platform / Other | base32Encode | `src/lib/services/totp.ts:30` | UNTESTED | Not yet exercised |
-| SERVICE-0890 | Platform / Other | base32Decode | `src/lib/services/totp.ts:46` | UNTESTED | Not yet exercised |
-| SERVICE-0891 | Platform / Other | generateSecret | `src/lib/services/totp.ts:65` | UNTESTED | Not yet exercised |
-| SERVICE-0892 | Platform / Other | currentStep | `src/lib/services/totp.ts:71` | UNTESTED | Not yet exercised |
-| SERVICE-0893 | Platform / Other | codeForStep | `src/lib/services/totp.ts:76` | UNTESTED | Not yet exercised |
-| SERVICE-0894 | Platform / Other | verifyCode | `src/lib/services/totp.ts:107` | UNTESTED | Not yet exercised |
-| SERVICE-0895 | Platform / Other | otpauthUri | `src/lib/services/totp.ts:132` | UNTESTED | Not yet exercised |
-| SERVICE-0896 | Platform / Other | getWoMaterialGenealogy | `src/lib/services/traceability.ts:24` | UNTESTED | Not yet exercised |
-| SERVICE-0897 | Platform / Other | getTraceChain | `src/lib/services/traceability.ts:127` | UNTESTED | Not yet exercised |
-| SERVICE-0898 | Platform / Other | resolveStagingLocation | `src/lib/services/wip-locations.ts:17` | UNTESTED | Not yet exercised |
-| SERVICE-0899 | Platform / Other | moveWorkOrderToLocation | `src/lib/services/wip-locations.ts:56` | UNTESTED | Not yet exercised |
-| SERVICE-0900 | Platform / Other | consumeWorkOrderWip | `src/lib/services/wip-locations.ts:157` | UNTESTED | Not yet exercised |
-| SERVICE-0901 | Manufacturing / Test | createToolPurchaseRequestForWi | `src/lib/services/work-instructions.ts:96` | UNTESTED | Not yet exercised |
-| SERVICE-0902 | Manufacturing / Test | createWorkInstruction | `src/lib/services/work-instructions.ts:206` | UNTESTED | Not yet exercised |
-| SERVICE-0903 | Manufacturing / Test | addWorkInstructionStep | `src/lib/services/work-instructions.ts:307` | UNTESTED | Not yet exercised |
-| SERVICE-0904 | Manufacturing / Test | submitWiToCm | `src/lib/services/work-instructions.ts:347` | UNTESTED | Not yet exercised |
-| SERVICE-0905 | Manufacturing / Test | releaseWorkInstructionFromCm | `src/lib/services/work-instructions.ts:446` | UNTESTED | Not yet exercised |
-| SERVICE-0906 | Manufacturing / Test | createWiRevisionFromReleased | `src/lib/services/work-instructions.ts:515` | UNTESTED | Not yet exercised |
-| SERVICE-0907 | Manufacturing / Test | linkWiToBom | `src/lib/services/work-instructions.ts:613` | UNTESTED | Not yet exercised |
-| SERVICE-0908 | Manufacturing / Test | workOrderPrefix | `src/lib/services/work-orders.ts:19` | UNTESTED | Not yet exercised |
-| SERVICE-0909 | Manufacturing / Test | resolveWorkOrderSource | `src/lib/services/work-orders.ts:32` | UNTESTED | Not yet exercised |
-| SERVICE-0952 | Manufacturing / Test | assertProductionBomCertified | `src/lib/services/work-orders.ts:46` | UNTESTED | Not yet exercised |
-| SERVICE-0910 | Manufacturing / Test | createWorkOrder | `src/lib/services/work-orders.ts:77` | PASS | Production WO without any BOM must be rejected; FIX VERIFIED current 3de5ba1: integrity-retest.log / bom-lifecycle-retest.log and current HTTP retests |
-| SERVICE-0911 | Manufacturing / Test | ensureWorkOrderTravelerSteps | `src/lib/services/work-orders.ts:363` | UNTESTED | Not yet exercised |
-| SERVICE-0912 | Manufacturing / Test | startWorkOrderProduction | `src/lib/services/work-orders.ts:464` | PASS | scripts/verify/chunk-e-mfg.ts; scenario only; priority-results.json: PASS Start kitted production and sign traveler via own PIN actions |
-| SERVICE-0913 | Manufacturing / Test | updateWorkOrderStatus | `src/lib/services/work-orders.ts:539` | UNTESTED | Not yet exercised |
-| SERVICE-0914 | Manufacturing / Test | signOffStep | `src/lib/services/work-orders.ts:588` | UNTESTED | Not yet exercised |
-| SERVICE-0915 | Manufacturing / Test | stationOf | `src/lib/services/work-orders.ts:690` | UNTESTED | Not yet exercised |
-| SERVICE-0916 | Manufacturing / Test | ensurePrototypeWorkInstruction | `src/lib/services/work-orders.ts:879` | UNTESTED | Not yet exercised |
-| SERVICE-0917 | Manufacturing / Test | finishPrototypeWorkOrder | `src/lib/services/work-orders.ts:950` | UNTESTED | Not yet exercised |
-| SERVICE-0918 | Manufacturing / Test | defaultReceivingWorkCenterCode | `src/lib/services/work-orders.ts:1058` | UNTESTED | Not yet exercised |
-| SERVICE-0919 | Manufacturing / Test | sendWorkOrderToReceivingPutaway | `src/lib/services/work-orders.ts:1084` | UNTESTED | Not yet exercised |
-| SERVICE-0920 | Manufacturing / Test | getFloorBoardData | `src/lib/services/work-orders.ts:1153` | UNTESTED | Not yet exercised |
-| SERVICE-0921 | Platform / Other | getSiteUrl | `src/lib/site.ts:43` | UNTESTED | Not yet exercised |
-| SERVICE-0922 | Platform / Other | getTabBrand | `src/lib/tab-brand.ts:18` | UNTESTED | Not yet exercised |
-| SERVICE-0923 | Platform / Other | cn | `src/lib/utils.ts:5` | UNTESTED | Not yet exercised |
-| SERVICE-0924 | Platform / Other | formatCurrency | `src/lib/utils.ts:9` | UNTESTED | Not yet exercised |
-| SERVICE-0925 | Platform / Other | compactCurrency | `src/lib/utils.ts:19` | UNTESTED | Not yet exercised |
-| SERVICE-0926 | Platform / Other | formatNumber | `src/lib/utils.ts:28` | UNTESTED | Not yet exercised |
-| SERVICE-0927 | Platform / Other | formatPercent | `src/lib/utils.ts:34` | UNTESTED | Not yet exercised |
-| SERVICE-0928 | Platform / Other | formatDate | `src/lib/utils.ts:38` | UNTESTED | Not yet exercised |
-| SERVICE-0929 | Platform / Other | formatRelative | `src/lib/utils.ts:48` | UNTESTED | Not yet exercised |
-| SERVICE-0930 | Platform / Other | statusColor | `src/lib/utils.ts:55` | UNTESTED | Not yet exercised |
-| SERVICE-0931 | Platform / Other | priorityColor | `src/lib/utils.ts:177` | UNTESTED | Not yet exercised |
-| SERVICE-0932 | Platform / Other | scoreRatingColor | `src/lib/utils.ts:181` | UNTESTED | Not yet exercised |
-| SERVICE-0933 | Platform / Other | computeEvm | `src/lib/utils.ts:192` | UNTESTED | Not yet exercised |
-| SERVICE-0934 | Platform / Other | parseJsonArray | `src/lib/utils.ts:200` | UNTESTED | Not yet exercised |
-| SERVICE-0935 | Platform / Other | slugify | `src/lib/utils.ts:209` | UNTESTED | Not yet exercised |
-| SERVICE-0936 | Platform / Other | isGfpLocation | `src/lib/utils.ts:214` | UNTESTED | Not yet exercised |
-| SERVICE-0937 | Platform / Other | isWorkArea | `src/lib/work-areas.ts:11` | UNTESTED | Not yet exercised |
+| SERVICE-0938 | Platform / Other | helpSafetyReply | src/lib/ai-help/answer.ts:5 | PASS | ; current/round3-ai-help-results.json: PASS Carina mutation, secrets and private-record prompts are read-only refusals |
+| SERVICE-0939 | Platform / Other | helpSystem | src/lib/ai-help/answer.ts:12 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0940 | Platform / Other | parseHelpAnswer | src/lib/ai-help/answer.ts:16 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0941 | Platform / Other | answerHelp | src/lib/ai-help/answer.ts:28 | PASS | ; current/round3-ai-help-results.json: PASS Carina mutation, secrets and private-record prompts are read-only refusals |
+| SERVICE-0942 | PMO / Budgets | redactHelpText | src/lib/ai-help/budget.ts:5 | PASS | ; current/round3-ai-help-results.json: PASS Carina absent provider fails safely and records redacted route context |
+| SERVICE-0943 | PMO / Budgets | reserveHelpTurn | src/lib/ai-help/budget.ts:11 | PASS | ; current/round3-ai-help-results.json: PASS Carina rate limit remains atomic across 14 simultaneous real-session requests |
+| SERVICE-0944 | PMO / Budgets | reserveHelpTurnOn | src/lib/ai-help/budget.ts:15 | PASS | ; current/round3-ai-help-results.json: PASS Carina rate limit remains atomic across 14 simultaneous real-session requests |
+| SERVICE-0945 | PMO / Budgets | logHelpAnswer | src/lib/ai-help/budget.ts:28 | PASS | ; current/round3-ai-help-results.json: PASS Carina absent provider fails safely and records redacted route context |
+| SERVICE-0946 | Platform / Other | cachedHelp | src/lib/ai-help/cache.ts:5 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0947 | Platform / Other | helpIdentity | src/lib/ai-help/identity.ts:5 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0948 | Platform / Other | helpPageContext | src/lib/ai-help/knowledge.ts:11 | PASS | ; current/round3-ai-help-results.json: PASS Carina absent provider fails safely and records redacted route context |
+| SERVICE-0949 | Platform / Other | retrieveHelp | src/lib/ai-help/knowledge.ts:19 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0950 | Platform / Other | citation | src/lib/ai-help/knowledge.ts:37 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0001 | Platform / Other | Analytics | src/lib/airgap-stubs/analytics.tsx:10 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0002 | Platform / Other | airgapEnabled | src/lib/airgap.ts:22 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0003 | Platform / Other | conflictingIntegrations | src/lib/airgap.ts:45 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0004 | Platform / Other | geocodingEnabled | src/lib/airgap.ts:65 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0005 | Platform / Other | analyticsEnabled | src/lib/airgap.ts:70 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0006 | Accounts / Roles | requireApiUser | src/lib/api-auth.ts:10 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0007 | Accounts / Roles | unauthorized | src/lib/api-auth.ts:22 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0008 | Accounts / Roles | forbidden | src/lib/api-auth.ts:26 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0009 | Accounts / Roles | requireApiPermission | src/lib/api-auth.ts:30 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0010 | Accounts / Roles | sessionIdleMinutes | src/lib/auth-core.ts:47 | PASS | scripts/smoke-unit.ts; scenario only |
+| SERVICE-0011 | Accounts / Roles | lastSeenRefreshMs | src/lib/auth-core.ts:70 | PASS | scripts/smoke-unit.ts; scenario only |
+| SERVICE-0012 | Accounts / Roles | demoModeEnabled | src/lib/auth-core.ts:76 | PASS | scripts/verify/chunk-b-auth.ts; scenario only |
+| SERVICE-0013 | Accounts / Roles | assertLoginNotRateLimited | src/lib/auth-core.ts:91 | PASS | scripts/verify/chunk-b-auth.ts; scenario only |
+| SERVICE-0014 | Accounts / Roles | recordLoginFailure | src/lib/auth-core.ts:108 | PASS | scripts/verify/chunk-b-auth.ts; scenario only |
+| SERVICE-0015 | Accounts / Roles | clearLoginFailures | src/lib/auth-core.ts:119 | PASS | scripts/verify/chunk-b-auth.ts; scenario only |
+| SERVICE-0016 | Accounts / Roles | hashPassword | src/lib/auth-core.ts:125 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0017 | Accounts / Roles | verifyPassword | src/lib/auth-core.ts:131 | PASS | round2-auth-results.json: PASS Real password login/session identifies ADMIN; round2-auth-results.json: PASS Real password login/session identifies OPERATOR; round2-auth-results.json: PASS Real password login/session identifies QUALITY; round2-auth-results.json: PASS Real password login/session identifies ACCOUNTING; round2-auth-results.json: PASS Real password login/session identifies PURCHASING; round2-auth-results.json: PASS Real password login/session identifies EXECUTIVE; current/round2-auth-results.json: PASS Real password login/session identifies ADMIN; current/round2-auth-results.json: PASS Real password login/session identifies OPERATOR; current/round2-auth-results.json: PASS Real password login/session identifies QUALITY; current/round2-auth-results.json: PASS Real password login/session identifies ACCOUNTING; current/round2-auth-results.json: PASS Real password login/session identifies PURCHASING; current/round2-auth-results.json: PASS Real password login/session identifies EXECUTIVE; main151: PASS Real password login/session identifies ADMIN; main151: PASS Real password login/session identifies OPERATOR; main151: PASS Real password login/session identifies QUALITY; main151: PASS Real password login/session identifies ACCOUNTING; main151: PASS Real password login/session identifies PURCHASING; main151: PASS Real password login/session identifies EXECUTIVE |
+| SERVICE-0018 | Accounts / Roles | assertPasswordStrength | src/lib/auth-core.ts:189 | PASS | scripts/smoke-unit.ts; scenario only |
+| SERVICE-0019 | Accounts / Roles | createSession | src/lib/auth-core.ts:261 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0020 | Accounts / Roles | createTenantSession | src/lib/auth-core.ts:266 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0021 | Accounts / Roles | getSessionUser | src/lib/auth-core.ts:278 | PASS | round2-auth-results.json: PASS Real password login/session identifies ADMIN; round2-auth-results.json: PASS Real password login/session identifies OPERATOR; round2-auth-results.json: PASS Real password login/session identifies QUALITY; round2-auth-results.json: PASS Real password login/session identifies ACCOUNTING; round2-auth-results.json: PASS Real password login/session identifies PURCHASING; round2-auth-results.json: PASS Real password login/session identifies EXECUTIVE; current/round2-auth-results.json: PASS Real password login/session identifies ADMIN; current/round2-auth-results.json: PASS Real password login/session identifies OPERATOR; current/round2-auth-results.json: PASS Real password login/session identifies QUALITY; current/round2-auth-results.json: PASS Real password login/session identifies ACCOUNTING; current/round2-auth-results.json: PASS Real password login/session identifies PURCHASING; current/round2-auth-results.json: PASS Real password login/session identifies EXECUTIVE; main151: PASS Real password login/session identifies ADMIN; main151: PASS Real password login/session identifies OPERATOR; main151: PASS Real password login/session identifies QUALITY; main151: PASS Real password login/session identifies ACCOUNTING; main151: PASS Real password login/session identifies PURCHASING; main151: PASS Real password login/session identifies EXECUTIVE |
+| SERVICE-0022 | Accounts / Roles | destroySession | src/lib/auth-core.ts:322 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0023 | Accounts / Roles | loginWithPassword | src/lib/auth-core.ts:342 | PASS | round2-auth-results.json: PASS Real password login/session identifies ADMIN; round2-auth-results.json: PASS Real password login/session identifies OPERATOR; round2-auth-results.json: PASS Real password login/session identifies QUALITY; round2-auth-results.json: PASS Real password login/session identifies ACCOUNTING; round2-auth-results.json: PASS Real password login/session identifies PURCHASING; round2-auth-results.json: PASS Real password login/session identifies EXECUTIVE; current/round2-auth-results.json: PASS Real password login/session identifies ADMIN; current/round2-auth-results.json: PASS Real password login/session identifies OPERATOR; current/round2-auth-results.json: PASS Real password login/session identifies QUALITY; current/round2-auth-results.json: PASS Real password login/session identifies ACCOUNTING; current/round2-auth-results.json: PASS Real password login/session identifies PURCHASING; current/round2-auth-results.json: PASS Real password login/session identifies EXECUTIVE; main151: PASS Real password login/session identifies ADMIN; main151: PASS Real password login/session identifies OPERATOR; main151: PASS Real password login/session identifies QUALITY; main151: PASS Real password login/session identifies ACCOUNTING; main151: PASS Real password login/session identifies PURCHASING; main151: PASS Real password login/session identifies EXECUTIVE |
+| SERVICE-0024 | Accounts / Roles | completeMfaLogin | src/lib/auth-core.ts:453 | PASS | ; main151: PASS Password-only MFA login has no session; real factor completes it |
+| SERVICE-0025 | Accounts / Roles | hasPendingMfa | src/lib/auth-core.ts:470 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0026 | Accounts / Roles | cancelMfaLogin | src/lib/auth-core.ts:476 | PASS | ; main151: PASS Cancel pending MFA login clears challenge cookie without session |
+| SERVICE-0027 | Accounts / Roles | needsBootstrap | src/lib/auth-core.ts:497 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0028 | Accounts / Roles | bootstrapFirstAdmin | src/lib/auth-core.ts:518 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0029 | Accounts / Roles | claimTenant | src/lib/auth-core.ts:565 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0030 | Accounts / Roles | createInvite | src/lib/auth-core.ts:606 | PASS | ; main151: PASS Admin invite writes local-only mail and hashed single-use token |
+| SERVICE-0031 | Accounts / Roles | getInviteByToken | src/lib/auth-core.ts:736 | PASS | ; main151: PASS Admin invite writes local-only mail and hashed single-use token |
+| SERVICE-0032 | Accounts / Roles | acceptInvite | src/lib/auth-core.ts:754 | FAIL | ; main151: PASS Invite acceptance creates user and real session; reuse is denied; main151: FAIL Password reset revokes preexisting signed-in sessions; main151: FAIL Password reset cannot restore a role revoked after token issuance |
+| SERVICE-0033 | Accounts / Roles | changePassword | src/lib/auth-core.ts:827 | PASS | ; main151: PASS Self-service password change rejects wrong current password then rotates session |
+| SERVICE-0034 | Accounts / Roles | getCurrentUser | src/lib/auth.ts:17 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0035 | Accounts / Roles | getUserById | src/lib/auth.ts:100 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0036 | Accounts / Roles | listUsers | src/lib/auth.ts:104 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0037 | Accounts / Roles | canAccess | src/lib/auth.ts:284 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0038 | Accounts / Roles | userHasPermission | src/lib/auth.ts:387 | PASS | scripts/verify/chunk-h-hr.ts; scenario only; current/round3-hr-auth-results.json: PASS Individual permission temporary grant active then expires; current/round3-hr-auth-results.json: PASS Individual explicit deny overrides role and group grants; main151: PASS Individual permission temporary grant active then expires; main151: PASS Individual explicit deny overrides role and group grants |
+| SERVICE-0039 | Accounts / Roles | userCanView | src/lib/auth.ts:544 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0040 | Accounts / Roles | userCanSeeFinancials | src/lib/auth.ts:555 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0041 | Accounts / Roles | requireUser | src/lib/auth.ts:562 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0042 | Accounts / Roles | requirePermission | src/lib/auth.ts:575 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0043 | Platform / Other | code39Bars | src/lib/barcode.ts:64 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0044 | Platform / Other | carinaAudioGen | src/lib/carina-audio.ts:10 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0045 | Platform / Other | carinaBumpAudioGen | src/lib/carina-audio.ts:14 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0046 | Platform / Other | carinaIsAudioCurrent | src/lib/carina-audio.ts:19 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0047 | Platform / Other | carinaIsSpeaking | src/lib/carina-audio.ts:23 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0048 | Platform / Other | carinaStopAllAudio | src/lib/carina-audio.ts:27 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0049 | Platform / Other | carinaPlaySpeech | src/lib/carina-audio.ts:52 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0050 | Platform / Other | getCatalogAnchor | src/lib/carina-catalog.ts:753 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0051 | Platform / Other | listCatalogForPrompt | src/lib/carina-catalog.ts:757 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0052 | Platform / Other | scoreCatalogMatch | src/lib/carina-catalog.ts:804 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0053 | Platform / Other | wantsPointOnly | src/lib/carina-catalog.ts:845 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0054 | Platform / Other | bestPointAnchor | src/lib/carina-catalog.ts:852 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0055 | Platform / Other | inventStepsFromCatalog | src/lib/carina-catalog.ts:861 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0056 | Platform / Other | resolveAnchorIds | src/lib/carina-catalog.ts:904 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0057 | Platform / Other | anchorsToTourSteps | src/lib/carina-catalog.ts:919 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0058 | Platform / Other | resolveLang | src/lib/carina-language.ts:53 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0059 | Platform / Other | loadStoredLang | src/lib/carina-language.ts:68 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0060 | Platform / Other | storeLang | src/lib/carina-language.ts:77 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0061 | Platform / Other | detectLanguageSwitch | src/lib/carina-language.ts:90 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0062 | Platform / Other | ttsLanguageCode | src/lib/carina-language.ts:134 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0063 | Platform / Other | enableCarinaVoiceEvent | src/lib/carina-voice-bus.ts:9 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0064 | Platform / Other | stopCarinaVoiceEvent | src/lib/carina-voice-bus.ts:13 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0065 | Platform / Other | carinaListenChangedEvent | src/lib/carina-voice-bus.ts:17 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0066 | Platform / Other | carinaRecAliveEvent | src/lib/carina-voice-bus.ts:26 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0067 | Platform / Other | persistWantListen | src/lib/carina-voice-bus.ts:32 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0068 | Platform / Other | readWantListen | src/lib/carina-voice-bus.ts:44 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0069 | Platform / Other | carinaPointEvent | src/lib/carina-voice-bus.ts:53 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0070 | Platform / Other | comparePageMetadata | src/lib/compare/metadata.ts:5 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0071 | Platform / Other | classifyHref | src/lib/compare/model.ts:31 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0072 | Platform / Other | externalLinkAttrs | src/lib/compare/model.ts:48 | PASS | scripts/smoke-unit.ts; scenario only |
+| SERVICE-0073 | Platform / Other | parseCompareDocument | src/lib/compare/model.ts:132 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0074 | Platform / Other | inlineToText | src/lib/compare/model.ts:175 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0075 | Platform / Other | visibleText | src/lib/compare/model.ts:185 | PASS | scripts/smoke-unit.ts; scenario only |
+| SERVICE-0076 | Platform / Other | faqEntries | src/lib/compare/model.ts:224 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0077 | Platform / Other | faqPageJsonLd | src/lib/compare/model.ts:231 | PASS | scripts/smoke-unit.ts; scenario only |
+| SERVICE-0078 | Platform / Other | walkLinks | src/lib/compare/model.ts:246 | PASS | scripts/smoke-unit.ts; scenario only |
+| SERVICE-0079 | Platform / Other | demoCta | src/lib/compare/model.ts:268 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0080 | Platform / Other | subsectionLabel | src/lib/compare/model.ts:281 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0081 | Platform / Other | headingId | src/lib/compare/model.ts:291 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0082 | Platform / Other | getComparePage | src/lib/compare/pages.ts:37 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0083 | Platform / Other | requireComparePage | src/lib/compare/pages.ts:42 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0084 | Platform / Other | prepareComparePage | src/lib/compare/pages.ts:54 | PASS | scripts/smoke-unit.ts; scenario only |
+| SERVICE-0085 | Billing / Founding | pricingTableCell | src/lib/compare/pricing-copy.ts:41 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0086 | Billing / Founding | pricingSetupSentence | src/lib/compare/pricing-copy.ts:51 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0087 | Billing / Founding | pricingFaqLead | src/lib/compare/pricing-copy.ts:64 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0088 | Billing / Founding | materializeCompareCopy | src/lib/compare/pricing-copy.ts:74 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0089 | Platform / Other | fireConfetti | src/lib/confetti.ts:6 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0090 | Platform / Other | frame | src/lib/confetti.ts:49 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0091 | Platform / Other | clientForSchema | src/lib/db.ts:73 | PASS | scripts/test-founding-billing.ts; scenario only |
+| SERVICE-0092 | Platform / Other | isValidSchemaName | src/lib/db.ts:86 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0093 | Platform / Other | controlPlaneClient | src/lib/db.ts:97 | PASS | scripts/test-founding-billing.ts; scenario only |
+| SERVICE-0094 | Platform / Other | currentRequestSchema | src/lib/db.ts:157 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0095 | Platform / Other | sandboxDir | src/lib/db.ts:202 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0096 | Platform / Other | sandboxDbPath | src/lib/db.ts:206 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0097 | Platform / Other | materializeSandbox | src/lib/db.ts:210 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0098 | Platform / Other | destroySandbox | src/lib/db.ts:216 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0099 | Demo / Tenancy | isAnonymousDemoRequest | src/lib/demo-request.ts:8 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0100 | Docs | safeDocHref | src/lib/docs/content.ts:13 | PASS | scripts/test-docs.ts; scenario only |
+| SERVICE-0101 | Docs | parseDocContent | src/lib/docs/content.ts:24 | PASS | scripts/test-docs.ts; scenario only |
+| SERVICE-0102 | Docs | clean | src/lib/docs/content.ts:29 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0103 | Docs | docText | src/lib/docs/content.ts:46 | PASS | scripts/test-docs.ts; scenario only |
+| SERVICE-0104 | Docs | templateContent | src/lib/docs/content.ts:62 | PASS | scripts/test-docs.ts; scenario only |
+| SERVICE-0105 | Docs | diffDocLines | src/lib/docs/content.ts:68 | PASS | scripts/test-docs.ts; scenario only |
+| SERVICE-0106 | Platform / Other | toolLabelDxf | src/lib/dxf.ts:27 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0107 | Platform / Other | holidayDate | src/lib/federal-holidays.ts:62 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0108 | Platform / Other | computeObservedHolidays | src/lib/federal-holidays.ts:70 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0109 | Platform / Other | flashToast | src/lib/flash.ts:16 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0110 | Platform / Other | readFlashToast | src/lib/flash.ts:31 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0111 | Platform / Other | getTour | src/lib/guides.ts:812 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0112 | Platform / Other | listToursForAi | src/lib/guides.ts:817 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0113 | Platform / Other | matchTourFromQuery | src/lib/guides.ts:835 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0114 | Platform / Other | getLegalDoc | src/lib/legal-content.ts:293 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0115 | Platform / Other | moduleKeyForPath | src/lib/modules.ts:161 | PASS | scripts/verify/chunk-b-auth.ts; scenario only |
+| SERVICE-0116 | Platform / Other | isPathEnabled | src/lib/modules.ts:178 | PASS | scripts/verify/chunk-b-auth.ts; scenario only |
+| SERVICE-0117 | Platform / Other | moduleLabel | src/lib/modules.ts:183 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0118 | Platform / Other | activeNavHref | src/lib/navigation.ts:220 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0119 | Platform / Other | createBrandedPdf | src/lib/pdf.ts:15 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0120 | Platform / Other | generateWorkOrderTravelerPdf | src/lib/pdf.ts:77 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0121 | Platform / Other | generatePurchaseOrderPdf | src/lib/pdf.ts:138 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0122 | Admin / Settings | isPlatformContext | src/lib/platform.ts:13 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0123 | Admin / Settings | isPlatformSupportEnabled | src/lib/platform.ts:21 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0124 | Platform / Other | workOrderHoldProvenance | src/lib/provenance.ts:12 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0125 | Platform / Other | workOrderMrbProvenance | src/lib/provenance.ts:30 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0126 | Platform / Other | workOrderQrPayload | src/lib/qr.ts:7 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0127 | Platform / Other | generateQrDataUrl | src/lib/qr.ts:20 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0128 | Platform / Other | generateQrSvg | src/lib/qr.ts:33 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0129 | Platform / Other | redactSecrets | src/lib/redact-secrets.ts:18 | PASS | scripts/smoke-unit.ts; scenario only |
+| SERVICE-0130 | Platform / Other | redactError | src/lib/redact-secrets.ts:30 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0131 | Platform / Other | requestAppUrl | src/lib/request-app-url.ts:8 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0132 | Platform / Other | publicOriginFromRequest | src/lib/request-origin.ts:7 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0133 | Platform / Other | publicUrlFromRequest | src/lib/request-origin.ts:43 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0134 | Accounting / GovCon | get1099Report | src/lib/services/accounting-reports.ts:16 | PASS | accounting-reports get1099Report |
+| SERVICE-0135 | Accounting / GovCon | setSupplier1099 | src/lib/services/accounting-reports.ts:67 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0136 | Accounting / GovCon | getBudgetVsActual | src/lib/services/accounting-reports.ts:94 | PASS | accounting-reports getBudgetVsActual |
+| SERVICE-0137 | Platform / Other | clockOutAllActiveWork | src/lib/services/active-work.ts:13 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0140 | Platform / Other | processAiQuery | src/lib/services/ai.ts:10 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0141 | Platform / Other | processAiConversation | src/lib/services/ai.ts:16 | PASS | ; current/round3-ai-help-results.json: PASS Carina mutation, secrets and private-record prompts are read-only refusals |
+| SERVICE-0142 | Purchasing / Receiving | getAslPolicy | src/lib/services/asl.ts:13 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0143 | Purchasing / Receiving | updateAslPolicy | src/lib/services/asl.ts:21 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0144 | Purchasing / Receiving | certIsValid | src/lib/services/asl.ts:65 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0145 | Purchasing / Receiving | supplierMeetsCertPolicy | src/lib/services/asl.ts:74 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0146 | Purchasing / Receiving | setSupplierAsl | src/lib/services/asl.ts:107 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0147 | Purchasing / Receiving | upsertSupplierCertification | src/lib/services/asl.ts:191 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0148 | Purchasing / Receiving | deleteSupplierCertification | src/lib/services/asl.ts:240 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0149 | Purchasing / Receiving | refreshCertStatuses | src/lib/services/asl.ts:257 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0150 | Service / Assets | createAsset | src/lib/services/assets.ts:10 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0151 | Service / Assets | checkoutAsset | src/lib/services/assets.ts:46 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0152 | Service / Assets | checkinAsset | src/lib/services/assets.ts:101 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0153 | Service / Assets | getAssetsOverview | src/lib/services/assets.ts:135 | PASS | assets getAssetsOverview |
+| SERVICE-0154 | Quality / NCR | saveAudit | src/lib/services/audits.ts:21 | FAIL | ; main151: PASS Audit action records OK NCR OFI and required reinspection followup; main151: PASS Clean reinspection returns area active and advances next due date; main151: FAIL Invalid audit finding date leaves no partial inspection history |
+| SERVICE-0155 | Quality / NCR | listAuditFindings | src/lib/services/audits.ts:88 | PASS | ; main151: PASS Audit action records OK NCR OFI and required reinspection followup |
+| SERVICE-0156 | Quality / NCR | updateAuditFinding | src/lib/services/audits.ts:96 | FAIL | ; main151: PASS Corrective finding transitions through REINSPECT then CLOSED; main151: FAIL Unsupported finding status rejected rather than corrupting lifecycle |
+| SERVICE-0157 | Accounting / GovCon | connectBankAccount | src/lib/services/banking.ts:27 | PASS | ; current/round3-finance-deep-results.json: PASS Bank connect/import CSV and repeat import preserve exact balance; main151: PASS Bank connect/import CSV and repeat import preserve exact balance |
+| SERVICE-0158 | Accounting / GovCon | parseOfx | src/lib/services/banking.ts:76 | PASS | ; current/round3-finance-deep-results.json: PASS Bank OFX exact FITID dedupe and parsing; main151: PASS Bank OFX exact FITID dedupe and parsing |
+| SERVICE-0159 | Accounting / GovCon | looksLikeOfx | src/lib/services/banking.ts:108 | PASS | ; current/round3-finance-deep-results.json: PASS Bank OFX exact FITID dedupe and parsing; main151: PASS Bank OFX exact FITID dedupe and parsing |
+| SERVICE-0160 | Accounting / GovCon | importBankData | src/lib/services/banking.ts:117 | PASS | ; current/round3-finance-deep-results.json: PASS Bank connect/import CSV and repeat import preserve exact balance; current/round3-finance-deep-results.json: PASS Bank OFX exact FITID dedupe and parsing; main151: PASS Bank connect/import CSV and repeat import preserve exact balance; main151: PASS Bank OFX exact FITID dedupe and parsing |
+| SERVICE-0161 | Accounting / GovCon | importBankTransactions | src/lib/services/banking.ts:180 | PASS | ; current/round3-finance-deep-results.json: PASS Bank connect/import CSV and repeat import preserve exact balance; current/round3-finance-deep-results.json: FAIL Bank malformed numeric amount rejects row instead of importing zero; main151: PASS Bank connect/import CSV and repeat import preserve exact balance; main151: PASS Bank malformed numeric amount rejects row instead of importing zero; main151: PASS BANK-002 malformed/missing/nonfinite amounts reject without rows or balance changes; debit/credit blanks work |
+| SERVICE-0162 | Accounting / GovCon | categorizeBankTransaction | src/lib/services/banking.ts:269 | PASS | ; current/round3-finance-deep-results.json: PASS Bank categorize once posts balanced exact withdrawal; current/round3-finance-deep-results.json: FAIL Bank recategorize matched transaction does not post a second journal; main151: PASS Bank categorize once posts balanced exact withdrawal; main151: PASS Bank recategorize matched transaction does not post a second journal; main151: PASS BANK-001 competing categorization posts once; retries reject; failed posting rolls back and can retry |
+| SERVICE-0163 | Accounting / GovCon | reconcileBankTransaction | src/lib/services/banking.ts:328 | PASS | ; current/round3-finance-deep-results.json: PASS Bank authorized reconciliation and pre-match gate; main151: PASS Bank authorized reconciliation and pre-match gate |
+| SERVICE-0164 | Accounting / GovCon | getBankingOverview | src/lib/services/banking.ts:341 | PASS | ; current/round3-finance-deep-results.json: PASS Bank connect/import CSV and repeat import preserve exact balance; main151: PASS Bank connect/import CSV and repeat import preserve exact balance |
+| SERVICE-0165 | Accounting / GovCon | suggestBankCategories | src/lib/services/banking.ts:393 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0166 | Billing / Founding | raiseArInvoiceForShipment | src/lib/services/billing.ts:24 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0167 | Billing / Founding | raiseApInvoiceForReceipt | src/lib/services/billing.ts:126 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0168 | Billing / Founding | createVendorApInvoice | src/lib/services/billing.ts:198 | PASS | ; current/round3-finance-deep-results.json: PASS Vendor invoice action and AP payment reconcile exact subtotal/tax/GL; current/round3-finance-deep-results.json: FAIL Failed closed-period vendor invoice leaves no payable; main151: PASS Vendor invoice action and AP payment reconcile exact subtotal/tax/GL; main151: PASS Failed closed-period vendor invoice leaves no payable; main151: PASS ACCT-008 expense and outside-processing AP invoices/GL/balances roll back on period and injected posting failure; retry succeeds |
+| SERVICE-0169 | PMO / Budgets | sanitizeChargeCode | src/lib/services/budgets.ts:37 | PASS | scripts/smoke-unit.ts; scenario only |
+| SERVICE-0170 | PMO / Budgets | chargeCodeFromBudgetName | src/lib/services/budgets.ts:49 | PASS | scripts/verify/chunk-b-auth.ts; scenario only |
+| SERVICE-0171 | PMO / Budgets | projectWbsChargeCode | src/lib/services/budgets.ts:59 | PASS | scripts/verify/chunk-b-auth.ts; scenario only |
+| SERVICE-0172 | PMO / Budgets | wbsCodePathFromLeaf | src/lib/services/budgets.ts:76 | PASS | scripts/verify/chunk-g-pmo.ts; scenario only |
+| SERVICE-0173 | PMO / Budgets | defaultProjectWbsChargeCode | src/lib/services/budgets.ts:95 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0174 | PMO / Budgets | ensureProjectWbsChargeCodes | src/lib/services/budgets.ts:106 | PASS | scripts/verify/chunk-g-pmo.ts; scenario only |
+| SERVICE-0175 | PMO / Budgets | createBudget | src/lib/services/budgets.ts:209 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0176 | PMO / Budgets | updateBudget | src/lib/services/budgets.ts:387 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0177 | PMO / Budgets | enactBudget | src/lib/services/budgets.ts:556 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0178 | PMO / Budgets | closeBudget | src/lib/services/budgets.ts:637 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0179 | PMO / Budgets | getEnactedChargeCodes | src/lib/services/budgets.ts:654 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0180 | PMO / Budgets | findBudgetByChargeCode | src/lib/services/budgets.ts:687 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0181 | PMO / Budgets | resolveUserLaborRate | src/lib/services/budgets.ts:697 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0182 | PMO / Budgets | setUserCompensation | src/lib/services/budgets.ts:709 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0183 | PMO / Budgets | postBudgetCharge | src/lib/services/budgets.ts:751 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0184 | PMO / Budgets | postTimesheetBudgetCharges | src/lib/services/budgets.ts:927 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0185 | PMO / Budgets | chargeBudgetMaterialFromPr | src/lib/services/budgets.ts:977 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0186 | PMO / Budgets | listBudgets | src/lib/services/budgets.ts:1013 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0187 | PMO / Budgets | getBudgetDetail | src/lib/services/budgets.ts:1047 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0188 | Platform / Other | tryCarinaAction | src/lib/services/carina-actions.ts:326 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0189 | Platform / Other | carinaUnitEconomics | src/lib/services/carina-cost.ts:72 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0190 | Platform / Other | formatCarinaCostReport | src/lib/services/carina-cost.ts:142 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0191 | Platform / Other | getCarinaFeatures | src/lib/services/carina-features.ts:8 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0192 | Platform / Other | checkCarinaRateLimit | src/lib/services/carina-rate-limit.ts:38 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0193 | PLM / BOM / ECO | parseEcrAttachments | src/lib/services/cm-library.ts:18 | PASS | ; main151: PASS Attachment add primary selection and comment actions |
+| SERVICE-0194 | PLM / BOM / ECO | resolvePrimaryDrawing | src/lib/services/cm-library.ts:50 | PASS | ; main151: PASS Attachment add primary selection and comment actions |
+| SERVICE-0195 | PLM / BOM / ECO | ensureAdminFolder | src/lib/services/cm-library.ts:67 | PASS | ; main151: PASS Create document ECR action reserves drawing and seeds attachments |
+| SERVICE-0196 | PLM / BOM / ECO | ensureWorkInstructionsFolder | src/lib/services/cm-library.ts:111 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0197 | PLM / BOM / ECO | retainWorkInstructionMaster | src/lib/services/cm-library.ts:138 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0198 | PLM / BOM / ECO | createCmFolder | src/lib/services/cm-library.ts:232 | PASS | ; main151: PASS Create product library folder through guarded action |
+| SERVICE-0199 | PLM / BOM / ECO | updateCmFolder | src/lib/services/cm-library.ts:311 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0200 | PLM / BOM / ECO | deleteCmFolder | src/lib/services/cm-library.ts:347 | PASS | ; main151: PASS Guarded document move delete and folder delete positive acceptance |
+| SERVICE-0201 | PLM / BOM / ECO | moveCmDocument | src/lib/services/cm-library.ts:382 | PASS | ; main151: PASS Guarded document move delete and folder delete positive acceptance |
+| SERVICE-0202 | PLM / BOM / ECO | updateCmDocument | src/lib/services/cm-library.ts:401 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0203 | PLM / BOM / ECO | deleteCmDocument | src/lib/services/cm-library.ts:441 | PASS | ; main151: PASS Guarded document move delete and folder delete positive acceptance |
+| SERVICE-0204 | PLM / BOM / ECO | mapCrToColumn | src/lib/services/cm-library.ts:462 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0205 | PLM / BOM / ECO | mapDocumentEcrToColumn | src/lib/services/cm-library.ts:484 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0206 | PLM / BOM / ECO | mapWiToColumn | src/lib/services/cm-library.ts:490 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0207 | PLM / BOM / ECO | mapBomToColumn | src/lib/services/cm-library.ts:499 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0208 | PLM / BOM / ECO | moveChangeRequestColumn | src/lib/services/cm-library.ts:508 | FAIL | ; main151: FAIL Nonprivileged board move cannot approve ECR without two votes |
+| SERVICE-0209 | PLM / BOM / ECO | ensureArchiveFolder | src/lib/services/cm-library.ts:541 | PASS | ; main151: PASS Drawing update revision B archives and locks prior revision |
+| SERVICE-0210 | PLM / BOM / ECO | searchCmDocumentsByNumber | src/lib/services/cm-library.ts:596 | PASS | ; main151: PASS Library search number locates released revision |
+| SERVICE-0211 | PLM / BOM / ECO | createDocumentEcr | src/lib/services/cm-library.ts:617 | PASS | ; main151: PASS Create document ECR action reserves drawing and seeds attachments; main151: PASS Drawing update revision B archives and locks prior revision |
+| SERVICE-0212 | PLM / BOM / ECO | assignEcrApprovers | src/lib/services/cm-library.ts:943 | PASS | ; main151: PASS Two approver assignment and two own-seat votes approve ECR |
+| SERVICE-0213 | PLM / BOM / ECO | releaseDocumentEcr | src/lib/services/cm-library.ts:1009 | PASS | ; main151: PASS Approved ECR release creates library document and registry link; main151: PASS Drawing update revision B archives and locks prior revision |
+| SERVICE-0214 | PLM / BOM / ECO | addEcrAttachments | src/lib/services/cm-library.ts:1195 | PASS | ; main151: PASS Attachment add primary selection and comment actions |
+| SERVICE-0215 | PLM / BOM / ECO | setEcrPrimaryAttachment | src/lib/services/cm-library.ts:1276 | PASS | ; main151: PASS Attachment add primary selection and comment actions |
+| SERVICE-0216 | PLM / BOM / ECO | addChangeRequestComment | src/lib/services/cm-library.ts:1316 | PASS | ; main151: PASS Attachment add primary selection and comment actions |
+| SERVICE-0217 | PLM / BOM / ECO | formatNumberFromScheme | src/lib/services/cm-numbers.ts:49 | PASS | ; main151: PASS Master number readers format preview registry and request listing |
+| SERVICE-0218 | PLM / BOM / ECO | schemeExample | src/lib/services/cm-numbers.ts:65 | PASS | ; main151: PASS Master number readers format preview registry and request listing |
+| SERVICE-0219 | PLM / BOM / ECO | ensureDefaultNumberSchemes | src/lib/services/cm-numbers.ts:82 | PASS | ; main151: PASS Request controlled number via action and assign master registry |
+| SERVICE-0220 | PLM / BOM / ECO | listNumberSchemes | src/lib/services/cm-numbers.ts:113 | PASS | ; main151: PASS Master number readers format preview registry and request listing |
+| SERVICE-0221 | PLM / BOM / ECO | updateNumberScheme | src/lib/services/cm-numbers.ts:121 | PASS | ; main151: PASS Manual master registration and scheme editing actions |
+| SERVICE-0222 | PLM / BOM / ECO | createNumberRequest | src/lib/services/cm-numbers.ts:215 | PASS | ; main151: PASS Request controlled number via action and assign master registry |
+| SERVICE-0223 | PLM / BOM / ECO | assignNumberToRequest | src/lib/services/cm-numbers.ts:297 | PASS | ; main151: PASS Request controlled number via action and assign master registry |
+| SERVICE-0224 | PLM / BOM / ECO | rejectNumberRequest | src/lib/services/cm-numbers.ts:432 | PASS | ; main151: PASS Reject number request and cancel own pending request actions |
+| SERVICE-0225 | PLM / BOM / ECO | cancelNumberRequest | src/lib/services/cm-numbers.ts:470 | PASS | ; main151: PASS Reject number request and cancel own pending request actions |
+| SERVICE-0226 | PLM / BOM / ECO | registerNumberManually | src/lib/services/cm-numbers.ts:491 | PASS | ; main151: PASS Manual master registration and scheme editing actions |
+| SERVICE-0227 | PLM / BOM / ECO | updateRegistryStatus | src/lib/services/cm-numbers.ts:548 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0228 | PLM / BOM / ECO | markRegistryInUse | src/lib/services/cm-numbers.ts:583 | PASS | ; main151: PASS Create document ECR action reserves drawing and seeds attachments |
+| SERVICE-0229 | PLM / BOM / ECO | linkRegistryToReleasedDocument | src/lib/services/cm-numbers.ts:608 | PASS | ; main151: PASS Approved ECR release creates library document and registry link |
+| SERVICE-0230 | PLM / BOM / ECO | listNumberRequests | src/lib/services/cm-numbers.ts:625 | PASS | ; main151: PASS Master number readers format preview registry and request listing |
+| SERVICE-0231 | PLM / BOM / ECO | listNumberRegistry | src/lib/services/cm-numbers.ts:640 | PASS | ; main151: PASS Master number readers format preview registry and request listing |
+| SERVICE-0232 | PLM / BOM / ECO | listAvailableNumbersForEcr | src/lib/services/cm-numbers.ts:678 | PASS | ; main151: PASS Master number readers format preview registry and request listing |
+| SERVICE-0233 | PLM / BOM / ECO | previewNextNumber | src/lib/services/cm-numbers.ts:701 | PASS | ; main151: PASS Master number readers format preview registry and request listing |
+| SERVICE-0234 | PMO / Budgets | getPartCommittedTotal | src/lib/services/commitments.ts:19 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0235 | PMO / Budgets | getPartCommitments | src/lib/services/commitments.ts:31 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0236 | PMO / Budgets | releaseCommitment | src/lib/services/commitments.ts:89 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0237 | Admin / Settings | getCompanyDepartments | src/lib/services/company.ts:20 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0238 | Platform / Other | getCustomerCreditSnapshot | src/lib/services/credit.ts:29 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0239 | Platform / Other | evaluateDepositRequirement | src/lib/services/credit.ts:90 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0240 | CRM / Sales | listLeads | src/lib/services/crm.ts:59 | PASS | CRM create/list lead and reject empty company |
+| SERVICE-0241 | CRM / Sales | createLead | src/lib/services/crm.ts:67 | PASS | CRM create/list lead and reject empty company |
+| SERVICE-0242 | CRM / Sales | updateLeadStatus | src/lib/services/crm.ts:100 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0243 | CRM / Sales | convertLead | src/lib/services/crm.ts:117 | PASS | CRM double lead conversion must not duplicate opportunity; FIX VERIFIED current 3de5ba1: integrity-retest.log / bom-lifecycle-retest.log and current HTTP retests |
+| SERVICE-0244 | CRM / Sales | createOpportunity | src/lib/services/crm.ts:158 | PASS | CRM promote lead and list/get opportunity |
+| SERVICE-0245 | CRM / Sales | listOpportunities | src/lib/services/crm.ts:199 | PASS | CRM promote lead and list/get opportunity |
+| SERVICE-0246 | CRM / Sales | getOpportunity | src/lib/services/crm.ts:215 | PASS | CRM promote lead and list/get opportunity |
+| SERVICE-0247 | CRM / Sales | updateOpportunity | src/lib/services/crm.ts:222 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0248 | CRM / Sales | setStage | src/lib/services/crm.ts:238 | PASS | CRM lost reason validation / stage transition |
+| SERVICE-0249 | CRM / Sales | convertToCustomer | src/lib/services/crm.ts:273 | PASS | CRM won deal customer conversion is idempotent |
+| SERVICE-0250 | CRM / Sales | addActivity | src/lib/services/crm.ts:319 | PASS | CRM task create / complete / open-task summary |
+| SERVICE-0251 | CRM / Sales | completeActivity | src/lib/services/crm.ts:345 | PASS | CRM task create / complete / open-task summary |
+| SERVICE-0252 | CRM / Sales | getOpenTasks | src/lib/services/crm.ts:353 | PASS | CRM task create / complete / open-task summary |
+| SERVICE-0253 | CRM / Sales | listContacts | src/lib/services/crm.ts:363 | PASS | CRM listContacts |
+| SERVICE-0254 | CRM / Sales | createContact | src/lib/services/crm.ts:371 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0255 | CRM / Sales | getPipeline | src/lib/services/crm.ts:412 | PASS | CRM getPipeline |
+| SERVICE-0256 | CRM / Sales | getCrmSummary | src/lib/services/crm.ts:429 | PASS | CRM getCrmSummary |
+| SERVICE-0257 | CRM / Sales | getLostReasons | src/lib/services/crm.ts:468 | PASS | CRM getLostReasons |
+| SERVICE-0258 | Inventory / Kitting | createCycleCount | src/lib/services/cycle-counts.ts:8 | PASS | Cycle count create / negative quantity and incomplete completion gates |
+| SERVICE-0259 | Inventory / Kitting | recordCycleCountLine | src/lib/services/cycle-counts.ts:71 | PASS | Cycle count record all / complete / repeated completion denied |
+| SERVICE-0260 | Inventory / Kitting | completeCycleCount | src/lib/services/cycle-counts.ts:109 | PASS | Cycle count record all / complete / repeated completion denied |
+| SERVICE-0261 | Inventory / Kitting | cancelCycleCount | src/lib/services/cycle-counts.ts:213 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0262 | Platform / Other | disciplineForUser | src/lib/services/dashboard-pulse.ts:39 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0263 | Platform / Other | getDisciplinePulse | src/lib/services/dashboard-pulse.ts:62 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0264 | Admin / Settings | parseDelimited | src/lib/services/data-import.ts:21 | PASS | ; main151: PASS CSV parser honors quoted commas escaped quotes multiline and CRLF |
+| SERVICE-0265 | Admin / Settings | runImport | src/lib/services/data-import.ts:189 | FAIL | ; main151: PASS Authorized import action creates part using template and decimal cost; main151: PASS Reimport skip is idempotent and update mode changes exact natural key; main151: PASS Import row error reports row number while preserving valid row; main151: FAIL Malformed numeric part cost is rejected not silently zeroed; main151: FAIL Negative part cost and reversed min max are rejected; main151: PASS Customer create and update preserve immutable referenced code; main151: PASS Supplier import creates approved vendor and upserts by name; main151: PASS People import links manager appearing later and skip preserves role; main151: FAIL People import cannot introduce cyclic manager reporting chain |
+| SERVICE-0266 | Demo / Tenancy | reapAbandonedDemos | src/lib/services/demo-reaper.ts:15 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0267 | Docs | requireDocsAccess | src/lib/services/docs.ts:24 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0268 | Docs | revisionHash | src/lib/services/docs.ts:43 | PASS | scripts/test-docs.ts; scenario only |
+| SERVICE-0269 | Docs | createDocSpace | src/lib/services/docs.ts:48 | PASS | scripts/test-docs.ts; scenario only |
+| SERVICE-0270 | Docs | createDocPage | src/lib/services/docs.ts:56 | PASS | scripts/test-docs.ts; scenario only |
+| SERVICE-0271 | Docs | saveDocPage | src/lib/services/docs.ts:77 | PASS | scripts/test-docs.ts; scenario only |
+| SERVICE-0272 | Docs | restoreDocRevision | src/lib/services/docs.ts:103 | PASS | scripts/test-docs.ts; scenario only |
+| SERVICE-0273 | Docs | signDocRevision | src/lib/services/docs.ts:111 | PASS | scripts/test-docs.ts; scenario only |
+| SERVICE-0274 | Docs | addDocComment | src/lib/services/docs.ts:127 | PASS | scripts/test-docs.ts; scenario only |
+| SERVICE-0275 | Docs | resolveDocComment | src/lib/services/docs.ts:134 | PASS | scripts/test-docs.ts; scenario only |
+| SERVICE-0276 | Docs | searchDocTargets | src/lib/services/docs.ts:141 | PASS | scripts/test-docs.ts; scenario only |
+| SERVICE-0277 | Docs | linkDocRecord | src/lib/services/docs.ts:158 | PASS | scripts/test-docs.ts; scenario only |
+| SERVICE-0278 | Docs | unlinkDocRecord | src/lib/services/docs.ts:168 | PASS | scripts/test-docs.ts; scenario only |
+| SERVICE-0279 | Docs | isDocsSchemaMissing | src/lib/services/docs.ts:173 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0280 | Platform / Other | sendEmail | src/lib/services/email.ts:14 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0281 | Platform / Other | composePoEmail | src/lib/services/email.ts:117 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0282 | Platform / Other | composeQuoteEmail | src/lib/services/email.ts:165 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0283 | Platform / Other | parseInboundEmail | src/lib/services/email.ts:241 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0284 | Platform / Other | listEmailMessages | src/lib/services/email.ts:378 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0285 | PLM / BOM / ECO | createCampaign | src/lib/services/engineering-work.ts:53 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0286 | PLM / BOM / ECO | updateCampaign | src/lib/services/engineering-work.ts:102 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0287 | PLM / BOM / ECO | createSaga | src/lib/services/engineering-work.ts:148 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0288 | PLM / BOM / ECO | updateSaga | src/lib/services/engineering-work.ts:225 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0289 | PLM / BOM / ECO | createEngTask | src/lib/services/engineering-work.ts:271 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0290 | PLM / BOM / ECO | updateEngTask | src/lib/services/engineering-work.ts:388 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0291 | PLM / BOM / ECO | breakDownTask | src/lib/services/engineering-work.ts:445 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0292 | PLM / BOM / ECO | createProductionEngIssue | src/lib/services/engineering-work.ts:479 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0293 | PLM / BOM / ECO | acceptProductionIssueAsTask | src/lib/services/engineering-work.ts:587 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0294 | PLM / BOM / ECO | updateProductionEngIssue | src/lib/services/engineering-work.ts:630 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0295 | PLM / BOM / ECO | listProductionEngIssues | src/lib/services/engineering-work.ts:714 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0296 | PLM / BOM / ECO | listProductEngTasks | src/lib/services/engineering-work.ts:742 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0297 | PLM / BOM / ECO | addEngDependency | src/lib/services/engineering-work.ts:758 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0298 | PLM / BOM / ECO | ensureDefaultSwimLanes | src/lib/services/engineering-work.ts:836 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0299 | PLM / BOM / ECO | listSwimLanes | src/lib/services/engineering-work.ts:853 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0300 | PLM / BOM / ECO | createSwimLane | src/lib/services/engineering-work.ts:861 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0301 | PLM / BOM / ECO | removeSwimLane | src/lib/services/engineering-work.ts:885 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0302 | PLM / BOM / ECO | listPmAlerts | src/lib/services/engineering-work.ts:905 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0303 | PLM / BOM / ECO | markAlertRead | src/lib/services/engineering-work.ts:919 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0304 | PLM / BOM / ECO | removeEngDependency | src/lib/services/engineering-work.ts:926 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0305 | PLM / BOM / ECO | listDependenciesForDiscipline | src/lib/services/engineering-work.ts:930 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0306 | PLM / BOM / ECO | createEngSprint | src/lib/services/engineering-work.ts:1022 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0307 | PLM / BOM / ECO | updateEngSprint | src/lib/services/engineering-work.ts:1049 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0308 | PLM / BOM / ECO | listEngSprints | src/lib/services/engineering-work.ts:1069 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0309 | PLM / BOM / ECO | assignTaskToSprint | src/lib/services/engineering-work.ts:1092 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0310 | PLM / BOM / ECO | assignSagaToSprint | src/lib/services/engineering-work.ts:1102 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0311 | PLM / BOM / ECO | getDisciplineBoard | src/lib/services/engineering-work.ts:1113 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0312 | PLM / BOM / ECO | scanIntoTask | src/lib/services/engineering-work.ts:1308 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0313 | PLM / BOM / ECO | scanOutOfTask | src/lib/services/engineering-work.ts:1382 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0314 | PLM / BOM / ECO | createWbsElement | src/lib/services/engineering-work.ts:1565 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO WBS create/update actions retain hierarchy and progress |
+| SERVICE-0315 | PLM / BOM / ECO | updateWbsElement | src/lib/services/engineering-work.ts:1645 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO WBS create/update actions retain hierarchy and progress |
+| SERVICE-0316 | PLM / BOM / ECO | getWbsTree | src/lib/services/engineering-work.ts:1701 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0317 | PLM / BOM / ECO | getWbsDetail | src/lib/services/engineering-work.ts:1720 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0318 | PLM / BOM / ECO | listCampaignsForProject | src/lib/services/engineering-work.ts:1752 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0319 | PLM / BOM / ECO | listSagasByDiscipline | src/lib/services/engineering-work.ts:1773 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0320 | PLM / BOM / ECO | getDisciplineSummaries | src/lib/services/engineering-work.ts:1802 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0321 | PLM / BOM / ECO | getBurndownData | src/lib/services/engineering-work.ts:1844 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0322 | PLM / BOM / ECO | listOpenScans | src/lib/services/engineering-work.ts:1966 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0323 | Service / Assets | createTicket | src/lib/services/field-service.ts:64 | PASS | Service ticket create/list/detail |
+| SERVICE-0324 | Service / Assets | listTickets | src/lib/services/field-service.ts:109 | PASS | Service ticket create/list/detail |
+| SERVICE-0325 | Service / Assets | getTicket | src/lib/services/field-service.ts:143 | PASS | Service ticket create/list/detail |
+| SERVICE-0326 | Service / Assets | updateTicketStatus | src/lib/services/field-service.ts:156 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0327 | Service / Assets | scheduleVisit | src/lib/services/field-service.ts:184 | PASS | Service dispatch / start / labor / parts / complete |
+| SERVICE-0328 | Service / Assets | updateVisit | src/lib/services/field-service.ts:214 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0329 | Service / Assets | startVisit | src/lib/services/field-service.ts:230 | PASS | Service dispatch / start / labor / parts / complete |
+| SERVICE-0330 | Service / Assets | completeVisit | src/lib/services/field-service.ts:257 | PASS | Service dispatch / start / labor / parts / complete |
+| SERVICE-0331 | Service / Assets | addLabor | src/lib/services/field-service.ts:303 | PASS | Service rejects zero/negative labor and parts |
+| SERVICE-0332 | Service / Assets | addPartUsage | src/lib/services/field-service.ts:326 | PASS | Service rejects zero/negative labor and parts |
+| SERVICE-0333 | Service / Assets | removeLabor | src/lib/services/field-service.ts:351 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0334 | Service / Assets | removePartUsage | src/lib/services/field-service.ts:355 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0335 | Service / Assets | getTicketTotals | src/lib/services/field-service.ts:374 | PASS | Service dispatch / start / labor / parts / complete |
+| SERVICE-0336 | Service / Assets | listInstalledAssets | src/lib/services/field-service.ts:414 | PASS | Service listInstalledAssets |
+| SERVICE-0337 | Service / Assets | createInstalledAsset | src/lib/services/field-service.ts:425 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0338 | Service / Assets | isUnderWarranty | src/lib/services/field-service.ts:458 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0339 | Service / Assets | getServiceSummary | src/lib/services/field-service.ts:464 | PASS | Service getServiceSummary |
+| SERVICE-0340 | Service / Assets | listVehicles | src/lib/services/fleet.ts:42 | PASS | fleet listVehicles |
+| SERVICE-0341 | Service / Assets | getVehicle | src/lib/services/fleet.ts:55 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0342 | Service / Assets | createVehicle | src/lib/services/fleet.ts:65 | PASS | ; current/round3-docs-assets-results.json: PASS Fleet create/update actions persist identity and odometer; main151: PASS Fleet create/update actions persist identity and odometer |
+| SERVICE-0343 | Service / Assets | updateVehicle | src/lib/services/fleet.ts:116 | PASS | ; current/round3-docs-assets-results.json: PASS Fleet create/update actions persist identity and odometer; main151: PASS Fleet create/update actions persist identity and odometer |
+| SERVICE-0344 | Service / Assets | recordOdometer | src/lib/services/fleet.ts:132 | PASS | ; current/round3-docs-assets-results.json: PASS Fleet maintenance schedule/complete action schedules next occurrence; main151: PASS Fleet maintenance schedule/complete action schedules next occurrence |
+| SERVICE-0345 | Service / Assets | addMaintenance | src/lib/services/fleet.ts:147 | PASS | ; current/round3-docs-assets-results.json: PASS Fleet maintenance schedule/complete action schedules next occurrence; main151: PASS Fleet maintenance schedule/complete action schedules next occurrence |
+| SERVICE-0346 | Service / Assets | completeMaintenance | src/lib/services/fleet.ts:181 | PASS | ; current/round3-docs-assets-results.json: PASS Fleet maintenance schedule/complete action schedules next occurrence; main151: PASS Fleet maintenance schedule/complete action schedules next occurrence |
+| SERVICE-0347 | Service / Assets | getMaintenanceDue | src/lib/services/fleet.ts:259 | PASS | fleet getMaintenanceDue |
+| SERVICE-0348 | Service / Assets | getComplianceDue | src/lib/services/fleet.ts:304 | PASS | fleet getComplianceDue |
+| SERVICE-0349 | Service / Assets | addFuelLog | src/lib/services/fleet.ts:348 | FAIL | ; current/round3-docs-assets-results.json: FAIL Fleet fuel action positive/negative validation and odometer; main151: FAIL Fleet fuel action positive/negative validation and odometer |
+| SERVICE-0350 | Service / Assets | getVehicleCost | src/lib/services/fleet.ts:379 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0351 | Billing / Founding | qualifiesForFounding | src/lib/services/founding-membership.ts:7 | PASS | scripts/test-founding-billing.ts; scenario only |
+| SERVICE-0352 | Billing / Founding | foundingMembership | src/lib/services/founding-membership.ts:13 | PASS | scripts/test-founding-billing.ts; scenario only |
+| SERVICE-0353 | Billing / Founding | subscriptionFoundingMembership | src/lib/services/founding-membership.ts:20 | PASS | scripts/test-founding-billing.ts; scenario only |
+| SERVICE-0354 | Billing / Founding | foundingGrant | src/lib/services/founding-membership.ts:35 | PASS | scripts/test-founding-billing.ts; scenario only |
+| SERVICE-0355 | Billing / Founding | reviewFounderStripeState | src/lib/services/founding-stripe-review.ts:2 | PASS | scripts/test-founding-billing.ts; scenario only |
+| SERVICE-0356 | Accounting / GovCon | getGaapReportPack | src/lib/services/gaap.ts:19 | PASS | gaap getGaapReportPack |
+| SERVICE-0357 | Accounting / GovCon | getAccountRegister | src/lib/services/gaap.ts:137 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0358 | Accounting / GovCon | getMonthEndCloseStatus | src/lib/services/gaap.ts:225 | PASS | gaap getMonthEndCloseStatus |
+| SERVICE-0359 | Accounting / GovCon | getReclassifyData | src/lib/services/gaap.ts:313 | PASS | gaap getReclassifyData |
+| SERVICE-0360 | Accounting / GovCon | reclassifyJournalLines | src/lib/services/gaap.ts:389 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0361 | Accounting / GovCon | postJournal | src/lib/services/gaap.ts:493 | PASS | GL balanced journal remains pending / idempotency; priority-results.json: PASS Closed-period post rejected with no JE/line writes; round2-finance-results.json: PASS Pending JE does not change isolated account balances; current/round2-finance-results.json: PASS Pending JE does not change isolated account balances |
+| SERVICE-0362 | Accounting / GovCon | getAccountingCloseDate | src/lib/services/gaap.ts:712 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0363 | Accounting / GovCon | setAccountingCloseDate | src/lib/services/gaap.ts:746 | PASS | priority-results.json: PASS Closed-period post rejected with no JE/line writes |
+| SERVICE-0364 | Accounting / GovCon | approveJournal | src/lib/services/gaap.ts:783 | PASS | priority-results.json: PASS Accounting self-approval denied when separation enabled; priority-results.json: PASS Accounting approval applies once and is repeat safe; round2-finance-results.json: PASS Approved JE reconciles account balances to posted lines; round2-finance-results.json: FAIL Concurrent approvals apply the same JE balances only once; current/round2-finance-results.json: PASS Approved JE reconciles account balances to posted lines; current/round2-finance-results.json: FAIL Concurrent approvals apply the same JE balances only once; main151: PASS ACCT-006 six competing approvals and retry apply balances exactly once; main151: PASS ACCT-006 failed balance application rolls back claim and can retry |
+| SERVICE-0365 | Accounting / GovCon | voidJournal | src/lib/services/gaap.ts:825 | PASS | round2-finance-results.json: PASS Void unposted journal requires reason and never applies balances; current/round2-finance-results.json: PASS Void unposted journal requires reason and never applies balances |
+| SERVICE-0366 | Accounting / GovCon | listJournalEntries | src/lib/services/gaap.ts:853 | PASS | gaap listJournalEntries |
+| SERVICE-0367 | Accounting / GovCon | recordArPayment | src/lib/services/gaap.ts:884 | PASS | finance-supply-results.json: FAIL AR rejected GL posting rolls back payment and invoice; round2-finance-results.json: PASS AR partial/full receipts reconcile subledger and GL; round2-finance-results.json: FAIL AR overpayment cannot disappear from subledger; round2-finance-results.json: FAIL AR payment journal honors supplied historical payment date; FIX VERIFIED current 3de5ba1: integrity-retest.log / bom-lifecycle-retest.log and current HTTP retests; current/round2-finance-results.json: PASS AR partial/full receipts reconcile subledger and GL; current/round2-finance-results.json: PASS AR overpayment cannot disappear from subledger; current/round2-finance-results.json: PASS AR payment journal honors supplied historical payment date; current/round3-finance-deep-results.json: PASS Customer receipt action reconciles AR payments and GL; main151: PASS Customer receipt action reconciles AR payments and GL |
+| SERVICE-0368 | Accounting / GovCon | recordApPayment | src/lib/services/gaap.ts:950 | PASS | finance-supply-results.json: FAIL AP rejected GL posting rolls back payment and invoice; round2-finance-results.json: PASS AP partial/full receipts reconcile subledger and GL; round2-finance-results.json: FAIL AP overpayment cannot disappear from subledger; round2-finance-results.json: FAIL AP payment journal honors supplied historical payment date; FIX VERIFIED current 3de5ba1: integrity-retest.log / bom-lifecycle-retest.log and current HTTP retests; current/round2-finance-results.json: PASS AP partial/full receipts reconcile subledger and GL; current/round2-finance-results.json: PASS AP overpayment cannot disappear from subledger; current/round2-finance-results.json: PASS AP payment journal honors supplied historical payment date; current/round3-finance-deep-results.json: PASS Vendor invoice action and AP payment reconcile exact subtotal/tax/GL; main151: PASS Vendor invoice action and AP payment reconcile exact subtotal/tax/GL |
+| SERVICE-0369 | Accounting / GovCon | createExpenseEntry | src/lib/services/gaap.ts:1015 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0370 | Accounting / GovCon | reverseJournalEntry | src/lib/services/gaap.ts:1065 | PASS | finance-supply-results.json: FAIL Journal reversal retains FAR unallowable classification; finance-supply-results.json: PASS Journal reversal is balanced and cannot run twice; round2-finance-results.json: PASS Reversal reconciles original balances back to zero; FIX VERIFIED current 3de5ba1: integrity-retest.log / bom-lifecycle-retest.log and current HTTP retests; current/round2-finance-results.json: PASS Reversal reconciles original balances back to zero |
+| SERVICE-0371 | Accounting / GovCon | runDueAutoReversals | src/lib/services/gaap.ts:1121 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0372 | Accounting / GovCon | getAccountingOverview | src/lib/services/gaap.ts:1148 | PASS | gaap getAccountingOverview |
+| SERVICE-0373 | Accounting / GovCon | getCashFlowStatement | src/lib/services/gaap.ts:1257 | PASS | gaap getCashFlowStatement |
+| SERVICE-0374 | Accounting / GovCon | ensureAccountingDefaults | src/lib/services/gl-posting.ts:133 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0375 | Accounting / GovCon | ensureFiscalPeriods | src/lib/services/gl-posting.ts:186 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0376 | Accounting / GovCon | postMaterialIssue | src/lib/services/gl-posting.ts:337 | PASS | round2-finance-results.json: PASS Manufacturing postings capitalize material/labor/fringe/OH but not G&A; current/round2-finance-results.json: PASS Manufacturing postings capitalize material/labor/fringe/OH but not G&A |
+| SERVICE-0377 | Accounting / GovCon | postDirectLabor | src/lib/services/gl-posting.ts:362 | PASS | round2-finance-results.json: PASS Manufacturing postings capitalize material/labor/fringe/OH but not G&A; current/round2-finance-results.json: PASS Manufacturing postings capitalize material/labor/fringe/OH but not G&A |
+| SERVICE-0378 | Accounting / GovCon | postWorkOrderCompletion | src/lib/services/gl-posting.ts:424 | PASS | round2-finance-results.json: PASS Manufacturing completion relieves WIP and reconciles variance; round2-finance-results.json: PASS Repeat completion posting is idempotent; current/round2-finance-results.json: PASS Manufacturing completion relieves WIP and reconciles variance; current/round2-finance-results.json: PASS Repeat completion posting is idempotent |
+| SERVICE-0379 | Accounting / GovCon | postScrap | src/lib/services/gl-posting.ts:465 | PASS | round2-finance-results.json: PASS GFP scrap never posts company expense; current/round2-finance-results.json: PASS GFP scrap never posts company expense |
+| SERVICE-0380 | Accounting / GovCon | postInventoryAdjustment | src/lib/services/gl-posting.ts:491 | PASS | round2-finance-results.json: PASS Inventory shortage/surplus and OSP postings are balanced; current/round2-finance-results.json: PASS Inventory shortage/surplus and OSP postings are balanced |
+| SERVICE-0381 | Accounting / GovCon | postOutsideProcessing | src/lib/services/gl-posting.ts:512 | PASS | round2-finance-results.json: PASS Inventory shortage/surplus and OSP postings are balanced; current/round2-finance-results.json: PASS Inventory shortage/surplus and OSP postings are balanced |
+| SERVICE-0953 | Accounting / GovCon | prepareOutsideProcessingJournal | src/lib/services/gl-posting.ts:536 | PASS | ; main151: PASS ACCT-008 expense and outside-processing AP invoices/GL/balances roll back on period and injected posting failure; retry succeeds |
+| SERVICE-0382 | Accounting / GovCon | chargeForSalesOrder | src/lib/services/gl-posting.ts:548 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0383 | Accounting / GovCon | chargeForPurchaseOrder | src/lib/services/gl-posting.ts:565 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0384 | Platform / Other | grokConfigured | src/lib/services/grok.ts:10 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0385 | Platform / Other | grokModel | src/lib/services/grok.ts:14 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0386 | Platform / Other | grokChat | src/lib/services/grok.ts:18 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0387 | Platform / Other | grokTranslate | src/lib/services/grok.ts:56 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0388 | Platform / Other | probeGrok | src/lib/services/grok.ts:77 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0389 | HR / Time | getTrainingMatrix | src/lib/services/hr.ts:63 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0390 | HR / Time | getComplianceItems | src/lib/services/hr.ts:186 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0391 | HR / Time | getHrPersona | src/lib/services/hr.ts:280 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0392 | HR / Time | canDecideFor | src/lib/services/hr.ts:303 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0393 | HR / Time | decidePtoRequest | src/lib/services/hr.ts:317 | PASS | ; current/round3-hr-auth-results.json: PASS HR PTO request/approval and missing rejection reason gate; main151: PASS HR PTO request/approval and missing rejection reason gate |
+| SERVICE-0394 | HR / Time | createPtoRequest | src/lib/services/hr.ts:365 | FAIL | ; current/round3-hr-auth-results.json: PASS HR PTO request/approval and missing rejection reason gate; current/round3-hr-auth-results.json: FAIL HR PTO request must belong to logged-in actor; current/round3-hr-auth-results.json: FAIL HR PTO reverse date interval rejected; main151: PASS HR PTO request/approval and missing rejection reason gate |
+| SERVICE-0395 | HR / Time | decideTimeEntry | src/lib/services/hr.ts:407 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0396 | HR / Time | getExpenseReimbursements | src/lib/services/hr.ts:459 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0397 | HR / Time | payExpenseReport | src/lib/services/hr.ts:472 | FAIL | ; current/round3-finance-deep-results.json: FAIL Accounting can reimburse already HR-approved expense under journal SoD; main151: FAIL Accounting can reimburse already HR-approved expense under journal SoD; main151: PASS ACCT-010 HR generic transition cannot mark paid; existing controller reimbursement posts balanced journal (ACCT-009 policy unchanged) |
+| SERVICE-0398 | HR / Time | advanceExpenseReport | src/lib/services/hr.ts:521 | PASS | ; current/round3-finance-deep-results.json: PASS Expense owner submit and unrelated reviewer denial; current/round3-finance-deep-results.json: FAIL HR cannot bypass accounting payment by generic PAID transition; main151: PASS Expense owner submit and unrelated reviewer denial; main151: PASS HR cannot bypass accounting payment by generic PAID transition; main151: PASS ACCT-010 HR generic transition cannot mark paid; existing controller reimbursement posts balanced journal (ACCT-009 policy unchanged) |
+| SERVICE-0399 | HR / Time | updateGoalProgress | src/lib/services/hr.ts:571 | FAIL | ; current/round3-hr-auth-results.json: PASS HR employee goal create/progress/checkin action chain; current/round3-hr-auth-results.json: FAIL HR operator cannot alter another employee goal progress; main151: PASS HR employee goal create/progress/checkin action chain |
+| SERVICE-0400 | HR / Time | certExpiryTone | src/lib/services/hr.ts:595 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0401 | HR / Time | getPendingApprovals | src/lib/services/hr.ts:605 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0402 | HR / Time | getEmployeeProfile | src/lib/services/hr.ts:645 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0403 | HR / Time | getTeamOverview | src/lib/services/hr.ts:717 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0404 | HR / Time | upsertPerformanceReview | src/lib/services/hr.ts:738 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0405 | HR / Time | createEmployeeGoal | src/lib/services/hr.ts:789 | PASS | ; current/round3-hr-auth-results.json: PASS HR employee goal create/progress/checkin action chain; main151: PASS HR employee goal create/progress/checkin action chain |
+| SERVICE-0406 | Quality / NCR | supportsInspections | src/lib/services/inspections.ts:15 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0407 | Quality / NCR | parseTemplate | src/lib/services/inspections.ts:22 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0408 | Quality / NCR | setInspectionTemplate | src/lib/services/inspections.ts:31 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0409 | Quality / NCR | saveInspection | src/lib/services/inspections.ts:41 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0410 | Quality / NCR | listInspections | src/lib/services/inspections.ts:83 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0411 | Quality / NCR | recordHumidity | src/lib/services/inspections.ts:93 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0412 | Quality / NCR | humiditySummary | src/lib/services/inspections.ts:117 | PASS | inspections humiditySummary |
+| SERVICE-0413 | Quality / NCR | humidityTone | src/lib/services/inspections.ts:130 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0414 | Quality / NCR | getEsdProgram | src/lib/services/inspections.ts:134 | PASS | inspections getEsdProgram |
+| SERVICE-0415 | Inventory / Kitting | createPart | src/lib/services/items.ts:52 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0416 | Inventory / Kitting | updatePart | src/lib/services/items.ts:111 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0417 | Inventory / Kitting | upsertPartVendor | src/lib/services/items.ts:216 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0418 | Inventory / Kitting | listApprovedSuppliers | src/lib/services/items.ts:284 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0419 | Inventory / Kitting | isSupplierApprovedForPo | src/lib/services/items.ts:294 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0420 | Inventory / Kitting | findKanbanShortages | src/lib/services/kanban-replenishment.ts:25 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0421 | Inventory / Kitting | ensureKanbanReplenishmentPrs | src/lib/services/kanban-replenishment.ts:172 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0422 | Inventory / Kitting | getUpcomingKits | src/lib/services/kitting.ts:38 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0423 | Inventory / Kitting | sweepKitReadiness | src/lib/services/kitting.ts:90 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0424 | Inventory / Kitting | getKitRefsForMrs | src/lib/services/kitting.ts:113 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0425 | Platform / Other | listBusinessPriorities | src/lib/services/leadership.ts:4 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0426 | Platform / Other | upsertBusinessPriority | src/lib/services/leadership.ts:15 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0427 | Platform / Other | setPriorityStatus | src/lib/services/leadership.ts:77 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0428 | Platform / Other | getExecutiveKpis | src/lib/services/leadership.ts:97 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0429 | Admin / Settings | canonicalPayload | src/lib/services/license.ts:95 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0430 | Admin / Settings | licenseRequired | src/lib/services/license.ts:109 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0431 | Admin / Settings | getLicenseStatus | src/lib/services/license.ts:125 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0432 | Admin / Settings | licenseBootLine | src/lib/services/license.ts:231 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0433 | Shipping / Logistics | listCarriers | src/lib/services/logistics.ts:31 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0434 | Shipping / Logistics | createCarrier | src/lib/services/logistics.ts:38 | PASS | ; current/round3-docs-assets-results.json: PASS Logistics carrier create/toggle actions; main151: PASS Logistics carrier create/toggle actions |
+| SERVICE-0435 | Shipping / Logistics | updateCarrier | src/lib/services/logistics.ts:72 | PASS | ; current/round3-docs-assets-results.json: PASS Logistics carrier create/toggle actions; main151: PASS Logistics carrier create/toggle actions |
+| SERVICE-0436 | Shipping / Logistics | trackingLink | src/lib/services/logistics.ts:77 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0437 | Shipping / Logistics | recordFreight | src/lib/services/logistics.ts:89 | PASS | ; current/round3-docs-assets-results.json: PASS Logistics freight action nonnegative cost guard; main151: PASS Logistics freight action nonnegative cost guard |
+| SERVICE-0438 | Shipping / Logistics | listFreight | src/lib/services/logistics.ts:123 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0439 | Shipping / Logistics | getFreightSummary | src/lib/services/logistics.ts:142 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0440 | Shipping / Logistics | addLandedCost | src/lib/services/logistics.ts:165 | PASS | ; current/round3-docs-assets-results.json: PASS Logistics landed-cost actions allocate exact charge and repeat no-op; main151: PASS Logistics landed-cost actions allocate exact charge and repeat no-op |
+| SERVICE-0441 | Shipping / Logistics | listLandedCosts | src/lib/services/logistics.ts:187 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0442 | Shipping / Logistics | previewAllocation | src/lib/services/logistics.ts:255 | PASS | ; current/round3-docs-assets-results.json: PASS Logistics landed-cost actions allocate exact charge and repeat no-op; main151: PASS Logistics landed-cost actions allocate exact charge and repeat no-op |
+| SERVICE-0443 | Shipping / Logistics | setReceiptLineWeight | src/lib/services/logistics.ts:349 | PASS | ; current/round3-docs-assets-results.json: PASS Logistics landed-cost actions allocate exact charge and repeat no-op; main151: PASS Logistics landed-cost actions allocate exact charge and repeat no-op |
+| SERVICE-0444 | Shipping / Logistics | applyLandedCost | src/lib/services/logistics.ts:370 | PASS | ; current/round3-docs-assets-results.json: PASS Logistics landed-cost actions allocate exact charge and repeat no-op; main151: PASS Logistics landed-cost actions allocate exact charge and repeat no-op |
+| SERVICE-0445 | Shipping / Logistics | getReceiptLandedTotals | src/lib/services/logistics.ts:422 | PASS | ; current/round3-docs-assets-results.json: PASS Logistics landed-cost actions allocate exact charge and repeat no-op; main151: PASS Logistics landed-cost actions allocate exact charge and repeat no-op |
+| SERVICE-0446 | Shipping / Logistics | getUnappliedCharges | src/lib/services/logistics.ts:436 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0447 | Service / Assets | listEquipment | src/lib/services/maintenance.ts:42 | PASS | maintenance listEquipment |
+| SERVICE-0448 | Service / Assets | getEquipment | src/lib/services/maintenance.ts:52 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0449 | Service / Assets | createEquipment | src/lib/services/maintenance.ts:63 | PASS | ; current/round3-docs-assets-results.json: PASS Maintenance equipment create/update actions; main151: PASS Maintenance equipment create/update actions |
+| SERVICE-0450 | Service / Assets | updateEquipment | src/lib/services/maintenance.ts:108 | PASS | ; current/round3-docs-assets-results.json: PASS Maintenance equipment create/update actions; main151: PASS Maintenance equipment create/update actions |
+| SERVICE-0451 | Service / Assets | recordMeter | src/lib/services/maintenance.ts:122 | PASS | ; current/round3-docs-assets-results.json: PASS Maintenance meter action forward-only enforced; main151: PASS Maintenance meter action forward-only enforced |
+| SERVICE-0452 | Service / Assets | addMaintenance | src/lib/services/maintenance.ts:152 | PASS | ; current/round3-docs-assets-results.json: PASS Maintenance schedule/complete action schedules next metered PM; main151: PASS Maintenance schedule/complete action schedules next metered PM |
+| SERVICE-0453 | Service / Assets | completeMaintenance | src/lib/services/maintenance.ts:180 | PASS | ; current/round3-docs-assets-results.json: PASS Maintenance schedule/complete action schedules next metered PM; main151: PASS Maintenance schedule/complete action schedules next metered PM |
+| SERVICE-0454 | Service / Assets | getMaintenanceDue | src/lib/services/maintenance.ts:253 | PASS | maintenance getMaintenanceDue |
+| SERVICE-0455 | Service / Assets | startDowntime | src/lib/services/maintenance.ts:301 | PASS | ; current/round3-docs-assets-results.json: PASS Maintenance multiple downtime holds keep equipment DOWN until last closes; main151: PASS Maintenance multiple downtime holds keep equipment DOWN until last closes |
+| SERVICE-0456 | Service / Assets | endDowntime | src/lib/services/maintenance.ts:325 | PASS | ; current/round3-docs-assets-results.json: PASS Maintenance multiple downtime holds keep equipment DOWN until last closes; main151: PASS Maintenance multiple downtime holds keep equipment DOWN until last closes |
+| SERVICE-0457 | Service / Assets | getDowntimePareto | src/lib/services/maintenance.ts:351 | PASS | maintenance getDowntimePareto |
+| SERVICE-0458 | Service / Assets | getAvailability | src/lib/services/maintenance.ts:381 | PASS | maintenance getAvailability |
+| SERVICE-0459 | Service / Assets | getMaintenanceSummary | src/lib/services/maintenance.ts:420 | PASS | maintenance getMaintenanceSummary |
+| SERVICE-0460 | Platform / Other | mfaConfigured | src/lib/services/mfa.ts:51 | PASS | ; main151: PASS MFA configuration and initial status |
+| SERVICE-0461 | Platform / Other | startEnrolment | src/lib/services/mfa.ts:104 | PASS | ; main151: PASS Enrollment is encrypted at rest and pending does not gate login; main151: PASS Already enabled enrollment cannot replace authenticator |
+| SERVICE-0462 | Platform / Other | confirmEnrolment | src/lib/services/mfa.ts:135 | PASS | ; main151: PASS Invalid enrollment code does not enable MFA; main151: PASS Valid enrollment yields ten hashed recovery codes and enables MFA |
+| SERVICE-0463 | Platform / Other | disableMfa | src/lib/services/mfa.ts:175 | PASS | ; main151: PASS Disabling MFA requires unused factor and updates enforcement |
+| SERVICE-0464 | Platform / Other | getMfaStatus | src/lib/services/mfa.ts:211 | PASS | ; main151: PASS MFA configuration and initial status; main151: PASS Enrollment is encrypted at rest and pending does not gate login; main151: PASS Valid enrollment yields ten hashed recovery codes and enables MFA |
+| SERVICE-0465 | Platform / Other | requiresMfa | src/lib/services/mfa.ts:286 | PASS | ; main151: PASS MFA configuration and initial status; main151: PASS Enrollment is encrypted at rest and pending does not gate login; main151: PASS Valid enrollment yields ten hashed recovery codes and enables MFA; main151: PASS Disabling MFA requires unused factor and updates enforcement |
+| SERVICE-0466 | Platform / Other | createChallenge | src/lib/services/mfa.ts:302 | PASS | ; main151: PASS Wrong-code lockout prevents later recovery on same challenge; main151: PASS Expired challenge refuses a valid recovery code; main151: PASS Recovery challenge succeeds once and replay is rejected |
+| SERVICE-0467 | Platform / Other | verifyChallenge | src/lib/services/mfa.ts:329 | FAIL | ; main151: PASS Wrong-code lockout prevents later recovery on same challenge; main151: PASS Expired challenge refuses a valid recovery code; main151: PASS Recovery challenge succeeds once and replay is rejected; main151: FAIL Concurrent recovery code across challenges is single-use; main151: FAIL Concurrent authenticator code across challenges is single-use; main151: FAIL Same challenge cannot yield two successes with distinct factors |
+| SERVICE-0468 | Platform / Other | purgeExpiredChallenges | src/lib/services/mfa.ts:400 | PASS | ; main151: PASS Expired challenge housekeeping leaves fresh challenges |
+| SERVICE-0469 | Platform / Other | isMissingTableError | src/lib/services/module-health.ts:15 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0470 | Platform / Other | checkModuleHealth | src/lib/services/module-health.ts:29 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0471 | Platform / Other | getNotificationSummary | src/lib/services/notifications.ts:24 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0472 | CRM / Sales | recordTrace | src/lib/services/order-fulfillment.ts:7 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0473 | CRM / Sales | getAvailableQty | src/lib/services/order-fulfillment.ts:50 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0474 | CRM / Sales | getAvailableInventory | src/lib/services/order-fulfillment.ts:61 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0475 | CRM / Sales | createSalesOrder | src/lib/services/order-fulfillment.ts:105 | PASS | scripts/verify/chunk-c2-money-path.ts; scenario only; priority-results.json: PASS Invalid customer FK leaves no sales order or lines; priority-results.json: PASS Invalid second SO line rolls back entire header/lines |
+| SERVICE-0476 | CRM / Sales | createQuote | src/lib/services/order-fulfillment.ts:215 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0477 | CRM / Sales | convertQuoteToSalesOrder | src/lib/services/order-fulfillment.ts:285 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0478 | CRM / Sales | planSalesOrderFulfillment | src/lib/services/order-fulfillment.ts:368 | PASS | scripts/verify/chunk-c2-money-path.ts; scenario only; priority-results.json: PASS Plan linked SO creates production WO from existing certified BOM |
+| SERVICE-0479 | CRM / Sales | checkBomMaterialAvailability | src/lib/services/order-fulfillment.ts:737 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0480 | CRM / Sales | planWorkOrderMaterials | src/lib/services/order-fulfillment.ts:788 | PASS | priority-results.json: PASS WO materials readiness and kit action create |
+| SERVICE-0481 | CRM / Sales | refreshWorkOrderMaterialReadiness | src/lib/services/order-fulfillment.ts:968 | PASS | priority-results.json: PASS WO materials readiness and kit action create |
+| SERVICE-0482 | CRM / Sales | refreshAllWaitingMaterial | src/lib/services/order-fulfillment.ts:1029 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0483 | CRM / Sales | captureReceivingPhotos | src/lib/services/order-fulfillment.ts:1042 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0484 | CRM / Sales | putAwayInventory | src/lib/services/order-fulfillment.ts:1152 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0485 | CRM / Sales | putAwayAllReceiving | src/lib/services/order-fulfillment.ts:1266 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0486 | CRM / Sales | createKitOrder | src/lib/services/order-fulfillment.ts:1287 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0487 | CRM / Sales | completeKitOrder | src/lib/services/order-fulfillment.ts:1362 | PASS | manufacturing-edge-results.json: FAIL Resume multi-line short kit does not duplicate already staged stock; FIX VERIFIED current 3de5ba1: integrity-retest.log / bom-lifecycle-retest.log and current HTTP retests |
+| SERVICE-0488 | CRM / Sales | startProductionFromKit | src/lib/services/order-fulfillment.ts:1701 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0489 | CRM / Sales | completeWorkOrderToStock | src/lib/services/order-fulfillment.ts:1731 | FAIL | Task-only WO can complete without inventory part; FIX VERIFIED current 3de5ba1: integrity-retest.log / bom-lifecycle-retest.log and current HTTP retests; main151: FAIL Rework completion conserves original material instead of duplicating stock |
+| SERVICE-0490 | CRM / Sales | syncSalesOrderReadyStatus | src/lib/services/order-fulfillment.ts:1990 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0491 | CRM / Sales | canShipNow | src/lib/services/order-fulfillment.ts:2022 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0492 | CRM / Sales | ensureShipmentForSalesOrder | src/lib/services/order-fulfillment.ts:2062 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0493 | CRM / Sales | createManualShipment | src/lib/services/order-fulfillment.ts:2154 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0494 | CRM / Sales | verifyShipmentPackingList | src/lib/services/order-fulfillment.ts:2241 | PASS | scripts/verify/chunk-c2-money-path.ts; scenario only |
+| SERVICE-0495 | CRM / Sales | packShipment | src/lib/services/order-fulfillment.ts:2265 | PASS | scripts/verify/chunk-c2-money-path.ts; scenario only |
+| SERVICE-0496 | CRM / Sales | issueManualShipmentInventory | src/lib/services/order-fulfillment.ts:2307 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0497 | CRM / Sales | shipSalesOrder | src/lib/services/order-fulfillment.ts:2404 | PASS | scripts/verify/chunk-c2-money-path.ts; scenario only |
+| SERVICE-0498 | CRM / Sales | getDigitalTraveler | src/lib/services/order-fulfillment.ts:2688 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0499 | Accounts / Roles | ensurePermissionCatalog | src/lib/services/permissions.ts:12 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0500 | Accounts / Roles | ensureDefaultPermissionGroups | src/lib/services/permissions.ts:31 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0501 | Accounts / Roles | listPermissionGroups | src/lib/services/permissions.ts:152 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0502 | Accounts / Roles | assignUserToGroup | src/lib/services/permissions.ts:171 | PASS | ; current/round3-hr-auth-results.json: PASS Admin permission group create/toggle/assign/remove action chain; main151: PASS Admin permission group create/toggle/assign/remove action chain |
+| SERVICE-0503 | Accounts / Roles | removeUserFromGroup | src/lib/services/permissions.ts:187 | PASS | ; current/round3-hr-auth-results.json: PASS Admin permission group create/toggle/assign/remove action chain; main151: PASS Admin permission group create/toggle/assign/remove action chain |
+| SERVICE-0504 | Accounts / Roles | grantUserPermission | src/lib/services/permissions.ts:201 | PASS | ; current/round3-hr-auth-results.json: PASS Individual permission temporary grant active then expires; current/round3-hr-auth-results.json: FAIL Individual permanent regrant clears expired temporary expiry; main151: PASS Individual permission temporary grant active then expires; main151: PASS Individual permanent regrant clears expired temporary expiry |
+| SERVICE-0505 | Accounts / Roles | createPermissionGroup | src/lib/services/permissions.ts:227 | PASS | ; current/round3-hr-auth-results.json: PASS Admin permission group create/toggle/assign/remove action chain; main151: PASS Admin permission group create/toggle/assign/remove action chain |
+| SERVICE-0506 | Accounts / Roles | toggleGroupPermission | src/lib/services/permissions.ts:255 | PASS | ; current/round3-hr-auth-results.json: PASS Admin permission group create/toggle/assign/remove action chain; main151: PASS Admin permission group create/toggle/assign/remove action chain |
+| SERVICE-0507 | Platform / Other | plaidEnabled | src/lib/services/plaid.ts:25 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0508 | Platform / Other | createLinkToken | src/lib/services/plaid.ts:73 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0509 | Platform / Other | exchangePublicToken | src/lib/services/plaid.ts:102 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0510 | Platform / Other | syncPlaidTransactions | src/lib/services/plaid.ts:182 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0511 | Platform / Other | syncAllPlaid | src/lib/services/plaid.ts:295 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0512 | PMO / Budgets | createProgram | src/lib/services/pmo.ts:48 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO program create contract update and CLIN actions |
+| SERVICE-0513 | PMO / Budgets | updateProgram | src/lib/services/pmo.ts:104 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO program create contract update and CLIN actions |
+| SERVICE-0514 | PMO / Budgets | addProgramClin | src/lib/services/pmo.ts:169 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO program create contract update and CLIN actions |
+| SERVICE-0515 | PMO / Budgets | listPrograms | src/lib/services/pmo.ts:203 | PASS | pmo listPrograms |
+| SERVICE-0516 | PMO / Budgets | createProject | src/lib/services/pmo.ts:228 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO project create and charter update actions |
+| SERVICE-0517 | PMO / Budgets | updateProjectCharter | src/lib/services/pmo.ts:359 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO project create and charter update actions |
+| SERVICE-0518 | PMO / Budgets | addProjectRisk | src/lib/services/pmo.ts:458 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO risk create and mitigation update |
+| SERVICE-0519 | PMO / Budgets | updateProjectRisk | src/lib/services/pmo.ts:498 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO risk create and mitigation update |
+| SERVICE-0520 | PMO / Budgets | addProjectIssue | src/lib/services/pmo.ts:531 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO issue create and resolution update |
+| SERVICE-0521 | PMO / Budgets | updateProjectIssue | src/lib/services/pmo.ts:558 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO issue create and resolution update |
+| SERVICE-0522 | PMO / Budgets | upsertRaciEntry | src/lib/services/pmo.ts:580 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO RACI create update delete actions |
+| SERVICE-0523 | PMO / Budgets | deleteRaciEntry | src/lib/services/pmo.ts:622 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO RACI create update delete actions |
+| SERVICE-0524 | PMO / Budgets | addCommunication | src/lib/services/pmo.ts:626 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO communication add/delete actions |
+| SERVICE-0525 | PMO / Budgets | deleteCommunication | src/lib/services/pmo.ts:654 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO communication add/delete actions |
+| SERVICE-0526 | PMO / Budgets | addProjectTask | src/lib/services/pmo.ts:660 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO task create and DONE action sets percent complete |
+| SERVICE-0527 | PMO / Budgets | updateProjectTask | src/lib/services/pmo.ts:698 | FAIL | ; current/round3-pmo-plm-results.json: PASS PMO task create and DONE action sets percent complete; current/round3-pmo-plm-results.json: FAIL PMO task rejects completion above 100 percent |
+| SERVICE-0528 | PMO / Budgets | addProjectMilestone | src/lib/services/pmo.ts:723 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO milestone create and achieve sets actual date |
+| SERVICE-0529 | PMO / Budgets | updateProjectMilestone | src/lib/services/pmo.ts:744 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO milestone create and achieve sets actual date |
+| SERVICE-0530 | PMO / Budgets | saveWikiPage | src/lib/services/pmo.ts:768 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO wiki create/update body round-trip |
+| SERVICE-0531 | PMO / Budgets | deleteWikiPage | src/lib/services/pmo.ts:812 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0532 | PMO / Budgets | createPiIncrement | src/lib/services/pmo.ts:818 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO PI and feature action links story points |
+| SERVICE-0533 | PMO / Budgets | updatePiIncrement | src/lib/services/pmo.ts:851 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0534 | PMO / Budgets | addPiFeature | src/lib/services/pmo.ts:871 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO PI and feature action links story points |
+| SERVICE-0535 | PMO / Budgets | addCostEntry | src/lib/services/pmo.ts:897 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO cost action reconciles project/product rollups |
+| SERVICE-0536 | PMO / Budgets | recomputeProjectDevelopmentCost | src/lib/services/pmo.ts:932 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO cost action reconciles project/product rollups |
+| SERVICE-0537 | PMO / Budgets | recomputeProductDevelopmentCost | src/lib/services/pmo.ts:946 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO cost action reconciles project/product rollups |
+| SERVICE-0538 | PMO / Budgets | syncRequirementsToProduct | src/lib/services/pmo.ts:973 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO requirement create/sync actions are repeat-idempotent |
+| SERVICE-0539 | PMO / Budgets | syncMilestonesToProduct | src/lib/services/pmo.ts:1033 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO milestone sync action is repeat-idempotent |
+| SERVICE-0540 | PMO / Budgets | addProjectRequirement | src/lib/services/pmo.ts:1085 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO requirement create/sync actions are repeat-idempotent |
+| SERVICE-0541 | PMO / Budgets | linkProductToProject | src/lib/services/pmo.ts:1120 | PASS | ; current/round3-pmo-plm-results.json: PASS PMO linked product action is repeat-idempotent |
+| SERVICE-0542 | PMO / Budgets | getProjectDetail | src/lib/services/pmo.ts:1141 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0543 | PMO / Budgets | listProjects | src/lib/services/pmo.ts:1191 | PASS | pmo listProjects |
+| SERVICE-0544 | PMO / Budgets | listPlanningQuarters | src/lib/services/pmo.ts:1230 | PASS | pmo listPlanningQuarters |
+| SERVICE-0545 | PMO / Budgets | createPlanningQuarter | src/lib/services/pmo.ts:1242 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0546 | PMO / Budgets | updatePlanningQuarter | src/lib/services/pmo.ts:1270 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0547 | PMO / Budgets | createPmoSprint | src/lib/services/pmo.ts:1290 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0548 | Purchasing / Receiving | amendPurchaseOrder | src/lib/services/po-amend.ts:82 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0549 | Purchasing / Receiving | decidePoAmendment | src/lib/services/po-amend.ts:155 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0550 | Purchasing / Receiving | listPoAmendmentsForUser | src/lib/services/po-amend.ts:237 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0551 | Purchasing / Receiving | updatePoDeliveryDates | src/lib/services/po-amend.ts:292 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0552 | Accounting / GovCon | roundMoney | src/lib/services/posting-rules.ts:10 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0553 | Accounting / GovCon | roundRate | src/lib/services/posting-rules.ts:14 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0554 | Accounting / GovCon | journalBalanceError | src/lib/services/posting-rules.ts:21 | PASS | scripts/smoke-unit.ts; scenario only |
+| SERVICE-0555 | Accounting / GovCon | isPeriodLocked | src/lib/services/posting-rules.ts:31 | PASS | scripts/smoke-unit.ts; scenario only |
+| SERVICE-0556 | Accounting / GovCon | journalApprovalBlock | src/lib/services/posting-rules.ts:46 | PASS | scripts/smoke-unit.ts; scenario only |
+| SERVICE-0557 | Accounting / GovCon | netIncurred | src/lib/services/posting-rules.ts:99 | PASS | scripts/smoke-unit.ts; scenario only |
+| SERVICE-0558 | Accounting / GovCon | allowablePoolCosts | src/lib/services/posting-rules.ts:147 | PASS | scripts/smoke-unit.ts; scenario only |
+| SERVICE-0559 | Accounting / GovCon | actualIndirectRate | src/lib/services/posting-rules.ts:156 | PASS | scripts/smoke-unit.ts; scenario only |
+| SERVICE-0560 | Accounting / GovCon | allocateIndirect | src/lib/services/posting-rules.ts:164 | PASS | scripts/smoke-unit.ts; scenario only |
+| SERVICE-0561 | Accounting / GovCon | programOutlook | src/lib/services/posting-rules.ts:174 | PASS | scripts/smoke-unit.ts; scenario only |
+| SERVICE-0562 | Accounting / GovCon | completionEntry | src/lib/services/posting-rules.ts:209 | PASS | scripts/smoke-unit.ts; scenario only |
+| SERVICE-0563 | Accounting / GovCon | provisionalBilling | src/lib/services/posting-rules.ts:252 | PASS | scripts/smoke-unit.ts; scenario only |
+| SERVICE-0564 | Accounting / GovCon | weekdayShortfalls | src/lib/services/posting-rules.ts:287 | PASS | scripts/smoke-unit.ts; scenario only |
+| SERVICE-0565 | Accounting / GovCon | describeTimeEdits | src/lib/services/posting-rules.ts:320 | PASS | scripts/smoke-unit.ts; scenario only |
+| SERVICE-0566 | Accounting / GovCon | gfpContractMatches | src/lib/services/posting-rules.ts:380 | PASS | scripts/smoke-unit.ts; scenario only |
+| SERVICE-0567 | Purchasing / Receiving | getPrChargeSnapshot | src/lib/services/pr-buyer.ts:8 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0568 | Purchasing / Receiving | saveBuyerPackage | src/lib/services/pr-buyer.ts:102 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0569 | Purchasing / Receiving | assignPrBuyer | src/lib/services/pr-buyer.ts:241 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0570 | Purchasing / Receiving | ensureBuyerScanIn | src/lib/services/pr-buyer.ts:308 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0571 | Purchasing / Receiving | clockOutBuyerWork | src/lib/services/pr-buyer.ts:352 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0572 | Purchasing / Receiving | confirmBuyerPackageStep | src/lib/services/pr-buyer.ts:475 | PASS | priority-results.json: FAIL Same admin cannot sign demand AND buyer on same PR; FIX VERIFIED current 3de5ba1: integrity-retest.log / bom-lifecycle-retest.log and current HTTP retests |
+| SERVICE-0573 | Purchasing / Receiving | isBuyerPackageComplete | src/lib/services/pr-buyer.ts:648 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0951 | Purchasing / Receiving | assertSeparatePrSigner | src/lib/services/pr-signers.ts:6 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0574 | PLM / BOM / ECO | createProduct | src/lib/services/products.ts:67 | PASS | ; current/round3-pmo-plm-results.json: PASS PLM create action persists product and CM folder |
+| SERVICE-0575 | PLM / BOM / ECO | updateProduct | src/lib/services/products.ts:213 | PASS | ; current/round3-pmo-plm-results.json: PASS PLM update action persists cost and revision |
+| SERVICE-0576 | PLM / BOM / ECO | advanceProductLifecycle | src/lib/services/products.ts:384 | PASS | ; current/round3-pmo-plm-results.json: PASS PLM lifecycle action records phase/date/history |
+| SERVICE-0577 | PLM / BOM / ECO | addProductPart | src/lib/services/products.ts:471 | PASS | ; current/round3-pmo-plm-results.json: PASS PLM part add/remove actions maintain top-level pointer |
+| SERVICE-0578 | PLM / BOM / ECO | removeProductPart | src/lib/services/products.ts:496 | PASS | ; current/round3-pmo-plm-results.json: PASS PLM part add/remove actions maintain top-level pointer |
+| SERVICE-0579 | PLM / BOM / ECO | addProductDocument | src/lib/services/products.ts:512 | PASS | ; current/round3-pmo-plm-results.json: PASS PLM document add/remove actions persist and remove link |
+| SERVICE-0580 | PLM / BOM / ECO | removeProductDocument | src/lib/services/products.ts:541 | PASS | ; current/round3-pmo-plm-results.json: PASS PLM document add/remove actions persist and remove link |
+| SERVICE-0581 | PLM / BOM / ECO | addProductRequirement | src/lib/services/products.ts:545 | PASS | ; current/round3-pmo-plm-results.json: PASS PLM requirements create/update/remove actions |
+| SERVICE-0582 | PLM / BOM / ECO | updateProductRequirement | src/lib/services/products.ts:582 | PASS | ; current/round3-pmo-plm-results.json: PASS PLM requirements create/update/remove actions |
+| SERVICE-0583 | PLM / BOM / ECO | removeProductRequirement | src/lib/services/products.ts:616 | PASS | ; current/round3-pmo-plm-results.json: PASS PLM requirements create/update/remove actions |
+| SERVICE-0584 | PLM / BOM / ECO | addProductVariant | src/lib/services/products.ts:620 | PASS | ; current/round3-pmo-plm-results.json: PASS PLM variants unique default and remove actions |
+| SERVICE-0585 | PLM / BOM / ECO | removeProductVariant | src/lib/services/products.ts:651 | PASS | ; current/round3-pmo-plm-results.json: PASS PLM variants unique default and remove actions |
+| SERVICE-0586 | PLM / BOM / ECO | addProductMilestone | src/lib/services/products.ts:655 | PASS | ; current/round3-pmo-plm-results.json: PASS PLM milestone add/update/remove actions |
+| SERVICE-0587 | PLM / BOM / ECO | updateProductMilestone | src/lib/services/products.ts:681 | PASS | ; current/round3-pmo-plm-results.json: PASS PLM milestone add/update/remove actions |
+| SERVICE-0588 | PLM / BOM / ECO | removeProductMilestone | src/lib/services/products.ts:703 | PASS | ; current/round3-pmo-plm-results.json: PASS PLM milestone add/update/remove actions |
+| SERVICE-0589 | PLM / BOM / ECO | addProductMember | src/lib/services/products.ts:707 | PASS | ; current/round3-pmo-plm-results.json: PASS PLM team add/remove actions |
+| SERVICE-0590 | PLM / BOM / ECO | removeProductMember | src/lib/services/products.ts:723 | PASS | ; current/round3-pmo-plm-results.json: PASS PLM team add/remove actions |
+| SERVICE-0591 | PLM / BOM / ECO | listProducts | src/lib/services/products.ts:727 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0592 | PLM / BOM / ECO | getProductDetail | src/lib/services/products.ts:773 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0593 | PLM / BOM / ECO | productFieldsFromForm | src/lib/services/products.ts:843 | PASS | ; current/round3-pmo-plm-results.json: PASS PLM create action persists product and CM folder |
+| SERVICE-0594 | PMO / Budgets | getProgramFinancials | src/lib/services/program-financials.ts:40 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0595 | PMO / Budgets | booksIncurredByProgram | src/lib/services/program-financials.ts:152 | PASS | program-financials booksIncurredByProgram |
+| SERVICE-0596 | PMO / Budgets | computeIndirectRates | src/lib/services/program-financials.ts:173 | PASS | program-financials computeIndirectRates |
+| SERVICE-0597 | PMO / Budgets | jobCostRows | src/lib/services/program-financials.ts:240 | PASS | program-financials jobCostRows |
+| SERVICE-0598 | PMO / Budgets | laborDistributionRows | src/lib/services/program-financials.ts:299 | PASS | program-financials laborDistributionRows |
+| SERVICE-0599 | PMO / Budgets | wipValuationRows | src/lib/services/program-financials.ts:338 | PASS | program-financials wipValuationRows |
+| SERVICE-0600 | PMO / Budgets | reportProgramPl | src/lib/services/program-financials.ts:386 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0601 | PMO / Budgets | reportJobProfit | src/lib/services/program-financials.ts:425 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0602 | PMO / Budgets | reportWipBooks | src/lib/services/program-financials.ts:462 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0603 | PMO / Budgets | reportLaborDistribution | src/lib/services/program-financials.ts:471 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0604 | PMO / Budgets | reportIndirectRates | src/lib/services/program-financials.ts:502 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0605 | PMO / Budgets | reportUnallowables | src/lib/services/program-financials.ts:525 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0606 | PMO / Budgets | reportIce | src/lib/services/program-financials.ts:568 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0607 | PMO / Budgets | reportGlDetail | src/lib/services/program-financials.ts:628 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0608 | PMO / Budgets | submitProgramPolicyToCm | src/lib/services/program-policy.ts:18 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0609 | PMO / Budgets | linkExistingPolicy | src/lib/services/program-policy.ts:51 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0610 | PMO / Budgets | getProgramPolicy | src/lib/services/program-policy.ts:68 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0611 | PMO / Budgets | listPolicyCandidates | src/lib/services/program-policy.ts:106 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0612 | Purchasing / Receiving | prRequiresCatalogParts | src/lib/services/purchase-requests.ts:30 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0613 | Purchasing / Receiving | createStandalonePurchaseRequest | src/lib/services/purchase-requests.ts:55 | PASS | finance-supply-results.json: PASS PR catalog validation rejects unknown/inactive parts before writes; finance-supply-results.json: PASS PR routing, buyer action, final approval and PO conversion actions |
+| SERVICE-0614 | Purchasing / Receiving | submitDraftPurchaseRequest | src/lib/services/purchase-requests.ts:276 | PASS | priority-results.json: PASS Standalone PR draft action + submission routes approvals |
+| SERVICE-0615 | Quality / NCR | defaultIncidentSteps | src/lib/services/quality-incidents.ts:14 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0616 | Quality / NCR | linkCalToolToMrb | src/lib/services/quality-incidents.ts:55 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0617 | Quality / NCR | setCalToolDisposition | src/lib/services/quality-incidents.ts:78 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0618 | Quality / NCR | triggerIncidentFromMrb | src/lib/services/quality-incidents.ts:104 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0619 | Quality / NCR | logCounterfeitIncident | src/lib/services/quality-incidents.ts:147 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0620 | Quality / NCR | sendCounterfeitToMrb | src/lib/services/quality-incidents.ts:182 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0621 | Quality / NCR | updateIncidentSteps | src/lib/services/quality-incidents.ts:220 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0622 | Quality / NCR | setIncidentResult | src/lib/services/quality-incidents.ts:224 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0623 | Quality / NCR | mrbCasesForTools | src/lib/services/quality-incidents.ts:230 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0624 | Quality / NCR | ensureQualityPrograms | src/lib/services/quality-programs.ts:31 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0625 | Quality / NCR | statusFor | src/lib/services/quality-programs.ts:59 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0626 | Quality / NCR | refreshProgramStatuses | src/lib/services/quality-programs.ts:69 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0627 | Quality / NCR | getProgramByKey | src/lib/services/quality-programs.ts:79 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0628 | Quality / NCR | createQualityItem | src/lib/services/quality-programs.ts:83 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0629 | Quality / NCR | setItemStatus | src/lib/services/quality-programs.ts:131 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0630 | Quality / NCR | recordQualityEvent | src/lib/services/quality-programs.ts:139 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0631 | Quality / NCR | qualityComplianceSummary | src/lib/services/quality-programs.ts:193 | PASS | quality-programs qualityComplianceSummary |
+| SERVICE-0632 | Platform / Other | getRadiatorSlides | src/lib/services/radiators.ts:28 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0633 | Purchasing / Receiving | guideForReceivingInspection | src/lib/services/receiving-station-guide.ts:28 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0634 | Purchasing / Receiving | batchStationNextGuides | src/lib/services/receiving-station-guide.ts:159 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0635 | Purchasing / Receiving | defaultStationCode | src/lib/services/receiving-time.ts:23 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0636 | Purchasing / Receiving | scanIntoReceivingTraveler | src/lib/services/receiving-time.ts:92 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0637 | Purchasing / Receiving | scanOutOfReceivingTraveler | src/lib/services/receiving-time.ts:162 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0638 | Purchasing / Receiving | materialHandlerHasOpenWork | src/lib/services/receiving-time.ts:273 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0639 | Purchasing / Receiving | scanOutFamilyIfNoMhWork | src/lib/services/receiving-time.ts:355 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0640 | Purchasing / Receiving | deliverTravelerToStation | src/lib/services/receiving-time.ts:414 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0641 | Purchasing / Receiving | clearTravelerStation | src/lib/services/receiving-time.ts:519 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0642 | Purchasing / Receiving | stationAreaOf | src/lib/services/receiving-time.ts:540 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0643 | Purchasing / Receiving | inferDeliverArea | src/lib/services/receiving-time.ts:555 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0644 | Purchasing / Receiving | nextActionForTraveler | src/lib/services/receiving-ui.ts:10 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0645 | Purchasing / Receiving | stepperState | src/lib/services/receiving-ui.ts:254 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0646 | Purchasing / Receiving | listNextLabel | src/lib/services/receiving-ui.ts:311 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0647 | HR / Time | createRequisition | src/lib/services/recruiting.ts:66 | PASS | ; current/round3-hr-auth-results.json: PASS HR recruiting requisition create/update actions; main151: PASS HR recruiting requisition create/update actions |
+| SERVICE-0648 | HR / Time | updateRequisitionStatus | src/lib/services/recruiting.ts:107 | PASS | ; current/round3-hr-auth-results.json: PASS HR recruiting requisition create/update actions; main151: PASS HR recruiting requisition create/update actions |
+| SERVICE-0649 | HR / Time | addCandidate | src/lib/services/recruiting.ts:120 | PASS | ; current/round3-hr-auth-results.json: PASS HR candidate create/stage/hire creates one onboarding; main151: PASS HR candidate create/stage/hire creates one onboarding |
+| SERVICE-0650 | HR / Time | moveCandidateStage | src/lib/services/recruiting.ts:156 | PASS | ; current/round3-hr-auth-results.json: PASS HR candidate create/stage/hire creates one onboarding; main151: PASS HR candidate create/stage/hire creates one onboarding |
+| SERVICE-0651 | HR / Time | createOnboarding | src/lib/services/recruiting.ts:208 | PASS | ; current/round3-hr-auth-results.json: PASS HR candidate create/stage/hire creates one onboarding; main151: PASS HR candidate create/stage/hire creates one onboarding |
+| SERVICE-0652 | HR / Time | updateOnboarding | src/lib/services/recruiting.ts:251 | PASS | ; current/round3-hr-auth-results.json: PASS HR onboarding update/checklist gate and full completion; main151: PASS HR onboarding update/checklist gate and full completion |
+| SERVICE-0653 | HR / Time | setChecklistItem | src/lib/services/recruiting.ts:263 | PASS | ; current/round3-hr-auth-results.json: PASS HR onboarding update/checklist gate and full completion; main151: PASS HR onboarding update/checklist gate and full completion |
+| SERVICE-0654 | HR / Time | completeOnboarding | src/lib/services/recruiting.ts:297 | PASS | ; current/round3-hr-auth-results.json: PASS HR onboarding update/checklist gate and full completion; main151: PASS HR onboarding update/checklist gate and full completion |
+| SERVICE-0655 | HR / Time | recordBackgroundCheck | src/lib/services/recruiting.ts:331 | PASS | ; current/round3-hr-auth-results.json: PASS HR background record/update actions link candidate; main151: PASS HR background record/update actions link candidate |
+| SERVICE-0656 | HR / Time | updateBackgroundCheck | src/lib/services/recruiting.ts:373 | PASS | ; current/round3-hr-auth-results.json: PASS HR background record/update actions link candidate; main151: PASS HR background record/update actions link candidate |
+| SERVICE-0657 | Accounting / GovCon | computeNextRun | src/lib/services/recurring-journals.ts:22 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0658 | Accounting / GovCon | createRecurringJournal | src/lib/services/recurring-journals.ts:53 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0659 | Accounting / GovCon | setRecurringJournalActive | src/lib/services/recurring-journals.ts:87 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0660 | Accounting / GovCon | deleteRecurringJournal | src/lib/services/recurring-journals.ts:110 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0661 | Accounting / GovCon | listRecurringJournals | src/lib/services/recurring-journals.ts:114 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0662 | Accounting / GovCon | runDueRecurringJournals | src/lib/services/recurring-journals.ts:159 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0663 | Reports | runCustomReport | src/lib/services/report-builder.ts:346 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0664 | Reports | runReport | src/lib/services/reports.ts:90 | PASS | Report ice run and CSV |
+| SERVICE-0665 | Reports | toCsv | src/lib/services/reports.ts:447 | PASS | Report ice run and CSV |
+| SERVICE-0666 | PLM / BOM / ECO | createRequirement | src/lib/services/requirements.ts:43 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0667 | PLM / BOM / ECO | updateRequirementStatus | src/lib/services/requirements.ts:106 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0668 | PLM / BOM / ECO | linkRequirementToWork | src/lib/services/requirements.ts:152 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0669 | PLM / BOM / ECO | removeRequirementTrace | src/lib/services/requirements.ts:203 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0670 | PLM / BOM / ECO | getRequirementsBoard | src/lib/services/requirements.ts:223 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0671 | HR / Time | getReviewPolicy | src/lib/services/review-cycles.ts:15 | PASS | ; current/round3-reviews-results.json: PASS HR review policy save and cycle opening are idempotent |
+| SERVICE-0672 | HR / Time | parseReviewQuestions | src/lib/services/review-cycles.ts:34 | PASS | ; current/round3-reviews-results.json: PASS HR review policy save and cycle opening are idempotent |
+| SERVICE-0673 | HR / Time | saveReviewPolicy | src/lib/services/review-cycles.ts:51 | PASS | ; current/round3-reviews-results.json: PASS HR review policy save and cycle opening are idempotent |
+| SERVICE-0674 | HR / Time | openDueReviewCycles | src/lib/services/review-cycles.ts:105 | PASS | ; current/round3-reviews-results.json: PASS HR review policy save and cycle opening are idempotent |
+| SERVICE-0675 | HR / Time | submitSelfReview | src/lib/services/review-cycles.ts:162 | PASS | ; current/round3-reviews-results.json: PASS HR self-review foreign principal denied and owner submission advances |
+| SERVICE-0676 | HR / Time | saveManagerReviewNotes | src/lib/services/review-cycles.ts:202 | FAIL | ; current/round3-reviews-results.json: PASS HR manager review requires rationale and can write discussion notes; current/round3-reviews-results.json: FAIL HR manager score must remain within the documented 1-to-5 scale |
+| SERVICE-0677 | HR / Time | signOffReview | src/lib/services/review-cycles.ts:286 | PASS | ; current/round3-reviews-results.json: PASS HR employee+manager sign-off completes only after both parties |
+| SERVICE-0678 | HR / Time | canViewPerson | src/lib/services/review-cycles.ts:344 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0679 | HR / Time | getPersonPage | src/lib/services/review-cycles.ts:355 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0680 | HR / Time | parseSelfRatings | src/lib/services/review-cycles.ts:388 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0681 | Service / Assets | lookupForRma | src/lib/services/rma.ts:41 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0682 | Service / Assets | createRmaRequest | src/lib/services/rma.ts:86 | PASS | scripts/verify/chunk-serials-rma.ts; scenario only |
+| SERVICE-0683 | Service / Assets | issueRma | src/lib/services/rma.ts:172 | PASS | scripts/verify/chunk-serials-rma.ts; scenario only |
+| SERVICE-0684 | Service / Assets | createRepairQuoteForRma | src/lib/services/rma.ts:250 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0685 | Service / Assets | acceptRepairQuote | src/lib/services/rma.ts:310 | PASS | scripts/verify/chunk-serials-rma.ts; scenario only |
+| SERVICE-0686 | Service / Assets | createRepairWorkOrderFromRma | src/lib/services/rma.ts:351 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0687 | Service / Assets | updateRepairQuote | src/lib/services/rma.ts:431 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0688 | Service / Assets | adjustRmaQuotePrice | src/lib/services/rma.ts:518 | PASS | scripts/verify/chunk-serials-rma.ts; scenario only |
+| SERVICE-0689 | Service / Assets | listRmas | src/lib/services/rma.ts:588 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0690 | Service / Assets | getRmaDetail | src/lib/services/rma.ts:603 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0691 | Planning / Scheduling | getPlanningSettings | src/lib/services/schedule.ts:74 | PASS | schedule getPlanningSettings |
+| SERVICE-0692 | Planning / Scheduling | savePlanningSettings | src/lib/services/schedule.ts:93 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0693 | Planning / Scheduling | isWorkingDay | src/lib/services/schedule.ts:116 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0694 | Planning / Scheduling | resolveMinutesPerDaySync | src/lib/services/schedule.ts:127 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0695 | Planning / Scheduling | resolveMinutesPerDay | src/lib/services/schedule.ts:137 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0696 | Planning / Scheduling | nextWorkingStart | src/lib/services/schedule.ts:227 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0697 | Planning / Scheduling | endOfWorkingDay | src/lib/services/schedule.ts:242 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0698 | Planning / Scheduling | subtractWorkingMinutes | src/lib/services/schedule.ts:256 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0699 | Planning / Scheduling | addWorkingMinutes | src/lib/services/schedule.ts:297 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0700 | Planning / Scheduling | workingMinutesBetween | src/lib/services/schedule.ts:342 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0701 | Planning / Scheduling | overlapWorkingHours | src/lib/services/schedule.ts:383 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0702 | Planning / Scheduling | computeEstimateFromSteps | src/lib/services/schedule.ts:415 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0703 | Planning / Scheduling | computeWorkOrderEstimate | src/lib/services/schedule.ts:453 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0704 | Planning / Scheduling | refreshWorkOrderEstimate | src/lib/services/schedule.ts:506 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0705 | Planning / Scheduling | estimateMinutesForWorkInstructions | src/lib/services/schedule.ts:530 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0706 | Planning / Scheduling | buildCalendarContext | src/lib/services/schedule.ts:562 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0707 | Planning / Scheduling | backSchedule | src/lib/services/schedule.ts:584 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0708 | Planning / Scheduling | forwardSchedule | src/lib/services/schedule.ts:610 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0709 | Planning / Scheduling | rescheduleWorkOrder | src/lib/services/schedule.ts:640 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0710 | Planning / Scheduling | resolveBuyLeadDays | src/lib/services/schedule.ts:754 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0711 | Planning / Scheduling | neededByFromLead | src/lib/services/schedule.ts:780 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0712 | Planning / Scheduling | defaultChildOffsetMinutes | src/lib/services/schedule.ts:795 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0713 | Planning / Scheduling | calendarDaysBetween | src/lib/services/schedule.ts:803 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0714 | Planning / Scheduling | bulkRescheduleOpenWorkOrders | src/lib/services/schedule.ts:810 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0715 | Planning / Scheduling | reportLabel | src/lib/services/scheduled-reports.ts:22 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0716 | Planning / Scheduling | createScheduledReport | src/lib/services/scheduled-reports.ts:33 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0717 | Planning / Scheduling | setScheduledReportActive | src/lib/services/scheduled-reports.ts:60 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0718 | Planning / Scheduling | deleteScheduledReport | src/lib/services/scheduled-reports.ts:74 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0719 | Planning / Scheduling | listScheduledReports | src/lib/services/scheduled-reports.ts:78 | PASS | scheduled-reports listScheduledReports |
+| SERVICE-0720 | Planning / Scheduling | runDueScheduledReports | src/lib/services/scheduled-reports.ts:141 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0721 | Manufacturing / Test | mintSerial | src/lib/services/serials.ts:24 | PASS | scripts/verify/chunk-serials-rma.ts; scenario only |
+| SERVICE-0722 | Manufacturing / Test | ensureWorkOrderUnits | src/lib/services/serials.ts:62 | PASS | scripts/verify/chunk-serials-rma.ts; scenario only |
+| SERVICE-0723 | Manufacturing / Test | assignUnitSerial | src/lib/services/serials.ts:97 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0724 | Manufacturing / Test | assignKitSerialToUnit | src/lib/services/serials.ts:152 | PASS | scripts/verify/chunk-serials-rma.ts; scenario only |
+| SERVICE-0725 | Manufacturing / Test | listKitSerialPlan | src/lib/services/serials.ts:221 | PASS | scripts/verify/chunk-serials-rma.ts; scenario only |
+| SERVICE-0726 | Manufacturing / Test | installSerial | src/lib/services/serials.ts:234 | PASS | scripts/verify/chunk-serials-rma.ts; scenario only |
+| SERVICE-0727 | Manufacturing / Test | removeSerialInstall | src/lib/services/serials.ts:319 | PASS | scripts/verify/chunk-serials-rma.ts; scenario only |
+| SERVICE-0728 | Manufacturing / Test | openMrbForTornDownSerial | src/lib/services/serials.ts:387 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0729 | Manufacturing / Test | getSerialTree | src/lib/services/serials.ts:468 | PASS | scripts/verify/chunk-serials-rma.ts; scenario only |
+| SERVICE-0730 | Manufacturing / Test | build | src/lib/services/serials.ts:480 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0731 | Manufacturing / Test | whereUsedSerial | src/lib/services/serials.ts:539 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0732 | Manufacturing / Test | findSerial | src/lib/services/serials.ts:557 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0733 | Manufacturing / Test | listSerials | src/lib/services/serials.ts:574 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0734 | Manufacturing / Test | startWarranty | src/lib/services/serials.ts:604 | PASS | scripts/verify/chunk-serials-rma.ts; scenario only |
+| SERVICE-0735 | Manufacturing / Test | evaluateWarranty | src/lib/services/serials.ts:634 | PASS | scripts/verify/chunk-serials-rma.ts; scenario only |
+| SERVICE-0736 | Inventory / Kitting | computeExpiry | src/lib/services/shelf-life.ts:20 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0737 | Inventory / Kitting | recordLot | src/lib/services/shelf-life.ts:34 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0738 | Inventory / Kitting | getExpiringLots | src/lib/services/shelf-life.ts:102 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0739 | Inventory / Kitting | getExpirySummary | src/lib/services/shelf-life.ts:141 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0740 | Inventory / Kitting | checkLotUsable | src/lib/services/shelf-life.ts:156 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0741 | Inventory / Kitting | quarantineExpiredLots | src/lib/services/shelf-life.ts:176 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0742 | Inventory / Kitting | getLotsForPart | src/lib/services/shelf-life.ts:205 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0743 | Accounts / Roles | verifySignaturePin | src/lib/services/signature-pin.ts:8 | PASS | scripts/test-docs.ts; scenario only |
+| SERVICE-0744 | Accounts / Roles | captureSignupLead | src/lib/services/signup-lead.ts:16 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0745 | Manufacturing / Test | listStockSerialsForParts | src/lib/services/stock-serials.ts:4 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0746 | Billing / Founding | buildIntroScheduleUpdate | src/lib/services/stripe-intro.ts:14 | PASS | scripts/smoke-unit.ts; scenario only |
+| SERVICE-0747 | Billing / Founding | stripeEnabled | src/lib/services/stripe.ts:46 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0748 | Billing / Founding | priceIdForPlan | src/lib/services/stripe.ts:58 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0749 | Billing / Founding | firstYearPriceIdForPlan | src/lib/services/stripe.ts:63 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0750 | Billing / Founding | retrieveCheckoutSession | src/lib/services/stripe.ts:165 | PASS | scripts/test-founding-billing.ts; scenario only |
+| SERVICE-0751 | Billing / Founding | createCheckoutSession | src/lib/services/stripe.ts:215 | PASS | scripts/test-founding-billing.ts; scenario only |
+| SERVICE-0752 | Billing / Founding | createTrialCheckoutSession | src/lib/services/stripe.ts:313 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0753 | Billing / Founding | ensureIntroRenewalSchedule | src/lib/services/stripe.ts:401 | PASS | scripts/test-founding-billing.ts; scenario only |
+| SERVICE-0754 | Billing / Founding | verifyWebhook | src/lib/services/stripe.ts:469 | PASS | scripts/test-founding-billing.ts; scenario only |
+| SERVICE-0755 | Billing / Founding | handleWebhookEvent | src/lib/services/stripe.ts:537 | PASS | scripts/test-founding-billing.ts; scenario only |
+| SERVICE-0756 | Billing / Founding | owner | src/lib/services/stripe.ts:552 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0757 | Billing / Founding | membershipFor | src/lib/services/stripe.ts:567 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0758 | Billing / Founding | subscriptionIdForEvent | src/lib/services/stripe.ts:632 | PASS | scripts/test-founding-billing.ts; scenario only |
+| SERVICE-0759 | Billing / Founding | isFreeShop | src/lib/services/subscription-plans.ts:140 | PASS | scripts/smoke-unit.ts; scenario only |
+| SERVICE-0760 | Billing / Founding | paidShopSeats | src/lib/services/subscription-plans.ts:147 | PASS | scripts/smoke-unit.ts; scenario only |
+| SERVICE-0761 | Billing / Founding | getPlan | src/lib/services/subscription-plans.ts:184 | PASS | scripts/smoke-unit.ts; scenario only |
+| SERVICE-0762 | Billing / Founding | isPerSeatPlan | src/lib/services/subscription-plans.ts:188 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0763 | Billing / Founding | normalizeSeats | src/lib/services/subscription-plans.ts:194 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0764 | Billing / Founding | formatPlanMoney | src/lib/services/subscription-plans.ts:208 | PASS | scripts/smoke-unit.ts; scenario only |
+| SERVICE-0765 | Billing / Founding | priceCents | src/lib/services/subscription-plans.ts:212 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0766 | Billing / Founding | firstYearBillingCycles | src/lib/services/subscription-plans.ts:220 | PASS | scripts/smoke-unit.ts; scenario only |
+| SERVICE-0767 | Billing / Founding | shopFirstYearMonthly | src/lib/services/subscription-plans.ts:227 | PASS | scripts/smoke-unit.ts; scenario only |
+| SERVICE-0768 | Billing / Founding | firstYearPeriodPriceForPlan | src/lib/services/subscription-plans.ts:239 | PASS | scripts/smoke-unit.ts; scenario only |
+| SERVICE-0769 | Billing / Founding | periodPriceForPlan | src/lib/services/subscription-plans.ts:255 | PASS | scripts/smoke-unit.ts; scenario only |
+| SERVICE-0770 | Billing / Founding | annualPriceForPlan | src/lib/services/subscription-plans.ts:267 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0771 | Billing / Founding | planSeatsLabel | src/lib/services/subscription-plans.ts:280 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0772 | Billing / Founding | planPriceView | src/lib/services/subscription-plans.ts:303 | PASS | scripts/smoke-unit.ts; scenario only |
+| SERVICE-0773 | Billing / Founding | firstYearOfferSummary | src/lib/services/subscription-plans.ts:358 | PASS | scripts/smoke-unit.ts; scenario only |
+| SERVICE-0774 | Billing / Founding | pricingSectionLead | src/lib/services/subscription-plans.ts:368 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0775 | Billing / Founding | addBillingCycles | src/lib/services/subscription-plans.ts:373 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0776 | Billing / Founding | getSeatUsage | src/lib/services/subscription.ts:83 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0777 | Billing / Founding | assertSeatAvailableForInvite | src/lib/services/subscription.ts:131 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0778 | Billing / Founding | assertSeatAvailableForAccept | src/lib/services/subscription.ts:184 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0779 | Billing / Founding | getSubscriptionState | src/lib/services/subscription.ts:242 | PASS | scripts/test-founding-billing.ts; scenario only |
+| SERVICE-0780 | Billing / Founding | startTrial | src/lib/services/subscription.ts:312 | PASS | scripts/test-founding-billing.ts; scenario only |
+| SERVICE-0781 | Billing / Founding | activatePlan | src/lib/services/subscription.ts:338 | PASS | scripts/test-founding-billing.ts; scenario only |
+| SERVICE-0782 | Billing / Founding | cancelSubscription | src/lib/services/subscription.ts:401 | PASS | scripts/test-founding-billing.ts; scenario only |
+| SERVICE-0783 | Platform / Other | isSupportStaffRole | src/lib/services/support.ts:46 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0784 | Platform / Other | listSupportStaffNotifyEmails | src/lib/services/support.ts:61 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0785 | Platform / Other | notifySupportStaff | src/lib/services/support.ts:82 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0786 | Platform / Other | createSupportTicket | src/lib/services/support.ts:189 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0787 | Platform / Other | createGuestSupportTicket | src/lib/services/support.ts:265 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0788 | Platform / Other | listMySupportTickets | src/lib/services/support.ts:345 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0789 | Platform / Other | listSupportTicketsByGuestEmail | src/lib/services/support.ts:357 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0790 | Platform / Other | listAllSupportTickets | src/lib/services/support.ts:370 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0791 | Platform / Other | countOpenSupportForStaff | src/lib/services/support.ts:401 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0792 | Platform / Other | countUnreadRepliesForUser | src/lib/services/support.ts:410 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0793 | Platform / Other | getSupportTicket | src/lib/services/support.ts:422 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0794 | Platform / Other | getSupportTicketByGuestToken | src/lib/services/support.ts:446 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0795 | Platform / Other | canAccessTicket | src/lib/services/support.ts:463 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0796 | Platform / Other | postSupportMessage | src/lib/services/support.ts:473 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0797 | Platform / Other | addSupportNote | src/lib/services/support.ts:570 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0798 | Platform / Other | updateSupportTicket | src/lib/services/support.ts:606 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0799 | Platform / Other | listPlatformAdmins | src/lib/services/support.ts:689 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0800 | Platform / Other | isTypingActive | src/lib/services/support.ts:699 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0801 | Platform / Other | setSupportTyping | src/lib/services/support.ts:705 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0802 | Platform / Other | markSupportThreadRead | src/lib/services/support.ts:736 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0803 | Accounting / GovCon | getTaxYear | src/lib/services/tax-tables.ts:119 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0804 | Accounting / GovCon | annualIncomeTax | src/lib/services/tax-tables.ts:126 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0805 | Accounting / GovCon | computeFederalWithholding | src/lib/services/tax-tables.ts:149 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0806 | Accounting / GovCon | computeFica | src/lib/services/tax-tables.ts:188 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0807 | Platform / Other | recordEvent | src/lib/services/telemetry.ts:67 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0808 | Platform / Other | trackEvent | src/lib/services/telemetry.ts:96 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0809 | Platform / Other | getTelemetryHealth | src/lib/services/telemetry.ts:114 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0810 | Platform / Other | getDemoFunnel | src/lib/services/telemetry.ts:154 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0811 | Platform / Other | getTopPages | src/lib/services/telemetry.ts:199 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0812 | Platform / Other | getTopActions | src/lib/services/telemetry.ts:217 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0813 | Platform / Other | issueFingerprint | src/lib/services/telemetry.ts:270 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0814 | Platform / Other | getErrorGroups | src/lib/services/telemetry.ts:308 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0815 | Platform / Other | getIssueTrackingHealth | src/lib/services/telemetry.ts:415 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0816 | Platform / Other | setIssueStatus | src/lib/services/telemetry.ts:427 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0817 | Platform / Other | getIssueHistories | src/lib/services/telemetry.ts:502 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0818 | Platform / Other | getLiveDemos | src/lib/services/telemetry.ts:566 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0819 | Platform / Other | getDailyStarts | src/lib/services/telemetry.ts:606 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0820 | Demo / Tenancy | applyHardening | src/lib/services/tenancy.ts:121 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0821 | Demo / Tenancy | provisionSchema | src/lib/services/tenancy.ts:129 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0822 | Demo / Tenancy | dropSchema | src/lib/services/tenancy.ts:149 | PASS | demo-results.json: PASS Demo invalid schema names and public clone/drop protected |
+| SERVICE-0823 | Demo / Tenancy | createTenant | src/lib/services/tenancy.ts:164 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0824 | Demo / Tenancy | getTenantBySchema | src/lib/services/tenancy.ts:202 | PASS | demo-results.json: PASS Provision demo registry/schema and read isolated seeded records |
+| SERVICE-0825 | Demo / Tenancy | touchTenant | src/lib/services/tenancy.ts:208 | PASS | demo-results.json: PASS Demo heartbeat and destroy preserve public and mark registry |
+| SERVICE-0826 | Demo / Tenancy | destroyTenant | src/lib/services/tenancy.ts:216 | PASS | demo-results.json: PASS Demo heartbeat and destroy preserve public and mark registry |
+| SERVICE-0827 | Demo / Tenancy | sweepIdleDemos | src/lib/services/tenancy.ts:224 | PASS | demo-results.json: PASS Idle demo sweep removes only expired demo |
+| SERVICE-0828 | Demo / Tenancy | demoSchemaIsLive | src/lib/services/tenancy.ts:256 | PASS | demo-results.json: PASS Provision demo registry/schema and read isolated seeded records; demo-results.json: PASS Demo heartbeat and destroy preserve public and mark registry |
+| SERVICE-0829 | Demo / Tenancy | tenantClient | src/lib/services/tenancy.ts:269 | PASS | demo-results.json: PASS Provision demo registry/schema and read isolated seeded records |
+| SERVICE-0830 | Demo / Tenancy | demoTemplateExists | src/lib/services/tenancy.ts:280 | PASS | demo-results.json: PASS Local demo_template clone and template existence |
+| SERVICE-0831 | Demo / Tenancy | cloneSchema | src/lib/services/tenancy.ts:294 | PASS | demo-results.json: PASS Demo invalid schema names and public clone/drop protected; demo-results.json: PASS Local demo_template clone and template existence |
+| SERVICE-0832 | Demo / Tenancy | demoPoolTarget | src/lib/services/tenancy.ts:386 | PASS | round2-demo-results.json: PASS Demo pool warm and sequential refill honor target |
+| SERVICE-0833 | Demo / Tenancy | demoIdleMinutes | src/lib/services/tenancy.ts:442 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0834 | Demo / Tenancy | warmOneDemo | src/lib/services/tenancy.ts:448 | PASS | round2-demo-results.json: PASS Demo pool warm and sequential refill honor target |
+| SERVICE-0835 | Demo / Tenancy | ensureDemoPool | src/lib/services/tenancy.ts:498 | PASS | round2-demo-results.json: PASS Demo pool warm and sequential refill honor target; round2-demo-results.json: FAIL Concurrent refills cannot exceed configured spare target; main151: PASS DEMO-001 three competing refills produce exactly two spares; target and disabled pool respected |
+| SERVICE-0836 | Demo / Tenancy | recycleStalePool | src/lib/services/tenancy.ts:516 | PASS | round2-demo-results.json: PASS Recycle stale READY schemas preserves active and public fixtures |
+| SERVICE-0837 | Demo / Tenancy | provisionDemo | src/lib/services/tenancy.ts:571 | PASS | demo-results.json: PASS Provision demo registry/schema and read isolated seeded records; round2-demo-results.json: PASS Concurrent pool claims never share schema, exhausted pool cold-starts |
+| SERVICE-0838 | Demo / Tenancy | provisionCustomerTenant | src/lib/services/tenancy.ts:622 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0839 | Demo / Tenancy | registerTenantLogin | src/lib/services/tenancy.ts:782 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0840 | Demo / Tenancy | issueOnboardingLink | src/lib/services/tenancy.ts:803 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0841 | Demo / Tenancy | tenantBySetupToken | src/lib/services/tenancy.ts:820 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0842 | Demo / Tenancy | clearSetupToken | src/lib/services/tenancy.ts:832 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0843 | Demo / Tenancy | tenantByStripe | src/lib/services/tenancy.ts:842 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0844 | Platform / Other | deriveClaim | src/lib/services/tenant-activity.ts:50 | PASS | scripts/smoke-unit.ts; scenario only |
+| SERVICE-0845 | Platform / Other | loadTenantActivity | src/lib/services/tenant-activity.ts:132 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0846 | Platform / Other | loadTenantActivities | src/lib/services/tenant-activity.ts:178 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0847 | Platform / Other | worker | src/lib/services/tenant-activity.ts:184 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0848 | Manufacturing / Test | createTestProcedure | src/lib/services/test-procedures.ts:11 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0849 | Manufacturing / Test | addTestProcedureStep | src/lib/services/test-procedures.ts:74 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0850 | Manufacturing / Test | submitTestProcedureToCm | src/lib/services/test-procedures.ts:107 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0851 | Manufacturing / Test | releaseTestProcedure | src/lib/services/test-procedures.ts:176 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0852 | Manufacturing / Test | listTestProcedures | src/lib/services/test-procedures.ts:275 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0853 | Manufacturing / Test | getTestProcedureDetail | src/lib/services/test-procedures.ts:285 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0854 | Manufacturing / Test | recordTestStepSignOff | src/lib/services/test-procedures.ts:306 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0855 | HR / Time | getPayrollPolicy | src/lib/services/timesheets.ts:48 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0856 | HR / Time | parseHolidays | src/lib/services/timesheets.ts:56 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0857 | HR / Time | periodForDate | src/lib/services/timesheets.ts:83 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0858 | HR / Time | periodDays | src/lib/services/timesheets.ts:126 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0859 | HR / Time | getOrCreateTimesheet | src/lib/services/timesheets.ts:144 | PASS | ; current/round3-hr-auth-results.json: PASS HR timesheet add/remove native action chain; main151: PASS HR timesheet add/remove native action chain |
+| SERVICE-0860 | HR / Time | pushApprovedPtoToTimesheets | src/lib/services/timesheets.ts:272 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0861 | HR / Time | addTimesheetEntry | src/lib/services/timesheets.ts:291 | FAIL | ; current/round3-hr-auth-results.json: PASS HR timesheet add/remove native action chain; current/round3-hr-auth-results.json: FAIL HR date-only entry stays in selected local payroll period; main151: PASS HR timesheet add/remove native action chain |
+| SERVICE-0862 | HR / Time | attachEntryToTimesheet | src/lib/services/timesheets.ts:350 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0863 | HR / Time | removeTimesheetEntry | src/lib/services/timesheets.ts:367 | PASS | ; current/round3-hr-auth-results.json: PASS HR timesheet add/remove native action chain; main151: PASS HR timesheet add/remove native action chain |
+| SERVICE-0864 | HR / Time | submitTimesheet | src/lib/services/timesheets.ts:384 | PASS | ; current/round3-hr-auth-results.json: PASS HR timecard submit and wrong reviewer denial; main151: PASS HR timecard submit and wrong reviewer denial |
+| SERVICE-0865 | HR / Time | classifyHours | src/lib/services/timesheets.ts:478 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0866 | HR / Time | saveTimecardGrid | src/lib/services/timesheets.ts:530 | PASS | ; current/round3-hr-auth-results.json: PASS HR timecard grid saves own hours and rejects daily overflow; main151: PASS HR timecard grid saves own hours and rejects daily overflow |
+| SERVICE-0867 | HR / Time | decideTimesheetApproval | src/lib/services/timesheets.ts:936 | PASS | ; current/round3-hr-auth-results.json: PASS HR timecard bucket approval and processing to payroll actions; main151: PASS HR timecard bucket approval and processing to payroll actions |
+| SERVICE-0868 | HR / Time | getTimecardReviewQueue | src/lib/services/timesheets.ts:1013 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0869 | HR / Time | decideReviewerBucketsForTimesheet | src/lib/services/timesheets.ts:1065 | PASS | ; current/round3-hr-auth-results.json: PASS HR timecard submit and wrong reviewer denial; main151: PASS HR timecard submit and wrong reviewer denial |
+| SERVICE-0870 | HR / Time | processTimesheet | src/lib/services/timesheets.ts:1103 | PASS | ; current/round3-hr-auth-results.json: PASS HR timecard bucket approval and processing to payroll actions; main151: PASS HR timecard bucket approval and processing to payroll actions |
+| SERVICE-0871 | HR / Time | getPayStub | src/lib/services/timesheets.ts:1258 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0872 | HR / Time | getPayrollRun | src/lib/services/timesheets.ts:1314 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0873 | HR / Time | runPayroll | src/lib/services/timesheets.ts:1416 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0874 | HR / Time | getTimesheetDetail | src/lib/services/timesheets.ts:1431 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0875 | HR / Time | listMyTimesheets | src/lib/services/timesheets.ts:1453 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0876 | HR / Time | getPtoBalances | src/lib/services/timesheets.ts:1466 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0877 | Quality / NCR | createToolbox | src/lib/services/tool-control.ts:17 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0878 | Quality / NCR | assignToolToToolbox | src/lib/services/tool-control.ts:42 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0879 | Quality / NCR | listToolboxes | src/lib/services/tool-control.ts:54 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0880 | Quality / NCR | saveToolboxInspection | src/lib/services/tool-control.ts:69 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0881 | Quality / NCR | createToolReport | src/lib/services/tool-control.ts:90 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0882 | Quality / NCR | updateToolReportPieces | src/lib/services/tool-control.ts:164 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0883 | Quality / NCR | declarePieceUnrecoverable | src/lib/services/tool-control.ts:181 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0884 | Quality / NCR | raiseFodIncident | src/lib/services/tool-control.ts:201 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0885 | Quality / NCR | placeReplacementPr | src/lib/services/tool-control.ts:218 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0886 | Quality / NCR | updateToolReportSteps | src/lib/services/tool-control.ts:239 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0887 | Quality / NCR | setToolReportStatus | src/lib/services/tool-control.ts:243 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0888 | Quality / NCR | parseJson | src/lib/services/tool-control.ts:258 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0889 | Platform / Other | base32Encode | src/lib/services/totp.ts:30 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0890 | Platform / Other | base32Decode | src/lib/services/totp.ts:46 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0891 | Platform / Other | generateSecret | src/lib/services/totp.ts:65 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0892 | Platform / Other | currentStep | src/lib/services/totp.ts:71 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0893 | Platform / Other | codeForStep | src/lib/services/totp.ts:76 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0894 | Platform / Other | verifyCode | src/lib/services/totp.ts:107 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0895 | Platform / Other | otpauthUri | src/lib/services/totp.ts:132 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0896 | Platform / Other | getWoMaterialGenealogy | src/lib/services/traceability.ts:24 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0897 | Platform / Other | getTraceChain | src/lib/services/traceability.ts:127 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0898 | Platform / Other | resolveStagingLocation | src/lib/services/wip-locations.ts:17 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0899 | Platform / Other | moveWorkOrderToLocation | src/lib/services/wip-locations.ts:56 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0900 | Platform / Other | consumeWorkOrderWip | src/lib/services/wip-locations.ts:157 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0901 | Manufacturing / Test | createToolPurchaseRequestForWi | src/lib/services/work-instructions.ts:96 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0902 | Manufacturing / Test | createWorkInstruction | src/lib/services/work-instructions.ts:206 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0903 | Manufacturing / Test | addWorkInstructionStep | src/lib/services/work-instructions.ts:307 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0904 | Manufacturing / Test | submitWiToCm | src/lib/services/work-instructions.ts:347 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0905 | Manufacturing / Test | releaseWorkInstructionFromCm | src/lib/services/work-instructions.ts:446 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0906 | Manufacturing / Test | createWiRevisionFromReleased | src/lib/services/work-instructions.ts:515 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0907 | Manufacturing / Test | linkWiToBom | src/lib/services/work-instructions.ts:613 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0908 | Manufacturing / Test | workOrderPrefix | src/lib/services/work-orders.ts:19 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0909 | Manufacturing / Test | resolveWorkOrderSource | src/lib/services/work-orders.ts:32 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0952 | Manufacturing / Test | assertProductionBomCertified | src/lib/services/work-orders.ts:46 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0910 | Manufacturing / Test | createWorkOrder | src/lib/services/work-orders.ts:77 | PASS | Production WO without any BOM must be rejected; FIX VERIFIED current 3de5ba1: integrity-retest.log / bom-lifecycle-retest.log and current HTTP retests |
+| SERVICE-0911 | Manufacturing / Test | ensureWorkOrderTravelerSteps | src/lib/services/work-orders.ts:363 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0912 | Manufacturing / Test | startWorkOrderProduction | src/lib/services/work-orders.ts:464 | PASS | scripts/verify/chunk-e-mfg.ts; scenario only; priority-results.json: PASS Start kitted production and sign traveler via own PIN actions |
+| SERVICE-0913 | Manufacturing / Test | updateWorkOrderStatus | src/lib/services/work-orders.ts:539 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0914 | Manufacturing / Test | signOffStep | src/lib/services/work-orders.ts:588 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0915 | Manufacturing / Test | stationOf | src/lib/services/work-orders.ts:690 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0916 | Manufacturing / Test | ensurePrototypeWorkInstruction | src/lib/services/work-orders.ts:879 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0917 | Manufacturing / Test | finishPrototypeWorkOrder | src/lib/services/work-orders.ts:950 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0918 | Manufacturing / Test | defaultReceivingWorkCenterCode | src/lib/services/work-orders.ts:1058 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0919 | Manufacturing / Test | sendWorkOrderToReceivingPutaway | src/lib/services/work-orders.ts:1084 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0920 | Manufacturing / Test | getFloorBoardData | src/lib/services/work-orders.ts:1153 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0921 | Platform / Other | getSiteUrl | src/lib/site.ts:43 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0922 | Platform / Other | getTabBrand | src/lib/tab-brand.ts:18 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0923 | Platform / Other | cn | src/lib/utils.ts:5 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0924 | Platform / Other | formatCurrency | src/lib/utils.ts:9 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0925 | Platform / Other | compactCurrency | src/lib/utils.ts:19 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0926 | Platform / Other | formatNumber | src/lib/utils.ts:28 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0927 | Platform / Other | formatPercent | src/lib/utils.ts:34 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0928 | Platform / Other | formatDate | src/lib/utils.ts:38 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0929 | Platform / Other | formatRelative | src/lib/utils.ts:48 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0930 | Platform / Other | statusColor | src/lib/utils.ts:55 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0931 | Platform / Other | priorityColor | src/lib/utils.ts:177 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0932 | Platform / Other | scoreRatingColor | src/lib/utils.ts:181 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0933 | Platform / Other | computeEvm | src/lib/utils.ts:192 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0934 | Platform / Other | parseJsonArray | src/lib/utils.ts:200 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0935 | Platform / Other | slugify | src/lib/utils.ts:209 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0936 | Platform / Other | isGfpLocation | src/lib/utils.ts:214 | UNTESTED | Not exercised in a named acceptance scenario |
+| SERVICE-0937 | Platform / Other | isWorkArea | src/lib/work-areas.ts:11 | UNTESTED | Not exercised in a named acceptance scenario |
 
 ### MODEL checklist
 
 | ID | Module | Function / route / model | Source | Status | Evidence / next step |
 |---|---|---|---|---|---|
-| MODEL-0001 | Data models | User | `prisma/schema.prisma:19` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0002 | Data models | AuditLog | `prisma/schema.prisma:132` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0003 | Data models | Approval | `prisma/schema.prisma:149` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0004 | Data models | ApprovalPolicy | `prisma/schema.prisma:170` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0005 | Data models | ApprovalPolicyStep | `prisma/schema.prisma:184` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0006 | Data models | UomUnit | `prisma/schema.prisma:218` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0007 | Data models | UomConversion | `prisma/schema.prisma:234` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0008 | Data models | Part | `prisma/schema.prisma:247` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0009 | Data models | PartVendor | `prisma/schema.prisma:343` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0010 | Data models | BomHeader | `prisma/schema.prisma:368` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0011 | Data models | BomLine | `prisma/schema.prisma:402` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0012 | Data models | WorkInstruction | `prisma/schema.prisma:422` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0013 | Data models | TestProcedure | `prisma/schema.prisma:472` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0014 | Data models | TestProcedureSignOff | `prisma/schema.prisma:511` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0015 | Data models | TestProcedureStep | `prisma/schema.prisma:533` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0016 | Data models | WorkInstructionStep | `prisma/schema.prisma:550` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0017 | Data models | WorkInstructionSignOff | `prisma/schema.prisma:592` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0018 | Data models | WorkOrder | `prisma/schema.prisma:613` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0019 | Data models | Forecast | `prisma/schema.prisma:735` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0020 | Data models | ForecastLine | `prisma/schema.prisma:756` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0021 | Data models | Budget | `prisma/schema.prisma:775` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0022 | Data models | BudgetForecast | `prisma/schema.prisma:841` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0023 | Data models | BudgetCharge | `prisma/schema.prisma:854` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0024 | Data models | MaterialRequisition | `prisma/schema.prisma:883` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0025 | Data models | MaterialRequisitionLine | `prisma/schema.prisma:905` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0026 | Data models | WorkOrderInstruction | `prisma/schema.prisma:939` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0027 | Data models | WorkOrderStepCompletion | `prisma/schema.prisma:948` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0028 | Data models | WorkOrderStatusHistory | `prisma/schema.prisma:969` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0029 | Data models | ChangeRequest | `prisma/schema.prisma:984` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0030 | Data models | ChangeRequestComment | `prisma/schema.prisma:1061` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0031 | Data models | CmBoardMember | `prisma/schema.prisma:1075` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0032 | Data models | CmFolder | `prisma/schema.prisma:1087` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0033 | Data models | CmDocument | `prisma/schema.prisma:1124` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0034 | Data models | CmNumberScheme | `prisma/schema.prisma:1178` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0035 | Data models | CmNumberRequest | `prisma/schema.prisma:1211` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0036 | Data models | CmNumberRegistry | `prisma/schema.prisma:1251` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0037 | Data models | Product | `prisma/schema.prisma:1291` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0038 | Data models | ProductLifecycleEvent | `prisma/schema.prisma:1395` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0039 | Data models | ProductMember | `prisma/schema.prisma:1410` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0040 | Data models | ProductPart | `prisma/schema.prisma:1426` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0041 | Data models | ProductDocument | `prisma/schema.prisma:1443` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0042 | Data models | ProductVariant | `prisma/schema.prisma:1465` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0043 | Data models | ProductRequirement | `prisma/schema.prisma:1483` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0044 | Data models | ProductMilestone | `prisma/schema.prisma:1507` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0045 | Data models | Program | `prisma/schema.prisma:1530` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0046 | Data models | Project | `prisma/schema.prisma:1575` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0047 | Data models | ProjectProduct | `prisma/schema.prisma:1664` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0048 | Data models | ProjectRequirement | `prisma/schema.prisma:1683` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0049 | Data models | WbsElement | `prisma/schema.prisma:1708` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0050 | Data models | Campaign | `prisma/schema.prisma:1758` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0051 | Data models | Saga | `prisma/schema.prisma:1798` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0052 | Data models | Requirement | `prisma/schema.prisma:1850` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0053 | Data models | RequirementTrace | `prisma/schema.prisma:1891` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0054 | Data models | EngTask | `prisma/schema.prisma:1910` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0055 | Data models | ProductionEngIssue | `prisma/schema.prisma:1978` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0056 | Data models | EngDependency | `prisma/schema.prisma:2021` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0057 | Data models | PlanningQuarter | `prisma/schema.prisma:2045` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0058 | Data models | EngSprint | `prisma/schema.prisma:2067` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0059 | Data models | BusinessPriority | `prisma/schema.prisma:2095` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0060 | Data models | Permission | `prisma/schema.prisma:2125` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0061 | Data models | PermissionGroup | `prisma/schema.prisma:2137` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0062 | Data models | PermissionGroupMember | `prisma/schema.prisma:2150` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0063 | Data models | UserPermissionGroup | `prisma/schema.prisma:2160` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0064 | Data models | UserPermission | `prisma/schema.prisma:2170` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0065 | Data models | PermissionRequest | `prisma/schema.prisma:2186` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0066 | Data models | EngSwimLane | `prisma/schema.prisma:2203` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0067 | Data models | EngAlert | `prisma/schema.prisma:2222` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0068 | Data models | WorkTimeScan | `prisma/schema.prisma:2242` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0069 | Data models | ProjectTask | `prisma/schema.prisma:2260` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0070 | Data models | Milestone | `prisma/schema.prisma:2291` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0071 | Data models | ProjectRisk | `prisma/schema.prisma:2309` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0072 | Data models | ProjectIssue | `prisma/schema.prisma:2333` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0073 | Data models | ProjectMember | `prisma/schema.prisma:2354` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0074 | Data models | ProjectRaciEntry | `prisma/schema.prisma:2364` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0075 | Data models | ProjectCommunication | `prisma/schema.prisma:2383` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0076 | Data models | ProjectWikiPage | `prisma/schema.prisma:2399` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0077 | Data models | PiIncrement | `prisma/schema.prisma:2421` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0078 | Data models | PiFeature | `prisma/schema.prisma:2445` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0079 | Data models | ProjectCostEntry | `prisma/schema.prisma:2461` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0080 | Data models | Inspection | `prisma/schema.prisma:2486` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0081 | Data models | InspectionResult | `prisma/schema.prisma:2522` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0082 | Data models | NonConformance | `prisma/schema.prisma:2533` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0083 | Data models | MrbCase | `prisma/schema.prisma:2562` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0084 | Data models | MrbDisposition | `prisma/schema.prisma:2600` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0085 | Data models | CarActivityLog | `prisma/schema.prisma:2630` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0086 | Data models | Warehouse | `prisma/schema.prisma:2653` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0087 | Data models | Location | `prisma/schema.prisma:2662` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0088 | Data models | InventoryItem | `prisma/schema.prisma:2681` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0089 | Data models | MaterialTransaction | `prisma/schema.prisma:2713` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0090 | Data models | Lot | `prisma/schema.prisma:2741` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0091 | Data models | SerialNumber | `prisma/schema.prisma:2754` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0092 | Data models | SerialInstall | `prisma/schema.prisma:2793` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0093 | Data models | WorkOrderUnit | `prisma/schema.prisma:2825` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0094 | Data models | KitSerialAssignment | `prisma/schema.prisma:2845` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0095 | Data models | Rma | `prisma/schema.prisma:2871` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0096 | Data models | RmaLine | `prisma/schema.prisma:2919` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0097 | Data models | Supplier | `prisma/schema.prisma:2937` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0098 | Data models | AslPolicy | `prisma/schema.prisma:2983` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0099 | Data models | SupplierCertification | `prisma/schema.prisma:2994` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0100 | Data models | SupplierScorecardHistory | `prisma/schema.prisma:3017` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0101 | Data models | PurchaseRequest | `prisma/schema.prisma:3032` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0102 | Data models | PurchaseRequestLine | `prisma/schema.prisma:3118` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0103 | Data models | PurchaseOrder | `prisma/schema.prisma:3130` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0104 | Data models | ReceivingTraveler | `prisma/schema.prisma:3175` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0105 | Data models | ReceivingTravelerLine | `prisma/schema.prisma:3222` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0106 | Data models | PurchaseOrderLine | `prisma/schema.prisma:3239` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0107 | Data models | Receipt | `prisma/schema.prisma:3254` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0108 | Data models | ReceiptLine | `prisma/schema.prisma:3272` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0109 | Data models | Rfq | `prisma/schema.prisma:3292` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0110 | Data models | Asset | `prisma/schema.prisma:3308` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0111 | Data models | AssetCheckout | `prisma/schema.prisma:3339` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0112 | Data models | BankAccount | `prisma/schema.prisma:3365` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0113 | Data models | BankTransaction | `prisma/schema.prisma:3390` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0114 | Data models | Account | `prisma/schema.prisma:3411` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0115 | Data models | JournalEntry | `prisma/schema.prisma:3445` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0116 | Data models | JournalLine | `prisma/schema.prisma:3490` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0117 | Data models | JournalAttachment | `prisma/schema.prisma:3521` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0118 | Data models | ScheduledReport | `prisma/schema.prisma:3537` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0119 | Data models | RecurringJournal | `prisma/schema.prisma:3556` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0120 | Data models | CycleCount | `prisma/schema.prisma:3576` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0121 | Data models | CycleCountLine | `prisma/schema.prisma:3590` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0122 | Data models | Customer | `prisma/schema.prisma:3609` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0123 | Data models | ArInvoice | `prisma/schema.prisma:3636` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0124 | Data models | ArInvoiceLine | `prisma/schema.prisma:3655` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0125 | Data models | ArPayment | `prisma/schema.prisma:3665` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0126 | Data models | ApInvoice | `prisma/schema.prisma:3675` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0127 | Data models | ApPayment | `prisma/schema.prisma:3697` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0128 | Data models | SalesOrder | `prisma/schema.prisma:3713` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0129 | Data models | Quote | `prisma/schema.prisma:3761` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0130 | Data models | QuoteLine | `prisma/schema.prisma:3800` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0131 | Data models | SalesOrderLine | `prisma/schema.prisma:3812` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0132 | Data models | Shipment | `prisma/schema.prisma:3829` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0133 | Data models | KitOrder | `prisma/schema.prisma:3861` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0134 | Data models | KitOrderLine | `prisma/schema.prisma:3881` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0135 | Data models | ReceivingPhoto | `prisma/schema.prisma:3899` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0136 | Data models | ReceivingDocument | `prisma/schema.prisma:3921` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0137 | Data models | TraceEvent | `prisma/schema.prisma:3948` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0138 | Data models | ShipmentLine | `prisma/schema.prisma:3982` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0139 | Data models | GovernmentProperty | `prisma/schema.prisma:3997` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0140 | Data models | ComplianceCheck | `prisma/schema.prisma:4041` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0141 | Data models | GfpDocument | `prisma/schema.prisma:4054` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0142 | Data models | GfpAuditRecord | `prisma/schema.prisma:4076` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0143 | Data models | GfpCheckout | `prisma/schema.prisma:4098` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0144 | Data models | GfpConsumption | `prisma/schema.prisma:4124` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0145 | Data models | VirtualAsset | `prisma/schema.prisma:4154` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0146 | Data models | VirtualAssetAssignment | `prisma/schema.prisma:4208` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0147 | Data models | TimeEntry | `prisma/schema.prisma:4227` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0148 | Data models | PtoRequest | `prisma/schema.prisma:4285` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0149 | Data models | ExpenseReport | `prisma/schema.prisma:4301` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0150 | Data models | ExpenseLine | `prisma/schema.prisma:4317` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0151 | Data models | PerformanceReview | `prisma/schema.prisma:4328` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0152 | Data models | EmployeeGoal | `prisma/schema.prisma:4354` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0153 | Data models | GoalCheckIn | `prisma/schema.prisma:4374` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0154 | Data models | FeedbackNote | `prisma/schema.prisma:4390` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0155 | Data models | TrainingRecord | `prisma/schema.prisma:4407` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0156 | Data models | AuthSession | `prisma/schema.prisma:4429` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0157 | Data models | UserInvite | `prisma/schema.prisma:4446` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0158 | Data models | EmailMessage | `prisma/schema.prisma:4467` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0159 | Data models | TrainingRequirement | `prisma/schema.prisma:4493` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0160 | Data models | PayrollPolicy | `prisma/schema.prisma:4512` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0161 | Data models | ReviewPolicy | `prisma/schema.prisma:4533` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0162 | Data models | CompanySettings | `prisma/schema.prisma:4544` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0163 | Data models | JobRequisition | `prisma/schema.prisma:4597` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0164 | Data models | Candidate | `prisma/schema.prisma:4625` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0165 | Data models | BackgroundCheck | `prisma/schema.prisma:4653` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0166 | Data models | EmployeeOnboarding | `prisma/schema.prisma:4680` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0167 | Data models | QualityProgram | `prisma/schema.prisma:4722` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0168 | Data models | QualityInspection | `prisma/schema.prisma:4754` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0169 | Data models | AuditFinding | `prisma/schema.prisma:4772` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0170 | Data models | HumidityReading | `prisma/schema.prisma:4795` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0171 | Data models | QualityItem | `prisma/schema.prisma:4811` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0172 | Data models | Toolbox | `prisma/schema.prisma:4858` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0173 | Data models | ToolboxInspection | `prisma/schema.prisma:4874` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0174 | Data models | ToolReport | `prisma/schema.prisma:4891` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0175 | Data models | QualityEvent | `prisma/schema.prisma:4923` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0176 | Data models | AccountingSettings | `prisma/schema.prisma:4951` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0177 | Data models | LegalEntity | `prisma/schema.prisma:4976` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0178 | Data models | AccountingPeriod | `prisma/schema.prisma:4988` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0179 | Data models | GlAccountMap | `prisma/schema.prisma:5005` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0180 | Data models | IndirectPool | `prisma/schema.prisma:5016` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0181 | Data models | ProgramClin | `prisma/schema.prisma:5028` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0182 | Data models | LaborCategory | `prisma/schema.prisma:5048` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0183 | Data models | TimeEntryChange | `prisma/schema.prisma:5065` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0184 | Data models | Timesheet | `prisma/schema.prisma:5083` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0185 | Data models | TimesheetApproval | `prisma/schema.prisma:5119` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0186 | Data models | EmployeeDocument | `prisma/schema.prisma:5137` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0187 | Data models | EngineeringTicket | `prisma/schema.prisma:5154` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0188 | Data models | Sprint | `prisma/schema.prisma:5192` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0189 | Data models | TicketComment | `prisma/schema.prisma:5203` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0190 | Data models | ValueStreamMetric | `prisma/schema.prisma:5216` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0191 | Data models | WorkCenter | `prisma/schema.prisma:5231` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0192 | Data models | WorkCenterStaff | `prisma/schema.prisma:5253` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0193 | Data models | SupportTicket | `prisma/schema.prisma:5274` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0194 | Data models | SupportMessage | `prisma/schema.prisma:5325` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0195 | Data models | SupportNote | `prisma/schema.prisma:5342` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0196 | Data models | Tenant | `prisma/schema.prisma:5361` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0197 | Data models | TenantLogin | `prisma/schema.prisma:5400` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0198 | Data models | InviteLookup | `prisma/schema.prisma:5414` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0199 | Data models | TelemetryEvent | `prisma/schema.prisma:5427` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0200 | Data models | InstalledAsset | `prisma/schema.prisma:5467` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0201 | Data models | ServiceTicket | `prisma/schema.prisma:5490` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0202 | Data models | ServiceVisit | `prisma/schema.prisma:5524` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0203 | Data models | ServiceLabor | `prisma/schema.prisma:5554` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0204 | Data models | ServicePartUsage | `prisma/schema.prisma:5571` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0205 | Data models | Vehicle | `prisma/schema.prisma:5590` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0206 | Data models | VehicleMaintenance | `prisma/schema.prisma:5628` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0207 | Data models | FuelLog | `prisma/schema.prisma:5655` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0208 | Data models | TelemetryIssue | `prisma/schema.prisma:5674` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0209 | Data models | TelemetryIssueEvent | `prisma/schema.prisma:5711` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0210 | Data models | Equipment | `prisma/schema.prisma:5735` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0211 | Data models | EquipmentMaintenance | `prisma/schema.prisma:5766` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0212 | Data models | MeterReading | `prisma/schema.prisma:5796` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0213 | Data models | DowntimeEvent | `prisma/schema.prisma:5811` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0214 | Data models | Lead | `prisma/schema.prisma:5834` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0215 | Data models | Contact | `prisma/schema.prisma:5856` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0216 | Data models | Opportunity | `prisma/schema.prisma:5874` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0217 | Data models | CrmActivity | `prisma/schema.prisma:5907` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0218 | Data models | Carrier | `prisma/schema.prisma:5935` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0219 | Data models | FreightCost | `prisma/schema.prisma:5958` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0220 | Data models | LandedCostCharge | `prisma/schema.prisma:5988` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0221 | Data models | MfaCredential | `prisma/schema.prisma:6013` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0222 | Data models | MfaRecoveryCode | `prisma/schema.prisma:6042` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0223 | Data models | MfaChallenge | `prisma/schema.prisma:6059` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0224 | Data models | DocSpace | `prisma/schema.prisma:6080` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0225 | Data models | DocPage | `prisma/schema.prisma:6090` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0226 | Data models | DocRevision | `prisma/schema.prisma:6116` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0227 | Data models | DocSignature | `prisma/schema.prisma:6135` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0228 | Data models | DocComment | `prisma/schema.prisma:6149` | UNTESTED | Schema exists; not CRUD acceptance coverage |
-| MODEL-0229 | Data models | DocLink | `prisma/schema.prisma:6164` | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0001 | Data models | User | prisma/schema.prisma:19 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0002 | Data models | AuditLog | prisma/schema.prisma:132 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0003 | Data models | Approval | prisma/schema.prisma:149 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0004 | Data models | ApprovalPolicy | prisma/schema.prisma:170 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0005 | Data models | ApprovalPolicyStep | prisma/schema.prisma:184 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0006 | Data models | UomUnit | prisma/schema.prisma:218 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0007 | Data models | UomConversion | prisma/schema.prisma:234 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0008 | Data models | Part | prisma/schema.prisma:247 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0009 | Data models | PartVendor | prisma/schema.prisma:343 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0010 | Data models | BomHeader | prisma/schema.prisma:368 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0011 | Data models | BomLine | prisma/schema.prisma:402 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0012 | Data models | WorkInstruction | prisma/schema.prisma:422 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0013 | Data models | TestProcedure | prisma/schema.prisma:472 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0014 | Data models | TestProcedureSignOff | prisma/schema.prisma:511 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0015 | Data models | TestProcedureStep | prisma/schema.prisma:533 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0016 | Data models | WorkInstructionStep | prisma/schema.prisma:550 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0017 | Data models | WorkInstructionSignOff | prisma/schema.prisma:592 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0018 | Data models | WorkOrder | prisma/schema.prisma:613 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0019 | Data models | Forecast | prisma/schema.prisma:735 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0020 | Data models | ForecastLine | prisma/schema.prisma:756 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0021 | Data models | Budget | prisma/schema.prisma:775 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0022 | Data models | BudgetForecast | prisma/schema.prisma:841 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0023 | Data models | BudgetCharge | prisma/schema.prisma:854 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0024 | Data models | MaterialRequisition | prisma/schema.prisma:883 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0025 | Data models | MaterialRequisitionLine | prisma/schema.prisma:905 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0026 | Data models | WorkOrderInstruction | prisma/schema.prisma:939 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0027 | Data models | WorkOrderStepCompletion | prisma/schema.prisma:948 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0028 | Data models | WorkOrderStatusHistory | prisma/schema.prisma:969 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0029 | Data models | ChangeRequest | prisma/schema.prisma:984 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0030 | Data models | ChangeRequestComment | prisma/schema.prisma:1061 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0031 | Data models | CmBoardMember | prisma/schema.prisma:1075 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0032 | Data models | CmFolder | prisma/schema.prisma:1087 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0033 | Data models | CmDocument | prisma/schema.prisma:1124 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0034 | Data models | CmNumberScheme | prisma/schema.prisma:1178 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0035 | Data models | CmNumberRequest | prisma/schema.prisma:1211 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0036 | Data models | CmNumberRegistry | prisma/schema.prisma:1251 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0037 | Data models | Product | prisma/schema.prisma:1291 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0038 | Data models | ProductLifecycleEvent | prisma/schema.prisma:1395 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0039 | Data models | ProductMember | prisma/schema.prisma:1410 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0040 | Data models | ProductPart | prisma/schema.prisma:1426 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0041 | Data models | ProductDocument | prisma/schema.prisma:1443 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0042 | Data models | ProductVariant | prisma/schema.prisma:1465 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0043 | Data models | ProductRequirement | prisma/schema.prisma:1483 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0044 | Data models | ProductMilestone | prisma/schema.prisma:1507 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0045 | Data models | Program | prisma/schema.prisma:1530 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0046 | Data models | Project | prisma/schema.prisma:1575 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0047 | Data models | ProjectProduct | prisma/schema.prisma:1664 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0048 | Data models | ProjectRequirement | prisma/schema.prisma:1683 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0049 | Data models | WbsElement | prisma/schema.prisma:1708 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0050 | Data models | Campaign | prisma/schema.prisma:1758 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0051 | Data models | Saga | prisma/schema.prisma:1798 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0052 | Data models | Requirement | prisma/schema.prisma:1850 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0053 | Data models | RequirementTrace | prisma/schema.prisma:1891 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0054 | Data models | EngTask | prisma/schema.prisma:1910 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0055 | Data models | ProductionEngIssue | prisma/schema.prisma:1978 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0056 | Data models | EngDependency | prisma/schema.prisma:2021 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0057 | Data models | PlanningQuarter | prisma/schema.prisma:2045 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0058 | Data models | EngSprint | prisma/schema.prisma:2067 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0059 | Data models | BusinessPriority | prisma/schema.prisma:2095 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0060 | Data models | Permission | prisma/schema.prisma:2125 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0061 | Data models | PermissionGroup | prisma/schema.prisma:2137 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0062 | Data models | PermissionGroupMember | prisma/schema.prisma:2150 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0063 | Data models | UserPermissionGroup | prisma/schema.prisma:2160 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0064 | Data models | UserPermission | prisma/schema.prisma:2170 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0065 | Data models | PermissionRequest | prisma/schema.prisma:2186 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0066 | Data models | EngSwimLane | prisma/schema.prisma:2203 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0067 | Data models | EngAlert | prisma/schema.prisma:2222 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0068 | Data models | WorkTimeScan | prisma/schema.prisma:2242 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0069 | Data models | ProjectTask | prisma/schema.prisma:2260 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0070 | Data models | Milestone | prisma/schema.prisma:2291 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0071 | Data models | ProjectRisk | prisma/schema.prisma:2309 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0072 | Data models | ProjectIssue | prisma/schema.prisma:2333 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0073 | Data models | ProjectMember | prisma/schema.prisma:2354 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0074 | Data models | ProjectRaciEntry | prisma/schema.prisma:2364 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0075 | Data models | ProjectCommunication | prisma/schema.prisma:2383 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0076 | Data models | ProjectWikiPage | prisma/schema.prisma:2399 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0077 | Data models | PiIncrement | prisma/schema.prisma:2421 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0078 | Data models | PiFeature | prisma/schema.prisma:2445 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0079 | Data models | ProjectCostEntry | prisma/schema.prisma:2461 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0080 | Data models | Inspection | prisma/schema.prisma:2486 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0081 | Data models | InspectionResult | prisma/schema.prisma:2522 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0082 | Data models | NonConformance | prisma/schema.prisma:2533 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0083 | Data models | MrbCase | prisma/schema.prisma:2562 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0084 | Data models | MrbDisposition | prisma/schema.prisma:2600 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0085 | Data models | CarActivityLog | prisma/schema.prisma:2630 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0086 | Data models | Warehouse | prisma/schema.prisma:2653 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0087 | Data models | Location | prisma/schema.prisma:2662 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0088 | Data models | InventoryItem | prisma/schema.prisma:2681 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0089 | Data models | MaterialTransaction | prisma/schema.prisma:2713 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0090 | Data models | Lot | prisma/schema.prisma:2741 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0091 | Data models | SerialNumber | prisma/schema.prisma:2754 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0092 | Data models | SerialInstall | prisma/schema.prisma:2793 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0093 | Data models | WorkOrderUnit | prisma/schema.prisma:2825 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0094 | Data models | KitSerialAssignment | prisma/schema.prisma:2845 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0095 | Data models | Rma | prisma/schema.prisma:2871 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0096 | Data models | RmaLine | prisma/schema.prisma:2919 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0097 | Data models | Supplier | prisma/schema.prisma:2937 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0098 | Data models | AslPolicy | prisma/schema.prisma:2983 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0099 | Data models | SupplierCertification | prisma/schema.prisma:2994 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0100 | Data models | SupplierScorecardHistory | prisma/schema.prisma:3017 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0101 | Data models | PurchaseRequest | prisma/schema.prisma:3032 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0102 | Data models | PurchaseRequestLine | prisma/schema.prisma:3118 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0103 | Data models | PurchaseOrder | prisma/schema.prisma:3130 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0104 | Data models | ReceivingTraveler | prisma/schema.prisma:3175 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0105 | Data models | ReceivingTravelerLine | prisma/schema.prisma:3222 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0106 | Data models | PurchaseOrderLine | prisma/schema.prisma:3239 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0107 | Data models | Receipt | prisma/schema.prisma:3254 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0108 | Data models | ReceiptLine | prisma/schema.prisma:3272 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0109 | Data models | Rfq | prisma/schema.prisma:3292 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0110 | Data models | Asset | prisma/schema.prisma:3308 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0111 | Data models | AssetCheckout | prisma/schema.prisma:3339 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0112 | Data models | BankAccount | prisma/schema.prisma:3365 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0113 | Data models | BankTransaction | prisma/schema.prisma:3390 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0114 | Data models | Account | prisma/schema.prisma:3411 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0115 | Data models | JournalEntry | prisma/schema.prisma:3445 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0116 | Data models | JournalLine | prisma/schema.prisma:3490 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0117 | Data models | JournalAttachment | prisma/schema.prisma:3521 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0118 | Data models | ScheduledReport | prisma/schema.prisma:3537 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0119 | Data models | RecurringJournal | prisma/schema.prisma:3556 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0120 | Data models | CycleCount | prisma/schema.prisma:3576 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0121 | Data models | CycleCountLine | prisma/schema.prisma:3590 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0122 | Data models | Customer | prisma/schema.prisma:3609 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0123 | Data models | ArInvoice | prisma/schema.prisma:3636 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0124 | Data models | ArInvoiceLine | prisma/schema.prisma:3655 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0125 | Data models | ArPayment | prisma/schema.prisma:3665 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0126 | Data models | ApInvoice | prisma/schema.prisma:3675 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0127 | Data models | ApPayment | prisma/schema.prisma:3697 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0128 | Data models | SalesOrder | prisma/schema.prisma:3713 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0129 | Data models | Quote | prisma/schema.prisma:3761 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0130 | Data models | QuoteLine | prisma/schema.prisma:3800 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0131 | Data models | SalesOrderLine | prisma/schema.prisma:3812 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0132 | Data models | Shipment | prisma/schema.prisma:3829 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0133 | Data models | KitOrder | prisma/schema.prisma:3861 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0134 | Data models | KitOrderLine | prisma/schema.prisma:3881 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0135 | Data models | ReceivingPhoto | prisma/schema.prisma:3899 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0136 | Data models | ReceivingDocument | prisma/schema.prisma:3921 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0137 | Data models | TraceEvent | prisma/schema.prisma:3948 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0138 | Data models | ShipmentLine | prisma/schema.prisma:3982 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0139 | Data models | GovernmentProperty | prisma/schema.prisma:3997 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0140 | Data models | ComplianceCheck | prisma/schema.prisma:4041 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0141 | Data models | GfpDocument | prisma/schema.prisma:4054 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0142 | Data models | GfpAuditRecord | prisma/schema.prisma:4076 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0143 | Data models | GfpCheckout | prisma/schema.prisma:4098 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0144 | Data models | GfpConsumption | prisma/schema.prisma:4124 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0145 | Data models | VirtualAsset | prisma/schema.prisma:4154 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0146 | Data models | VirtualAssetAssignment | prisma/schema.prisma:4208 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0147 | Data models | TimeEntry | prisma/schema.prisma:4227 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0148 | Data models | PtoRequest | prisma/schema.prisma:4285 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0149 | Data models | ExpenseReport | prisma/schema.prisma:4301 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0150 | Data models | ExpenseLine | prisma/schema.prisma:4317 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0151 | Data models | PerformanceReview | prisma/schema.prisma:4328 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0152 | Data models | EmployeeGoal | prisma/schema.prisma:4354 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0153 | Data models | GoalCheckIn | prisma/schema.prisma:4374 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0154 | Data models | FeedbackNote | prisma/schema.prisma:4390 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0155 | Data models | TrainingRecord | prisma/schema.prisma:4407 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0156 | Data models | AuthSession | prisma/schema.prisma:4429 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0157 | Data models | UserInvite | prisma/schema.prisma:4446 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0158 | Data models | EmailMessage | prisma/schema.prisma:4467 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0159 | Data models | TrainingRequirement | prisma/schema.prisma:4493 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0160 | Data models | PayrollPolicy | prisma/schema.prisma:4512 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0161 | Data models | ReviewPolicy | prisma/schema.prisma:4533 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0162 | Data models | CompanySettings | prisma/schema.prisma:4544 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0163 | Data models | JobRequisition | prisma/schema.prisma:4597 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0164 | Data models | Candidate | prisma/schema.prisma:4625 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0165 | Data models | BackgroundCheck | prisma/schema.prisma:4653 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0166 | Data models | EmployeeOnboarding | prisma/schema.prisma:4680 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0167 | Data models | QualityProgram | prisma/schema.prisma:4722 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0168 | Data models | QualityInspection | prisma/schema.prisma:4754 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0169 | Data models | AuditFinding | prisma/schema.prisma:4772 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0170 | Data models | HumidityReading | prisma/schema.prisma:4795 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0171 | Data models | QualityItem | prisma/schema.prisma:4811 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0172 | Data models | Toolbox | prisma/schema.prisma:4858 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0173 | Data models | ToolboxInspection | prisma/schema.prisma:4874 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0174 | Data models | ToolReport | prisma/schema.prisma:4891 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0175 | Data models | QualityEvent | prisma/schema.prisma:4923 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0176 | Data models | AccountingSettings | prisma/schema.prisma:4951 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0177 | Data models | LegalEntity | prisma/schema.prisma:4976 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0178 | Data models | AccountingPeriod | prisma/schema.prisma:4988 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0179 | Data models | GlAccountMap | prisma/schema.prisma:5005 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0180 | Data models | IndirectPool | prisma/schema.prisma:5016 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0181 | Data models | ProgramClin | prisma/schema.prisma:5028 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0182 | Data models | LaborCategory | prisma/schema.prisma:5048 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0183 | Data models | TimeEntryChange | prisma/schema.prisma:5065 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0184 | Data models | Timesheet | prisma/schema.prisma:5083 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0185 | Data models | TimesheetApproval | prisma/schema.prisma:5119 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0186 | Data models | EmployeeDocument | prisma/schema.prisma:5137 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0187 | Data models | EngineeringTicket | prisma/schema.prisma:5154 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0188 | Data models | Sprint | prisma/schema.prisma:5192 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0189 | Data models | TicketComment | prisma/schema.prisma:5203 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0190 | Data models | ValueStreamMetric | prisma/schema.prisma:5216 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0191 | Data models | WorkCenter | prisma/schema.prisma:5231 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0192 | Data models | WorkCenterStaff | prisma/schema.prisma:5253 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0193 | Data models | SupportTicket | prisma/schema.prisma:5274 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0194 | Data models | SupportMessage | prisma/schema.prisma:5325 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0195 | Data models | SupportNote | prisma/schema.prisma:5342 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0196 | Data models | Tenant | prisma/schema.prisma:5361 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0197 | Data models | TenantLogin | prisma/schema.prisma:5400 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0198 | Data models | InviteLookup | prisma/schema.prisma:5414 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0199 | Data models | TelemetryEvent | prisma/schema.prisma:5427 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0200 | Data models | InstalledAsset | prisma/schema.prisma:5467 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0201 | Data models | ServiceTicket | prisma/schema.prisma:5490 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0202 | Data models | ServiceVisit | prisma/schema.prisma:5524 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0203 | Data models | ServiceLabor | prisma/schema.prisma:5554 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0204 | Data models | ServicePartUsage | prisma/schema.prisma:5571 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0205 | Data models | Vehicle | prisma/schema.prisma:5590 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0206 | Data models | VehicleMaintenance | prisma/schema.prisma:5628 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0207 | Data models | FuelLog | prisma/schema.prisma:5655 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0208 | Data models | TelemetryIssue | prisma/schema.prisma:5674 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0209 | Data models | TelemetryIssueEvent | prisma/schema.prisma:5711 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0210 | Data models | Equipment | prisma/schema.prisma:5735 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0211 | Data models | EquipmentMaintenance | prisma/schema.prisma:5766 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0212 | Data models | MeterReading | prisma/schema.prisma:5796 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0213 | Data models | DowntimeEvent | prisma/schema.prisma:5811 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0214 | Data models | Lead | prisma/schema.prisma:5834 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0215 | Data models | Contact | prisma/schema.prisma:5856 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0216 | Data models | Opportunity | prisma/schema.prisma:5874 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0217 | Data models | CrmActivity | prisma/schema.prisma:5907 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0218 | Data models | Carrier | prisma/schema.prisma:5935 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0219 | Data models | FreightCost | prisma/schema.prisma:5958 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0220 | Data models | LandedCostCharge | prisma/schema.prisma:5988 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0221 | Data models | MfaCredential | prisma/schema.prisma:6013 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0222 | Data models | MfaRecoveryCode | prisma/schema.prisma:6042 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0223 | Data models | MfaChallenge | prisma/schema.prisma:6059 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0224 | Data models | DocSpace | prisma/schema.prisma:6080 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0225 | Data models | DocPage | prisma/schema.prisma:6090 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0226 | Data models | DocRevision | prisma/schema.prisma:6116 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0227 | Data models | DocSignature | prisma/schema.prisma:6135 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0228 | Data models | DocComment | prisma/schema.prisma:6149 | UNTESTED | Schema exists; not CRUD acceptance coverage |
+| MODEL-0229 | Data models | DocLink | prisma/schema.prisma:6164 | UNTESTED | Schema exists; not CRUD acceptance coverage |
 

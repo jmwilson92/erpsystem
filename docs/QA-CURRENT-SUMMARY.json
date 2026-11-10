@@ -1,11 +1,12 @@
 {
-  "updated_pst": "2026-11-10 02:59 PM PST",
-  "baseline": "3de5ba17f99eecc99f357e27dbfc92fc2c06b28e",
-  "inventory_total": 1968,
-  "tested": 795,
-  "passed": 752,
-  "failed": 43,
-  "untested": 1173,
+  "updated_pst": "2026-11-10 03:27 PM PST",
+  "baseline": "fe46901cd22e85c77cbdc920019b83846511f11a",
+  "prior_baseline": "3de5ba1",
+  "inventory_total": 1969,
+  "tested": 893,
+  "passed": 848,
+  "failed": 45,
+  "untested": 1076,
   "by_kind": {
     "page": {
       "pass": 175,
@@ -13,85 +14,154 @@
       "fail": 1
     },
     "action": {
-      "untested": 285,
-      "pass": 260,
-      "fail": 28
+      "pass": 303,
+      "untested": 240,
+      "fail": 30
     },
     "api": {
       "pass": 12,
       "untested": 13
     },
     "service": {
-      "pass": 305,
-      "untested": 631,
+      "pass": 358,
+      "untested": 579,
       "fail": 14
     },
     "model": {
       "untested": 229
     }
   },
-  "bugs_total": 77,
-  "new_bugs": 26,
+  "bugs_total": 101,
+  "new_bugs": 24,
+  "verified_fix_ids": {
+    "ACCT-006": "148",
+    "ACCT-007": "148",
+    "AUTH-005": "148",
+    "MRB-001": "148",
+    "MRB-002": "148",
+    "MRB-003": "148",
+    "SERIAL-001": "148",
+    "SERIAL-002": "148",
+    "DEMO-001": "148",
+    "RCV-001": "148",
+    "AUTH-006": "150",
+    "AUTH-007": "150",
+    "AUTH-008": "150",
+    "AUTH-009": "150",
+    "AUTH-010": "150",
+    "PERM-001": "150",
+    "PERM-002": "150",
+    "BANK-001": "151",
+    "BANK-002": "151",
+    "ACCT-008": "151",
+    "ACCT-010": "151",
+    "RCV-002": "151"
+  },
+  "cleared_inherited_failed_refs": [
+    "src/app/actions.ts#actionDecidePermissionRequest",
+    "src/app/actions.ts#actionCompleteReceivingInspection",
+    "src/app/actions.ts#actionAssignUserGroup",
+    "src/app/actions.ts#actionGrantUserPermission",
+    "src/app/actions.ts#actionCreateAccount",
+    "src/app/actions.ts#actionUpdateAccount",
+    "src/app/actions.ts#actionCategorizeBankTxn",
+    "src/app/actions.ts#actionReconcileBankTxn",
+    "src/app/actions.ts#actionApproveJournal",
+    "src/app/actions.ts#actionCreateVendorApInvoice",
+    "src/app/actions.ts#actionSaveCompanyProfile",
+    "src/lib/services/banking.ts#importBankTransactions",
+    "src/lib/services/banking.ts#categorizeBankTransaction",
+    "src/lib/services/billing.ts#createVendorApInvoice",
+    "src/lib/services/gaap.ts#approveJournal",
+    "src/lib/services/hr.ts#advanceExpenseReport",
+    "src/lib/services/permissions.ts#grantUserPermission",
+    "src/lib/services/supply-chain.ts#receivePurchaseOrder",
+    "src/lib/services/tenancy.ts#ensureDemoPool"
+  ],
+  "guard_only_prior": 86,
+  "guard_only_promoted_to_positive": 10,
+  "guard_only_promoted_refs": [
+    "src/app/actions.ts#actionAssignEcrApprovers",
+    "src/app/actions.ts#actionCreateCmFolder",
+    "src/app/actions.ts#actionDeleteCmDocument",
+    "src/app/actions.ts#actionDeleteCmFolder",
+    "src/app/actions.ts#actionMoveCmDocument",
+    "src/app/actions.ts#actionMoveCmSubmission",
+    "src/app/actions.ts#actionReleaseDocumentEcr",
+    "src/app/actions.ts#actionSaveAudit",
+    "src/app/actions.ts#actionUpdateAuditFinding",
+    "src/app/actions.ts#actionVoteCm"
+  ],
+  "guard_only_remaining": 76,
   "suites": {
-    "manual-ui-results.json": {
-      "fail": 1
-    },
     "round2-auth-results.json": {
-      "pass": 15,
-      "fail": 3
+      "pass": 18
     },
-    "round2-finance-results.json": {
+    "round2-quality-results.json": {
       "pass": 16,
       "fail": 1
     },
-    "round2-quality-results.json": {
+    "round3-admin-results.json": {
       "pass": 9,
-      "fail": 8
-    },
-    "round3-ai-help-results.json": {
-      "pass": 8
-    },
-    "round3-docs-assets-results.json": {
-      "pass": 18,
       "fail": 4
     },
-    "round3-finance-deep-results.json": {
-      "pass": 7,
-      "fail": 10
+    "round3-cm-results.json": {
+      "pass": 13,
+      "fail": 4
     },
-    "round3-guards-results.json": {
-      "pass": 86
+    "round3-docs-assets-results.json": {
+      "pass": 19,
+      "fail": 3
+    },
+    "round3-finance-deep-results.json": {
+      "pass": 15,
+      "fail": 2
+    },
+    "round3-gfp-results.json": {
+      "pass": 7,
+      "fail": 7
     },
     "round3-hr-auth-results.json": {
-      "pass": 22,
-      "fail": 8
-    },
-    "round3-pmo-plm-results.json": {
       "pass": 26,
-      "fail": 2
+      "fail": 4
+    },
+    "round3-import-results.json": {
+      "pass": 8,
+      "fail": 3
+    },
+    "round3-mfa-results.json": {
+      "pass": 11,
+      "fail": 3
+    },
+    "round3-quality-deep-results.json": {
+      "pass": 6,
+      "fail": 6
     },
     "round3-receiving-deep-results.json": {
-      "pass": 5,
-      "fail": 2
+      "pass": 7
     },
-    "round3-reviews-results.json": {
-      "pass": 5,
-      "fail": 1
+    "round3-ui5-results.json": {
+      "pass": 18
     },
-    "round3-ui-results.json": {
-      "pass": 40
+    "high-severity-regression": {
+      "pass": 8
+    },
+    "finance-151-regression": {
+      "pass": 5
     }
   },
   "callable_functions": {
-    "total": 1548,
-    "tested": 619,
-    "untested": 929,
-    "pass": 577,
-    "fail": 42
+    "total": 1549,
+    "tested": 717,
+    "pass": 673,
+    "untested": 832,
+    "fail": 44
   },
   "scenarios_this_continuation": {
-    "total": 297,
-    "pass": 257,
-    "fail": 40
-  }
+    "total": 223,
+    "passed": 186,
+    "failed": 37
+  },
+  "newly_tested_inventory": 98,
+  "newly_tested_actions": 45
 }
