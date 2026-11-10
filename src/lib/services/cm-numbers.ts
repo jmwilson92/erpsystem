@@ -1,3 +1,4 @@
+import { userHasPermission } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 
@@ -475,14 +476,20 @@ export async function cancelNumberRequest(params: {
     where: { id: params.requestId },
   });
   if (!req) throw new Error("Number request not found");
+  if (!params.userId || (req.requestedById !== params.userId &&
+      !(await userHasPermission(params.userId, "cm.ecr.manage")))) {
+    throw new Error("Only the requester or a CM manager may cancel this request");
+  }
   if (req.status !== "PENDING") {
     throw new Error("Only pending requests can be cancelled");
   }
 
-  return prisma.cmNumberRequest.update({
-    where: { id: req.id },
+  const changed = await prisma.cmNumberRequest.updateMany({
+    where: { id: req.id, status: "PENDING" },
     data: { status: "CANCELLED" },
   });
+  if (!changed.count) throw new Error("Only pending requests can be cancelled");
+  return prisma.cmNumberRequest.findUniqueOrThrow({ where: { id: req.id } });
 }
 
 /**

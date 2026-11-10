@@ -1,3 +1,4 @@
+import { userHasPermission } from "@/lib/auth";
 "use server";
 
 import { verifySignaturePin } from "./signature-pin";
@@ -306,6 +307,10 @@ export async function checkinGfp(params: {
   /** CHECKIN | RETURN_TO_GOV | TRANSFER_COMPANY */
   disposition?: "CHECKIN" | "RETURN_TO_GOV" | "TRANSFER_COMPANY";
 }) {
+  if (params.disposition && params.disposition !== "CHECKIN" &&
+      !(await userHasPermission(params.checkedInById, "gfp.manage"))) {
+    throw new Error("GFP management permission required for ownership disposition");
+  }
   const prop = await prisma.governmentProperty.findUnique({
     where: { id: params.propertyId },
   });
@@ -543,6 +548,9 @@ export async function decideGfpConsumption(params: {
   approvalNotes?: string;
   pinCode?: string;
 }) {
+  if (!(await userHasPermission(params.approvedById, "gfp.manage"))) {
+    throw new Error("GFP management permission required for consumption decision");
+  }
   await verifySignaturePin(params.approvedById, params.pinCode);
 
   const rec = await prisma.gfpConsumption.findUnique({
