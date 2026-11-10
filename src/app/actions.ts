@@ -10225,6 +10225,8 @@ export async function actionSetModuleEnabled(
 export async function actionWizardAddPerson(
   formData: FormData
 ): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  await requirePermission("admin.permissions");
   const name = ((formData.get("name") as string) || "").trim();
   const email = ((formData.get("email") as string) || "").trim().toLowerCase();
   if (!name || !email) return;
@@ -10261,7 +10263,8 @@ export async function actionWizardAddPerson(
 }
 
 export async function actionCompleteSetup(): Promise<void> {
-  const user = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("admin.permissions");
   await prisma.companySettings.upsert({
     where: { id: "default" },
     create: { id: "default", setupCompleted: true },
