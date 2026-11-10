@@ -29,6 +29,7 @@ import {
   type PlanDef,
 } from "@/lib/services/subscription-plans";
 import { PlanPriceBlock } from "./plan-price";
+import { FoundingMemberOffer } from "./founding-member-offer";
 import { SiteHeader } from "./site-header";
 import { SiteFooter } from "./site-footer";
 import { CircleLink } from "./circle-link";
@@ -121,7 +122,7 @@ const FAQS = [
   },
   {
     q: "How long is the free trial?",
-    a: `You get full product access for ${TRIAL_DAYS} days. No credit card is required to start. Nothing is billed until you choose to subscribe. When you subscribe, the first 12 months bill at the first-year price, then standard prices apply. You have 15 days after the first charge to request a full refund under our refund policy.`,
+    a: `You get full product access for ${TRIAL_DAYS} days. No credit card is required to start. Nothing is billed until you choose to subscribe. When you subscribe, the first 12 months bill at the first-year price, then standard prices apply outside the founding-member offer. Founding members who purchase by March 9, 2027 lock in the current first-year prices for life. You have 15 days after the first charge to request a full refund under our refund policy.`,
   },
   {
     q: "Do I need consultants or an implementation project?",
@@ -145,7 +146,7 @@ const FAQS = [
   },
   {
     q: "How is pricing structured?",
-    a: `${firstYearOfferSummary()} Every paid plan is the full product — no per-module nickel-and-diming.`,
+    a: `${firstYearOfferSummary()} Founding members who purchase by March 9, 2027 lock in the current first-year prices for life. Every paid plan is the full product — no per-module nickel-and-diming.`,
   },
 ];
 
@@ -359,6 +360,9 @@ export function PricingSection() {
           first charge to request a full refund.
         </SectionIntro>
 
+        <FoundingMemberOffer className="mx-auto mt-8 max-w-3xl" />
+        <p className="tile mx-auto mt-3 max-w-3xl rounded-xl px-4 py-2 text-center text-xs">Standard renewal prices shown below apply outside the founding-member offer.</p>
+
         <div className="mt-12 grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
           {paid.map((p) => {
             const featured = p.key === "GROWTH";
@@ -493,6 +497,9 @@ function HomePricing() {
             See pricing details
           </Link>
         </div>
+
+        <FoundingMemberOffer className="mx-auto mt-8 max-w-3xl" />
+        <p className="tile mx-auto mt-3 max-w-3xl rounded-xl px-4 py-2 text-center text-xs">Standard renewal prices shown below apply outside the founding-member offer.</p>
 
         <div className="mt-12 grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
           {paid.map((plan) => {
@@ -656,6 +663,7 @@ export function LandingPage({
                   Take the live demo
                 </Link>
               </div>
+              <FoundingMemberOffer className="mx-auto mt-5 max-w-2xl" />
               <p className="mt-4 text-sm text-[#3d4d66]">
                 <Link href="/demo" className="font-semibold text-[#10203f] underline">
                   www.protessera.com/demo
