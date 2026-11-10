@@ -1,6 +1,6 @@
 # Protessera Bug List (live)
 
-Updated: **2026-11-09 10:13 PM PST**. Owner: Jeramey Wilson.
+Updated: **2026-11-09 10:28 PM PST**. Owner: Jeramey Wilson.
 Live Google Doc: https://docs.google.com/document/d/1DfNkpBAHioliXV4_RVWPRfjkF5XkfyoCuf3LS7xZHJI/edit
 GitHub copy: https://github.com/jmwilson92/erpsystem/blob/bugs/live-list/docs/BUG-LIST.md
 
@@ -10,19 +10,19 @@ This is a persistent, incomplete QA register—not a claim that every function w
 
 All mutation tests use the same disposable, loopback-only WASM PostgreSQL fixture containing synthetic data. Environment cleared before launch; no production credentials loaded, no real email sent, no Stripe calls/charges, no real customer data changed. No production writes. Rejected operations intentionally leave some corrupted synthetic records for evidence.
 
-Permission defects below are confirmed direct handler tests under legitimate synthetic OPERATOR/ACCOUNTING demo identities and actual user permission checks. They are NOT claimed as authenticated production/network exploits. Six ordinary native HTTP form mutation tests and native demo start/ping/end were also exercised, using real emitted form action IDs/cookies and no spoofed auth headers. Request-only redirect/cache side effects are disregarded in direct handler tests; persisted business state is asserted.
+Authorization follow-up now includes **genuine password login and server-issued sessions for six roles** on a strict-auth local server with DEMO_MODE=0. OPERATOR customer/item/forecast/GL writes, unauthorized QA acceptance, ACCOUNTING immediate-post and concurrent approval defects were reproduced via actual HTTP requests. Native emitted forms were used where available; client-wrapped actions used canonical React encodeReply/Next-Action RPC metadata from this local build. No session tokens were forged, extracted from another account, or published. Anonymous page/customer-write denial and logout revocation passed. **This proves local authenticated HTTP defects, not production exploitation.**
 
-**Callable functions (actions + API handlers + exported library/service functions): 231 tested — 215 pass / 16 fail; 1,299 untested of 1,530.**
-**Full source inventory including pages/models: 397 tested — 381 pass / 16 fail; 1,552 untested of 1,949.**
+**Callable functions (actions + API handlers + exported library/service functions): 278 tested — 251 pass / 27 fail; 1,252 untested of 1,530.**
+**Full source inventory including pages/models: 444 tested — 417 pass / 27 fail; 1,505 untested of 1,949.**
 
 A pass means only the named scenario, not every branch/argument/state or the whole module. A function with any reproduced failure stays FAIL even when other scenarios pass. Models remain untested CRUD acceptance; page passes are server render only.
 
 | Inventory kind | Pass | Fail | Untested | Scope |
 |---|---:|---:|---:|---|
 | page | 166 | 0 | 24 | Server render only; UI actions still need acceptance |
-| action | 30 | 8 | 530 | Named native-HTTP/direct-handler scenarios; see evidence |
-| api | 9 | 0 | 16 | Specific request/response only |
-| service | 176 | 8 | 753 | Named direct calls/guards, not exhaustive branches |
+| action | 52 | 17 | 499 | Named native-HTTP/direct-handler scenarios; see evidence |
+| api | 11 | 0 | 14 | Specific request/response only |
+| service | 188 | 10 | 739 | Named direct calls/guards, not exhaustive branches |
 | model | 0 | 0 | 229 | Schema loads; per-model CRUD/permissions not accepted |
 
 ## Test evidence
@@ -50,103 +50,146 @@ Passing highlights: complete synthetic quote/customer PO/SO production chain rea
 
 Evidence on box: `results/priority-results.json`, `demo-results.json`, `demo-http-flow.json`, `finance-supply-results.json`, `finance-failure-evidence.json`, `manufacturing-edge-results.json`, `kit-resume-evidence.json`; final logs `priority-current.log`, `demo.log`, `finance-supply-current.log`, `manufacturing-edge-current.log`. Repro scripts preserved under `/workspace/protessera-dryrun/repro/`. Preliminary harness field/redirect mistakes were corrected and are NOT product bugs. Local connection settings and PINs are not in this document or Git.
 
+### Second continuation: quality, reconciliation, concurrency and real sessions
+
+**78 targeted scenarios: 51 pass / 27 fail. 16 new findings (15 confirmed defects + 1 overpayment policy gap); 51 total tracked.** Existing permission issues and task-only completion were re-confirmed, not counted as new. Two overpayment assertions are policy/workflow checks pending confirmation, not evidence of lost funds.
+
+| Suite | Pass | Fail | Scope |
+|---|---:|---:|---|
+| auth | 10 | 8 | Six real-role password/session logins; native/canonical HTTP actions, anonymous denial/logout, wrong privilege and journal race |
+| quality | 9 | 8 | QA→functional→stock, evidence/repeat gates, NCR/MRB, partial scrap and serial validation/identity |
+| finance | 11 | 6 | Isolated JE/account reconciliation, concurrent approval, AR/AP overpayment/dates, WIP/variance/GFP/adjustments and task completion |
+| demo | 5 | 1 | Native reset/leave; pool claim isolation/exhaustion/refill race/stale recycling |
+| modules | 16 | 4 | All exported CRM and field-service action handlers exercised on valid or invalid paths; not full permission/branch acceptance |
+
+Passing highlights: QA requires documents; VISUAL/GDT pass opens functional test, functional pass returns material to dock, putaway releases stock. Failed inspection quarantines stock and creates NCR/MRB; valid use-as-is and formal closure work. Ordinary AR/AP partial/full payment totals reconcile. Isolated pending→approve→reversal nets account balances; manufacturing material/labor/fringe/OH (not G&A), WIP relief/variance, GFP scrap exclusion, adjustment and OSP postings balance. Concurrent demo claims remain distinct, exhausted pool cold-starts, reset/leave and stale READY recycling preserve public/active fixtures. CRM and service valid create/update/convert/activity/dispatch/labor/parts/complete/removal flows pass.
+
+Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; final logs `round2-auth-final.log`, `round2-quality.log`, `round2-finance-current.log`, `round2-demo-current.log`, `round2-modules.log`; `demo-pool-race-evidence.json`. QA-only harness mistakes were corrected and are not bugs. Repro scripts copied to `/workspace/protessera-dryrun/repro/qa-round2-*.ts`. Synthetic test credentials/session tokens are not logged in these reports.
+
 ## Highest priority
 
-1. **ACCT-001 / AUTH-002–004:** Mutation handlers accept writes from an operator whose relevant permission is denied; the GL handler even posts a journal. Direct local handler evidence only; verify real-session network denial separately.
-2. **ACCT-002:** Failed GL posting still commits AR/AP payment rows and invoice paid balances; books/subledger can diverge.
-3. **KIT-001:** Resuming a short multi-line kit duplicates already-staged stock (1 required becomes 2), creating phantom WIP inventory.
-4. **ACCT-003 / PUR-001:** Journal immediate-post bypasses SoD; the same admin still signs demand and buyer stages.
-5. **GOVCON-001:** Reversals drop explicit unallowable classification, making allowable/unallowable reporting fail to cancel.
-6. **BOM-001 / WORK-002:** No-BOM production guard gap (leave to #143) and task-only completion dead end remain.
-7. **SALES-003:** Retrying customer PO conversion corrupts CONVERTED quote state back to ACCEPTED.
+1. **ACCT-006:** Two authenticated approvals of one 10-unit journal leave account balance 20 while posted lines remain 10.
+2. **AUTH-002–005 / ACCT-001 / ACCT-003:** Real logged-in operator can mutate customer/item/forecast/GL and accept QA without required privileges; immediate posting bypasses SoD. Anonymous write denial does work.
+3. **MRB-001 / SERIAL-001–002 / KIT-001:** Partial scrap removes all held units, serialized receipts accept invalid/no identities, and short-kit retries duplicate WIP stock.
+4. **ACCT-002 / ACCT-004–005 / ACCT-007:** Failed posting still commits subledger, historical payment JE dates are wrong, and dedicated approvers are denied by the wrong permission gate.
+5. **DEMO-001:** Three concurrent refills create six spares despite target two, risking uncontrolled database storage/load.
+6. **PUR-001 / GOVCON-001 / SALES-003 / WORK-002 / BOM-001:** Existing same-person PR approval, reversal allowability, quote retry corruption, task completion dead end and no-BOM production gap remain. BOM certification code is untouched (#143 separate).
 
 ## Bug register
 
-**35 tracked entries:** 22 carried-forward observations/UX gaps + 4 first-pass defects + 9 continuation defects. Historical unresolved/UI-only reports remain explicitly labeled. No fixes or resolved claims from this continuation.
+**51 tracked entries:** 22 historical observations/UX gaps + 4 first-pass defects + 9 first-continuation defects + 16 second-continuation findings (15 defects + 1 policy gap). Historical/UI-only reports remain explicitly labeled. No product fixes or merges.
 
-### ACCT-001 — Operator can invoke handler to post a general-ledger journal
-- Module: Accounting / authorization | Severity: **high** | Status: REPRODUCED on baseline current main in isolated local DB; direct handler test, NOT an authenticated network exploit verification
-- Steps: Select two active accounts in safe fixture; set legitimate synthetic OPERATOR context; directly invoke actionPostJournal with valid debit, credit, amount and postNow=true; query journal.
-- Expected: Require appropriate accounting permission before creating or posting any journal.
-- Actual: A POSTED journal is created by OPERATOR. No accounting permission gate executes in the handler.
-- Suspect: `src/app/actions.ts:6478-6542`
+### ACCT-006 — Concurrent approval double-applies one journal to account balances
+- Module: Accounting / concurrent approval | Severity: **high** | Status: REPRODUCED via genuine password-issued sessions and HTTP action requests on strict-auth local fixture (DEMO_MODE=0); production NOT tested
+- Steps: Create pending balanced JE of 10 against isolated fresh accounts; invoke approveJournal concurrently twice. Also repeat via two genuine ACCOUNTING-session HTTP actionApproveJournal requests.
+- Expected: One posted entry and one balance application: debit account=10.
+- Actual: One journal and its lines total 10, but the debit account balance becomes 20. Reproduced in both service calls and authenticated HTTP requests, so cached account balances no longer reconcile to posted lines.
+- Suspect: `src/lib/services/gaap.ts:763-803; src/app/actions.ts:8641-8655`
 
-### ACCT-002 — Failed AR/AP GL posting leaves payment and invoice balance committed
-- Module: Accounting / rollback | Severity: **high** | Status: REPRODUCED on baseline current main in isolated local DB
-- Steps: Create synthetic unpaid AR or AP invoice total 100; close the posting period in the disposable fixture; call recordArPayment or recordApPayment for 40; catch the expected period-closed error; query payment and invoice.
-- Expected: Entire operation rolls back: zero payment rows, amountPaid=0 and original invoice status if GL posting fails.
-- Actual: Both AR and AP throw the period-closed error BUT retain one payment row, amountPaid=40, status PARTIAL. Subledger is changed without the corresponding successful GL posting.
-- Suspect: `src/lib/services/gaap.ts:865-918,922-974`
+### AUTH-005 — Operator without qa.inspect can accept a receiving inspection over HTTP
+- Module: Accounts / QA acceptance | Severity: **high** | Status: REPRODUCED via genuine password-issued sessions and HTTP action requests on strict-auth local fixture (DEMO_MODE=0); production NOT tested
+- Steps: Password-login as synthetic OPERATOR; verify qa.inspect=false; submit actual actionCompleteReceivingInspection RPC with a pending fixture inspection, PASS and a local evidence URL.
+- Expected: Reject before inspection/results/status mutation.
+- Actual: Inspection changes PENDING→PASSED under the unauthorized real session. Anonymous customer writes are blocked; logged-in privilege checks are the defect.
+- Suspect: `src/app/actions.ts:4205-4264`
 
-### KIT-001 — Resuming a short kit duplicates already staged component inventory
-- Module: Inventory / manufacturing kitting | Severity: **high** | Status: REPRODUCED on baseline current main in isolated local DB; reproduced twice with actual existing certified BOM, no certification code changed
-- Steps: Create standalone production WO against existing certified multi-line BOM and its kit; simulate last component becoming unavailable; completeKitOrder picks/stages first line then returns short; restore missing stock; retry completeKitOrder; sum first-line WIP inventory.
-- Expected: Retry only picks/stages outstanding quantity; already PICKED lines retain exactly the required WIP quantity.
-- Actual: First component required 1 and had WIP=1 after first attempt; retry completes kit but WIP becomes 2. Already picked line is staged again despite remaining=0, creating phantom inventory.
-- Suspect: `src/lib/services/order-fulfillment.ts:1400-1402,1619-1647`
+### MRB-001 — Partial scrap disposition removes all quarantined stock
+- Module: MRB / inventory reconciliation | Severity: **high** | Status: REPRODUCED on baseline #142 in isolated synthetic local fixture
+- Steps: Receive and fail five units at unit cost 10; dispositionMrb SCRAP quantity 2; sum remaining on-hand for that new part.
+- Expected: Remove two and retain three units with an appropriate remaining hold/disposition state.
+- Actual: All five units are removed: on-hand=0 rather than 3. Code zeros the entire held item while the disposition/material transaction quantity is only 2.
+- Suspect: `src/lib/services/supply-chain.ts:1479-1515`
 
-### AUTH-002 — Customer creation handler does not enforce customers.manage
-- Module: Accounts / customer permissions | Severity: **high** | Status: REPRODUCED on baseline current main in isolated local DB; direct handler test, NOT an authenticated network exploit verification
-- Steps: Use legitimate synthetic OPERATOR demo identity; verify userHasPermission(operatorId, customers.manage) is false; directly invoke actionCreateCustomer with valid form data; read customer table.
-- Expected: Reject before any customer write when permission is absent.
-- Actual: New customer persists despite missing permission. The same handler passes the admin native HTTP form test.
-- Suspect: `src/app/actions.ts:3802-3868`
+### SERIAL-001 — Serialized receiving accepts missing, mismatched and duplicate serial lists
+- Module: Receiving / serialized material | Severity: **high** | Status: REPRODUCED on baseline #142 in isolated synthetic local fixture
+- Steps: Create separate serialized parts and two-unit POs. Receive with no serial list, a one-serial list, or the same serial repeated twice; count receipts and PO quantities.
+- Expected: Require one unique valid serial per unit before receipt/inventory/PO writes.
+- Actual: All three invalid cases create receipts and accept quantity 2. isSerialized/serial-count/uniqueness are not validated in this service path.
+- Suspect: `src/lib/services/supply-chain.ts:79-92,171-201`
 
-### AUTH-003 — Catalog creation handler does not enforce items.manage
-- Module: Accounts / catalog permissions | Severity: **high** | Status: REPRODUCED on baseline current main in isolated local DB; direct handler test, NOT an authenticated network exploit verification
-- Steps: As synthetic OPERATOR with userHasPermission(items.manage)=false, directly call actionCreateItem with a unique valid catalog item; read part table.
-- Expected: Deny without creating a part.
-- Actual: Part is created without the required permission.
-- Suspect: `src/app/actions.ts:3934-3979`
+### SERIAL-002 — Valid received serials never become selectable stock serial identities
+- Module: Receiving / serial trace and kitting | Severity: **high** | Status: REPRODUCED on baseline #142 in isolated synthetic local fixture
+- Steps: Receive a new serialized two-unit part with two distinct serial strings; query listStockSerialsForParts for that part.
+- Expected: Create/associate two IN_STOCK serial identities usable by serial trace, kit allocation and installation.
+- Actual: Stock quantity is received but selectable serial identities=0 instead of 2. Strings are stored only in receipt-line JSON; no SerialNumber records are created.
+- Suspect: `src/lib/services/supply-chain.ts:193,250-292; src/lib/services/stock-serials.ts:4-17`
 
-### AUTH-004 — Forecast creation handler does not enforce planning.forecast.create
-- Module: Accounts / planning permissions | Severity: **high** | Status: REPRODUCED on baseline current main in isolated local DB; direct handler test, NOT an authenticated network exploit verification
-- Steps: As synthetic OPERATOR with planning.forecast.create denied, directly invoke actionCreateForecast with a valid name and part/quantity line.
-- Expected: Deny before forecast/header/line creation.
-- Actual: A forecast is created despite the denied permission.
-- Suspect: `src/app/actions.ts:1094-1135`
+### ACCT-004 — Overpayment has no explicit applied/unapplied breakdown (policy review)
+- Module: Accounting / AR/AP reconciliation | Severity: **med** | Status: OBSERVED reconciliation/policy gap in synthetic AR/AP; unapplied-credit workflow and intended policy need verification, not a confirmed loss of funds
+- Steps: For separate unpaid AR/AP invoices totaling 100, record a payment of 120 and compare payment, posted journal and invoice amountPaid.
+- Expected: If excess is allowed, clearly expose and reconcile 100 applied plus 20 unapplied credit; otherwise reject it.
+- Actual: Payment and GL record 120 while invoice.amountPaid is capped at 100. Payment records preserve the 120, so this is NOT proven money loss. No explicit unapplied-credit workflow was found/tested; requires product/UI confirmation before a fix.
+- Suspect: `src/lib/services/gaap.ts:880-899,937-957`
 
-### ACCT-003 — postNow bypasses required journal approval for ordinary accountant
-- Module: Accounting / separation of duties | Severity: **high** | Status: REPRODUCED on baseline current main in isolated local DB; direct handler test, NOT an authenticated network exploit verification
-- Steps: Enable requireJournalSoD; select legitimate synthetic ACCOUNTING user (not admin/controller); directly call actionPostJournal with postNow=true; inspect journal status.
-- Expected: Create pending journal requiring a separate authorized approver, or reject the immediate-post request.
-- Actual: The self-created entry is immediately POSTED by ACCOUNTING while separation-of-duties is enabled. The separate approveJournal self-approval gate works, but this path bypasses it.
-- Suspect: `src/app/actions.ts:6508-6519; src/lib/services/gaap.ts:postJournal/approveJournal`
+### ACCT-005 — AR/AP journal date ignores the supplied historical payment date
+- Module: Accounting / payment periods | Severity: **high** | Status: REPRODUCED on baseline #142 in isolated synthetic local fixture
+- Steps: Record an AR/AP payment with an explicit historical paymentDate in an open period; compare its payment row date with linked JE.date.
+- Expected: Payment and settlement journal use the supplied payment date consistently and honor that period lock.
+- Actual: Payment row keeps requested date but GL journal uses current date. The known paymentDate is not passed to postJournal, so historical-period reconciliation is wrong.
+- Suspect: `src/lib/services/gaap.ts:894,906-916,962-972`
 
-### PUR-001 — One person can complete demand and buyer approvals
-- Module: Purchasing / permissions | Severity: **high** | Status: REPRODUCED on current main in isolated local DB; same actual admin identity, no role switch
-- Steps: Create and submit synthetic standalone PR; decidePrApproval demand as admin; set valid buyer package fields; confirmBuyerPackageStep as the SAME admin user ID.
-- Expected: Distinct actual people per approval step; explicit audited reason for any permitted admin override.
-- Actual: Demand and buyer stages both become APPROVED with the same approverId. No separate signer or override reason was required.
-- Suspect: `src/lib/services/pr-approval.ts:647-648,701-707; src/lib/services/pr-buyer.ts:488-497,572-580`
+### ACCT-007 — Journal approval checks posting permission instead of approval permission
+- Module: Accounting / individual approval permissions | Severity: **high** | Status: REPRODUCED via genuine password-issued sessions and HTTP action requests on strict-auth local fixture (DEMO_MODE=0); production NOT tested
+- Steps: Password-login as synthetic EXECUTIVE; assert accounting.journal.approve=true and accounting.journal.post=false; submit actionApproveJournal for another person’s pending JE.
+- Expected: Dedicated journal approval grant authorizes approval, without needing posting permission.
+- Actual: Request is denied and JE stays PENDING_APPROVAL because the action checks accounting.journal.post. The distinct approval grant/default is ignored.
+- Suspect: `src/app/actions.ts:8644-8648; src/lib/auth.ts:245-246,447-451`
 
-### GOVCON-001 — Journal reversal loses line-level unallowable classification
-- Module: Accounting / GovCon allowability | Severity: **high** | Status: REPRODUCED on baseline current main in isolated local DB
-- Steps: Post balanced journal with an explicitly unallowable debit line and FAR citation on an otherwise allowable account; reverseJournalEntry; compare original/reversal lines.
-- Expected: Reversal swaps debit/credit while retaining unallowable/FAR and cost attribution fields so allowability reporting nets correctly.
-- Actual: Reversal line unallowable=false versus original true. The reversal mapping omits line classification fields; balanced amounts and duplicate-reversal guard do pass.
-- Suspect: `src/lib/services/gaap.ts:1028-1064 (mapping 1057-1063)`
+### DEMO-001 — Concurrent demo pool refills exceed configured spare target
+- Module: Demo / pool concurrency | Severity: **high** | Status: REPRODUCED on baseline #142 in isolated synthetic local fixture
+- Steps: With no READY spares and DEMO_POOL_SIZE=2, run three ensureDemoPool calls concurrently against the disposable fixture; count READY rows after all settle.
+- Expected: Refill coordination respects configured total spare target and in-flight limit.
+- Actual: Each call returns 2; six READY schemas remain while target=2. Sequential refill is idempotent, concurrent refill is not. Reproduced twice.
+- Suspect: `src/lib/services/tenancy.ts:490-514`
 
-### SALES-003 — Repeated customer PO conversion regresses converted quote to ACCEPTED
-- Module: Sales / quote rollback | Severity: **med** | Status: REPRODUCED on baseline current main in isolated local DB
-- Steps: Create valid quote; actionRecordCustomerPo successfully converts to one SO; repeat actionRecordCustomerPo on the same quote; read SO count and quote status.
-- Expected: Return/reject safely without changing the CONVERTED quote or creating another SO.
-- Actual: No duplicate SO is created, but quote status regresses to ACCEPTED before conversion rejects. The failed repeated mutation is not atomic.
-- Suspect: `src/app/actions.ts:3619-3651`
+### QA-002 — Failed-inspection NCR loses the known purchase-order supplier
+- Module: Receiving / NCR supplier trace | Severity: **med** | Status: REPRODUCED on baseline #142 in isolated synthetic local fixture
+- Steps: Receive PO material requiring QA; complete receiving inspection FAIL with evidence; read new NCR and original PO supplier.
+- Expected: Carry source supplier ID into NCR so source attribution and supplier quality metrics remain linked.
+- Actual: NCR.supplierId is null even though the PO supplier is known. Quarantine and NCR/MRB creation otherwise succeed.
+- Suspect: `src/lib/services/receiving-inspection.ts:568-577; src/lib/services/supply-chain.ts:1145-1175`
 
-### BOM-001 — Production WO can be created with no BOM at all
-- Module: Manufacturing / BOM | Severity: **high** | Status: REPRODUCED on current main in isolated local DB
-- Steps: Call createWorkOrder with type PRODUCTION, a valid partId and quantity 1, but no bomHeaderId.
-- Expected: Reject unless a certified BOM exists and is explicitly linked.
-- Actual: Order is created; the certified-BOM check only executes when bomHeaderId is supplied. Draft-BOM rejection does work.
-- Suspect: `src/lib/services/work-orders.ts:122-148`
+### MRB-002 — Negative MRB disposition quantity persists
+- Module: MRB / input validation | Severity: **med** | Status: REPRODUCED on baseline #142 in isolated synthetic local fixture
+- Steps: Create synthetic open MRB holding material; call dispositionMrb USE_AS_IS quantity -1; compare disposition rows.
+- Expected: Reject nonpositive quantity before any disposition, stock release or case-state change.
+- Actual: A disposition row with negative quantity is created; the operation also follows its normal release path.
+- Suspect: `src/lib/services/supply-chain.ts:1277-1296,1439-1459`
 
-### WORK-002 — Task-only work order cannot complete putaway
-- Module: Work orders / receiving | Severity: **high** | Status: REPRODUCED on current main in isolated local DB
-- Steps: Complete all traveler steps on task-only WO-00008, deliver RCV-01, then put away.
-- Expected: Non-inventory WO has a completion path without stocking.
-- Actual: READY FOR PUTAWAY 0/1; Cannot complete — missing storage or part.
-- Suspect: `src/lib/services/order-fulfillment.ts:1799`
+### MRB-003 — Already-dispositioned MRB accepts a second decision
+- Module: MRB / repeat mutations | Severity: **high** | Status: REPRODUCED on baseline #142 in isolated synthetic local fixture
+- Steps: Create MRB; complete USE_AS_IS for its held quantity; repeat dispositionMrb on the same case; count decisions.
+- Expected: Reject or return existing disposition without another decision or downstream mutation.
+- Actual: A second disposition record is created on the already DISPOSITIONED case. No case-status/idempotency guard runs.
+- Suspect: `src/lib/services/supply-chain.ts:1277-1296,1439-1459`
+
+### CRM-002 — Lead status mutation accepts arbitrary unknown state
+- Module: CRM / lead state validation | Severity: **med** | Status: REPRODUCED on baseline #142 in isolated synthetic local fixture
+- Steps: Create lead; invoke actionUpdateLeadStatus with QA_UNKNOWN_STATE.
+- Expected: Reject state outside LEAD_STATUSES without changing the record.
+- Actual: Unknown state string persists; lead disappears from normal state-driven workflows/filters.
+- Suspect: `src/app/crm/actions.ts:55-60; src/lib/services/crm.ts:100-109`
+
+### CRM-003 — Opportunity update accepts a 250 percent win probability
+- Module: CRM / pipeline validation | Severity: **med** | Status: REPRODUCED on baseline #142 in isolated synthetic local fixture
+- Steps: Create valid opportunity; invoke actionUpdateOpportunity with probability=250.
+- Expected: Reject or constrain probability to 0–100.
+- Actual: 250 persists and can inflate weighted pipeline values.
+- Suspect: `src/app/crm/actions.ts:116-133; src/lib/services/crm.ts:220-227`
+
+### SVC-001 — Service status mutation accepts arbitrary unknown state
+- Module: Field service / state validation | Severity: **med** | Status: REPRODUCED on baseline #142 in isolated synthetic local fixture
+- Steps: Create service ticket; invoke actionUpdateTicketStatus with QA_UNKNOWN_STATE.
+- Expected: Reject state outside TICKET_STATUSES.
+- Actual: Unknown state persists; status-based queues and lifecycle queries no longer recognize the ticket.
+- Suspect: `src/app/service/actions.ts:55-60; src/lib/services/field-service.ts:156-168`
+
+### SVC-002 — Reopened service ticket retains its closed timestamp
+- Module: Field service / reopen lifecycle | Severity: **med** | Status: REPRODUCED on baseline #142 in isolated synthetic local fixture
+- Steps: Complete the last service visit so ticket is COMPLETED; actionUpdateTicketStatus to IN_PROGRESS; read closedAt.
+- Expected: Reopening clears closedAt while moving the ticket back into open work.
+- Actual: Ticket is IN_PROGRESS but closedAt still has its previous completion timestamp.
+- Suspect: `src/lib/services/field-service.ts:156-168`
 
 ### WORK-001 — WO list and detail disagree on due date
 - Module: Work orders | Severity: **high** | Status: historical observation; current-main retest pending
@@ -196,6 +239,20 @@ Evidence on box: `results/priority-results.json`, `demo-results.json`, `demo-htt
 - Expected: Link to My Account > Sign-off PIN.
 - Actual: Original message asked HR/admin, despite self-service /account. Current code text now points to My Account; link still needs UI check.
 - Suspect: `src/lib/services/signature-pin.ts:11`
+
+### PUR-001 — One person can complete demand and buyer approvals
+- Module: Purchasing / permissions | Severity: **high** | Status: REPRODUCED on current main in isolated local DB; same actual admin identity, no role switch
+- Steps: Create and submit synthetic standalone PR; decidePrApproval demand as admin; set valid buyer package fields; confirmBuyerPackageStep as the SAME admin user ID.
+- Expected: Distinct actual people per approval step; explicit audited reason for any permitted admin override.
+- Actual: Demand and buyer stages both become APPROVED with the same approverId. No separate signer or override reason was required.
+- Suspect: `src/lib/services/pr-approval.ts:647-648,701-707; src/lib/services/pr-buyer.ts:488-497,572-580`
+
+### WORK-002 — Task-only work order cannot complete putaway
+- Module: Work orders / receiving | Severity: **high** | Status: REPRODUCED again through full task-only create/sign/handoff/complete action chain; remains READY_FOR_PUTAWAY with no part
+- Steps: Create synthetic TASK_ONLY via actionCreateTaskWo; sign every attached traveler step with the synthetic admin own PIN; actionSendWoToReceivingPutaway then actionCompleteWoToStock; read final WO status.
+- Expected: Non-inventory WO has a completion path without stocking.
+- Actual: READY FOR PUTAWAY 0/1; Cannot complete — missing storage or part.
+- Suspect: `src/lib/services/order-fulfillment.ts:1799`
 
 ### WORK-003 — Successful delivery flashes NEXT_REDIRECT error
 - Module: Work orders | Severity: **low** | Status: historical observation; current-main retest pending
@@ -288,6 +345,13 @@ Evidence on box: `results/priority-results.json`, `demo-results.json`, `demo-htt
 - Actual: Only a reference field, no linked record/attachment. Product improvement, not confirmed defect.
 - Suspect: `src/app/sales/[id]/page.tsx`
 
+### BOM-001 — Production WO can be created with no BOM at all
+- Module: Manufacturing / BOM | Severity: **high** | Status: REPRODUCED on current main in isolated local DB
+- Steps: Call createWorkOrder with type PRODUCTION, a valid partId and quantity 1, but no bomHeaderId.
+- Expected: Reject unless a certified BOM exists and is explicitly linked.
+- Actual: Order is created; the certified-BOM check only executes when bomHeaderId is supplied. Draft-BOM rejection does work.
+- Suspect: `src/lib/services/work-orders.ts:122-148`
+
 ### BOM-002 — BOM line update accepts negative component quantity
 - Module: PLM / BOM | Severity: **med** | Status: REPRODUCED on current main in isolated local DB
 - Steps: Create draft BOM and a line quantity 1; call updateBomLine with quantity -5.
@@ -309,16 +373,78 @@ Evidence on box: `results/priority-results.json`, `demo-results.json`, `demo-htt
 - Actual: Forecast line -5 persists. The current actionCreateForecast UI wrapper filters nonpositive lines, so this is a service-validation gap, not a confirmed UI exploit.
 - Suspect: `src/lib/services/planning.ts:43-74; src/app/actions.ts:1107-1127`
 
+### AUTH-002 — Customer creation handler does not enforce customers.manage
+- Module: Accounts / customer permissions | Severity: **high** | Status: REPRODUCED via genuine password-issued sessions and HTTP action requests on strict-auth local fixture (DEMO_MODE=0); production NOT tested
+- Steps: Use legitimate synthetic OPERATOR demo identity; verify userHasPermission(operatorId, customers.manage) is false; directly invoke actionCreateCustomer with valid form data; read customer table. Follow-up: password-login as the synthetic role on strict-auth server; use the actual issued session cookie and ordinary native action form (or canonical React RPC for client-wrapped forecast); assert the persisted mutation.
+- Expected: Reject before any customer write when permission is absent.
+- Actual: New customer persists despite missing permission. The same handler passes the admin native HTTP form test. Reconfirmed over authenticated local HTTP, not just a direct handler call.
+- Suspect: `src/app/actions.ts:3802-3868`
+
+### AUTH-003 — Catalog creation handler does not enforce items.manage
+- Module: Accounts / catalog permissions | Severity: **high** | Status: REPRODUCED via genuine password-issued sessions and HTTP action requests on strict-auth local fixture (DEMO_MODE=0); production NOT tested
+- Steps: As synthetic OPERATOR with userHasPermission(items.manage)=false, directly call actionCreateItem with a unique valid catalog item; read part table. Follow-up: password-login as the synthetic role on strict-auth server; use the actual issued session cookie and ordinary native action form (or canonical React RPC for client-wrapped forecast); assert the persisted mutation.
+- Expected: Deny without creating a part.
+- Actual: Part is created without the required permission. Reconfirmed over authenticated local HTTP, not just a direct handler call.
+- Suspect: `src/app/actions.ts:3934-3979`
+
+### AUTH-004 — Forecast creation handler does not enforce planning.forecast.create
+- Module: Accounts / planning permissions | Severity: **high** | Status: REPRODUCED via genuine password-issued sessions and HTTP action requests on strict-auth local fixture (DEMO_MODE=0); production NOT tested
+- Steps: As synthetic OPERATOR with planning.forecast.create denied, directly invoke actionCreateForecast with a valid name and part/quantity line. Follow-up: password-login as the synthetic role on strict-auth server; use the actual issued session cookie and ordinary native action form (or canonical React RPC for client-wrapped forecast); assert the persisted mutation.
+- Expected: Deny before forecast/header/line creation.
+- Actual: A forecast is created despite the denied permission. Reconfirmed over authenticated local HTTP, not just a direct handler call.
+- Suspect: `src/app/actions.ts:1094-1135`
+
+### ACCT-001 — Operator can invoke handler to post a general-ledger journal
+- Module: Accounting / authorization | Severity: **high** | Status: REPRODUCED via genuine password-issued sessions and HTTP action requests on strict-auth local fixture (DEMO_MODE=0); production NOT tested
+- Steps: Select two active accounts in safe fixture; set legitimate synthetic OPERATOR context; directly invoke actionPostJournal with valid debit, credit, amount and postNow=true; query journal. Follow-up: password-login as the synthetic role on strict-auth server; use the actual issued session cookie and ordinary native action form (or canonical React RPC for client-wrapped forecast); assert the persisted mutation.
+- Expected: Require appropriate accounting permission before creating or posting any journal.
+- Actual: A POSTED journal is created by OPERATOR. No accounting permission gate executes in the handler. Reconfirmed over authenticated local HTTP, not just a direct handler call.
+- Suspect: `src/app/actions.ts:6478-6542`
+
+### ACCT-002 — Failed AR/AP GL posting leaves payment and invoice balance committed
+- Module: Accounting / rollback | Severity: **high** | Status: REPRODUCED on baseline current main in isolated local DB
+- Steps: Create synthetic unpaid AR or AP invoice total 100; close the posting period in the disposable fixture; call recordArPayment or recordApPayment for 40; catch the expected period-closed error; query payment and invoice.
+- Expected: Entire operation rolls back: zero payment rows, amountPaid=0 and original invoice status if GL posting fails.
+- Actual: Both AR and AP throw the period-closed error BUT retain one payment row, amountPaid=40, status PARTIAL. Subledger is changed without the corresponding successful GL posting.
+- Suspect: `src/lib/services/gaap.ts:865-918,922-974`
+
+### ACCT-003 — postNow bypasses required journal approval for ordinary accountant
+- Module: Accounting / separation of duties | Severity: **high** | Status: REPRODUCED via genuine password-issued sessions and HTTP action requests on strict-auth local fixture (DEMO_MODE=0); production NOT tested
+- Steps: Enable requireJournalSoD; select legitimate synthetic ACCOUNTING user (not admin/controller); directly call actionPostJournal with postNow=true; inspect journal status. Follow-up: password-login as the synthetic role on strict-auth server; use the actual issued session cookie and ordinary native action form (or canonical React RPC for client-wrapped forecast); assert the persisted mutation.
+- Expected: Create pending journal requiring a separate authorized approver, or reject the immediate-post request.
+- Actual: The self-created entry is immediately POSTED by ACCOUNTING while separation-of-duties is enabled. The separate approveJournal self-approval gate works, but this path bypasses it. Reconfirmed over authenticated local HTTP, not just a direct handler call.
+- Suspect: `src/app/actions.ts:6508-6519; src/lib/services/gaap.ts:postJournal/approveJournal`
+
+### GOVCON-001 — Journal reversal loses line-level unallowable classification
+- Module: Accounting / GovCon allowability | Severity: **high** | Status: REPRODUCED on baseline current main in isolated local DB
+- Steps: Post balanced journal with an explicitly unallowable debit line and FAR citation on an otherwise allowable account; reverseJournalEntry; compare original/reversal lines.
+- Expected: Reversal swaps debit/credit while retaining unallowable/FAR and cost attribution fields so allowability reporting nets correctly.
+- Actual: Reversal line unallowable=false versus original true. The reversal mapping omits line classification fields; balanced amounts and duplicate-reversal guard do pass.
+- Suspect: `src/lib/services/gaap.ts:1028-1064 (mapping 1057-1063)`
+
+### SALES-003 — Repeated customer PO conversion regresses converted quote to ACCEPTED
+- Module: Sales / quote rollback | Severity: **med** | Status: REPRODUCED on baseline current main in isolated local DB
+- Steps: Create valid quote; actionRecordCustomerPo successfully converts to one SO; repeat actionRecordCustomerPo on the same quote; read SO count and quote status.
+- Expected: Return/reject safely without changing the CONVERTED quote or creating another SO.
+- Actual: No duplicate SO is created, but quote status regresses to ACCEPTED before conversion rejects. The failed repeated mutation is not atomic.
+- Suspect: `src/app/actions.ts:3619-3651`
+
+### KIT-001 — Resuming a short kit duplicates already staged component inventory
+- Module: Inventory / manufacturing kitting | Severity: **high** | Status: REPRODUCED on baseline current main in isolated local DB; reproduced twice with actual existing certified BOM, no certification code changed
+- Steps: Create standalone production WO against existing certified multi-line BOM and its kit; simulate last component becoming unavailable; completeKitOrder picks/stages first line then returns short; restore missing stock; retry completeKitOrder; sum first-line WIP inventory.
+- Expected: Retry only picks/stages outstanding quantity; already PICKED lines retain exactly the required WIP quantity.
+- Actual: First component required 1 and had WIP=1 after first attempt; retry completes kit but WIP becomes 2. Already picked line is staged again despite remaining=0, creating phantom inventory.
+- Suspect: `src/lib/services/order-fulfillment.ts:1400-1402,1619-1647`
+
 ## Remaining work / next pass
 
-- **530 server actions remain untested**. Continue actual mutations and malformed inputs, denied/expired individual grants, real-session authorization, rollback and repeat/concurrent operations; a rendered form is not a passed action.
-- Purchasing: multi-person/non-admin approvals, rejected/changed buyer package, overrides and thresholds; QC/inspection/NCR, split receipts, serialized/lot-controlled materials, invoices and financial reconciliation across the same end-to-end order.
-- Manufacturing: kit short/retry/concurrency, allocations/lot costs, task-only completion, production variants, test failures/rework, partial completion and SO-line quantity reconciliation. The happy path reached COMPLETED; it does not establish all variants.
-- Accounting: more closed-period and rollback cases, AR/AP dates/overpayment, GL balance/subledger reconciliation, classification-preserving reversals, GovCon indirect rates/allowability and multi-person timesheet controls.
-- Demo: reset endpoint/UI, pool refill/claim races and exhaustion, concurrent start/expiry, expired-session recovery, fresh empty-template behavior. Provision/start/ping/end/destroy/stale sweep/isolation passed locally; no destructive production checks.
-- PLM/ECO/ECR/CM release, optional-prototype certification after #143 (not touched here), lot/serial trace edge cases, shelf-life/kanban/stock adjustments, GFP contract rules, MRP capacity/forecast/MRS release.
-- CRM contact/import/edit/delete, PMO program/project/WBS/risk/issue/PI/requirements mutations; service assets/vehicle stock; maintenance/downtime writes; report numeric reconciliation/custom combinations; admin/settings/import/account MFA and billing plan/seat lifecycle with offline stubs only.
-- **Needs UI pass:** cookie overlay, autofill, drag/drop, microphone/camera, printing/downloads, role/persona switches, redirect toasts, search/select widgets, responsive layout, docs editor and visible workflow buttons. Historical due dates, intermittent test submit and production item-page incident still need targeted verification.
+- **499 server actions remain untested.** Continue module-by-module mutations plus malformed inputs, real-session individual grants/denies/expiry, rollback, repeat and concurrent operations. CRM and field-service action handlers now have at least one scenario each; permissions and all variants are not accepted.
+- Receiving/QC: mixed-line split travelers, serial uniqueness across receipts, lot/shelf-life, partial failures/reinspection, CAR/rework/repair/RTV approvals, multiple holds and supplier scorecard attribution.
+- Financial: fix/retest concurrency separately, reconcile complete SO→shipping→invoice→cash and PO→receipt→AP chains numerically, discounts/taxes/credits, GovCon allocation and timesheet controls, closed-period rollback across every business event.
+- Task-only official completion remains broken after every traveler step is signed and receiving handoff succeeds. No workaround/fix was introduced.
+- Demo: broader multi-process races, in-flight cap/abort/failure recovery and stale session UI. Native reset/leave, schema-unique claims/exhaustion and recycling pass; refill target concurrency fails.
+- Next modules: PMO/program/project/WBS/budget/risk/issue/requirements; HR/time; PLM/ECO/ECR/CM after #143; inventory/GFP/MRP; purchasing policy thresholds; admin/settings/import/accounts/MFA; billing offline mocks only.
+- Needs UI pass: cookie overlay/autofill, visual buttons/selects, docs editor, layout, toasts, cameras/microphone, printing/downloads and production-only/intermittent historical incidents. No destructive production verification.
 
 ## Original dry-run log (preserved verbatim)
 
@@ -386,7 +512,7 @@ Records: customer https://www.protessera.com/customers/cmwa4j3fq000108l0g7br5g7r
 
 ## Full source-derived checklist
 
-PASS = named scenario only. FAIL = at least one reproduced failure. UNTESTED = not accepted. Model rows remain untested CRUD acceptance even though full schema loaded. Source paths/lines refer to baseline SHA. Evidence lists the specific test case(s); permission failures are direct handler tests unless explicitly HTTP.
+PASS = named scenario only; FAIL = at least one reproduced failure; UNTESTED = not accepted. Models remain untested per-model CRUD/authorization; page passes are render-only. Source lines refer to baseline #142. HTTP permission evidence uses actual password-issued local sessions, never production.
 
 ### PAGE checklist
 
@@ -398,15 +524,15 @@ PASS = named scenario only. FAIL = at least one reproduced failure. UNTESTED = n
 | PAGE-0004 | Accounting / GovCon | /accounting/govcon | `src/app/accounting/govcon/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0005 | Accounting / GovCon | /accounting | `src/app/accounting/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0006 | Accounting / GovCon | /accounting/payroll | `src/app/accounting/payroll/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0007 | Accounting / GovCon | /accounting/paystub/[id] | `src/app/accounting/paystub/[id]/page.tsx:1` | UNTESTED | Needs UI pass / fixture + render |
+| PAGE-0007 | Accounting / GovCon | /accounting/paystub/[id] | `src/app/accounting/paystub/[id]/page.tsx:1` | UNTESTED | Not yet exercised |
 | PAGE-0008 | Accounting / GovCon | /accounting/reports/print | `src/app/accounting/reports/print/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0009 | Admin / Settings | /admin/import | `src/app/admin/import/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0010 | Admin / Settings | /admin/insights | `src/app/admin/insights/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0011 | Accounts / Roles | /admin/permissions | `src/app/admin/permissions/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0012 | Admin / Settings | /admin/settings | `src/app/admin/settings/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0013 | Admin / Settings | /admin/support/[id] | `src/app/admin/support/[id]/page.tsx:1` | UNTESTED | Needs UI pass / fixture + render |
+| PAGE-0013 | Admin / Settings | /admin/support/[id] | `src/app/admin/support/[id]/page.tsx:1` | UNTESTED | Not yet exercised |
 | PAGE-0014 | Admin / Settings | /admin/support | `src/app/admin/support/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0015 | Admin / Settings | /admin/tenants/[tenantId] | `src/app/admin/tenants/[tenantId]/page.tsx:1` | UNTESTED | Needs UI pass / fixture + render |
+| PAGE-0015 | Admin / Settings | /admin/tenants/[tenantId] | `src/app/admin/tenants/[tenantId]/page.tsx:1` | UNTESTED | Not yet exercised |
 | PAGE-0016 | Admin / Settings | /admin/tenants | `src/app/admin/tenants/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0017 | Platform / Other | /ai | `src/app/ai/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0018 | Platform / Other | /approvals | `src/app/approvals/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
@@ -432,22 +558,22 @@ PASS = named scenario only. FAIL = at least one reproduced failure. UNTESTED = n
 | PAGE-0038 | Demo / Tenancy | /demo | `src/app/demo/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0039 | Docs | /docs/new | `src/app/docs/new/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0040 | Docs | /docs | `src/app/docs/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0041 | Docs | /docs/pages/[id]/edit | `src/app/docs/pages/[id]/edit/page.tsx:1` | UNTESTED | Needs UI pass / fixture + render |
-| PAGE-0042 | Docs | /docs/pages/[id]/history | `src/app/docs/pages/[id]/history/page.tsx:1` | UNTESTED | Needs UI pass / fixture + render |
-| PAGE-0043 | Docs | /docs/pages/[id] | `src/app/docs/pages/[id]/page.tsx:1` | UNTESTED | Needs UI pass / fixture + render |
+| PAGE-0041 | Docs | /docs/pages/[id]/edit | `src/app/docs/pages/[id]/edit/page.tsx:1` | UNTESTED | Not yet exercised |
+| PAGE-0042 | Docs | /docs/pages/[id]/history | `src/app/docs/pages/[id]/history/page.tsx:1` | UNTESTED | Not yet exercised |
+| PAGE-0043 | Docs | /docs/pages/[id] | `src/app/docs/pages/[id]/page.tsx:1` | UNTESTED | Not yet exercised |
 | PAGE-0044 | Platform / Other | /email | `src/app/email/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0045 | PLM / BOM / ECO | /engineering/[discipline] | `src/app/engineering/[discipline]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0046 | PLM / BOM / ECO | /engineering | `src/app/engineering/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0047 | PLM / BOM / ECO | /engineering/tasks/[id] | `src/app/engineering/tasks/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0048 | PLM / BOM / ECO | /engineering/tasks | `src/app/engineering/tasks/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0049 | PLM / BOM / ECO | /engineering/tickets/[id] | `src/app/engineering/tickets/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0050 | Service / Assets | /fleet/[id] | `src/app/fleet/[id]/page.tsx:1` | UNTESTED | Needs UI pass / fixture + render |
+| PAGE-0050 | Service / Assets | /fleet/[id] | `src/app/fleet/[id]/page.tsx:1` | UNTESTED | Not yet exercised |
 | PAGE-0051 | Service / Assets | /fleet | `src/app/fleet/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0052 | Platform / Other | /floor | `src/app/floor/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0053 | Platform / Other | /government-property/[id] | `src/app/government-property/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0054 | Platform / Other | /government-property | `src/app/government-property/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0055 | Platform / Other | /guides | `src/app/guides/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0056 | Accounts / Roles | /hr/onboarding/[id] | `src/app/hr/onboarding/[id]/page.tsx:1` | UNTESTED | Needs UI pass / fixture + render |
+| PAGE-0056 | Accounts / Roles | /hr/onboarding/[id] | `src/app/hr/onboarding/[id]/page.tsx:1` | UNTESTED | Not yet exercised |
 | PAGE-0057 | Accounts / Roles | /hr/onboarding | `src/app/hr/onboarding/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0058 | HR / Time | /hr | `src/app/hr/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0059 | HR / Time | /hr/person/[id] | `src/app/hr/person/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
@@ -458,7 +584,7 @@ PASS = named scenario only. FAIL = at least one reproduced failure. UNTESTED = n
 | PAGE-0064 | Inventory / Kitting | /inventory/cycle-counts | `src/app/inventory/cycle-counts/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0065 | Inventory / Kitting | /inventory/expiring | `src/app/inventory/expiring/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0066 | Inventory / Kitting | /inventory | `src/app/inventory/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0067 | Accounts / Roles | /invite/[token] | `src/app/invite/[token]/page.tsx:1` | UNTESTED | Needs UI pass / fixture + render |
+| PAGE-0067 | Accounts / Roles | /invite/[token] | `src/app/invite/[token]/page.tsx:1` | UNTESTED | Not yet exercised |
 | PAGE-0068 | Inventory / Kitting | /items/[id] | `src/app/items/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0069 | Inventory / Kitting | /items/new | `src/app/items/new/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0070 | Inventory / Kitting | /items | `src/app/items/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
@@ -468,22 +594,22 @@ PASS = named scenario only. FAIL = at least one reproduced failure. UNTESTED = n
 | PAGE-0074 | Platform / Other | /legal | `src/app/legal/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0075 | Accounts / Roles | /login | `src/app/login/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0076 | Accounts / Roles | /login/verify | `src/app/login/verify/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0077 | Shipping / Logistics | /logistics/landed/[receiptId] | `src/app/logistics/landed/[receiptId]/page.tsx:1` | UNTESTED | Needs UI pass / fixture + render |
+| PAGE-0077 | Shipping / Logistics | /logistics/landed/[receiptId] | `src/app/logistics/landed/[receiptId]/page.tsx:1` | UNTESTED | Not yet exercised |
 | PAGE-0078 | Shipping / Logistics | /logistics | `src/app/logistics/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0079 | Service / Assets | /maintenance/[id] | `src/app/maintenance/[id]/page.tsx:1` | UNTESTED | Needs UI pass / fixture + render |
+| PAGE-0079 | Service / Assets | /maintenance/[id] | `src/app/maintenance/[id]/page.tsx:1` | UNTESTED | Not yet exercised |
 | PAGE-0080 | Service / Assets | /maintenance | `src/app/maintenance/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0081 | Platform / Other | /module-off | `src/app/module-off/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0082 | Quality / NCR | /mrb/cars/[id] | `src/app/mrb/cars/[id]/page.tsx:1` | UNTESTED | Needs UI pass / fixture + render |
+| PAGE-0082 | Quality / NCR | /mrb/cars/[id] | `src/app/mrb/cars/[id]/page.tsx:1` | UNTESTED | Not yet exercised |
 | PAGE-0083 | Quality / NCR | /mrb/cars | `src/app/mrb/cars/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0084 | Quality / NCR | /mrb | `src/app/mrb/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0085 | Platform / Other | /no-access | `src/app/no-access/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0086 | Accounts / Roles | /onboard/[token] | `src/app/onboard/[token]/page.tsx:1` | UNTESTED | Needs UI pass / fixture + render |
+| PAGE-0086 | Accounts / Roles | /onboard/[token] | `src/app/onboard/[token]/page.tsx:1` | UNTESTED | Not yet exercised |
 | PAGE-0087 | Platform / Other | / | `src/app/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0088 | Inventory / Kitting | /parts/[id] | `src/app/parts/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0089 | Planning / Scheduling | /planning/forecasts/[id] | `src/app/planning/forecasts/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0090 | Planning / Scheduling | /planning/forecasts/new | `src/app/planning/forecasts/new/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0091 | Planning / Scheduling | /planning/forecasts | `src/app/planning/forecasts/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0092 | Planning / Scheduling | /planning/mrs/[id] | `src/app/planning/mrs/[id]/page.tsx:1` | UNTESTED | Needs UI pass / fixture + render |
+| PAGE-0092 | Planning / Scheduling | /planning/mrs/[id] | `src/app/planning/mrs/[id]/page.tsx:1` | UNTESTED | Not yet exercised |
 | PAGE-0093 | Planning / Scheduling | /planning/mrs | `src/app/planning/mrs/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0094 | Planning / Scheduling | /planning | `src/app/planning/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0095 | PMO / Budgets | /pmo/alerts | `src/app/pmo/alerts/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
@@ -500,8 +626,8 @@ PASS = named scenario only. FAIL = at least one reproduced failure. UNTESTED = n
 | PAGE-0106 | PMO / Budgets | /pmo/wbs | `src/app/pmo/wbs/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0107 | HR / Time | /preview/demo-hub | `src/app/preview/demo-hub/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0108 | HR / Time | /preview | `src/app/preview/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0109 | HR / Time | /preview/splash | `src/app/preview/splash/page.tsx:1` | UNTESTED | Needs UI pass / fixture + render |
-| PAGE-0110 | Accounts / Roles | /preview/tenant-login | `src/app/preview/tenant-login/page.tsx:1` | UNTESTED | Needs UI pass / fixture + render |
+| PAGE-0109 | HR / Time | /preview/splash | `src/app/preview/splash/page.tsx:1` | UNTESTED | Not yet exercised |
+| PAGE-0110 | Accounts / Roles | /preview/tenant-login | `src/app/preview/tenant-login/page.tsx:1` | UNTESTED | Not yet exercised |
 | PAGE-0111 | HR / Time | /preview/url-map | `src/app/preview/url-map/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0112 | Billing / Founding | /pricing | `src/app/pricing/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0113 | Platform / Other | /print/labels | `src/app/print/labels/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
@@ -526,19 +652,19 @@ PASS = named scenario only. FAIL = at least one reproduced failure. UNTESTED = n
 | PAGE-0132 | Platform / Other | /qa | `src/app/qa/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0133 | Quality / NCR | /quality/ncr/[id] | `src/app/quality/ncr/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0134 | Quality / NCR | /quality | `src/app/quality/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0135 | PMO / Budgets | /quality/programs/[key]/inspect/[itemId] | `src/app/quality/programs/[key]/inspect/[itemId]/page.tsx:1` | UNTESTED | Needs UI pass / fixture + render |
+| PAGE-0135 | PMO / Budgets | /quality/programs/[key]/inspect/[itemId] | `src/app/quality/programs/[key]/inspect/[itemId]/page.tsx:1` | UNTESTED | Not yet exercised |
 | PAGE-0136 | PMO / Budgets | /quality/programs/[key] | `src/app/quality/programs/[key]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0137 | PMO / Budgets | /quality/programs/incident/[id] | `src/app/quality/programs/incident/[id]/page.tsx:1` | UNTESTED | Needs UI pass / fixture + render |
+| PAGE-0137 | PMO / Budgets | /quality/programs/incident/[id] | `src/app/quality/programs/incident/[id]/page.tsx:1` | UNTESTED | Not yet exercised |
 | PAGE-0138 | PMO / Budgets | /quality/programs | `src/app/quality/programs/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0139 | PMO / Budgets | /quality/programs/tools/[id]/label | `src/app/quality/programs/tools/[id]/label/page.tsx:1` | UNTESTED | Needs UI pass / fixture + render |
+| PAGE-0139 | PMO / Budgets | /quality/programs/tools/[id]/label | `src/app/quality/programs/tools/[id]/label/page.tsx:1` | UNTESTED | Not yet exercised |
 | PAGE-0140 | PMO / Budgets | /quality/programs/tools | `src/app/quality/programs/tools/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0141 | PMO / Budgets | /quality/programs/tools/report/[id] | `src/app/quality/programs/tools/report/[id]/page.tsx:1` | UNTESTED | Needs UI pass / fixture + render |
+| PAGE-0141 | PMO / Budgets | /quality/programs/tools/report/[id] | `src/app/quality/programs/tools/report/[id]/page.tsx:1` | UNTESTED | Not yet exercised |
 | PAGE-0142 | Platform / Other | /radiators | `src/app/radiators/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0143 | Purchasing / Receiving | /receiving/[id] | `src/app/receiving/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0144 | Purchasing / Receiving | /receiving/new-gfp | `src/app/receiving/new-gfp/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0145 | Purchasing / Receiving | /receiving | `src/app/receiving/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0146 | HR / Time | /recruiting/[id] | `src/app/recruiting/[id]/page.tsx:1` | UNTESTED | Needs UI pass / fixture + render |
-| PAGE-0147 | HR / Time | /recruiting/candidates/[id] | `src/app/recruiting/candidates/[id]/page.tsx:1` | UNTESTED | Needs UI pass / fixture + render |
+| PAGE-0146 | HR / Time | /recruiting/[id] | `src/app/recruiting/[id]/page.tsx:1` | UNTESTED | Not yet exercised |
+| PAGE-0147 | HR / Time | /recruiting/candidates/[id] | `src/app/recruiting/candidates/[id]/page.tsx:1` | UNTESTED | Not yet exercised |
 | PAGE-0148 | HR / Time | /recruiting | `src/app/recruiting/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0149 | Reports | /reports/builder | `src/app/reports/builder/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0150 | Reports | /reports | `src/app/reports/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
@@ -562,9 +688,9 @@ PASS = named scenario only. FAIL = at least one reproduced failure. UNTESTED = n
 | PAGE-0168 | Accounts / Roles | /signup | `src/app/signup/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0169 | Purchasing / Receiving | /suppliers/[id] | `src/app/suppliers/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0170 | Purchasing / Receiving | /suppliers | `src/app/suppliers/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0171 | Platform / Other | /support/[id] | `src/app/support/[id]/page.tsx:1` | UNTESTED | Needs UI pass / fixture + render |
+| PAGE-0171 | Platform / Other | /support/[id] | `src/app/support/[id]/page.tsx:1` | UNTESTED | Not yet exercised |
 | PAGE-0172 | Platform / Other | /support | `src/app/support/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
-| PAGE-0173 | Platform / Other | /support/t/[token] | `src/app/support/t/[token]/page.tsx:1` | UNTESTED | Needs UI pass / fixture + render |
+| PAGE-0173 | Platform / Other | /support/t/[token] | `src/app/support/t/[token]/page.tsx:1` | UNTESTED | Not yet exercised |
 | PAGE-0174 | Manufacturing / Test | /test-center | `src/app/test-center/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0175 | Manufacturing / Test | /test-procedures/[id] | `src/app/test-procedures/[id]/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
 | PAGE-0176 | Manufacturing / Test | /test-procedures | `src/app/test-procedures/page.tsx:1` | PASS | HTTP render only; buttons/visuals need UI pass |
@@ -600,8 +726,8 @@ PASS = named scenario only. FAIL = at least one reproduced failure. UNTESTED = n
 | ACTION-0011 | Platform / Other | actionAddBomLine | `src/app/actions.ts:578` | UNTESTED | Not yet exercised |
 | ACTION-0012 | Platform / Other | actionQuickCreatePart | `src/app/actions.ts:600` | UNTESTED | Not yet exercised |
 | ACTION-0013 | Platform / Other | actionRemoveBomLine | `src/app/actions.ts:628` | UNTESTED | Not yet exercised |
-| ACTION-0014 | Platform / Other | actionCloseMrbCase | `src/app/actions.ts:641` | UNTESTED | Not yet exercised |
-| ACTION-0015 | Platform / Other | actionDispositionMrb | `src/app/actions.ts:650` | UNTESTED | Not yet exercised |
+| ACTION-0014 | Platform / Other | actionCloseMrbCase | `src/app/actions.ts:641` | PASS | round2-quality-results.json: PASS MRB USE_AS_IS action releases quarantine and close action finalizes |
+| ACTION-0015 | Platform / Other | actionDispositionMrb | `src/app/actions.ts:650` | PASS | round2-quality-results.json: PASS MRB USE_AS_IS action releases quarantine and close action finalizes |
 | ACTION-0016 | Platform / Other | actionUpdateCar | `src/app/actions.ts:685` | UNTESTED | Not yet exercised |
 | ACTION-0017 | Platform / Other | actionSignOffStep | `src/app/actions.ts:718` | PASS | priority-results.json: PASS Start kitted production and sign traveler via own PIN actions |
 | ACTION-0018 | Platform / Other | actionSendWoToReceivingPutaway | `src/app/actions.ts:773` | PASS | priority-results.json: PASS Completed production handoff then stock action closes WO |
@@ -615,7 +741,7 @@ PASS = named scenario only. FAIL = at least one reproduced failure. UNTESTED = n
 | ACTION-0026 | Platform / Other | actionCertifyBomForPrototype | `src/app/actions.ts:1041` | UNTESTED | Not yet exercised |
 | ACTION-0027 | Platform / Other | actionCertifyBom | `src/app/actions.ts:1053` | UNTESTED | Not yet exercised |
 | ACTION-0028 | Platform / Other | actionCreateWoFromBom | `src/app/actions.ts:1065` | PASS | manufacturing-edge-results.json: PASS Standalone production action uses existing certified BOM without SO |
-| ACTION-0029 | Platform / Other | actionCreateForecast | `src/app/actions.ts:1094` | FAIL | priority-results.json: FAIL Permission OPERATOR denied actionCreateForecast |
+| ACTION-0029 | Platform / Other | actionCreateForecast | `src/app/actions.ts:1094` | FAIL | priority-results.json: FAIL Permission OPERATOR denied actionCreateForecast; round2-auth-results.json: FAIL Real OPERATOR session denied forecast creation |
 | ACTION-0030 | Platform / Other | actionGenerateMrsFromForecast | `src/app/actions.ts:1180` | UNTESTED | Not yet exercised |
 | ACTION-0031 | Platform / Other | actionUpdateForecast | `src/app/actions.ts:1208` | UNTESTED | Not yet exercised |
 | ACTION-0032 | Platform / Other | actionUpsertForecastLine | `src/app/actions.ts:1237` | UNTESTED | Not yet exercised |
@@ -629,11 +755,11 @@ PASS = named scenario only. FAIL = at least one reproduced failure. UNTESTED = n
 | ACTION-0040 | Platform / Other | actionUpdateRequirementStatus | `src/app/actions.ts:1453` | UNTESTED | Not yet exercised |
 | ACTION-0041 | Platform / Other | actionLinkRequirementWork | `src/app/actions.ts:1476` | UNTESTED | Not yet exercised |
 | ACTION-0042 | Platform / Other | actionRemoveRequirementTrace | `src/app/actions.ts:1496` | UNTESTED | Not yet exercised |
-| ACTION-0043 | Platform / Other | actionLogin | `src/app/actions.ts:1516` | UNTESTED | Not yet exercised |
+| ACTION-0043 | Platform / Other | actionLogin | `src/app/actions.ts:1516` | PASS | round2-auth-results.json: PASS Real password login/session identifies ADMIN; round2-auth-results.json: PASS Real password login/session identifies OPERATOR; round2-auth-results.json: PASS Real password login/session identifies QUALITY; round2-auth-results.json: PASS Real password login/session identifies ACCOUNTING; round2-auth-results.json: PASS Real password login/session identifies PURCHASING; round2-auth-results.json: PASS Real password login/session identifies EXECUTIVE |
 | ACTION-0044 | Platform / Other | actionVerifyMfa | `src/app/actions.ts:1541` | UNTESTED | Not yet exercised |
 | ACTION-0045 | Platform / Other | actionCancelMfaLogin | `src/app/actions.ts:1555` | UNTESTED | Not yet exercised |
 | ACTION-0046 | Platform / Other | actionBootstrapInstance | `src/app/actions.ts:1561` | UNTESTED | Not yet exercised |
-| ACTION-0047 | Platform / Other | actionLogout | `src/app/actions.ts:1581` | UNTESTED | Not yet exercised |
+| ACTION-0047 | Platform / Other | actionLogout | `src/app/actions.ts:1581` | PASS | round2-auth-results.json: PASS Logout revokes actual session and strict page denies |
 | ACTION-0048 | Platform / Other | actionAcceptInvite | `src/app/actions.ts:1590` | UNTESTED | Not yet exercised |
 | ACTION-0049 | Platform / Other | actionClaimTenant | `src/app/actions.ts:1610` | UNTESTED | Not yet exercised |
 | ACTION-0050 | Platform / Other | actionReissueOnboarding | `src/app/actions.ts:1638` | UNTESTED | Not yet exercised |
@@ -646,7 +772,7 @@ PASS = named scenario only. FAIL = at least one reproduced failure. UNTESTED = n
 | ACTION-0057 | Platform / Other | actionCreateTaskWo | `src/app/actions.ts:1870` | PASS | priority-results.json: PASS Standalone task WO action creates without sales order |
 | ACTION-0058 | Platform / Other | actionCreateProductionWo | `src/app/actions.ts:1895` | PASS | manufacturing-edge-results.json: PASS Standalone production action uses existing certified BOM without SO |
 | ACTION-0059 | Platform / Other | actionApprovePr | `src/app/actions.ts:1899` | UNTESTED | Not yet exercised |
-| ACTION-0060 | Platform / Other | actionCreateStandalonePr | `src/app/actions.ts:1930` | PASS | priority-results.json: PASS Permission OPERATOR denied purchasing PR action without writes; priority-results.json: PASS Standalone PR draft action + submission routes approvals |
+| ACTION-0060 | Platform / Other | actionCreateStandalonePr | `src/app/actions.ts:1930` | PASS | priority-results.json: PASS Permission OPERATOR denied purchasing PR action without writes; priority-results.json: PASS Standalone PR draft action + submission routes approvals; round2-auth-results.json: PASS Real OPERATOR cannot create standalone PR |
 | ACTION-0061 | Platform / Other | actionSaveApprovalPolicy | `src/app/actions.ts:2032` | UNTESTED | Not yet exercised |
 | ACTION-0062 | Platform / Other | actionAttachPrQuote | `src/app/actions.ts:2093` | UNTESTED | Not yet exercised |
 | ACTION-0063 | Platform / Other | actionSaveBuyerPackage | `src/app/actions.ts:2125` | PASS | finance-supply-results.json: PASS PR routing, buyer action, final approval and PO conversion actions |
@@ -688,13 +814,13 @@ PASS = named scenario only. FAIL = at least one reproduced failure. UNTESTED = n
 | ACTION-0099 | Platform / Other | actionSendQuote | `src/app/actions.ts:3694` | UNTESTED | Not yet exercised |
 | ACTION-0100 | Platform / Other | actionPlanSalesOrder | `src/app/actions.ts:3704` | PASS | manufacturing-edge-results.json: PASS OPERATOR cannot invoke SO planning action |
 | ACTION-0101 | Platform / Other | actionAssessCtp | `src/app/actions.ts:3740` | UNTESTED | Not yet exercised |
-| ACTION-0102 | Platform / Other | actionCreateCustomer | `src/app/actions.ts:3802` | FAIL | priority-results.json: PASS HTTP action create customer persists; priority-results.json: PASS HTTP action duplicate preferred customer code safely deconflicts; priority-results.json: FAIL Permission OPERATOR denied actionCreateCustomer |
+| ACTION-0102 | Platform / Other | actionCreateCustomer | `src/app/actions.ts:3802` | FAIL | priority-results.json: PASS HTTP action create customer persists; priority-results.json: PASS HTTP action duplicate preferred customer code safely deconflicts; priority-results.json: FAIL Permission OPERATOR denied actionCreateCustomer; round2-auth-results.json: FAIL Real OPERATOR session denied customer creation; round2-auth-results.json: PASS Anonymous native POST cannot create customer |
 | ACTION-0103 | Platform / Other | actionUpdateCustomer | `src/app/actions.ts:3825` | UNTESTED | Not yet exercised |
 | ACTION-0104 | Platform / Other | actionCheckWoMaterials | `src/app/actions.ts:3847` | UNTESTED | Not yet exercised |
 | ACTION-0105 | Platform / Other | actionPlanWoMaterials | `src/app/actions.ts:3873` | UNTESTED | Not yet exercised |
 | ACTION-0106 | Platform / Other | actionPutAwayItemWithLocation | `src/app/actions.ts:3877` | UNTESTED | Not yet exercised |
 | ACTION-0107 | Platform / Other | actionUpdatePartInspectionFlags | `src/app/actions.ts:3892` | UNTESTED | Not yet exercised |
-| ACTION-0108 | Platform / Other | actionCreateItem | `src/app/actions.ts:3934` | FAIL | priority-results.json: PASS HTTP action create catalog item persists; priority-results.json: FAIL Permission OPERATOR denied actionCreateItem |
+| ACTION-0108 | Platform / Other | actionCreateItem | `src/app/actions.ts:3934` | FAIL | priority-results.json: PASS HTTP action create catalog item persists; priority-results.json: FAIL Permission OPERATOR denied actionCreateItem; round2-auth-results.json: FAIL Real OPERATOR session denied catalog creation |
 | ACTION-0109 | Platform / Other | actionUpdateItem | `src/app/actions.ts:3966` | UNTESTED | Not yet exercised |
 | ACTION-0110 | Platform / Other | actionUpsertPartVendor | `src/app/actions.ts:4034` | UNTESTED | Not yet exercised |
 | ACTION-0111 | Platform / Other | actionSaveUomUnit | `src/app/actions.ts:4069` | UNTESTED | Not yet exercised |
@@ -704,7 +830,7 @@ PASS = named scenario only. FAIL = at least one reproduced failure. UNTESTED = n
 | ACTION-0115 | Platform / Other | actionUpsertSupplierCert | `src/app/actions.ts:4139` | UNTESTED | Not yet exercised |
 | ACTION-0116 | Platform / Other | actionDeleteSupplierCert | `src/app/actions.ts:4167` | UNTESTED | Not yet exercised |
 | ACTION-0117 | Platform / Other | actionUpdateDepositStatus | `src/app/actions.ts:4178` | UNTESTED | Not yet exercised |
-| ACTION-0118 | Platform / Other | actionCompleteReceivingInspection | `src/app/actions.ts:4205` | UNTESTED | Not yet exercised |
+| ACTION-0118 | Platform / Other | actionCompleteReceivingInspection | `src/app/actions.ts:4205` | FAIL | round2-auth-results.json: FAIL Real OPERATOR denied receiving inspection acceptance; round2-quality-results.json: PASS QC PASS actions create functional test only after both QA gates |
 | ACTION-0119 | Platform / Other | actionScanIntoReceivingTraveler | `src/app/actions.ts:4266` | UNTESTED | Not yet exercised |
 | ACTION-0120 | Platform / Other | actionScanOutReceivingTraveler | `src/app/actions.ts:4284` | UNTESTED | Not yet exercised |
 | ACTION-0121 | Platform / Other | actionDeliverTravelerToStation | `src/app/actions.ts:4310` | UNTESTED | Not yet exercised |
@@ -723,7 +849,7 @@ PASS = named scenario only. FAIL = at least one reproduced failure. UNTESTED = n
 | ACTION-0134 | Platform / Other | actionSetUserCompensation | `src/app/actions.ts:4808` | UNTESTED | Not yet exercised |
 | ACTION-0135 | Platform / Other | actionFinishPrototypeWo | `src/app/actions.ts:4834` | UNTESTED | Not yet exercised |
 | ACTION-0136 | Platform / Other | actionStartProduction | `src/app/actions.ts:4868` | UNTESTED | Not yet exercised |
-| ACTION-0137 | Platform / Other | actionCompleteWoToStock | `src/app/actions.ts:4886` | PASS | priority-results.json: PASS Completed production handoff then stock action closes WO |
+| ACTION-0137 | Platform / Other | actionCompleteWoToStock | `src/app/actions.ts:4886` | FAIL | priority-results.json: PASS Completed production handoff then stock action closes WO; round2-finance-results.json: FAIL Task-only WO completes traveler then official completion without inventory |
 | ACTION-0138 | Platform / Other | actionPutAwayItem | `src/app/actions.ts:4933` | UNTESTED | Not yet exercised |
 | ACTION-0139 | Platform / Other | actionPutAwayAllReceiving | `src/app/actions.ts:4940` | UNTESTED | Not yet exercised |
 | ACTION-0140 | Platform / Other | actionShipSalesOrder | `src/app/actions.ts:4946` | UNTESTED | Not yet exercised |
@@ -806,7 +932,7 @@ PASS = named scenario only. FAIL = at least one reproduced failure. UNTESTED = n
 | ACTION-0217 | Platform / Other | actionAssignUserGroup | `src/app/actions.ts:6440` | UNTESTED | Not yet exercised |
 | ACTION-0218 | Platform / Other | actionRemoveUserGroup | `src/app/actions.ts:6452` | UNTESTED | Not yet exercised |
 | ACTION-0219 | Platform / Other | actionGrantUserPermission | `src/app/actions.ts:6464` | UNTESTED | Not yet exercised |
-| ACTION-0220 | Platform / Other | actionPostJournal | `src/app/actions.ts:6478` | FAIL | priority-results.json: FAIL Permission OPERATOR denied posting journal action; priority-results.json: PASS Journal action creates balanced pending entry; finance-supply-results.json: FAIL Non-controller accountant cannot postNow around required approval |
+| ACTION-0220 | Platform / Other | actionPostJournal | `src/app/actions.ts:6478` | FAIL | priority-results.json: FAIL Permission OPERATOR denied posting journal action; priority-results.json: PASS Journal action creates balanced pending entry; finance-supply-results.json: FAIL Non-controller accountant cannot postNow around required approval; round2-auth-results.json: FAIL Real OPERATOR session denied GL posting; round2-auth-results.json: FAIL Real ACCOUNTING cannot immediately post around required approval |
 | ACTION-0221 | Platform / Other | actionUpdateEngSprint | `src/app/actions.ts:6545` | UNTESTED | Not yet exercised |
 | ACTION-0222 | Platform / Other | actionAssignTaskSprint | `src/app/actions.ts:6561` | UNTESTED | Not yet exercised |
 | ACTION-0223 | Platform / Other | actionAssignSagaSprint | `src/app/actions.ts:6577` | UNTESTED | Not yet exercised |
@@ -896,7 +1022,7 @@ PASS = named scenario only. FAIL = at least one reproduced failure. UNTESTED = n
 | ACTION-0307 | Platform / Other | actionOpenDueReviewCycles | `src/app/actions.ts:8582` | UNTESTED | Not yet exercised |
 | ACTION-0308 | Platform / Other | actionSubmitSelfReview | `src/app/actions.ts:8593` | UNTESTED | Not yet exercised |
 | ACTION-0309 | Platform / Other | actionSignOffReview | `src/app/actions.ts:8621` | UNTESTED | Not yet exercised |
-| ACTION-0310 | Platform / Other | actionApproveJournal | `src/app/actions.ts:8641` | UNTESTED | Not yet exercised |
+| ACTION-0310 | Platform / Other | actionApproveJournal | `src/app/actions.ts:8641` | FAIL | round2-auth-results.json: FAIL Real ACCOUNTING concurrent approvals apply balances only once; round2-auth-results.json: FAIL Real EXECUTIVE with journal.approve can approve without journal.post |
 | ACTION-0311 | Platform / Other | actionVoidJournal | `src/app/actions.ts:8658` | UNTESTED | Not yet exercised |
 | ACTION-0312 | Platform / Other | actionSetAccountingCloseDate | `src/app/actions.ts:8674` | UNTESTED | Not yet exercised |
 | ACTION-0313 | Platform / Other | actionRecordArPayment | `src/app/actions.ts:8695` | UNTESTED | Not yet exercised |
@@ -980,16 +1106,16 @@ PASS = named scenario only. FAIL = at least one reproduced failure. UNTESTED = n
 | ACTION-0391 | Platform / Other | actionProbeGrok | `src/app/ai/actions.ts:149` | UNTESTED | Not yet exercised |
 | ACTION-0392 | Platform / Other | actionVoiceSmokeTest | `src/app/ai/actions.ts:154` | UNTESTED | Not yet exercised |
 | ACTION-0393 | PLM / BOM / ECO | actionVoteCmFriendly | `src/app/cm/vote-actions.ts:15` | UNTESTED | Not yet exercised |
-| ACTION-0394 | CRM / Sales | actionCreateLead | `src/app/crm/actions.ts:39` | PASS | priority-results.json: PASS HTTP action create CRM lead persists |
-| ACTION-0395 | CRM / Sales | actionUpdateLeadStatus | `src/app/crm/actions.ts:55` | UNTESTED | Not yet exercised |
-| ACTION-0396 | CRM / Sales | actionConvertLead | `src/app/crm/actions.ts:64` | UNTESTED | Not yet exercised |
-| ACTION-0397 | CRM / Sales | actionCreateOpportunity | `src/app/crm/actions.ts:82` | UNTESTED | Not yet exercised |
-| ACTION-0398 | CRM / Sales | actionSetStage | `src/app/crm/actions.ts:99` | UNTESTED | Not yet exercised |
-| ACTION-0399 | CRM / Sales | actionUpdateOpportunity | `src/app/crm/actions.ts:116` | UNTESTED | Not yet exercised |
-| ACTION-0400 | CRM / Sales | actionConvertToCustomer | `src/app/crm/actions.ts:138` | UNTESTED | Not yet exercised |
-| ACTION-0401 | CRM / Sales | actionAddActivity | `src/app/crm/actions.ts:154` | UNTESTED | Not yet exercised |
-| ACTION-0402 | CRM / Sales | actionCompleteActivity | `src/app/crm/actions.ts:170` | UNTESTED | Not yet exercised |
-| ACTION-0403 | CRM / Sales | actionCreateContact | `src/app/crm/actions.ts:180` | UNTESTED | Not yet exercised |
+| ACTION-0394 | CRM / Sales | actionCreateLead | `src/app/crm/actions.ts:39` | PASS | priority-results.json: PASS HTTP action create CRM lead persists; round2-modules-results.json: PASS CRM lead action creates then valid status update persists; round2-modules-results.json: PASS CRM blank lead company is rejected without writes |
+| ACTION-0395 | CRM / Sales | actionUpdateLeadStatus | `src/app/crm/actions.ts:55` | FAIL | round2-modules-results.json: PASS CRM lead action creates then valid status update persists; round2-modules-results.json: FAIL CRM lead status action rejects unknown state |
+| ACTION-0396 | CRM / Sales | actionConvertLead | `src/app/crm/actions.ts:64` | PASS | round2-modules-results.json: PASS CRM lead conversion action links opportunity |
+| ACTION-0397 | CRM / Sales | actionCreateOpportunity | `src/app/crm/actions.ts:82` | PASS | round2-modules-results.json: PASS CRM opportunity create and update actions persist fields |
+| ACTION-0398 | CRM / Sales | actionSetStage | `src/app/crm/actions.ts:99` | PASS | round2-modules-results.json: PASS CRM stage action ignores unknown stage and requires LOST reason; round2-modules-results.json: PASS CRM WON then reopened opportunity clears close timestamp |
+| ACTION-0399 | CRM / Sales | actionUpdateOpportunity | `src/app/crm/actions.ts:116` | FAIL | round2-modules-results.json: PASS CRM opportunity create and update actions persist fields; round2-modules-results.json: FAIL CRM probability update rejects values above 100 percent |
+| ACTION-0400 | CRM / Sales | actionConvertToCustomer | `src/app/crm/actions.ts:138` | PASS | round2-modules-results.json: PASS CRM customer conversion action is repeat-idempotent |
+| ACTION-0401 | CRM / Sales | actionAddActivity | `src/app/crm/actions.ts:154` | PASS | round2-modules-results.json: PASS CRM activity create and completion actions persist |
+| ACTION-0402 | CRM / Sales | actionCompleteActivity | `src/app/crm/actions.ts:170` | PASS | round2-modules-results.json: PASS CRM activity create and completion actions persist |
+| ACTION-0403 | CRM / Sales | actionCreateContact | `src/app/crm/actions.ts:180` | PASS | round2-modules-results.json: PASS CRM contact action creates primary contact |
 | ACTION-0404 | Demo / Tenancy | actionStartTestDrive | `src/app/demo-actions.ts:13` | PASS | demo-results.json: PASS Native demo Start -> server cookie -> ping -> end |
 | ACTION-0405 | Demo / Tenancy | actionEnterExistingDemo | `src/app/demo-actions.ts:103` | UNTESTED | Not yet exercised |
 | ACTION-0406 | Demo / Tenancy | actionEndTestDrive | `src/app/demo-actions.ts:129` | UNTESTED | Not yet exercised |
@@ -1026,16 +1152,16 @@ PASS = named scenario only. FAIL = at least one reproduced failure. UNTESTED = n
 | ACTION-0437 | Platform / Other | actionBackfillStockSerials | `src/app/serial-backfill-actions.ts:6` | UNTESTED | Not yet exercised |
 | ACTION-0438 | Platform / Other | actionIssueTopUnitSerial | `src/app/serial-wo-actions.ts:6` | UNTESTED | Not yet exercised |
 | ACTION-0439 | Platform / Other | listTravelerSerialState | `src/app/serial-wo-actions.ts:37` | UNTESTED | Not yet exercised |
-| ACTION-0440 | Service / Assets | actionCreateTicket | `src/app/service/actions.ts:35` | PASS | priority-results.json: PASS HTTP action create service ticket persists |
-| ACTION-0441 | Service / Assets | actionUpdateTicketStatus | `src/app/service/actions.ts:55` | UNTESTED | Not yet exercised |
-| ACTION-0442 | Service / Assets | actionScheduleVisit | `src/app/service/actions.ts:65` | UNTESTED | Not yet exercised |
-| ACTION-0443 | Service / Assets | actionStartVisit | `src/app/service/actions.ts:81` | UNTESTED | Not yet exercised |
-| ACTION-0444 | Service / Assets | actionCompleteVisit | `src/app/service/actions.ts:95` | UNTESTED | Not yet exercised |
-| ACTION-0445 | Service / Assets | actionAddLabor | `src/app/service/actions.ts:111` | UNTESTED | Not yet exercised |
-| ACTION-0446 | Service / Assets | actionAddPartUsage | `src/app/service/actions.ts:127` | UNTESTED | Not yet exercised |
-| ACTION-0447 | Service / Assets | actionRemoveLabor | `src/app/service/actions.ts:152` | UNTESTED | Not yet exercised |
-| ACTION-0448 | Service / Assets | actionRemovePartUsage | `src/app/service/actions.ts:159` | UNTESTED | Not yet exercised |
-| ACTION-0449 | Service / Assets | actionCreateInstalledAsset | `src/app/service/actions.ts:166` | UNTESTED | Not yet exercised |
+| ACTION-0440 | Service / Assets | actionCreateTicket | `src/app/service/actions.ts:35` | PASS | priority-results.json: PASS HTTP action create service ticket persists; round2-modules-results.json: PASS Service asset and ticket actions link customer-owned equipment; round2-modules-results.json: PASS Service blank title is rejected without ticket writes |
+| ACTION-0441 | Service / Assets | actionUpdateTicketStatus | `src/app/service/actions.ts:55` | FAIL | round2-modules-results.json: FAIL Service reopening completed ticket clears closedAt; round2-modules-results.json: FAIL Service status action rejects unknown state |
+| ACTION-0442 | Service / Assets | actionScheduleVisit | `src/app/service/actions.ts:65` | PASS | round2-modules-results.json: PASS Service dispatch and start actions move ticket into work |
+| ACTION-0443 | Service / Assets | actionStartVisit | `src/app/service/actions.ts:81` | PASS | round2-modules-results.json: PASS Service dispatch and start actions move ticket into work |
+| ACTION-0444 | Service / Assets | actionCompleteVisit | `src/app/service/actions.ts:95` | PASS | round2-modules-results.json: PASS Service completing last visit closes the job |
+| ACTION-0445 | Service / Assets | actionAddLabor | `src/app/service/actions.ts:111` | PASS | round2-modules-results.json: PASS Service labor/parts actions reconcile billable total; round2-modules-results.json: PASS Service negative labor/part quantities leave no records |
+| ACTION-0446 | Service / Assets | actionAddPartUsage | `src/app/service/actions.ts:127` | PASS | round2-modules-results.json: PASS Service labor/parts actions reconcile billable total; round2-modules-results.json: PASS Service negative labor/part quantities leave no records |
+| ACTION-0447 | Service / Assets | actionRemoveLabor | `src/app/service/actions.ts:152` | PASS | round2-modules-results.json: PASS Service removal actions reconcile billable total to zero |
+| ACTION-0448 | Service / Assets | actionRemovePartUsage | `src/app/service/actions.ts:159` | PASS | round2-modules-results.json: PASS Service removal actions reconcile billable total to zero |
+| ACTION-0449 | Service / Assets | actionCreateInstalledAsset | `src/app/service/actions.ts:166` | PASS | round2-modules-results.json: PASS Service asset and ticket actions link customer-owned equipment |
 | ACTION-0450 | Accounts / Roles | actionStartTrial | `src/app/signup/actions.ts:18` | UNTESTED | Not yet exercised |
 | ACTION-0451 | Platform / Other | actionCreateSupportTicketResult | `src/app/support/actions.ts:99` | UNTESTED | Not yet exercised |
 | ACTION-0452 | Platform / Other | actionFetchSupportThread | `src/app/support/actions.ts:177` | UNTESTED | Not yet exercised |
@@ -1103,13 +1229,13 @@ PASS = named scenario only. FAIL = at least one reproduced failure. UNTESTED = n
 | ACTION-0514 | Purchasing / Receiving | ensureDefaultPrApprovalPolicy | `src/lib/services/pr-approval.ts:1097` | UNTESTED | Not yet exercised |
 | ACTION-0515 | Purchasing / Receiving | approvalActionLabel | `src/lib/services/pr-approval.ts:1141` | UNTESTED | Not yet exercised |
 | ACTION-0516 | Purchasing / Receiving | saveReceivingDocuments | `src/lib/services/receiving-inspection.ts:39` | UNTESTED | Not yet exercised |
-| ACTION-0517 | Purchasing / Receiving | routeReceivingLineForInspection | `src/lib/services/receiving-inspection.ts:81` | UNTESTED | Not yet exercised |
-| ACTION-0518 | Purchasing / Receiving | spawnFunctionalReceivingInspection | `src/lib/services/receiving-inspection.ts:261` | UNTESTED | Not yet exercised |
+| ACTION-0517 | Purchasing / Receiving | routeReceivingLineForInspection | `src/lib/services/receiving-inspection.ts:81` | PASS | round2-quality-results.json: PASS QC flagged receipt routes to pending VISUAL/GDT with unavailable stock |
+| ACTION-0518 | Purchasing / Receiving | spawnFunctionalReceivingInspection | `src/lib/services/receiving-inspection.ts:261` | PASS | round2-quality-results.json: PASS QC PASS actions create functional test only after both QA gates |
 | ACTION-0519 | Purchasing / Receiving | attestDockAcceptance | `src/lib/services/receiving-inspection.ts:393` | UNTESTED | Not yet exercised |
-| ACTION-0520 | Purchasing / Receiving | completeReceivingInspection | `src/lib/services/receiving-inspection.ts:462` | UNTESTED | Not yet exercised |
+| ACTION-0520 | Purchasing / Receiving | completeReceivingInspection | `src/lib/services/receiving-inspection.ts:462` | FAIL | round2-quality-results.json: PASS QC completion requires attached evidence and does not mutate on missing docs; round2-quality-results.json: PASS Functional PASS returns receiving traveler READY_TO_STOCK; round2-quality-results.json: PASS Repeated QC completion rejected without duplicate NCR/docs; round2-quality-results.json: PASS QC failure creates NCR/MRB and quarantines all affected material; round2-quality-results.json: FAIL Failed receiving NCR retains source supplier for scorecards |
 | ACTION-0521 | Purchasing / Receiving | tryCompleteReceivingTestWo | `src/lib/services/receiving-inspection.ts:698` | UNTESTED | Not yet exercised |
-| ACTION-0522 | Purchasing / Receiving | tryCompleteInventoryReceivingInspections | `src/lib/services/receiving-inspection.ts:762` | UNTESTED | Not yet exercised |
-| ACTION-0523 | Purchasing / Receiving | completeReceivingAfterInspection | `src/lib/services/receiving-inspection.ts:961` | UNTESTED | Not yet exercised |
+| ACTION-0522 | Purchasing / Receiving | tryCompleteInventoryReceivingInspections | `src/lib/services/receiving-inspection.ts:762` | PASS | round2-quality-results.json: PASS QC PASS actions create functional test only after both QA gates |
+| ACTION-0523 | Purchasing / Receiving | completeReceivingAfterInspection | `src/lib/services/receiving-inspection.ts:961` | PASS | round2-quality-results.json: PASS After-inspection putaway service releases stock and completes travelers |
 | ACTION-0524 | Purchasing / Receiving | updatePartInspectionFlags | `src/lib/services/receiving-inspection.ts:1117` | UNTESTED | Not yet exercised |
 | ACTION-0525 | Purchasing / Receiving | listOpenTestInspections | `src/lib/services/receiving-inspection.ts:1145` | UNTESTED | Not yet exercised |
 | ACTION-0526 | Purchasing / Receiving | parseTravelerSnapshot | `src/lib/services/receiving.ts:17` | UNTESTED | Not yet exercised |
@@ -1122,11 +1248,11 @@ PASS = named scenario only. FAIL = at least one reproduced failure. UNTESTED = n
 | ACTION-0533 | Purchasing / Receiving | splitTravelerAfterReceive | `src/lib/services/receiving.ts:443` | UNTESTED | Not yet exercised |
 | ACTION-0534 | Purchasing / Receiving | closePurchaseOrderFromReceiving | `src/lib/services/receiving.ts:1132` | UNTESTED | Not yet exercised |
 | ACTION-0535 | Purchasing / Receiving | closeGfpTraveler | `src/lib/services/receiving.ts:1191` | UNTESTED | Not yet exercised |
-| ACTION-0536 | Purchasing / Receiving | receivePurchaseOrder | `src/lib/services/supply-chain.ts:27` | PASS | finance-supply-results.json: PASS Receiving overquantity fails without receipts or inventory changes |
+| ACTION-0536 | Purchasing / Receiving | receivePurchaseOrder | `src/lib/services/supply-chain.ts:27` | FAIL | finance-supply-results.json: PASS Receiving overquantity fails without receipts or inventory changes; round2-quality-results.json: PASS QC flagged receipt routes to pending VISUAL/GDT with unavailable stock; round2-quality-results.json: FAIL Serialized receiving rejects missing serials before receipt writes; round2-quality-results.json: FAIL Serialized receiving rejects count mismatch serials before receipt writes; round2-quality-results.json: FAIL Serialized receiving rejects duplicate serials before receipt writes; round2-quality-results.json: FAIL Valid received serials become selectable stock serial identities |
 | ACTION-0537 | Purchasing / Receiving | receiveGfpTraveler | `src/lib/services/supply-chain.ts:755` | UNTESTED | Not yet exercised |
-| ACTION-0538 | Purchasing / Receiving | createNcrAndMrbFromInspection | `src/lib/services/supply-chain.ts:1145` | UNTESTED | Not yet exercised |
-| ACTION-0539 | Purchasing / Receiving | closeMrbCase | `src/lib/services/supply-chain.ts:1250` | UNTESTED | Not yet exercised |
-| ACTION-0540 | Purchasing / Receiving | dispositionMrb | `src/lib/services/supply-chain.ts:1277` | PASS | scripts/verify/chunk-serials-rma.ts; scenario only |
+| ACTION-0538 | Purchasing / Receiving | createNcrAndMrbFromInspection | `src/lib/services/supply-chain.ts:1145` | PASS | round2-quality-results.json: PASS QC failure creates NCR/MRB and quarantines all affected material |
+| ACTION-0539 | Purchasing / Receiving | closeMrbCase | `src/lib/services/supply-chain.ts:1250` | PASS | round2-quality-results.json: PASS Open MRB cannot close before disposition; round2-quality-results.json: PASS MRB USE_AS_IS action releases quarantine and close action finalizes |
+| ACTION-0540 | Purchasing / Receiving | dispositionMrb | `src/lib/services/supply-chain.ts:1277` | FAIL | scripts/verify/chunk-serials-rma.ts; scenario only; round2-quality-results.json: PASS MRB USE_AS_IS action releases quarantine and close action finalizes; round2-quality-results.json: FAIL MRB partial SCRAP preserves remainder quantity; round2-quality-results.json: FAIL MRB rejects negative disposition quantity before writing; round2-quality-results.json: FAIL Repeated MRB disposition cannot create duplicate decisions/postings |
 | ACTION-0541 | Purchasing / Receiving | logCarActivity | `src/lib/services/supply-chain.ts:1612` | UNTESTED | Not yet exercised |
 | ACTION-0542 | Purchasing / Receiving | updateCar | `src/lib/services/supply-chain.ts:1636` | UNTESTED | Not yet exercised |
 | ACTION-0543 | Purchasing / Receiving | listOpenCars | `src/lib/services/supply-chain.ts:1786` | UNTESTED | Not yet exercised |
@@ -1165,11 +1291,11 @@ PASS = named scenario only. FAIL = at least one reproduced failure. UNTESTED = n
 | API-0003 | Demo / Tenancy | GET /api/cron/sweep-demos | `src/app/api/cron/sweep-demos/route.ts:19` | UNTESTED | Not yet exercised |
 | API-0004 | Demo / Tenancy | GET /api/demo/end | `src/app/api/demo/end/route.ts:11` | PASS | demo-results.json: PASS Native demo Start -> server cookie -> ping -> end |
 | API-0005 | Demo / Tenancy | POST /api/demo/end | `src/app/api/demo/end/route.ts:59` | UNTESTED | Not yet exercised |
-| API-0006 | Demo / Tenancy | POST /api/demo/leave | `src/app/api/demo/leave/route.ts:9` | UNTESTED | Not yet exercised |
+| API-0006 | Demo / Tenancy | POST /api/demo/leave | `src/app/api/demo/leave/route.ts:9` | PASS | round2-demo-results.json: PASS Native demo leave clears cookie and destroys only its sandbox |
 | API-0007 | Demo / Tenancy | GET /api/demo/leave | `src/app/api/demo/leave/route.ts:24` | UNTESTED | Not yet exercised |
 | API-0008 | Demo / Tenancy | POST /api/demo/ping | `src/app/api/demo/ping/route.ts:6` | PASS | demo-results.json: PASS Native demo Start -> server cookie -> ping -> end |
 | API-0009 | Demo / Tenancy | GET /api/demo/ping | `src/app/api/demo/ping/route.ts:16` | UNTESTED | Not yet exercised |
-| API-0010 | Demo / Tenancy | GET /api/demo/reset | `src/app/api/demo/reset/route.ts:10` | UNTESTED | Not yet exercised |
+| API-0010 | Demo / Tenancy | GET /api/demo/reset | `src/app/api/demo/reset/route.ts:10` | PASS | round2-demo-results.json: PASS Native demo reset clears cookie and destroys only its sandbox |
 | API-0011 | Platform / Other | POST /api/esd/humidity | `src/app/api/esd/humidity/route.ts:20` | UNTESTED | Not yet exercised |
 | API-0012 | Reports | GET /api/export | `src/app/api/export/route.ts:19` | PASS | API /api/export?entity=parts; tested request only |
 | API-0013 | Platform / Other | GET /api/geocode | `src/app/api/geocode/route.ts:23` | UNTESTED | Not yet exercised |
@@ -1206,13 +1332,13 @@ PASS = named scenario only. FAIL = at least one reproduced failure. UNTESTED = n
 | SERVICE-0014 | Accounts / Roles | recordLoginFailure | `src/lib/auth-core.ts:108` | PASS | scripts/verify/chunk-b-auth.ts; scenario only |
 | SERVICE-0015 | Accounts / Roles | clearLoginFailures | `src/lib/auth-core.ts:119` | PASS | scripts/verify/chunk-b-auth.ts; scenario only |
 | SERVICE-0016 | Accounts / Roles | hashPassword | `src/lib/auth-core.ts:125` | UNTESTED | Not yet exercised |
-| SERVICE-0017 | Accounts / Roles | verifyPassword | `src/lib/auth-core.ts:131` | UNTESTED | Not yet exercised |
+| SERVICE-0017 | Accounts / Roles | verifyPassword | `src/lib/auth-core.ts:131` | PASS | round2-auth-results.json: PASS Real password login/session identifies ADMIN; round2-auth-results.json: PASS Real password login/session identifies OPERATOR; round2-auth-results.json: PASS Real password login/session identifies QUALITY; round2-auth-results.json: PASS Real password login/session identifies ACCOUNTING; round2-auth-results.json: PASS Real password login/session identifies PURCHASING; round2-auth-results.json: PASS Real password login/session identifies EXECUTIVE |
 | SERVICE-0018 | Accounts / Roles | assertPasswordStrength | `src/lib/auth-core.ts:189` | PASS | scripts/smoke-unit.ts; scenario only |
 | SERVICE-0019 | Accounts / Roles | createSession | `src/lib/auth-core.ts:261` | UNTESTED | Not yet exercised |
 | SERVICE-0020 | Accounts / Roles | createTenantSession | `src/lib/auth-core.ts:266` | UNTESTED | Not yet exercised |
-| SERVICE-0021 | Accounts / Roles | getSessionUser | `src/lib/auth-core.ts:278` | UNTESTED | Not yet exercised |
+| SERVICE-0021 | Accounts / Roles | getSessionUser | `src/lib/auth-core.ts:278` | PASS | round2-auth-results.json: PASS Real password login/session identifies ADMIN; round2-auth-results.json: PASS Real password login/session identifies OPERATOR; round2-auth-results.json: PASS Real password login/session identifies QUALITY; round2-auth-results.json: PASS Real password login/session identifies ACCOUNTING; round2-auth-results.json: PASS Real password login/session identifies PURCHASING; round2-auth-results.json: PASS Real password login/session identifies EXECUTIVE |
 | SERVICE-0022 | Accounts / Roles | destroySession | `src/lib/auth-core.ts:322` | UNTESTED | Not yet exercised |
-| SERVICE-0023 | Accounts / Roles | loginWithPassword | `src/lib/auth-core.ts:342` | UNTESTED | Not yet exercised |
+| SERVICE-0023 | Accounts / Roles | loginWithPassword | `src/lib/auth-core.ts:342` | PASS | round2-auth-results.json: PASS Real password login/session identifies ADMIN; round2-auth-results.json: PASS Real password login/session identifies OPERATOR; round2-auth-results.json: PASS Real password login/session identifies QUALITY; round2-auth-results.json: PASS Real password login/session identifies ACCOUNTING; round2-auth-results.json: PASS Real password login/session identifies PURCHASING; round2-auth-results.json: PASS Real password login/session identifies EXECUTIVE |
 | SERVICE-0024 | Accounts / Roles | completeMfaLogin | `src/lib/auth-core.ts:453` | UNTESTED | Not yet exercised |
 | SERVICE-0025 | Accounts / Roles | hasPendingMfa | `src/lib/auth-core.ts:470` | UNTESTED | Not yet exercised |
 | SERVICE-0026 | Accounts / Roles | cancelMfaLogin | `src/lib/auth-core.ts:476` | UNTESTED | Not yet exercised |
@@ -1550,27 +1676,27 @@ PASS = named scenario only. FAIL = at least one reproduced failure. UNTESTED = n
 | SERVICE-0358 | Accounting / GovCon | getMonthEndCloseStatus | `src/lib/services/gaap.ts:223` | PASS | gaap getMonthEndCloseStatus |
 | SERVICE-0359 | Accounting / GovCon | getReclassifyData | `src/lib/services/gaap.ts:311` | PASS | gaap getReclassifyData |
 | SERVICE-0360 | Accounting / GovCon | reclassifyJournalLines | `src/lib/services/gaap.ts:387` | UNTESTED | Not yet exercised |
-| SERVICE-0361 | Accounting / GovCon | postJournal | `src/lib/services/gaap.ts:490` | PASS | GL balanced journal remains pending / idempotency; priority-results.json: PASS Closed-period post rejected with no JE/line writes |
+| SERVICE-0361 | Accounting / GovCon | postJournal | `src/lib/services/gaap.ts:490` | PASS | GL balanced journal remains pending / idempotency; priority-results.json: PASS Closed-period post rejected with no JE/line writes; round2-finance-results.json: PASS Pending JE does not change isolated account balances |
 | SERVICE-0362 | Accounting / GovCon | getAccountingCloseDate | `src/lib/services/gaap.ts:692` | UNTESTED | Not yet exercised |
 | SERVICE-0363 | Accounting / GovCon | setAccountingCloseDate | `src/lib/services/gaap.ts:726` | PASS | priority-results.json: PASS Closed-period post rejected with no JE/line writes |
-| SERVICE-0364 | Accounting / GovCon | approveJournal | `src/lib/services/gaap.ts:763` | PASS | priority-results.json: PASS Accounting self-approval denied when separation enabled; priority-results.json: PASS Accounting approval applies once and is repeat safe |
-| SERVICE-0365 | Accounting / GovCon | voidJournal | `src/lib/services/gaap.ts:806` | UNTESTED | Not yet exercised |
+| SERVICE-0364 | Accounting / GovCon | approveJournal | `src/lib/services/gaap.ts:763` | FAIL | priority-results.json: PASS Accounting self-approval denied when separation enabled; priority-results.json: PASS Accounting approval applies once and is repeat safe; round2-finance-results.json: PASS Approved JE reconciles account balances to posted lines; round2-finance-results.json: FAIL Concurrent approvals apply the same JE balances only once |
+| SERVICE-0365 | Accounting / GovCon | voidJournal | `src/lib/services/gaap.ts:806` | PASS | round2-finance-results.json: PASS Void unposted journal requires reason and never applies balances |
 | SERVICE-0366 | Accounting / GovCon | listJournalEntries | `src/lib/services/gaap.ts:834` | PASS | gaap listJournalEntries |
-| SERVICE-0367 | Accounting / GovCon | recordArPayment | `src/lib/services/gaap.ts:865` | FAIL | finance-supply-results.json: FAIL AR rejected GL posting rolls back payment and invoice |
-| SERVICE-0368 | Accounting / GovCon | recordApPayment | `src/lib/services/gaap.ts:922` | FAIL | finance-supply-results.json: FAIL AP rejected GL posting rolls back payment and invoice |
+| SERVICE-0367 | Accounting / GovCon | recordArPayment | `src/lib/services/gaap.ts:865` | FAIL | finance-supply-results.json: FAIL AR rejected GL posting rolls back payment and invoice; round2-finance-results.json: PASS AR partial/full receipts reconcile subledger and GL; round2-finance-results.json: FAIL AR overpayment cannot disappear from subledger; round2-finance-results.json: FAIL AR payment journal honors supplied historical payment date |
+| SERVICE-0368 | Accounting / GovCon | recordApPayment | `src/lib/services/gaap.ts:922` | FAIL | finance-supply-results.json: FAIL AP rejected GL posting rolls back payment and invoice; round2-finance-results.json: PASS AP partial/full receipts reconcile subledger and GL; round2-finance-results.json: FAIL AP overpayment cannot disappear from subledger; round2-finance-results.json: FAIL AP payment journal honors supplied historical payment date |
 | SERVICE-0369 | Accounting / GovCon | createExpenseEntry | `src/lib/services/gaap.ts:978` | UNTESTED | Not yet exercised |
-| SERVICE-0370 | Accounting / GovCon | reverseJournalEntry | `src/lib/services/gaap.ts:1028` | FAIL | finance-supply-results.json: FAIL Journal reversal retains FAR unallowable classification; finance-supply-results.json: PASS Journal reversal is balanced and cannot run twice |
+| SERVICE-0370 | Accounting / GovCon | reverseJournalEntry | `src/lib/services/gaap.ts:1028` | FAIL | finance-supply-results.json: FAIL Journal reversal retains FAR unallowable classification; finance-supply-results.json: PASS Journal reversal is balanced and cannot run twice; round2-finance-results.json: PASS Reversal reconciles original balances back to zero |
 | SERVICE-0371 | Accounting / GovCon | runDueAutoReversals | `src/lib/services/gaap.ts:1073` | UNTESTED | Not yet exercised |
 | SERVICE-0372 | Accounting / GovCon | getAccountingOverview | `src/lib/services/gaap.ts:1100` | PASS | gaap getAccountingOverview |
 | SERVICE-0373 | Accounting / GovCon | getCashFlowStatement | `src/lib/services/gaap.ts:1209` | PASS | gaap getCashFlowStatement |
 | SERVICE-0374 | Accounting / GovCon | ensureAccountingDefaults | `src/lib/services/gl-posting.ts:133` | UNTESTED | Not yet exercised |
 | SERVICE-0375 | Accounting / GovCon | ensureFiscalPeriods | `src/lib/services/gl-posting.ts:186` | UNTESTED | Not yet exercised |
-| SERVICE-0376 | Accounting / GovCon | postMaterialIssue | `src/lib/services/gl-posting.ts:331` | UNTESTED | Not yet exercised |
-| SERVICE-0377 | Accounting / GovCon | postDirectLabor | `src/lib/services/gl-posting.ts:356` | UNTESTED | Not yet exercised |
-| SERVICE-0378 | Accounting / GovCon | postWorkOrderCompletion | `src/lib/services/gl-posting.ts:418` | UNTESTED | Not yet exercised |
-| SERVICE-0379 | Accounting / GovCon | postScrap | `src/lib/services/gl-posting.ts:459` | UNTESTED | Not yet exercised |
-| SERVICE-0380 | Accounting / GovCon | postInventoryAdjustment | `src/lib/services/gl-posting.ts:485` | UNTESTED | Not yet exercised |
-| SERVICE-0381 | Accounting / GovCon | postOutsideProcessing | `src/lib/services/gl-posting.ts:506` | UNTESTED | Not yet exercised |
+| SERVICE-0376 | Accounting / GovCon | postMaterialIssue | `src/lib/services/gl-posting.ts:331` | PASS | round2-finance-results.json: PASS Manufacturing postings capitalize material/labor/fringe/OH but not G&A |
+| SERVICE-0377 | Accounting / GovCon | postDirectLabor | `src/lib/services/gl-posting.ts:356` | PASS | round2-finance-results.json: PASS Manufacturing postings capitalize material/labor/fringe/OH but not G&A |
+| SERVICE-0378 | Accounting / GovCon | postWorkOrderCompletion | `src/lib/services/gl-posting.ts:418` | PASS | round2-finance-results.json: PASS Manufacturing completion relieves WIP and reconciles variance; round2-finance-results.json: PASS Repeat completion posting is idempotent |
+| SERVICE-0379 | Accounting / GovCon | postScrap | `src/lib/services/gl-posting.ts:459` | PASS | round2-finance-results.json: PASS GFP scrap never posts company expense |
+| SERVICE-0380 | Accounting / GovCon | postInventoryAdjustment | `src/lib/services/gl-posting.ts:485` | PASS | round2-finance-results.json: PASS Inventory shortage/surplus and OSP postings are balanced |
+| SERVICE-0381 | Accounting / GovCon | postOutsideProcessing | `src/lib/services/gl-posting.ts:506` | PASS | round2-finance-results.json: PASS Inventory shortage/surplus and OSP postings are balanced |
 | SERVICE-0382 | Accounting / GovCon | chargeForSalesOrder | `src/lib/services/gl-posting.ts:530` | UNTESTED | Not yet exercised |
 | SERVICE-0383 | Accounting / GovCon | chargeForPurchaseOrder | `src/lib/services/gl-posting.ts:547` | UNTESTED | Not yet exercised |
 | SERVICE-0384 | Platform / Other | grokConfigured | `src/lib/services/grok.ts:18` | UNTESTED | Not yet exercised |
@@ -2021,12 +2147,12 @@ PASS = named scenario only. FAIL = at least one reproduced failure. UNTESTED = n
 | SERVICE-0829 | Demo / Tenancy | tenantClient | `src/lib/services/tenancy.ts:269` | PASS | demo-results.json: PASS Provision demo registry/schema and read isolated seeded records |
 | SERVICE-0830 | Demo / Tenancy | demoTemplateExists | `src/lib/services/tenancy.ts:280` | PASS | demo-results.json: PASS Local demo_template clone and template existence |
 | SERVICE-0831 | Demo / Tenancy | cloneSchema | `src/lib/services/tenancy.ts:294` | PASS | demo-results.json: PASS Demo invalid schema names and public clone/drop protected; demo-results.json: PASS Local demo_template clone and template existence |
-| SERVICE-0832 | Demo / Tenancy | demoPoolTarget | `src/lib/services/tenancy.ts:386` | UNTESTED | Not yet exercised |
+| SERVICE-0832 | Demo / Tenancy | demoPoolTarget | `src/lib/services/tenancy.ts:386` | PASS | round2-demo-results.json: PASS Demo pool warm and sequential refill honor target |
 | SERVICE-0833 | Demo / Tenancy | demoIdleMinutes | `src/lib/services/tenancy.ts:442` | UNTESTED | Not yet exercised |
-| SERVICE-0834 | Demo / Tenancy | warmOneDemo | `src/lib/services/tenancy.ts:448` | UNTESTED | Not yet exercised |
-| SERVICE-0835 | Demo / Tenancy | ensureDemoPool | `src/lib/services/tenancy.ts:490` | UNTESTED | Not yet exercised |
-| SERVICE-0836 | Demo / Tenancy | recycleStalePool | `src/lib/services/tenancy.ts:522` | UNTESTED | Not yet exercised |
-| SERVICE-0837 | Demo / Tenancy | provisionDemo | `src/lib/services/tenancy.ts:577` | PASS | demo-results.json: PASS Provision demo registry/schema and read isolated seeded records |
+| SERVICE-0834 | Demo / Tenancy | warmOneDemo | `src/lib/services/tenancy.ts:448` | PASS | round2-demo-results.json: PASS Demo pool warm and sequential refill honor target |
+| SERVICE-0835 | Demo / Tenancy | ensureDemoPool | `src/lib/services/tenancy.ts:490` | FAIL | round2-demo-results.json: PASS Demo pool warm and sequential refill honor target; round2-demo-results.json: FAIL Concurrent refills cannot exceed configured spare target |
+| SERVICE-0836 | Demo / Tenancy | recycleStalePool | `src/lib/services/tenancy.ts:522` | PASS | round2-demo-results.json: PASS Recycle stale READY schemas preserves active and public fixtures |
+| SERVICE-0837 | Demo / Tenancy | provisionDemo | `src/lib/services/tenancy.ts:577` | PASS | demo-results.json: PASS Provision demo registry/schema and read isolated seeded records; round2-demo-results.json: PASS Concurrent pool claims never share schema, exhausted pool cold-starts |
 | SERVICE-0838 | Demo / Tenancy | provisionCustomerTenant | `src/lib/services/tenancy.ts:628` | UNTESTED | Not yet exercised |
 | SERVICE-0839 | Demo / Tenancy | registerTenantLogin | `src/lib/services/tenancy.ts:788` | UNTESTED | Not yet exercised |
 | SERVICE-0840 | Demo / Tenancy | issueOnboardingLink | `src/lib/services/tenancy.ts:809` | UNTESTED | Not yet exercised |

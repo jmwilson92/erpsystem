@@ -226,8 +226,8 @@
     "file": "src/app/actions.ts",
     "line": 641,
     "name": "actionCloseMrbCase",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-quality-results.json: PASS MRB USE_AS_IS action releases quarantine and close action finalizes"
   },
   {
     "id": "ACTION-0015",
@@ -236,8 +236,8 @@
     "file": "src/app/actions.ts",
     "line": 650,
     "name": "actionDispositionMrb",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-quality-results.json: PASS MRB USE_AS_IS action releases quarantine and close action finalizes"
   },
   {
     "id": "ACTION-0016",
@@ -377,7 +377,7 @@
     "line": 1094,
     "name": "actionCreateForecast",
     "status": "fail",
-    "evidence": "priority-results.json: FAIL Permission OPERATOR denied actionCreateForecast"
+    "evidence": "priority-results.json: FAIL Permission OPERATOR denied actionCreateForecast; round2-auth-results.json: FAIL Real OPERATOR session denied forecast creation"
   },
   {
     "id": "ACTION-0030",
@@ -516,8 +516,8 @@
     "file": "src/app/actions.ts",
     "line": 1516,
     "name": "actionLogin",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-auth-results.json: PASS Real password login/session identifies ADMIN; round2-auth-results.json: PASS Real password login/session identifies OPERATOR; round2-auth-results.json: PASS Real password login/session identifies QUALITY; round2-auth-results.json: PASS Real password login/session identifies ACCOUNTING; round2-auth-results.json: PASS Real password login/session identifies PURCHASING; round2-auth-results.json: PASS Real password login/session identifies EXECUTIVE"
   },
   {
     "id": "ACTION-0044",
@@ -556,8 +556,8 @@
     "file": "src/app/actions.ts",
     "line": 1581,
     "name": "actionLogout",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-auth-results.json: PASS Logout revokes actual session and strict page denies"
   },
   {
     "id": "ACTION-0048",
@@ -687,7 +687,7 @@
     "line": 1930,
     "name": "actionCreateStandalonePr",
     "status": "pass",
-    "evidence": "priority-results.json: PASS Permission OPERATOR denied purchasing PR action without writes; priority-results.json: PASS Standalone PR draft action + submission routes approvals"
+    "evidence": "priority-results.json: PASS Permission OPERATOR denied purchasing PR action without writes; priority-results.json: PASS Standalone PR draft action + submission routes approvals; round2-auth-results.json: PASS Real OPERATOR cannot create standalone PR"
   },
   {
     "id": "ACTION-0061",
@@ -1107,7 +1107,7 @@
     "line": 3802,
     "name": "actionCreateCustomer",
     "status": "fail",
-    "evidence": "priority-results.json: PASS HTTP action create customer persists; priority-results.json: PASS HTTP action duplicate preferred customer code safely deconflicts; priority-results.json: FAIL Permission OPERATOR denied actionCreateCustomer"
+    "evidence": "priority-results.json: PASS HTTP action create customer persists; priority-results.json: PASS HTTP action duplicate preferred customer code safely deconflicts; priority-results.json: FAIL Permission OPERATOR denied actionCreateCustomer; round2-auth-results.json: FAIL Real OPERATOR session denied customer creation; round2-auth-results.json: PASS Anonymous native POST cannot create customer"
   },
   {
     "id": "ACTION-0103",
@@ -1167,7 +1167,7 @@
     "line": 3934,
     "name": "actionCreateItem",
     "status": "fail",
-    "evidence": "priority-results.json: PASS HTTP action create catalog item persists; priority-results.json: FAIL Permission OPERATOR denied actionCreateItem"
+    "evidence": "priority-results.json: PASS HTTP action create catalog item persists; priority-results.json: FAIL Permission OPERATOR denied actionCreateItem; round2-auth-results.json: FAIL Real OPERATOR session denied catalog creation"
   },
   {
     "id": "ACTION-0109",
@@ -1266,8 +1266,8 @@
     "file": "src/app/actions.ts",
     "line": 4205,
     "name": "actionCompleteReceivingInspection",
-    "status": "untested",
-    "evidence": ""
+    "status": "fail",
+    "evidence": "round2-auth-results.json: FAIL Real OPERATOR denied receiving inspection acceptance; round2-quality-results.json: PASS QC PASS actions create functional test only after both QA gates"
   },
   {
     "id": "ACTION-0119",
@@ -1456,8 +1456,8 @@
     "file": "src/app/actions.ts",
     "line": 4886,
     "name": "actionCompleteWoToStock",
-    "status": "pass",
-    "evidence": "priority-results.json: PASS Completed production handoff then stock action closes WO"
+    "status": "fail",
+    "evidence": "priority-results.json: PASS Completed production handoff then stock action closes WO; round2-finance-results.json: FAIL Task-only WO completes traveler then official completion without inventory"
   },
   {
     "id": "ACTION-0138",
@@ -2287,7 +2287,7 @@
     "line": 6478,
     "name": "actionPostJournal",
     "status": "fail",
-    "evidence": "priority-results.json: FAIL Permission OPERATOR denied posting journal action; priority-results.json: PASS Journal action creates balanced pending entry; finance-supply-results.json: FAIL Non-controller accountant cannot postNow around required approval"
+    "evidence": "priority-results.json: FAIL Permission OPERATOR denied posting journal action; priority-results.json: PASS Journal action creates balanced pending entry; finance-supply-results.json: FAIL Non-controller accountant cannot postNow around required approval; round2-auth-results.json: FAIL Real OPERATOR session denied GL posting; round2-auth-results.json: FAIL Real ACCOUNTING cannot immediately post around required approval"
   },
   {
     "id": "ACTION-0221",
@@ -3186,8 +3186,8 @@
     "file": "src/app/actions.ts",
     "line": 8641,
     "name": "actionApproveJournal",
-    "status": "untested",
-    "evidence": ""
+    "status": "fail",
+    "evidence": "round2-auth-results.json: FAIL Real ACCOUNTING concurrent approvals apply balances only once; round2-auth-results.json: FAIL Real EXECUTIVE with journal.approve can approve without journal.post"
   },
   {
     "id": "ACTION-0311",
@@ -4146,8 +4146,8 @@
     "file": "src/app/api/demo/leave/route.ts",
     "line": 9,
     "name": "POST /api/demo/leave",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-demo-results.json: PASS Native demo leave clears cookie and destroys only its sandbox"
   },
   {
     "id": "API-0007",
@@ -4186,8 +4186,8 @@
     "file": "src/app/api/demo/reset/route.ts",
     "line": 10,
     "name": "GET /api/demo/reset",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-demo-results.json: PASS Native demo reset clears cookie and destroys only its sandbox"
   },
   {
     "id": "API-0011",
@@ -4467,7 +4467,7 @@
     "line": 39,
     "name": "actionCreateLead",
     "status": "pass",
-    "evidence": "priority-results.json: PASS HTTP action create CRM lead persists"
+    "evidence": "priority-results.json: PASS HTTP action create CRM lead persists; round2-modules-results.json: PASS CRM lead action creates then valid status update persists; round2-modules-results.json: PASS CRM blank lead company is rejected without writes"
   },
   {
     "id": "ACTION-0395",
@@ -4476,8 +4476,8 @@
     "file": "src/app/crm/actions.ts",
     "line": 55,
     "name": "actionUpdateLeadStatus",
-    "status": "untested",
-    "evidence": ""
+    "status": "fail",
+    "evidence": "round2-modules-results.json: PASS CRM lead action creates then valid status update persists; round2-modules-results.json: FAIL CRM lead status action rejects unknown state"
   },
   {
     "id": "ACTION-0396",
@@ -4486,8 +4486,8 @@
     "file": "src/app/crm/actions.ts",
     "line": 64,
     "name": "actionConvertLead",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-modules-results.json: PASS CRM lead conversion action links opportunity"
   },
   {
     "id": "ACTION-0397",
@@ -4496,8 +4496,8 @@
     "file": "src/app/crm/actions.ts",
     "line": 82,
     "name": "actionCreateOpportunity",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-modules-results.json: PASS CRM opportunity create and update actions persist fields"
   },
   {
     "id": "ACTION-0398",
@@ -4506,8 +4506,8 @@
     "file": "src/app/crm/actions.ts",
     "line": 99,
     "name": "actionSetStage",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-modules-results.json: PASS CRM stage action ignores unknown stage and requires LOST reason; round2-modules-results.json: PASS CRM WON then reopened opportunity clears close timestamp"
   },
   {
     "id": "ACTION-0399",
@@ -4516,8 +4516,8 @@
     "file": "src/app/crm/actions.ts",
     "line": 116,
     "name": "actionUpdateOpportunity",
-    "status": "untested",
-    "evidence": ""
+    "status": "fail",
+    "evidence": "round2-modules-results.json: PASS CRM opportunity create and update actions persist fields; round2-modules-results.json: FAIL CRM probability update rejects values above 100 percent"
   },
   {
     "id": "ACTION-0400",
@@ -4526,8 +4526,8 @@
     "file": "src/app/crm/actions.ts",
     "line": 138,
     "name": "actionConvertToCustomer",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-modules-results.json: PASS CRM customer conversion action is repeat-idempotent"
   },
   {
     "id": "ACTION-0401",
@@ -4536,8 +4536,8 @@
     "file": "src/app/crm/actions.ts",
     "line": 154,
     "name": "actionAddActivity",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-modules-results.json: PASS CRM activity create and completion actions persist"
   },
   {
     "id": "ACTION-0402",
@@ -4546,8 +4546,8 @@
     "file": "src/app/crm/actions.ts",
     "line": 170,
     "name": "actionCompleteActivity",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-modules-results.json: PASS CRM activity create and completion actions persist"
   },
   {
     "id": "ACTION-0403",
@@ -4556,8 +4556,8 @@
     "file": "src/app/crm/actions.ts",
     "line": 180,
     "name": "actionCreateContact",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-modules-results.json: PASS CRM contact action creates primary contact"
   },
   {
     "id": "PAGE-0032",
@@ -6247,7 +6247,7 @@
     "line": 35,
     "name": "actionCreateTicket",
     "status": "pass",
-    "evidence": "priority-results.json: PASS HTTP action create service ticket persists"
+    "evidence": "priority-results.json: PASS HTTP action create service ticket persists; round2-modules-results.json: PASS Service asset and ticket actions link customer-owned equipment; round2-modules-results.json: PASS Service blank title is rejected without ticket writes"
   },
   {
     "id": "ACTION-0441",
@@ -6256,8 +6256,8 @@
     "file": "src/app/service/actions.ts",
     "line": 55,
     "name": "actionUpdateTicketStatus",
-    "status": "untested",
-    "evidence": ""
+    "status": "fail",
+    "evidence": "round2-modules-results.json: FAIL Service reopening completed ticket clears closedAt; round2-modules-results.json: FAIL Service status action rejects unknown state"
   },
   {
     "id": "ACTION-0442",
@@ -6266,8 +6266,8 @@
     "file": "src/app/service/actions.ts",
     "line": 65,
     "name": "actionScheduleVisit",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-modules-results.json: PASS Service dispatch and start actions move ticket into work"
   },
   {
     "id": "ACTION-0443",
@@ -6276,8 +6276,8 @@
     "file": "src/app/service/actions.ts",
     "line": 81,
     "name": "actionStartVisit",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-modules-results.json: PASS Service dispatch and start actions move ticket into work"
   },
   {
     "id": "ACTION-0444",
@@ -6286,8 +6286,8 @@
     "file": "src/app/service/actions.ts",
     "line": 95,
     "name": "actionCompleteVisit",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-modules-results.json: PASS Service completing last visit closes the job"
   },
   {
     "id": "ACTION-0445",
@@ -6296,8 +6296,8 @@
     "file": "src/app/service/actions.ts",
     "line": 111,
     "name": "actionAddLabor",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-modules-results.json: PASS Service labor/parts actions reconcile billable total; round2-modules-results.json: PASS Service negative labor/part quantities leave no records"
   },
   {
     "id": "ACTION-0446",
@@ -6306,8 +6306,8 @@
     "file": "src/app/service/actions.ts",
     "line": 127,
     "name": "actionAddPartUsage",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-modules-results.json: PASS Service labor/parts actions reconcile billable total; round2-modules-results.json: PASS Service negative labor/part quantities leave no records"
   },
   {
     "id": "ACTION-0447",
@@ -6316,8 +6316,8 @@
     "file": "src/app/service/actions.ts",
     "line": 152,
     "name": "actionRemoveLabor",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-modules-results.json: PASS Service removal actions reconcile billable total to zero"
   },
   {
     "id": "ACTION-0448",
@@ -6326,8 +6326,8 @@
     "file": "src/app/service/actions.ts",
     "line": 159,
     "name": "actionRemovePartUsage",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-modules-results.json: PASS Service removal actions reconcile billable total to zero"
   },
   {
     "id": "ACTION-0449",
@@ -6336,8 +6336,8 @@
     "file": "src/app/service/actions.ts",
     "line": 166,
     "name": "actionCreateInstalledAsset",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-modules-results.json: PASS Service asset and ticket actions link customer-owned equipment"
   },
   {
     "id": "PAGE-0162",
@@ -6916,8 +6916,8 @@
     "file": "src/lib/auth-core.ts",
     "line": 131,
     "name": "verifyPassword",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-auth-results.json: PASS Real password login/session identifies ADMIN; round2-auth-results.json: PASS Real password login/session identifies OPERATOR; round2-auth-results.json: PASS Real password login/session identifies QUALITY; round2-auth-results.json: PASS Real password login/session identifies ACCOUNTING; round2-auth-results.json: PASS Real password login/session identifies PURCHASING; round2-auth-results.json: PASS Real password login/session identifies EXECUTIVE"
   },
   {
     "id": "SERVICE-0018",
@@ -6956,8 +6956,8 @@
     "file": "src/lib/auth-core.ts",
     "line": 278,
     "name": "getSessionUser",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-auth-results.json: PASS Real password login/session identifies ADMIN; round2-auth-results.json: PASS Real password login/session identifies OPERATOR; round2-auth-results.json: PASS Real password login/session identifies QUALITY; round2-auth-results.json: PASS Real password login/session identifies ACCOUNTING; round2-auth-results.json: PASS Real password login/session identifies PURCHASING; round2-auth-results.json: PASS Real password login/session identifies EXECUTIVE"
   },
   {
     "id": "SERVICE-0022",
@@ -6976,8 +6976,8 @@
     "file": "src/lib/auth-core.ts",
     "line": 342,
     "name": "loginWithPassword",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-auth-results.json: PASS Real password login/session identifies ADMIN; round2-auth-results.json: PASS Real password login/session identifies OPERATOR; round2-auth-results.json: PASS Real password login/session identifies QUALITY; round2-auth-results.json: PASS Real password login/session identifies ACCOUNTING; round2-auth-results.json: PASS Real password login/session identifies PURCHASING; round2-auth-results.json: PASS Real password login/session identifies EXECUTIVE"
   },
   {
     "id": "SERVICE-0024",
@@ -10507,7 +10507,7 @@
     "line": 490,
     "name": "postJournal",
     "status": "pass",
-    "evidence": "GL balanced journal remains pending / idempotency; priority-results.json: PASS Closed-period post rejected with no JE/line writes"
+    "evidence": "GL balanced journal remains pending / idempotency; priority-results.json: PASS Closed-period post rejected with no JE/line writes; round2-finance-results.json: PASS Pending JE does not change isolated account balances"
   },
   {
     "id": "SERVICE-0362",
@@ -10536,8 +10536,8 @@
     "file": "src/lib/services/gaap.ts",
     "line": 763,
     "name": "approveJournal",
-    "status": "pass",
-    "evidence": "priority-results.json: PASS Accounting self-approval denied when separation enabled; priority-results.json: PASS Accounting approval applies once and is repeat safe"
+    "status": "fail",
+    "evidence": "priority-results.json: PASS Accounting self-approval denied when separation enabled; priority-results.json: PASS Accounting approval applies once and is repeat safe; round2-finance-results.json: PASS Approved JE reconciles account balances to posted lines; round2-finance-results.json: FAIL Concurrent approvals apply the same JE balances only once"
   },
   {
     "id": "SERVICE-0365",
@@ -10546,8 +10546,8 @@
     "file": "src/lib/services/gaap.ts",
     "line": 806,
     "name": "voidJournal",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-finance-results.json: PASS Void unposted journal requires reason and never applies balances"
   },
   {
     "id": "SERVICE-0366",
@@ -10567,7 +10567,7 @@
     "line": 865,
     "name": "recordArPayment",
     "status": "fail",
-    "evidence": "finance-supply-results.json: FAIL AR rejected GL posting rolls back payment and invoice"
+    "evidence": "finance-supply-results.json: FAIL AR rejected GL posting rolls back payment and invoice; round2-finance-results.json: PASS AR partial/full receipts reconcile subledger and GL; round2-finance-results.json: FAIL AR overpayment cannot disappear from subledger; round2-finance-results.json: FAIL AR payment journal honors supplied historical payment date"
   },
   {
     "id": "SERVICE-0368",
@@ -10577,7 +10577,7 @@
     "line": 922,
     "name": "recordApPayment",
     "status": "fail",
-    "evidence": "finance-supply-results.json: FAIL AP rejected GL posting rolls back payment and invoice"
+    "evidence": "finance-supply-results.json: FAIL AP rejected GL posting rolls back payment and invoice; round2-finance-results.json: PASS AP partial/full receipts reconcile subledger and GL; round2-finance-results.json: FAIL AP overpayment cannot disappear from subledger; round2-finance-results.json: FAIL AP payment journal honors supplied historical payment date"
   },
   {
     "id": "SERVICE-0369",
@@ -10597,7 +10597,7 @@
     "line": 1028,
     "name": "reverseJournalEntry",
     "status": "fail",
-    "evidence": "finance-supply-results.json: FAIL Journal reversal retains FAR unallowable classification; finance-supply-results.json: PASS Journal reversal is balanced and cannot run twice"
+    "evidence": "finance-supply-results.json: FAIL Journal reversal retains FAR unallowable classification; finance-supply-results.json: PASS Journal reversal is balanced and cannot run twice; round2-finance-results.json: PASS Reversal reconciles original balances back to zero"
   },
   {
     "id": "SERVICE-0371",
@@ -10796,8 +10796,8 @@
     "file": "src/lib/services/gl-posting.ts",
     "line": 331,
     "name": "postMaterialIssue",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-finance-results.json: PASS Manufacturing postings capitalize material/labor/fringe/OH but not G&A"
   },
   {
     "id": "SERVICE-0377",
@@ -10806,8 +10806,8 @@
     "file": "src/lib/services/gl-posting.ts",
     "line": 356,
     "name": "postDirectLabor",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-finance-results.json: PASS Manufacturing postings capitalize material/labor/fringe/OH but not G&A"
   },
   {
     "id": "SERVICE-0378",
@@ -10816,8 +10816,8 @@
     "file": "src/lib/services/gl-posting.ts",
     "line": 418,
     "name": "postWorkOrderCompletion",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-finance-results.json: PASS Manufacturing completion relieves WIP and reconciles variance; round2-finance-results.json: PASS Repeat completion posting is idempotent"
   },
   {
     "id": "SERVICE-0379",
@@ -10826,8 +10826,8 @@
     "file": "src/lib/services/gl-posting.ts",
     "line": 459,
     "name": "postScrap",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-finance-results.json: PASS GFP scrap never posts company expense"
   },
   {
     "id": "SERVICE-0380",
@@ -10836,8 +10836,8 @@
     "file": "src/lib/services/gl-posting.ts",
     "line": 485,
     "name": "postInventoryAdjustment",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-finance-results.json: PASS Inventory shortage/surplus and OSP postings are balanced"
   },
   {
     "id": "SERVICE-0381",
@@ -10846,8 +10846,8 @@
     "file": "src/lib/services/gl-posting.ts",
     "line": 506,
     "name": "postOutsideProcessing",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-finance-results.json: PASS Inventory shortage/surplus and OSP postings are balanced"
   },
   {
     "id": "SERVICE-0382",
@@ -13626,8 +13626,8 @@
     "file": "src/lib/services/receiving-inspection.ts",
     "line": 81,
     "name": "routeReceivingLineForInspection",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-quality-results.json: PASS QC flagged receipt routes to pending VISUAL/GDT with unavailable stock"
   },
   {
     "id": "ACTION-0518",
@@ -13636,8 +13636,8 @@
     "file": "src/lib/services/receiving-inspection.ts",
     "line": 261,
     "name": "spawnFunctionalReceivingInspection",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-quality-results.json: PASS QC PASS actions create functional test only after both QA gates"
   },
   {
     "id": "ACTION-0519",
@@ -13656,8 +13656,8 @@
     "file": "src/lib/services/receiving-inspection.ts",
     "line": 462,
     "name": "completeReceivingInspection",
-    "status": "untested",
-    "evidence": ""
+    "status": "fail",
+    "evidence": "round2-quality-results.json: PASS QC completion requires attached evidence and does not mutate on missing docs; round2-quality-results.json: PASS Functional PASS returns receiving traveler READY_TO_STOCK; round2-quality-results.json: PASS Repeated QC completion rejected without duplicate NCR/docs; round2-quality-results.json: PASS QC failure creates NCR/MRB and quarantines all affected material; round2-quality-results.json: FAIL Failed receiving NCR retains source supplier for scorecards"
   },
   {
     "id": "ACTION-0521",
@@ -13676,8 +13676,8 @@
     "file": "src/lib/services/receiving-inspection.ts",
     "line": 762,
     "name": "tryCompleteInventoryReceivingInspections",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-quality-results.json: PASS QC PASS actions create functional test only after both QA gates"
   },
   {
     "id": "ACTION-0523",
@@ -13686,8 +13686,8 @@
     "file": "src/lib/services/receiving-inspection.ts",
     "line": 961,
     "name": "completeReceivingAfterInspection",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-quality-results.json: PASS After-inspection putaway service releases stock and completes travelers"
   },
   {
     "id": "ACTION-0524",
@@ -15316,8 +15316,8 @@
     "file": "src/lib/services/supply-chain.ts",
     "line": 27,
     "name": "receivePurchaseOrder",
-    "status": "pass",
-    "evidence": "finance-supply-results.json: PASS Receiving overquantity fails without receipts or inventory changes"
+    "status": "fail",
+    "evidence": "finance-supply-results.json: PASS Receiving overquantity fails without receipts or inventory changes; round2-quality-results.json: PASS QC flagged receipt routes to pending VISUAL/GDT with unavailable stock; round2-quality-results.json: FAIL Serialized receiving rejects missing serials before receipt writes; round2-quality-results.json: FAIL Serialized receiving rejects count mismatch serials before receipt writes; round2-quality-results.json: FAIL Serialized receiving rejects duplicate serials before receipt writes; round2-quality-results.json: FAIL Valid received serials become selectable stock serial identities"
   },
   {
     "id": "ACTION-0537",
@@ -15336,8 +15336,8 @@
     "file": "src/lib/services/supply-chain.ts",
     "line": 1145,
     "name": "createNcrAndMrbFromInspection",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-quality-results.json: PASS QC failure creates NCR/MRB and quarantines all affected material"
   },
   {
     "id": "ACTION-0539",
@@ -15346,8 +15346,8 @@
     "file": "src/lib/services/supply-chain.ts",
     "line": 1250,
     "name": "closeMrbCase",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-quality-results.json: PASS Open MRB cannot close before disposition; round2-quality-results.json: PASS MRB USE_AS_IS action releases quarantine and close action finalizes"
   },
   {
     "id": "ACTION-0540",
@@ -15356,8 +15356,8 @@
     "file": "src/lib/services/supply-chain.ts",
     "line": 1277,
     "name": "dispositionMrb",
-    "status": "pass",
-    "evidence": "scripts/verify/chunk-serials-rma.ts; scenario only"
+    "status": "fail",
+    "evidence": "scripts/verify/chunk-serials-rma.ts; scenario only; round2-quality-results.json: PASS MRB USE_AS_IS action releases quarantine and close action finalizes; round2-quality-results.json: FAIL MRB partial SCRAP preserves remainder quantity; round2-quality-results.json: FAIL MRB rejects negative disposition quantity before writing; round2-quality-results.json: FAIL Repeated MRB disposition cannot create duplicate decisions/postings"
   },
   {
     "id": "ACTION-0541",
@@ -15926,8 +15926,8 @@
     "file": "src/lib/services/tenancy.ts",
     "line": 386,
     "name": "demoPoolTarget",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-demo-results.json: PASS Demo pool warm and sequential refill honor target"
   },
   {
     "id": "SERVICE-0833",
@@ -15946,8 +15946,8 @@
     "file": "src/lib/services/tenancy.ts",
     "line": 448,
     "name": "warmOneDemo",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-demo-results.json: PASS Demo pool warm and sequential refill honor target"
   },
   {
     "id": "SERVICE-0835",
@@ -15956,8 +15956,8 @@
     "file": "src/lib/services/tenancy.ts",
     "line": 490,
     "name": "ensureDemoPool",
-    "status": "untested",
-    "evidence": ""
+    "status": "fail",
+    "evidence": "round2-demo-results.json: PASS Demo pool warm and sequential refill honor target; round2-demo-results.json: FAIL Concurrent refills cannot exceed configured spare target"
   },
   {
     "id": "SERVICE-0836",
@@ -15966,8 +15966,8 @@
     "file": "src/lib/services/tenancy.ts",
     "line": 522,
     "name": "recycleStalePool",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "round2-demo-results.json: PASS Recycle stale READY schemas preserves active and public fixtures"
   },
   {
     "id": "SERVICE-0837",
@@ -15977,7 +15977,7 @@
     "line": 577,
     "name": "provisionDemo",
     "status": "pass",
-    "evidence": "demo-results.json: PASS Provision demo registry/schema and read isolated seeded records"
+    "evidence": "demo-results.json: PASS Provision demo registry/schema and read isolated seeded records; round2-demo-results.json: PASS Concurrent pool claims never share schema, exhausted pool cold-starts"
   },
   {
     "id": "SERVICE-0838",
