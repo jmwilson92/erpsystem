@@ -21,8 +21,11 @@ async function main() {
     await perm.toggleGroupPermission({ groupId: group.id, permissionCode: "admin.permissions", enabled: true });
     await p.companySettings.create({ data: { id: "default", name: "Original" } });
     const account = await p.account.create({ data: { code: "5000", name: "Expense", type: "EXPENSE" } });
-    const snapshots = async () => JSON.stringify({ grants: await p.userPermission.findMany({ orderBy: { id: "asc" } }), groups: await p.userPermissionGroup.findMany({ orderBy: { id: "asc" } }), company: await p.companySettings.findMany(), accounts: await p.account.findMany(), journals: await p.journalEntry.count() });
+    const snapshots = async () => JSON.stringify({ grants: await p.userPermission.findMany({ orderBy: { id: "asc" } }), groups: await p.userPermissionGroup.findMany({ orderBy: { id: "asc" } }), company: await p.companySettings.findMany(), accounts: await p.account.findMany(), journals: await p.journalEntry.count(), users: await p.user.findMany({ orderBy: { id: "asc" } }) });
     const cases: [string, (fd: FormData) => Promise<void>, Record<string,string>][] = [
+      ["AUTH-011 self promotion", a.actionWizardAddPerson, { name: "Operator", email: operator.email, role: "ADMIN" }],
+      ["AUTH-011 create administrator", a.actionWizardAddPerson, { name: "Injected", email: "injected@example.invalid", role: "ADMIN" }],
+      ["Setup completion", a.actionCompleteSetup, {}],
       ["AUTH-006", a.actionGrantUserPermission, { userId: operator.id, permissionCode: "admin.permissions", allowed: "true" }],
       ["AUTH-007 assign", a.actionAssignUserGroup, { userId: operator.id, groupId: group.id }],
       ["AUTH-007 remove", a.actionRemoveUserGroup, { userId: admin.id, groupId: group.id }],
@@ -40,8 +43,14 @@ async function main() {
         assert.equal(await auth.userHasPermission(operator.id, "admin.permissions"), false);
       }
     }
-    console.log("PASS AUTH-006/007/008/009/010 server action boundaries deny operator and unrelated executive before writes");
+    console.log("PASS AUTH-006/007/008/009/010/011 server action boundaries deny operator and unrelated executive before writes");
     process.env.DEMO_USER_ROLE = "ADMIN";
+    await call(a.actionWizardAddPerson, { name: "Wizard user", email: "wizard@example.invalid", role: "OPERATOR" });
+    await call(a.actionWizardAddPerson, { name: "Wizard accountant", email: "wizard@example.invalid", role: "ACCOUNTING" });
+    assert.equal((await p.user.findUniqueOrThrow({ where: { email: "wizard@example.invalid" } })).role, "ACCOUNTING");
+    await call(a.actionCompleteSetup, {});
+    assert.equal((await p.companySettings.findUniqueOrThrow({ where: { id: "default" } })).setupCompleted, true);
+    console.log("PASS AUTH-011 authorized setup creates/edits people and completes; denied role self-promotion/create leave every row unchanged");
     await call(a.actionGrantUserPermission, { userId: operator.id, permissionCode: "budgets.manage", allowed: "true" });
     assert.equal(await auth.userHasPermission(operator.id, "budgets.manage"), true);
     await call(a.actionAssignUserGroup, { userId: operator.id, groupId: group.id });
