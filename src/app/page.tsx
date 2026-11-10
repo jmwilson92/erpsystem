@@ -27,10 +27,7 @@ import { DisciplinePulseCharts } from "@/components/dashboard/discipline-pulse";
 import { getDisciplinePulse } from "@/lib/services/dashboard-pulse";
 import { DashboardPersonalize } from "@/components/dashboard/dashboard-personalize";
 import { Sparkline } from "@/components/dashboard/sparkline";
-import { SpinningUpShop } from "@/components/marketing/spinning-up-shop";
 import { LandingPage } from "@/components/marketing/landing-page";
-import { SiteHeader } from "@/components/marketing/site-header";
-import { SiteFooter } from "@/components/marketing/site-footer";
 import { SITE_DESCRIPTION, SITE_NAME, SITE_TITLE_DESCRIPTOR } from "@/lib/site";
 import { cookies } from "next/headers";
 import { DEMO_COOKIE } from "@/lib/db";
@@ -71,27 +68,8 @@ const fmtMoney = (n: number) =>
       ? `$${Math.round(n / 1000).toLocaleString()}k`
       : `$${Math.round(n).toLocaleString()}`;
 
-function SplashShell({
-  hasExistingDemo,
-  ended = false,
-}: {
-  hasExistingDemo?: boolean;
-  ended?: boolean;
-}) {
-  return (
-    <div className="marketing-story flex min-h-screen flex-col bg-slate-950">
-      <SiteHeader />
-      <main className="flex-1">
-        <SpinningUpShop
-          hasExistingDemo={hasExistingDemo}
-          autoStart={false}
-          ended={ended}
-        />
-        <LandingPage showChrome={false} showClassicHero={false} />
-      </main>
-      <SiteFooter />
-    </div>
-  );
+function SplashShell() {
+  return <LandingPage />;
 }
 
 export default async function DashboardPage({
@@ -114,12 +92,12 @@ export default async function DashboardPage({
       const { redirect } = await import("next/navigation");
       redirect("/welcome?ended=1");
     }
-    return <SplashShell hasExistingDemo={false} ended={false} />;
+    return <SplashShell />;
   }
 
   const user = await getCurrentUser().catch(() => null);
   if (!user) {
-    return <SplashShell hasExistingDemo={false} ended={false} />;
+    return <SplashShell />;
   }
   const canSeeMoney = await userCanSeeFinancials(user.id);
   const setupDone =
