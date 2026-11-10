@@ -1,0 +1,97 @@
+{
+  "updated_pst": "2026-11-10 02:59 PM PST",
+  "baseline": "3de5ba17f99eecc99f357e27dbfc92fc2c06b28e",
+  "inventory_total": 1968,
+  "tested": 795,
+  "passed": 752,
+  "failed": 43,
+  "untested": 1173,
+  "by_kind": {
+    "page": {
+      "pass": 175,
+      "untested": 15,
+      "fail": 1
+    },
+    "action": {
+      "untested": 285,
+      "pass": 260,
+      "fail": 28
+    },
+    "api": {
+      "pass": 12,
+      "untested": 13
+    },
+    "service": {
+      "pass": 305,
+      "untested": 631,
+      "fail": 14
+    },
+    "model": {
+      "untested": 229
+    }
+  },
+  "bugs_total": 77,
+  "new_bugs": 26,
+  "suites": {
+    "manual-ui-results.json": {
+      "fail": 1
+    },
+    "round2-auth-results.json": {
+      "pass": 15,
+      "fail": 3
+    },
+    "round2-finance-results.json": {
+      "pass": 16,
+      "fail": 1
+    },
+    "round2-quality-results.json": {
+      "pass": 9,
+      "fail": 8
+    },
+    "round3-ai-help-results.json": {
+      "pass": 8
+    },
+    "round3-docs-assets-results.json": {
+      "pass": 18,
+      "fail": 4
+    },
+    "round3-finance-deep-results.json": {
+      "pass": 7,
+      "fail": 10
+    },
+    "round3-guards-results.json": {
+      "pass": 86
+    },
+    "round3-hr-auth-results.json": {
+      "pass": 22,
+      "fail": 8
+    },
+    "round3-pmo-plm-results.json": {
+      "pass": 26,
+      "fail": 2
+    },
+    "round3-receiving-deep-results.json": {
+      "pass": 5,
+      "fail": 2
+    },
+    "round3-reviews-results.json": {
+      "pass": 5,
+      "fail": 1
+    },
+    "round3-ui-results.json": {
+      "pass": 40
+    }
+  },
+  "callable_functions": {
+    "total": 1548,
+    "tested": 619,
+    "untested": 929,
+    "pass": 577,
+    "fail": 42
+  },
+  "scenarios_this_continuation": {
+    "total": 297,
+    "pass": 257,
+    "fail": 40
+  }
+}
