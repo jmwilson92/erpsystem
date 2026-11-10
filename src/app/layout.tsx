@@ -380,7 +380,7 @@ export default async function RootLayout({
         {isAnonymousDemo ? (
           // Demo plant: marketing header + footer around full ERP shell (sidebar).
           <div className="flex h-screen flex-col overflow-hidden">
-            <SiteHeader />
+            <SiteHeader embedded />
             <DemoLeaveBeacon />
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               <AppShell

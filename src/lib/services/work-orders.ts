@@ -1,3 +1,4 @@
+import { verifySignaturePin } from "./signature-pin";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { seedStepAssignments } from "@/lib/services/workcenters";
@@ -576,17 +577,7 @@ export async function signOffStep(params: {
   /** Tech PIN required to confirm identity */
   pinCode?: string;
 }) {
-  const user = await prisma.user.findUnique({ where: { id: params.userId } });
-  if (!user) throw new Error("User not found");
-  if (!user.pinCode?.trim()) {
-    throw new Error(
-      "Your account has no PIN configured — ask HR/admin to set one before signing"
-    );
-  }
-  const expectedPin = user.pinCode.trim();
-  if (!params.pinCode || params.pinCode.trim() !== expectedPin) {
-    throw new Error(`Invalid PIN for ${user.name} — each person signs with their own PIN (set it under My Account)`);
-  }
+  await verifySignaturePin(params.userId, params.pinCode);
 
   const completion = await prisma.workOrderStepCompletion.findUnique({
     where: {

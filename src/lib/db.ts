@@ -14,7 +14,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
  */
 
 // Bump when the Prisma schema changes so dev HMR drops a stale client.
-const PRISMA_CLIENT_EPOCH = "founding-lifetime-billing-v42";
+const PRISMA_CLIENT_EPOCH = "docs-founding-billing-v43";
 
 /** Legacy cookie name kept for compatibility with old demo/test-drive routes. */
 export const SANDBOX_COOKIE = "forge-sandbox";
@@ -53,8 +53,12 @@ function createClient(schema?: string) {
   }
   // The `schema` option makes Prisma qualify every query to that schema, so one
   // connection string serves every tenant. Omitted → the default (public).
+  // Optional pool tuning. Defaults to pg's existing 10; a single-connection
+  // test Postgres transport (PGlite) must serialize all app queries on one socket.
+  const configuredMax = Number(process.env.DATABASE_POOL_MAX);
+  const max = Number.isSafeInteger(configuredMax) && configuredMax >= 1 && configuredMax <= 20 ? configuredMax : 10;
   const adapter = new PrismaPg(
-    { connectionString: connectionString ?? "" },
+    { connectionString: connectionString ?? "", max },
     schema ? { schema } : undefined
   );
   return new PrismaClient({ adapter });

@@ -325,6 +325,12 @@ html.light .shadow-black\/30 {
  * Marketing story surfaces: force real black/white regardless of html.light
  * slate inversion (which otherwise turns text-slate-950 into a pale wash).
  */
+.marketing-home {
+  color: #10203f;
+  color-scheme: light;
+  scroll-padding-top: 6.5rem;
+}
+
 .marketing-story {
   --color-slate-50: #f8fafc;
   --color-slate-100: #f1f5f9;

@@ -133,6 +133,7 @@ export type Role = (typeof ROLES)[number];
  * these freely so companies can shape their own access model.
  */
 const MODULE_VIEWS: [string, string][] = [
+  ["docs", "Docs knowledge base"],
   ["dashboard", "Dashboard"],
   ["floor", "Production Floor"],
   ["radiators", "Info Radiators"],
@@ -263,6 +264,9 @@ const ACTION_PERMISSIONS: { code: string; name: string; module: string }[] = [
   // Support
   { code: "support.ticket.create", name: "Open support tickets", module: "support" },
   { code: "support.ticket.manage", name: "Manage support desk (staff)", module: "support" },
+  { code: "docs.edit", name: "Create spaces and edit Docs", module: "docs" },
+  { code: "docs.comment", name: "Comment on Docs", module: "docs" },
+  { code: "docs.sign", name: "PIN-approve controlled Docs (individual grant)", module: "docs" },
   // Admin
   { code: "admin.permissions", name: "Assign permissions", module: "admin" },
   { code: "admin.users.manage", name: "Manage users / org chart", module: "admin" },
@@ -279,6 +283,7 @@ export const PERMISSIONS: { code: string; name: string; module: string }[] = [
 
 export function canAccess(role: string, module: string): boolean {
   if (role === "ADMIN") return true;
+  if (module === "docs") return (ROLES as readonly string[]).includes(role);
   const matrix: Record<string, string[]> = {
     ENGINEERING: [
       "bom",
@@ -523,6 +528,10 @@ export async function userHasPermission(
     ADMIN: PERMISSIONS.map((p) => p.code),
   };
   if (roleDefaults[user.role]?.includes(permissionCode)) return true;
+
+  if (permissionCode === "docs.comment") return true;
+  if (permissionCode === "docs.edit" && ["ENGINEERING", "CM", "QUALITY", "PM"].includes(user.role)) return true;
+  // docs.sign intentionally has no role default; grant it to the actual individual.
 
   // Everyone may request their own PTO by default.
   if (permissionCode === "hr.pto.request") return true;

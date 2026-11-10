@@ -48,6 +48,7 @@ export default async function EngineeringPage() {
         title="Engineering"
         actions={
           <div className="flex gap-2">
+            <Link href="/docs"><Button size="sm" variant="outline">Docs</Button></Link>
             <Link href="/pmo/pi">
               <Button size="sm" variant="outline">
                 PI / sprints

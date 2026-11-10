@@ -16,6 +16,7 @@ export type ModuleDef = {
 };
 
 export const MODULES: ModuleDef[] = [
+  { key: "docs", label: "Docs", description: "Knowledge spaces, linked pages and controlled documents", prefixes: ["/docs"] },
   {
     key: "sales",
     label: "Sales & Customers",

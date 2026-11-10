@@ -15,6 +15,7 @@
 import { foundingFieldGuard } from "./lib/founding-security.mjs";
 import { execSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
+import { DOCS_HARDENING_SQL } from "./lib/docs-security.mjs";
 
 const raw = execSync(
   "npx prisma migrate diff --from-empty --to-schema prisma/schema.prisma --script",
@@ -158,7 +159,8 @@ export const FOUNDING_BILLING_HARDENING = ${JSON.stringify(foundingBillingHarden
 
 export const TENANT_TABLES_SQL = ${JSON.stringify(tablesSql)};
 export const TENANT_FKS_SQL = ${JSON.stringify(fksSql)};
-export const TENANT_HARDENING_SQL = ${JSON.stringify(hardeningSql + "\n" + foundingFieldGuard("CompanySettings"))};
+export const TENANT_HARDENING_SQL = ${JSON.stringify(hardeningSql + "\n\n" + DOCS_HARDENING_SQL + "\n\n" + foundingFieldGuard("CompanySettings"))};
+export const DOCS_HARDENING_SQL = ${JSON.stringify(DOCS_HARDENING_SQL)};
 `;
 
 writeFileSync("src/lib/tenant-template.ts", out);

@@ -119,6 +119,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Engineering & PLM",
     items: [
+      { href: "/docs", label: "Docs", icon: FileText, keywords: ["knowledge", "wiki", "spaces", "procedures"] },
       { href: "/engineering", label: "Engineering", icon: Briefcase, keywords: ["tasks", "board", "disciplines"] },
       { href: "/requirements", label: "Requirements", icon: ListChecks, keywords: ["jama", "trace", "verification", "shall", "coverage", "system requirements"] },
       { href: "/bom", label: "BOMs", icon: Layers, keywords: ["bill of materials", "where used", "revision"] },
