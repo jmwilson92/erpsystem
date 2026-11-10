@@ -5505,10 +5505,124 @@ export async function actionCreateProgram(formData: FormData): Promise<void> {
     startDate: optDate(formData, "startDate"),
     endDate: optDate(formData, "endDate"),
     notes: ((formData.get("notes") as string) || "").trim() || null,
+    contractNumber: ((formData.get("contractNumber") as string) || "").trim() || null,
+    contractType: ((formData.get("contractType") as string) || "").trim() || null,
+    customerName: ((formData.get("customerName") as string) || "").trim() || null,
+    fundedAmount: optNum(formData, "fundedAmount"),
+    ceilingAmount: optNum(formData, "ceilingAmount"),
+    feePercent: optNum(formData, "feePercent"),
+    agency: ((formData.get("agency") as string) || "").trim() || null,
+    primeOrSub: ((formData.get("primeOrSub") as string) || "").trim() || null,
+    isGovernment: formData.get("isGovernment") === "on",
     userId: user?.id,
   });
   revalidatePath("/pmo");
   redirect(`/pmo/programs/${program.id}`);
+}
+
+export async function actionUpdateProgramContract(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  const { updateProgram } = await import("@/lib/services/pmo");
+  const id = (formData.get("id") as string) || "";
+  await updateProgram({
+    id,
+    contractNumber: ((formData.get("contractNumber") as string) || "").trim() || null,
+    contractType: ((formData.get("contractType") as string) || "").trim() || null,
+    customerName: ((formData.get("customerName") as string) || "").trim() || null,
+    fundedAmount: optNum(formData, "fundedAmount"),
+    ceilingAmount: optNum(formData, "ceilingAmount"),
+    feePercent: optNum(formData, "feePercent"),
+    agency: ((formData.get("agency") as string) || "").trim() || null,
+    primeOrSub: ((formData.get("primeOrSub") as string) || "").trim() || null,
+    isGovernment: formData.get("isGovernment") === "on",
+    userId: user?.id,
+  });
+  revalidatePath(`/pmo/programs/${id}`);
+  revalidatePath("/accounting/govcon");
+}
+
+export async function actionAddProgramClin(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  const { addProgramClin } = await import("@/lib/services/pmo");
+  const programId = (formData.get("programId") as string) || "";
+  await addProgramClin({
+    programId,
+    clinNumber: ((formData.get("clinNumber") as string) || "").trim(),
+    name: ((formData.get("name") as string) || "").trim(),
+    contractType: ((formData.get("contractType") as string) || "").trim() || null,
+    fundedAmount: optNum(formData, "fundedAmount"),
+    ceilingAmount: optNum(formData, "ceilingAmount"),
+    feePercent: optNum(formData, "feePercent"),
+    userId: user?.id,
+  });
+  revalidatePath(`/pmo/programs/${programId}`);
+  revalidatePath("/accounting/govcon");
+}
+
+export async function actionSaveIndirectRate(formData: FormData): Promise<void> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const user = await getCurrentUser();
+  if (!(await userHasPermission(user?.id, "accounting.govcon.manage"))) {
+    throw new Error("Editing rates needs the contract-rates role");
+  }
+  const code = ((formData.get("code") as string) || "").trim();
+  const rate = Number(formData.get("provisionalRate") || 0);
+  if (!code || !Number.isFinite(rate) || rate < 0) {
+    throw new Error("Enter a rate of zero or more");
+  }
+  const { prisma } = await import("@/lib/db");
+  await prisma.indirectPool.update({
+    where: { code },
+    data: { provisionalRate: rate },
+  });
+  revalidatePath("/accounting/govcon");
+}
+
+export async function actionSetAccountAllowability(formData: FormData): Promise<void> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const user = await getCurrentUser();
+  if (!(await userHasPermission(user?.id, "accounting.govcon.manage"))) {
+    throw new Error("Flagging accounts needs the contract-rates role");
+  }
+  const id = (formData.get("accountId") as string) || "";
+  const allowability = ((formData.get("allowability") as string) || "").trim() || null;
+  const farCitation = ((formData.get("farCitation") as string) || "").trim() || null;
+  const poolCode = ((formData.get("poolCode") as string) || "").trim() || null;
+  const { prisma } = await import("@/lib/db");
+  await prisma.account.update({
+    where: { id },
+    data: {
+      allowability: allowability === "UNALLOWABLE" || allowability === "ALLOWABLE" ? allowability : null,
+      farCitation,
+      poolCode: poolCode === "FRINGE" || poolCode === "OVERHEAD" || poolCode === "GA" ? poolCode : null,
+    },
+  });
+  revalidatePath("/accounting/govcon");
+}
+
+export async function actionSetGovconControls(formData: FormData): Promise<void> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const user = await getCurrentUser();
+  if (!(await userHasPermission(user?.id, "accounting.controller"))) {
+    throw new Error("These controls are for a controller");
+  }
+  const { prisma } = await import("@/lib/db");
+  await prisma.accountingSettings.upsert({
+    where: { id: "default" },
+    create: {
+      id: "default",
+      requireJournalSoD: formData.get("requireJournalSoD") === "on",
+      requireTotalTime: formData.get("requireTotalTime") === "on",
+      requireTimeChangeReason: formData.get("requireTimeChangeReason") === "on",
+    },
+    update: {
+      requireJournalSoD: formData.get("requireJournalSoD") === "on",
+      requireTotalTime: formData.get("requireTotalTime") === "on",
+      requireTimeChangeReason: formData.get("requireTimeChangeReason") === "on",
+      updatedById: user?.id || null,
+    },
+  });
+  revalidatePath("/accounting/govcon");
 }
 
 export async function actionCreatePmoProject(formData: FormData): Promise<void> {
@@ -7728,7 +7842,12 @@ export async function actionSaveTimecardGrid(
   } catch {
     throw new Error("Bad grid payload");
   }
-  await saveTimecardGrid({ userId: user.id, sheetId, rows });
+  await saveTimecardGrid({
+    userId: user.id,
+    sheetId,
+    rows,
+    changeReason: ((formData.get("changeReason") as string) || "").trim() || null,
+  });
   revalidatePath("/hr/timesheet");
 }
 
@@ -8110,7 +8229,7 @@ export async function actionReclassifyLines(formData: FormData): Promise<void> {
   try {
     const res = await reclassifyJournalLines({ lineIds, toAccountId, userId: user.id });
     await flashToast(
-      `Reclassified ${res.moved} line${res.moved === 1 ? "" : "s"}${res.skipped ? ` · ${res.skipped} already there` : ""}`
+      `Posted a reclass journal for ${res.moved} line${res.moved === 1 ? "" : "s"}. The original lines stay.${res.skipped ? ` ${res.skipped} already on that account.` : ""}`
     );
   } catch (e) {
     await flashToast(
@@ -8548,7 +8667,7 @@ export async function actionVoidJournal(formData: FormData): Promise<void> {
     reason: ((formData.get("reason") as string) || "").trim() || null,
     voidedById: user?.id,
   });
-  await flashToast("Journal voided");
+  await flashToast("Posted a reversal. The original entry stays on the books.");
   revalidatePath("/accounting");
 }
 
@@ -8558,8 +8677,8 @@ export async function actionSetAccountingCloseDate(
   const { userHasPermission } = await import("@/lib/auth");
   const { setAccountingCloseDate } = await import("@/lib/services/gaap");
   const user = await getCurrentUser();
-  if (!(await userHasPermission(user?.id, "accounting.journal.post"))) {
-    throw new Error("Not authorized to close accounting periods");
+  if (!(await userHasPermission(user?.id, "accounting.period.close"))) {
+    throw new Error("Closing a period needs the period-close role");
   }
   const raw = ((formData.get("closeDate") as string) || "").trim();
   const date = raw ? new Date(raw) : null;

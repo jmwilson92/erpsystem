@@ -171,6 +171,21 @@ export async function completeCycleCount(params: {
       where: { id: line.id },
       data: { adjustedAt: new Date() },
     });
+    const unitCost = rows[0]?.unitCost || 0;
+    const dollarVariance = variance * unitCost;
+    if (Math.abs(dollarVariance) > 0.001) {
+      try {
+        const { postInventoryAdjustment } = await import("@/lib/services/gl-posting");
+        await postInventoryAdjustment({
+          sourceId: line.id,
+          amount: dollarVariance,
+          userId: params.userId,
+          memo: `Count ${cc.number} variance ${variance}`,
+        });
+      } catch (err) {
+        console.error("GL inventory adjustment", err);
+      }
+    }
     await prisma.auditLog.create({
       data: {
         entityType: "CycleCount",

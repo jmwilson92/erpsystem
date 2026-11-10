@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { listPrograms, listProjects } from "@/lib/services/pmo";
+import { booksIncurredByProgram } from "@/lib/services/program-financials";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -11,9 +12,10 @@ import { Plus, FolderKanban, Layers } from "lucide-react";
 export const dynamic = "force-dynamic";
 
 export default async function PmoPage() {
-  const [programs, projects] = await Promise.all([
+  const [programs, projects, books] = await Promise.all([
     listPrograms(),
     listProjects(),
+    booksIncurredByProgram(),
   ]);
 
   return (
@@ -87,8 +89,9 @@ export default async function PmoPage() {
                       <p className="text-xs text-slate-500">
                         {prg._count.projects} project(s) · Owner{" "}
                         {prg.owner?.name || "—"} · Budget{" "}
-                        {formatCurrency(budget || prg.budgetCost)} · AC{" "}
-                        {formatCurrency(actual || prg.actualCost)}
+                        {formatCurrency(budget || prg.budgetCost)} · performance log{" "}
+                        {formatCurrency(actual || prg.actualCost)} · on the books{" "}
+                        {formatCurrency(books.get(prg.id) || 0)}
                       </p>
                       {prg.projects.length > 0 && (
                         <ul className="mt-2 space-y-0.5 text-xs text-slate-400">

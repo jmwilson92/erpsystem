@@ -85,6 +85,7 @@ export function TimecardGrid({
   const router = useRouter();
   const [saving, startSave] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [changeReason, setChangeReason] = useState("");
 
   const initialRows = useMemo(() => {
     const map = new Map<string, Row>();
@@ -224,6 +225,7 @@ export function TimecardGrid({
     const fd = new FormData();
     fd.set("sheetId", sheetId);
     fd.set("rows", JSON.stringify(payload));
+    if (changeReason.trim()) fd.set("changeReason", changeReason.trim());
     startSave(async () => {
       try {
         await actionSaveTimecardGrid(fd);
@@ -431,6 +433,12 @@ export function TimecardGrid({
           <Button type="button" size="sm" variant="outline" onClick={addRow}>
             Add row
           </Button>
+          <input
+            value={changeReason}
+            onChange={(e) => setChangeReason(e.target.value)}
+            placeholder="Reason for a change (if you already saved time)"
+            className="h-8 min-w-[16rem] flex-1 rounded-md border border-slate-700 bg-slate-950 px-2 text-xs text-slate-200"
+          />
           <Button type="button" size="sm" onClick={save} disabled={saving}>
             {saving ? "Saving…" : "Save timecard"}
           </Button>

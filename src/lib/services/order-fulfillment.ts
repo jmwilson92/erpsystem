@@ -1370,7 +1370,7 @@ export async function completeKitOrder(params: {
       lines: { include: { part: true } },
       workOrder: {
         include: {
-          project: true,
+          project: { include: { program: { select: { contractNumber: true, code: true } } } },
           salesOrder: true,
         },
       },
@@ -1432,14 +1432,20 @@ export async function completeKitOrder(params: {
             .filter((p) => p.inventoryItemId)
             .map((p) => [p.inventoryItemId!, p])
         );
+        const { gfpContractMatches } = await import("@/lib/services/posting-rules");
         const allowedGfp = gfpItems.filter((i) => {
           const p = propByInv[i.id];
           if (!p?.contractNumber) return false;
-          // Contract / charge number must match project number or free-text match
+          // Contract number must match the PMO program, the project, or the sales order.
           const c = p.contractNumber.toUpperCase();
           const charge = (chargeNumber || "").toUpperCase();
           const projName = (kit.workOrder.project?.name || "").toUpperCase();
+          const onProgram = gfpContractMatches(p.contractNumber, [
+            kit.workOrder.project?.program?.contractNumber,
+            kit.workOrder.project?.program?.code,
+          ]);
           return (
+            onProgram ||
             c === charge ||
             c.includes(charge) ||
             charge.includes(c) ||
@@ -1483,7 +1489,7 @@ export async function completeKitOrder(params: {
         },
       });
 
-      await prisma.materialTransaction.create({
+      const issued = await prisma.materialTransaction.create({
         data: {
           type: "KIT",
           partId: line.partId,
@@ -1501,6 +1507,20 @@ export async function completeKitOrder(params: {
           userId: params.userId,
         },
       });
+      if (item.ownership !== "GOVERNMENT" && item.unitCost * take > 0.001) {
+        try {
+          const { postMaterialIssue } = await import("@/lib/services/gl-posting");
+          await postMaterialIssue({
+            materialTransactionId: issued.id,
+            workOrderId: kit.workOrderId,
+            amount: Math.round(item.unitCost * take * 100) / 100,
+            userId: params.userId,
+            memo: `${line.part.partNumber} lot ${item.lotNumber || "—"}`,
+          });
+        } catch (err) {
+          console.error("GL material issue", err);
+        }
+      }
 
       await recordTrace({
         eventType: "KIT",
@@ -1869,6 +1889,17 @@ export async function completeWorkOrderToStock(params: {
   // so it no longer sits at a staging / work-center location in inventory.
   const { consumeWorkOrderWip } = await import("./wip-locations");
   await consumeWorkOrderWip({ workOrderId: wo.id, userId: params.userId });
+
+  try {
+    const { postWorkOrderCompletion } = await import("@/lib/services/gl-posting");
+    await postWorkOrderCompletion({
+      workOrderId: wo.id,
+      standardCost: wo.standardCost || 0,
+      userId: params.userId,
+    });
+  } catch (err) {
+    console.error("GL work order completion", err);
+  }
 
   await prisma.workOrder.update({
     where: { id: wo.id },

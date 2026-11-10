@@ -62,6 +62,7 @@ import {
   Download,
   Printer,
   ClipboardCheck,
+  ShieldCheck,
 } from "lucide-react";
 import {
   actionPostJournal,
@@ -858,6 +859,13 @@ export default async function AccountingPage({
               </Link>
             );
           })}
+          <Link
+            href="/accounting/govcon"
+            className="flex shrink-0 items-center gap-1.5 border-b-2 border-transparent px-3 py-2.5 text-sm font-medium text-slate-400 transition hover:text-slate-200"
+          >
+            <ShieldCheck className="h-4 w-4" />
+            Contracts & rates
+          </Link>
         </div>
 
         {/* Secondary sub-nav for multi-view areas */}

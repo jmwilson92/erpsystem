@@ -10,6 +10,7 @@
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { postJournal } from "@/lib/services/gaap";
+import { chargeForPurchaseOrder, chargeForSalesOrder } from "@/lib/services/gl-posting";
 
 const NET_DAYS = 30;
 const money = (n: number) => Math.round(n * 100) / 100;
@@ -65,7 +66,9 @@ export async function raiseArInvoiceForShipment(params: {
     },
   });
 
-  // Revenue recognition: Dr AR / Cr Sales Revenue
+  // Revenue recognition: Dr AR / Cr Sales Revenue.
+  // The program comes from the work order on this sales order (PMO), not a second contract file.
+  const charge = await chargeForSalesOrder(so.id);
   const [ar, revenue, cogsAcct, fg] = await Promise.all([
     account("1100"),
     account("4000"),
@@ -77,6 +80,9 @@ export async function raiseArInvoiceForShipment(params: {
       description: `Revenue — ${so.number} shipped (${invoice.number})`,
       source: "AR",
       sourceId: invoice.id,
+      programId: charge.programId || undefined,
+      projectId: charge.projectId || undefined,
+      workOrderId: charge.workOrderId || undefined,
       createdById: params.userId || undefined,
       lines: [
         { accountId: ar.id, debit: subtotal },
@@ -148,17 +154,26 @@ export async function raiseApInvoiceForReceipt(params: {
     },
   });
 
-  // Inventory capitalization: Dr Inventory - Raw Materials / Cr AP
+  // Inventory capitalization: Dr Inventory - Raw Materials / Cr AP.
+  // Tagged to the PO's project program so the receipt is traceable. The job
+  // is charged later, when the material is issued — not on receipt.
+  const charge = await chargeForPurchaseOrder(po.id);
   const [inv, ap] = await Promise.all([account("1200"), account("2000")]);
   if (inv && ap) {
+    const gfpNote = po.isGovernmentProperty
+      ? "Government property receipt — confirm this should sit on the company books"
+      : params.receiptNumber;
     await postJournal({
       description: `Receipt ${params.receiptNumber} — PO ${po.number} inventory capitalization`,
       source: "AP",
       sourceId: voucher.id,
+      programId: charge.programId || undefined,
+      projectId: charge.projectId || undefined,
+      clinId: charge.clinId || undefined,
       createdById: params.userId || undefined,
       lines: [
-        { accountId: inv.id, debit: total },
-        { accountId: ap.id, credit: total },
+        { accountId: inv.id, debit: total, memo: gfpNote },
+        { accountId: ap.id, credit: total, memo: po.number },
       ],
     });
   }
@@ -187,6 +202,8 @@ export async function createVendorApInvoice(params: {
   invoiceDate?: Date;
   dueDate?: Date | null;
   purchaseOrderId?: string | null;
+  /** When set, the bill is outside processing on that job (WIP), not a period expense. */
+  workOrderId?: string | null;
   description?: string | null;
   /** GL expense account to debit (default 6000 Operating expense if present) */
   expenseAccountId?: string | null;
@@ -242,6 +259,30 @@ export async function createVendorApInvoice(params: {
       notes,
     },
   });
+
+  if (params.workOrderId) {
+    const { postOutsideProcessing } = await import("@/lib/services/gl-posting");
+    await postOutsideProcessing({
+      sourceId: voucher.id,
+      amount: total,
+      workOrderId: params.workOrderId,
+      userId: params.userId,
+      memo: `Vendor bill ${number} — ${supplier.name}`,
+    });
+    await logAudit({
+      entityType: "ApInvoice",
+      entityId: voucher.id,
+      action: "VENDOR_INVOICE_CREATED",
+      userId: params.userId,
+      metadata: {
+        number,
+        supplierId: params.supplierId,
+        total,
+        workOrderId: params.workOrderId,
+      },
+    });
+    return voucher;
+  }
 
   // Dr Expense (or default OpEx) / Cr AP
   const expense =

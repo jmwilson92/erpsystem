@@ -198,6 +198,14 @@ async function main() {
     { code: "6010", name: "Payroll Tax Expense", type: "EXPENSE" },
     { code: "6100", name: "Facilities", type: "EXPENSE" },
     { code: "6200", name: "Materials Variance", type: "EXPENSE" },
+    { code: "6020", name: "Fringe benefits", type: "EXPENSE" },
+    { code: "6050", name: "Applied direct labor", type: "EXPENSE" },
+    { code: "6060", name: "Applied shop overhead", type: "EXPENSE" },
+    { code: "6070", name: "Applied fringe", type: "EXPENSE" },
+    { code: "6110", name: "Shop overhead pool", type: "EXPENSE" },
+    { code: "6210", name: "Scrap", type: "EXPENSE" },
+    { code: "6300", name: "General and administrative", type: "EXPENSE" },
+    { code: "6800", name: "Unallowable costs", type: "EXPENSE" },
   ];
   for (const a of accounts) {
     await prisma.account.create({ data: { ...a, balance: 0 } });

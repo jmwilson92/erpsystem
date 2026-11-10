@@ -83,6 +83,48 @@ export default async function NewProgramPage() {
             </div>
             <div>
               <label className="text-[10px] uppercase text-slate-500">
+                Contract number
+              </label>
+              <Input name="contractNumber" className="mt-1" />
+            </div>
+            <div>
+              <label className="text-[10px] uppercase text-slate-500">
+                Contract type
+              </label>
+              <select name="contractType" className={`${selectClass} mt-1`} defaultValue="COMMERCIAL">
+                <option value="COMMERCIAL">Commercial</option>
+                <option value="FFP">Firm fixed price</option>
+                <option value="TM">Time and materials</option>
+                <option value="COST_PLUS">Cost plus</option>
+                <option value="IDIQ">IDIQ</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-[10px] uppercase text-slate-500">
+                Customer
+              </label>
+              <Input name="customerName" className="mt-1" />
+            </div>
+            <div>
+              <label className="text-[10px] uppercase text-slate-500">
+                Funded amount
+              </label>
+              <Input name="fundedAmount" type="number" step="0.01" className="mt-1" />
+            </div>
+            <div>
+              <label className="text-[10px] uppercase text-slate-500">
+                Ceiling
+              </label>
+              <Input name="ceilingAmount" type="number" step="0.01" className="mt-1" />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="flex items-center gap-2 text-sm text-slate-300">
+                <input type="checkbox" name="isGovernment" />
+                Government contract
+              </label>
+            </div>
+            <div>
+              <label className="text-[10px] uppercase text-slate-500">
                 Start
               </label>
               <Input name="startDate" type="date" className="mt-1" />

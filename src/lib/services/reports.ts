@@ -5,6 +5,16 @@
  */
 import { prisma } from "@/lib/db";
 import { getGaapReportPack } from "@/lib/services/gaap";
+import {
+  reportGlDetail,
+  reportIce,
+  reportIndirectRates,
+  reportJobProfit,
+  reportLaborDistribution,
+  reportProgramPl,
+  reportUnallowables,
+  reportWipBooks,
+} from "@/lib/services/program-financials";
 
 export type ReportTable = {
   title: string;
@@ -60,6 +70,14 @@ export const REPORT_CATALOG: {
   { key: "training-compliance", title: "Training Compliance", group: "People", description: "Recurring training matrix — missing, overdue, due-soon by person" },
   { key: "req-coverage", title: "Requirements Coverage", group: "Quality", description: "Requirement status, verification method, and engineering trace count" },
   { key: "bank-recon", title: "Bank Reconciliation", group: "Financial", description: "Bank/CC transactions by status — what still needs categorizing" },
+  { key: "gl-detail", title: "General Ledger Detail", group: "Financial", description: "Posted journal lines with source, cost element, and unallowable flag" },
+  { key: "program-pl", title: "Profit by Program", group: "Financial", description: "Funded, billed, allowable cost, and estimate at completion from the books, by PMO program" },
+  { key: "job-profit", title: "Job Profitability", group: "Financial", description: "Estimate, shop log, and cost on the books for each job tied to a project" },
+  { key: "wip-books", title: "WIP on the Books", group: "Financial", description: "Work-in-process balance by job from posted journals" },
+  { key: "labor-dist", title: "Labor Distribution", group: "People", description: "Hours charged to a job, project, or indirect code, with the program" },
+  { key: "indirect-rates", title: "Indirect Rates", group: "Financial", description: "Provisional vs actual fringe, shop overhead, and G&A. A worksheet, not a rate agreement." },
+  { key: "unallowables", title: "Unallowable Costs", group: "Financial", description: "Costs flagged to stay out of government billings and rate pools" },
+  { key: "ice", title: "Incurred Cost Worksheet", group: "Financial", description: "Schedules in the shape of an incurred-cost package. Not a submission to the government." },
 ];
 
 function ageBucket(days: number): string {
@@ -405,6 +423,22 @@ export async function runReport(key: string): Promise<ReportTable> {
         ]),
       };
     }
+    case "gl-detail":
+      return reportGlDetail();
+    case "program-pl":
+      return reportProgramPl();
+    case "job-profit":
+      return reportJobProfit();
+    case "wip-books":
+      return reportWipBooks();
+    case "labor-dist":
+      return reportLaborDistribution();
+    case "indirect-rates":
+      return reportIndirectRates();
+    case "unallowables":
+      return reportUnallowables();
+    case "ice":
+      return reportIce();
     default:
       throw new Error(`Unknown report: ${key}`);
   }

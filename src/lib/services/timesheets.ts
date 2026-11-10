@@ -296,6 +296,7 @@ export async function addTimesheetEntry(params: {
   workOrderId?: string | null;
   projectId?: string | null;
   description?: string | null;
+  chargeCode?: string | null;
 }) {
   const date = startOfDay(params.date);
   const today = startOfDay(new Date());
@@ -308,6 +309,15 @@ export async function addTimesheetEntry(params: {
   }
   if (params.hours <= 0 || params.hours > 24) {
     throw new Error("Hours must be between 0 and 24");
+  }
+  const worked = ["REGULAR", "OT", "ENG_SCAN", "BUYER", "RECEIVING"].includes(type);
+  if (
+    worked &&
+    !params.workOrderId &&
+    !params.projectId &&
+    !(params.chargeCode && params.chargeCode.trim())
+  ) {
+    throw new Error("Charge this time to a job, a project, or an indirect code.");
   }
 
   // getOrCreateTimesheet enforces "period has started" — future PTO in
@@ -327,6 +337,8 @@ export async function addTimesheetEntry(params: {
       workOrderId: params.workOrderId || null,
       projectId: params.projectId || null,
       description: params.description?.trim() || null,
+      chargeCode: params.chargeCode?.trim() || null,
+      indirectPool: params.workOrderId || params.projectId ? null : params.chargeCode?.trim() || null,
       status: "DRAFT",
       laborRate: DEFAULT_LABOR_RATE,
     },
@@ -389,6 +401,27 @@ export async function submitTimesheet(params: { id: string; userId: string }) {
   }
   if (sheet.entries.length === 0) {
     throw new Error("Add at least one entry before submitting");
+  }
+  const settings = await prisma.accountingSettings.findUnique({
+    where: { id: "default" },
+    select: { requireTotalTime: true },
+  });
+  if (settings?.requireTotalTime) {
+    const { weekdayShortfalls } = await import("@/lib/services/posting-rules");
+    const gaps = weekdayShortfalls({
+      datesWithHours: sheet.entries.map((e) => ({
+        date: e.date.toISOString().slice(0, 10),
+        hours: e.hours,
+      })),
+      from: sheet.periodStart.toISOString().slice(0, 10),
+      to: sheet.periodEnd.toISOString().slice(0, 10),
+      expected: 8,
+    });
+    if (gaps.length) {
+      throw new Error(
+        `Total-time check: ${gaps.length} weekday(s) are short, starting ${gaps[0].date}. Record the whole day or turn the check off in contract settings.`
+      );
+    }
   }
   {
     const policy = await getPayrollPolicy();
@@ -498,6 +531,7 @@ export async function saveTimecardGrid(params: {
   userId: string;
   sheetId: string;
   rows: GridRow[];
+  changeReason?: string | null;
 }) {
   const [sheet, policy] = await Promise.all([
     prisma.timesheet.findUniqueOrThrow({ where: { id: params.sheetId } }),
@@ -557,6 +591,55 @@ export async function saveTimecardGrid(params: {
         `${iso} has ${total}h — company policy caps a day at ${policy.maxHoursPerDay}h`
       );
     }
+  }
+
+  const prior = await prisma.timeEntry.findMany({
+    where: { timesheetId: sheet.id, status: "DRAFT" },
+    select: {
+      date: true,
+      hours: true,
+      type: true,
+      workOrderId: true,
+      projectId: true,
+      chargeCode: true,
+    },
+  });
+  const { describeTimeEdits } = await import("@/lib/services/posting-rules");
+  const slice = (
+    rows: {
+      date: Date;
+      hours: number;
+      type: string;
+      workOrderId: string | null;
+      projectId: string | null;
+      chargeCode: string | null;
+    }[]
+  ) =>
+    rows.map((r) => ({
+      key: `${r.date.toISOString().slice(0, 10)}|${r.type}|${r.workOrderId || ""}|${r.projectId || ""}|${r.chargeCode || ""}`,
+      hours: r.hours,
+      charge: r.workOrderId || r.projectId || r.chargeCode || r.type,
+    }));
+  const edits = describeTimeEdits(slice(prior), slice(creates));
+  if (edits.length && prior.length) {
+    const acct = await prisma.accountingSettings.findUnique({
+      where: { id: "default" },
+      select: { requireTimeChangeReason: true },
+    });
+    const reason = params.changeReason?.trim() || "";
+    if (acct?.requireTimeChangeReason && !reason) {
+      throw new Error("This timecard already had time on it. Add a reason for the change.");
+    }
+    await prisma.timeEntryChange.createMany({
+      data: edits.map((e) => ({
+        timesheetId: sheet.id,
+        userId: params.userId,
+        reason: reason || "Edited on the timecard before approval",
+        field: e.field,
+        beforeValue: `${e.key} ${e.beforeValue}`,
+        afterValue: e.afterValue,
+      })),
+    });
   }
 
   await prisma.timeEntry.deleteMany({
@@ -1107,6 +1190,27 @@ export async function processTimesheet(params: {
       ].filter((l) => (l.debit || 0) > 0 || (l.credit || 0) > 0),
     });
     journalEntryId = je.id;
+  }
+
+  try {
+    const { postDirectLabor } = await import("@/lib/services/gl-posting");
+    for (const entry of sheet.entries) {
+      if (!entry.workOrderId && !entry.projectId) continue;
+      const amt =
+        entry.costAmount || entry.hours * (entry.laborRate || DEFAULT_LABOR_RATE);
+      if (amt <= 0) continue;
+      await postDirectLabor({
+        timeEntryId: entry.id,
+        amount: Math.round(amt * 100) / 100,
+        workOrderId: entry.workOrderId,
+        projectId: entry.projectId,
+        userId: params.processor.id,
+        date: entry.date,
+        memo: `Labor ${sheet.user.name} → ${entry.workOrderId ? "job" : "project"}`,
+      });
+    }
+  } catch (err) {
+    console.error("GL labor distribution", err);
   }
 
   const updated = await prisma.timesheet.update({
