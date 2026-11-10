@@ -322,8 +322,7 @@ export default async function ReceivingPage({
                     {wo.salesOrder ? ` · ${wo.salesOrder.number}` : ""}
                   </p>
                   <p className="mt-1 text-xs text-teal-200/90">
-                    What to do next: put away to stock, then the unit is available
-                    for shipping / kitting demand.
+                    {wo.type === "TASK_ONLY" ? "What to do next: close the task traveler. No stock movement is needed." : "What to do next: put away to stock, then the unit is available for shipping / kitting demand."}
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -338,7 +337,7 @@ export default async function ReceivingPage({
                   >
                     <input type="hidden" name="workOrderId" value={wo.id} />
                     <Button type="submit" size="sm">
-                      Put away @ {wo.workCenter || "RCV-01"} → stock
+                      {wo.type === "TASK_ONLY" ? "Complete task (no stock)" : `Put away @ ${wo.workCenter || "RCV-01"} → stock`}
                     </Button>
                   </ActionLoadingForm>
                 </div>

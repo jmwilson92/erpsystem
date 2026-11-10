@@ -48,6 +48,7 @@ export async function createForecast(params: {
   lines: { partId: string; quantity: number; dueDate?: Date | null; notes?: string | null }[];
   userId?: string;
 }) {
+  if (params.lines.some(l => !Number.isFinite(l.quantity) || l.quantity <= 0)) throw new Error("Forecast quantity must be finite and > 0");
   if (!params.name?.trim()) throw new Error("Forecast name required");
   if (!params.lines.length) throw new Error("Add at least one forecast line");
 
@@ -883,7 +884,7 @@ export async function upsertForecastLine(params: {
   if (["CLOSED", "CANCELLED"].includes(forecast.status)) {
     throw new Error("Forecast is closed/cancelled — reopen to edit lines");
   }
-  if (!(params.quantity > 0)) throw new Error("Quantity must be > 0");
+  if (!Number.isFinite(params.quantity) || !(params.quantity > 0)) throw new Error("Quantity must be > 0");
   if (params.lineId) {
     return prisma.forecastLine.update({
       where: { id: params.lineId },

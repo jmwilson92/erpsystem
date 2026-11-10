@@ -1126,7 +1126,8 @@ export async function actionCreateWoFromBom(formData: FormData): Promise<void> {
 }
 
 export async function actionCreateForecast(formData: FormData): Promise<void> {
-  const user = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("planning.forecast.create");
   const { createForecast } = await import("@/lib/services/planning");
   const name = ((formData.get("name") as string) || "").trim();
   const notes = ((formData.get("notes") as string) || "").trim() || null;
@@ -1142,7 +1143,7 @@ export async function actionCreateForecast(formData: FormData): Promise<void> {
     const partId = ((formData.get(`partId_${i}`) as string) || "").trim();
     if (!partId) continue;
     const quantity = Number(formData.get(`qty_${i}`) || 0);
-    if (!(quantity > 0)) continue;
+    if (!Number.isFinite(quantity) || quantity <= 0) throw new Error("Forecast quantity must be finite and > 0");
     const dueRaw = ((formData.get(`due_${i}`) as string) || "").trim();
     lines.push({
       partId,
@@ -3659,11 +3660,7 @@ export async function actionRecordCustomerPo(formData: FormData): Promise<void> 
     redirect("/sales/quotes");
   }
   try {
-    await prisma.quote.update({
-      where: { id: quoteId },
-      data: { customerPo, status: "ACCEPTED" },
-    });
-    const so = await convertQuoteToSalesOrder({ quoteId, userId: user?.id });
+    const so = await convertQuoteToSalesOrder({ quoteId, customerPo, userId: user?.id });
     await logAudit({
       entityType: "Quote",
       entityId: quoteId,
@@ -3834,7 +3831,8 @@ function safeReturnTo(raw: string | null): string | null {
 }
 
 export async function actionCreateCustomer(formData: FormData): Promise<void> {
-  const user = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("customers.manage");
   const data = parseCustomerForm(formData);
   const returnTo = safeReturnTo(formData.get("returnTo") as string | null);
 
@@ -3857,7 +3855,8 @@ export async function actionCreateCustomer(formData: FormData): Promise<void> {
 }
 
 export async function actionUpdateCustomer(formData: FormData): Promise<void> {
-  const user = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("customers.manage");
   const id = formData.get("id") as string;
   if (!id) throw new Error("Customer id required");
   const data = parseCustomerForm(formData);
@@ -3966,7 +3965,8 @@ function formBool(formData: FormData, key: string) {
 }
 
 export async function actionCreateItem(formData: FormData): Promise<void> {
-  const user = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("items.manage");
   const part = await createPart({
     partNumber: formStr(formData, "partNumber"),
     description: formStr(formData, "description"),
@@ -4000,7 +4000,8 @@ export async function actionCreateItem(formData: FormData): Promise<void> {
 export async function actionUpdateItem(formData: FormData): Promise<void> {
   const id = formStr(formData, "id");
   const returnTab = formStr(formData, "returnTab") || "general";
-  const user = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("items.manage");
 
   const data: Parameters<typeof updatePart>[1] = { userId: user?.id };
 
@@ -4919,12 +4920,13 @@ export async function actionStartProduction(formData: FormData): Promise<void> {
 
 export async function actionCompleteWoToStock(formData: FormData): Promise<void> {
   const workOrderId = formData.get("workOrderId") as string;
-  const user = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("workorders.complete");
   try {
     // Must already be parked at Receiving (READY_FOR_PUTAWAY @ RCV-*)
     const wo = await prisma.workOrder.findUnique({
       where: { id: workOrderId },
-      select: { status: true, workCenter: true, number: true },
+      select: { status: true, workCenter: true, number: true, type: true },
     });
     if (!wo) throw new Error("Work order not found");
     if (wo.status !== "READY_FOR_PUTAWAY") {
@@ -4940,7 +4942,7 @@ export async function actionCompleteWoToStock(formData: FormData): Promise<void>
     await flashToast(
       result?.serialNumber
         ? `Put away at Receiving complete · S/N ${result.serialNumber}`
-        : `Put away at Receiving complete — ${wo.number} in stock`
+        : wo.type === "TASK_ONLY" ? `Task complete — ${wo.number} (no inventory created)` : `Put away at Receiving complete — ${wo.number} in stock`
     );
     revalidateFulfillmentPaths([
       `/work-orders/${workOrderId}`,
@@ -6510,7 +6512,8 @@ export async function actionGrantUserPermission(
 }
 
 export async function actionPostJournal(formData: FormData): Promise<void> {
-  const user = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("accounting.journal.post");
   const { postJournal } = await import("@/lib/services/gaap");
   const description = ((formData.get("description") as string) || "").trim();
   const debitAccountId = ((formData.get("debitAccountId") as string) || "").trim();
