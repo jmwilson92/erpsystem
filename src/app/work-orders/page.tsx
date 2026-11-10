@@ -502,7 +502,7 @@ export default async function WorkOrdersPage({
                             <div className="hidden md:block">
                               <p className="text-slate-400">Due</p>
                               <p className="text-sm text-slate-200">
-                                {formatDate(wo.plannedEnd)}
+                                {formatDate(wo.dueDate)}
                               </p>
                             </div>
                           </div>

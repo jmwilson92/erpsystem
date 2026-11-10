@@ -566,7 +566,10 @@ export async function completeReceivingInspection(params: {
   }
 
   if (params.result === "FAIL" && insp.partId) {
+    const sourcePo = insp.purchaseOrderId
+      ? await prisma.purchaseOrder.findUnique({ where: { id: insp.purchaseOrderId }, select: { supplierId: true } }) : null;
     await openNcrFromInspection({
+      supplierId: sourcePo?.supplierId,
       inspectionId: insp.id,
       partId: insp.partId,
       quantity: insp.quantity,
