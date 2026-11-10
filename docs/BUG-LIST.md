@@ -430,7 +430,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Suspect: `src/app/actions.ts:3619-3651`
 
 ### KIT-001 — Resuming a short kit duplicates already staged component inventory
-- Module: Inventory / manufacturing kitting | Severity: **high** | Status: REPRODUCED on baseline current main in isolated local DB; reproduced twice with actual existing certified BOM, no certification code changed
+- Module: Inventory / manufacturing kitting | Severity: **high** | Status: FIXED (kit retry stages only the newly picked delta; existing WIP is incremented instead of duplicated)
 - Steps: Create standalone production WO against existing certified multi-line BOM and its kit; simulate last component becoming unavailable; completeKitOrder picks/stages first line then returns short; restore missing stock; retry completeKitOrder; sum first-line WIP inventory.
 - Expected: Retry only picks/stages outstanding quantity; already PICKED lines retain exactly the required WIP quantity.
 - Actual: First component required 1 and had WIP=1 after first attempt; retry completes kit but WIP becomes 2. Already picked line is staged again despite remaining=0, creating phantom inventory.
