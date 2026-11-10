@@ -1601,21 +1601,22 @@ export async function completeKitOrder(params: {
     }
 
     if (remaining > 0.0001) {
-      await prisma.kitOrderLine.update({
-        where: { id: line.id },
+      await prisma.$transaction(async (tx) => {
+      const short = await tx.kitOrderLine.updateMany({
+        where: { id: line.id, quantityPicked: line.quantityPicked + picked },
         data: {
-          quantityPicked: line.quantityPicked + picked,
           lotNumber: lastLot,
           fromLocationId: lastLocId,
           inventoryItemId: lastInvId,
           status: "SHORT",
         },
       });
-      await prisma.kitOrder.update({
+      if (!short.count) throw new Error("Kit changed while picking — refresh and retry");
+      await tx.kitOrder.update({
         where: { id: kit.id },
         data: { status: "SHORT" },
       });
-      await prisma.workOrder.update({
+      await tx.workOrder.update({
         where: { id: kit.workOrderId },
         data: {
           kitStatus: "WAITING_MATERIAL",
@@ -1629,6 +1630,7 @@ export async function completeKitOrder(params: {
             },
           },
         },
+      });
       });
       throw new Error(`Kit short on ${line.part.partNumber}: need ${remaining} more`);
     }
