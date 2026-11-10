@@ -13,6 +13,17 @@ import { parseDelimited } from "@/lib/services/data-import";
 const money = (n: number) => Math.round(n * 100) / 100;
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 
+// Blank debit/credit sides mean zero; an amount column must contain a number.
+function bankAmount(raw: string | undefined, allowBlank = false): number {
+  const value = (raw || "").trim();
+  if (!value && allowBlank) return 0;
+  const normalized = value.replace(/[$,\s]/g, "").replace(/^\((.*)\)$/, "-$1");
+  if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(normalized)) throw new Error("Invalid bank amount");
+  const amount = Number(normalized);
+  if (!Number.isFinite(amount)) throw new Error("Invalid bank amount");
+  return amount;
+}
+
 export async function connectBankAccount(params: {
   name: string;
   institution?: string;
@@ -204,10 +215,10 @@ export async function importBankTransactions(params: {
       const description = (cells[iDesc] || "").trim() || "(no description)";
       let amount: number;
       if (iAmt >= 0) {
-        amount = Number((cells[iAmt] || "0").replace(/[$,\s]/g, "")) || 0;
+        amount = bankAmount(cells[iAmt]);
       } else {
-        const debit = Number((cells[iDebit] || "0").replace(/[$,()\s]/g, "")) || 0;
-        const credit = Number((cells[iCredit] || "0").replace(/[$,()\s]/g, "")) || 0;
+        const debit = Math.abs(bankAmount(cells[iDebit], true));
+        const credit = Math.abs(bankAmount(cells[iCredit], true));
         amount = credit - debit;
       }
       const externalId = `${params.bankAccountId}:${date.toISOString().slice(0, 10)}:${norm(description)}:${amount}`;
@@ -260,47 +271,56 @@ export async function categorizeBankTransaction(params: {
   categoryAccountId: string;
   userId?: string | null;
 }) {
-  const txn = await prisma.bankTransaction.findUniqueOrThrow({
-    where: { id: params.transactionId },
-    include: { bankAccount: { include: { glAccount: true } } },
-  });
-  if (txn.status === "RECONCILED") {
-    throw new Error("Transaction is already reconciled");
-  }
-  const bankGl = txn.bankAccount.glAccount;
-  const category = await prisma.account.findUnique({
-    where: { id: params.categoryAccountId },
-  });
-  if (!bankGl || !category) throw new Error("Missing GL accounts for posting");
+  return prisma.$transaction(async (db) => {
+    // Claim the unposted movement before building its journal. A failed post
+    // rolls back this claim; competing retries never move cash a second time.
+    const claim = await db.bankTransaction.updateMany({
+      where: { id: params.transactionId, status: "UNMATCHED", journalEntryId: null },
+      data: { status: "MATCHED" },
+    });
+    if (claim.count !== 1) throw new Error("Transaction is already categorized or reconciled");
+    const txn = await db.bankTransaction.findUniqueOrThrow({
+      where: { id: params.transactionId },
+      include: { bankAccount: { include: { glAccount: true } } },
+    });
+    if (txn.status === "RECONCILED") {
+      throw new Error("Transaction is already reconciled");
+    }
+    const bankGl = txn.bankAccount.glAccount;
+    const category = await db.account.findUnique({
+      where: { id: params.categoryAccountId },
+    });
+    if (!bankGl || !category) throw new Error("Missing GL accounts for posting");
 
-  // Money out (negative): Dr category / Cr bank GL. Money in: reverse.
-  const abs = Math.abs(txn.amount);
-  const lines =
-    txn.amount < 0
-      ? [
-          { accountId: category.id, debit: abs },
-          { accountId: bankGl.id, credit: abs },
-        ]
-      : [
-          { accountId: bankGl.id, debit: abs },
-          { accountId: category.id, credit: abs },
-        ];
+    // Money out (negative): Dr category / Cr bank GL. Money in: reverse.
+    const abs = Math.abs(txn.amount);
+    const lines =
+      txn.amount < 0
+        ? [
+            { accountId: category.id, debit: abs },
+            { accountId: bankGl.id, credit: abs },
+          ]
+        : [
+            { accountId: bankGl.id, debit: abs },
+            { accountId: category.id, credit: abs },
+          ];
 
-  const je = await postJournal({
-    description: `Bank: ${txn.description}`,
-    source: "BANK",
-    sourceId: txn.id,
-    createdById: params.userId || undefined,
-    lines,
-  });
+    const je = await postJournal({
+      description: `Bank: ${txn.description}`,
+      source: "BANK",
+      sourceId: txn.id,
+      createdById: params.userId || undefined,
+      lines,
+    }, db);
 
-  return prisma.bankTransaction.update({
-    where: { id: txn.id },
-    data: {
-      status: "MATCHED",
-      categoryAccountId: category.id,
-      journalEntryId: je.id,
-    },
+    return db.bankTransaction.update({
+      where: { id: txn.id },
+      data: {
+        status: "MATCHED",
+        categoryAccountId: category.id,
+        journalEntryId: je.id,
+      },
+    });
   });
 }
 

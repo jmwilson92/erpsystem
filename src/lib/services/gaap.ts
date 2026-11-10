@@ -531,7 +531,7 @@ export async function postJournal(params: {
     caption?: string;
     docType?: string;
   }[];
-}) {
+}, db?: LedgerDb) {
   // Manual and user-entered settlement/expense entries cannot self-post around SoD.
   const source = params.source || "MANUAL";
   const immediate = params.status === "POSTED" || (!params.status && source !== "MANUAL");
@@ -542,7 +542,7 @@ export async function postJournal(params: {
       throw new Error("Someone else needs to approve this entry. Submit for approval instead.");
     }
   }
-  return prisma.$transaction((tx) => postJournalInTransaction(params, tx));
+  return db ? postJournalInTransaction(params, db) : prisma.$transaction((tx) => postJournalInTransaction(params, tx));
 }
 
 async function postJournalInTransaction(params: Parameters<typeof postJournal>[0], db: LedgerDb) {

@@ -7,6 +7,7 @@
  * PO price × received quantity, so the payable always ties back to a
  * receipt. Accounting pays/collects from the AR/AP tabs as before.
  */
+import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { postJournal } from "@/lib/services/gaap";
@@ -211,7 +212,7 @@ export async function createVendorApInvoice(params: {
   userId?: string | null;
 }) {
   const amount = money(params.amount);
-  if (amount <= 0) throw new Error("Invoice amount must be positive");
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error("Invoice amount must be positive and finite");
 
   const supplier = await prisma.supplier.findUnique({
     where: { id: params.supplierId },
@@ -228,8 +229,9 @@ export async function createVendorApInvoice(params: {
     }
   }
 
-  const tax = money(params.tax || 0);
+  const tax = money(params.tax ?? 0);
   const total = money(amount + tax);
+  if (!Number.isFinite(tax) || tax < 0 || !Number.isFinite(total)) throw new Error("Invoice tax and total must be finite and non-negative");
   const count = await prisma.apInvoice.count();
   const number = `AP-${String(count + 1).padStart(5, "0")}`;
   const due =
@@ -245,8 +247,35 @@ export async function createVendorApInvoice(params: {
     .filter(Boolean)
     .join(" · ");
 
-  const voucher = await prisma.apInvoice.create({
+  const voucherId = randomUUID();
+  let posting: Parameters<typeof postJournal>[0];
+  if (params.workOrderId) {
+    const { prepareOutsideProcessingJournal } = await import("@/lib/services/gl-posting");
+    const prepared = await prepareOutsideProcessingJournal({
+      sourceId: voucherId, amount: total, workOrderId: params.workOrderId,
+      userId: params.userId, memo: `Vendor bill ${number} — ${supplier.name}`,
+    });
+    if (!prepared) throw new Error("Outside processing posting must be positive");
+    posting = prepared;
+  } else {
+    const expense = (params.expenseAccountId
+      ? await prisma.account.findUnique({ where: { id: params.expenseAccountId } }) : null)
+      || (await account("6000")) || (await account("5100"))
+      || (await prisma.account.findFirst({ where: { type: "EXPENSE", isActive: true }, orderBy: { code: "asc" } }));
+    const ap = await account("2000");
+    if (!expense || !ap) throw new Error("Missing expense or accounts payable GL account");
+    posting = {
+      description: `Vendor AP ${number} — ${supplier.name}`,
+      source: "AP", sourceId: voucherId, createdById: params.userId || undefined,
+      date: params.invoiceDate,
+      lines: [{ accountId: expense.id, debit: total, memo: notes.slice(0, 120) },
+        { accountId: ap.id, credit: total, memo: number }],
+    };
+  }
+  const voucher = await prisma.$transaction(async (db) => {
+    const voucher = await db.apInvoice.create({
     data: {
+      id: voucherId,
       number,
       supplierId: params.supplierId,
       purchaseOrderId: params.purchaseOrderId || null,
@@ -259,59 +288,9 @@ export async function createVendorApInvoice(params: {
       notes,
     },
   });
-
-  if (params.workOrderId) {
-    const { postOutsideProcessing } = await import("@/lib/services/gl-posting");
-    await postOutsideProcessing({
-      sourceId: voucher.id,
-      amount: total,
-      workOrderId: params.workOrderId,
-      userId: params.userId,
-      memo: `Vendor bill ${number} — ${supplier.name}`,
-    });
-    await logAudit({
-      entityType: "ApInvoice",
-      entityId: voucher.id,
-      action: "VENDOR_INVOICE_CREATED",
-      userId: params.userId,
-      metadata: {
-        number,
-        supplierId: params.supplierId,
-        total,
-        workOrderId: params.workOrderId,
-      },
-    });
+    await postJournal(posting, db);
     return voucher;
-  }
-
-  // Dr Expense (or default OpEx) / Cr AP
-  const expense =
-    (params.expenseAccountId
-      ? await prisma.account.findUnique({ where: { id: params.expenseAccountId } })
-      : null) ||
-    (await account("6000")) ||
-    (await account("5100")) ||
-    (await prisma.account.findFirst({
-      where: { type: "EXPENSE", isActive: true },
-      orderBy: { code: "asc" },
-    }));
-  const ap = await account("2000");
-  if (expense && ap) {
-    await postJournal({
-      description: `Vendor AP ${number} — ${supplier.name}`,
-      source: "AP",
-      sourceId: voucher.id,
-      createdById: params.userId || undefined,
-      lines: [
-        {
-          accountId: expense.id,
-          debit: total,
-          memo: notes.slice(0, 120),
-        },
-        { accountId: ap.id, credit: total, memo: number },
-      ],
-    });
-  }
+  });
 
   await logAudit({
     entityType: "ApInvoice",

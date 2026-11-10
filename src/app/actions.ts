@@ -3506,6 +3506,7 @@ export async function actionDecidePermissionRequest(
   }
   const id = (formData.get("id") as string) || "";
   const decision = (formData.get("decision") as string) || ""; // GRANT | GRANT_ONCE | DENY
+  if (!["GRANT", "GRANT_ONCE", "DENY"].includes(decision)) throw new Error("Unknown permission request decision");
   const req = await prisma.permissionRequest.findUnique({ where: { id } });
   if (!req || req.status !== "PENDING") {
     await flashToast("Request already decided", "error");
@@ -6480,6 +6481,8 @@ export async function actionSetPriorityStatus(
 export async function actionAssignUserGroup(
   formData: FormData
 ): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  await requirePermission("admin.permissions");
   const { assignUserToGroup } = await import("@/lib/services/permissions");
   await assignUserToGroup({
     userId: formData.get("userId") as string,
@@ -6492,6 +6495,8 @@ export async function actionAssignUserGroup(
 export async function actionRemoveUserGroup(
   formData: FormData
 ): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  await requirePermission("admin.permissions");
   const { removeUserFromGroup } = await import("@/lib/services/permissions");
   await removeUserFromGroup({
     userId: formData.get("userId") as string,
@@ -6504,6 +6509,8 @@ export async function actionRemoveUserGroup(
 export async function actionGrantUserPermission(
   formData: FormData
 ): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  await requirePermission("admin.permissions");
   const { grantUserPermission } = await import("@/lib/services/permissions");
   const allowedRaw = ((formData.get("allowed") as string) || "true").trim();
   await grantUserPermission({
@@ -7063,7 +7070,8 @@ export async function actionRemoveWorkCenterStaff(
 }
 
 export async function actionCreateAccount(formData: FormData): Promise<void> {
-  const user = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("accounting.account.create");
   const code = ((formData.get("code") as string) || "").trim();
   const name = ((formData.get("name") as string) || "").trim();
   if (!code || !name) throw new Error("Account code and name required");
@@ -7093,6 +7101,8 @@ export async function actionCreateAccount(formData: FormData): Promise<void> {
 }
 
 export async function actionUpdateAccount(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  await requirePermission("accounting.account.create");
   const id = formData.get("id") as string;
   await prisma.account.update({
     where: { id },
@@ -8122,8 +8132,9 @@ export async function actionImportBankTransactions(
 }
 
 export async function actionCategorizeBankTxn(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("accounting.journal.post");
   const { categorizeBankTransaction } = await import("@/lib/services/banking");
-  const user = await getCurrentUser();
   if (!user) return;
   await categorizeBankTransaction({
     transactionId: formData.get("transactionId") as string,
@@ -8135,6 +8146,8 @@ export async function actionCategorizeBankTxn(formData: FormData): Promise<void>
 }
 
 export async function actionReconcileBankTxn(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  await requirePermission("accounting.journal.post");
   const { reconcileBankTransaction } = await import("@/lib/services/banking");
   await reconcileBankTransaction(formData.get("transactionId") as string);
   revalidatePath("/accounting");
@@ -8855,7 +8868,8 @@ export async function actionCreateExpenseEntry(
 export async function actionSaveCompanyProfile(
   formData: FormData
 ): Promise<void> {
-  const user = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("admin.permissions");
   const name = ((formData.get("name") as string) || "").trim();
   if (!name) return;
   const departments = ((formData.get("departments") as string) || "")
