@@ -1,38 +1,50 @@
 {
-  "updated_pst": "2026-11-10 03:27 PM PST",
-  "baseline": "fe46901cd22e85c77cbdc920019b83846511f11a",
-  "prior_baseline": "3de5ba1",
+  "updated_pst": "2026-11-10 03:46 PM PST",
+  "baseline": "c5758306b8c14129b329ecc3c348c3a41861531c",
+  "prior_baseline": "fe46901cd22e85c77cbdc920019b83846511f11a",
   "inventory_total": 1969,
-  "tested": 893,
-  "passed": 848,
-  "failed": 45,
-  "untested": 1076,
+  "tested": 1043,
+  "passed": 979,
+  "failed": 64,
+  "untested": 926,
   "by_kind": {
     "page": {
-      "pass": 175,
-      "untested": 15,
-      "fail": 1
+      "pass": 189,
+      "fail": 2
     },
     "action": {
-      "pass": 303,
-      "untested": 240,
-      "fail": 30
+      "pass": 368,
+      "untested": 161,
+      "fail": 44
     },
     "api": {
       "pass": 12,
       "untested": 13
     },
     "service": {
-      "pass": 358,
-      "untested": 579,
-      "fail": 14
+      "pass": 410,
+      "untested": 523,
+      "fail": 18
     },
     "model": {
       "untested": 229
     }
   },
-  "bugs_total": 101,
-  "new_bugs": 24,
+  "bugs_total": 112,
+  "new_bugs": 11,
+  "new_bug_ids": [
+    "AUTH-018",
+    "WC-001",
+    "WC-002",
+    "PLAN-002",
+    "PLAN-003",
+    "VA-001",
+    "VA-002",
+    "QA-005",
+    "QA-006",
+    "ESD-001",
+    "WORK-009"
+  ],
   "verified_fix_ids": {
     "ACCT-006": "148",
     "ACCT-007": "148",
@@ -55,55 +67,141 @@
     "BANK-002": "151",
     "ACCT-008": "151",
     "ACCT-010": "151",
-    "RCV-002": "151"
+    "RCV-002": "151",
+    "CRM-002": "149",
+    "CRM-003": "149",
+    "SVC-001": "149",
+    "SVC-002": "149",
+    "QA-002": "149",
+    "WORK-001": "149",
+    "AUTH-011": "152"
   },
   "cleared_inherited_failed_refs": [
-    "src/app/actions.ts#actionDecidePermissionRequest",
-    "src/app/actions.ts#actionCompleteReceivingInspection",
-    "src/app/actions.ts#actionAssignUserGroup",
-    "src/app/actions.ts#actionGrantUserPermission",
-    "src/app/actions.ts#actionCreateAccount",
-    "src/app/actions.ts#actionUpdateAccount",
-    "src/app/actions.ts#actionCategorizeBankTxn",
-    "src/app/actions.ts#actionReconcileBankTxn",
-    "src/app/actions.ts#actionApproveJournal",
-    "src/app/actions.ts#actionCreateVendorApInvoice",
-    "src/app/actions.ts#actionSaveCompanyProfile",
-    "src/lib/services/banking.ts#importBankTransactions",
-    "src/lib/services/banking.ts#categorizeBankTransaction",
-    "src/lib/services/billing.ts#createVendorApInvoice",
-    "src/lib/services/gaap.ts#approveJournal",
-    "src/lib/services/hr.ts#advanceExpenseReport",
-    "src/lib/services/permissions.ts#grantUserPermission",
-    "src/lib/services/supply-chain.ts#receivePurchaseOrder",
-    "src/lib/services/tenancy.ts#ensureDemoPool"
+    "src/app/actions.ts#actionWizardAddPerson",
+    "src/app/crm/actions.ts#actionUpdateLeadStatus",
+    "src/app/crm/actions.ts#actionUpdateOpportunity",
+    "src/app/service/actions.ts#actionUpdateTicketStatus",
+    "src/lib/services/receiving-inspection.ts#completeReceivingInspection"
   ],
   "guard_only_prior": 86,
-  "guard_only_promoted_to_positive": 10,
+  "guard_only_promoted_to_positive": 54,
   "guard_only_promoted_refs": [
+    "src/app/actions.ts#actionAddBomLine",
+    "src/app/actions.ts#actionAddWiStep",
     "src/app/actions.ts#actionAssignEcrApprovers",
+    "src/app/actions.ts#actionAssignToolToToolbox",
+    "src/app/actions.ts#actionCancelCycleCount",
+    "src/app/actions.ts#actionCompleteCycleCount",
+    "src/app/actions.ts#actionConsumeVirtualAsset",
     "src/app/actions.ts#actionCreateCmFolder",
+    "src/app/actions.ts#actionCreateCycleCount",
+    "src/app/actions.ts#actionCreateLocation",
+    "src/app/actions.ts#actionCreateQualityItem",
+    "src/app/actions.ts#actionCreateSupplier",
+    "src/app/actions.ts#actionCreateTool",
+    "src/app/actions.ts#actionCreateToolReport",
+    "src/app/actions.ts#actionCreateToolbox",
+    "src/app/actions.ts#actionCreateWiRevision",
+    "src/app/actions.ts#actionCreateWorkInstruction",
+    "src/app/actions.ts#actionDeclarePieceUnrecoverable",
     "src/app/actions.ts#actionDeleteCmDocument",
     "src/app/actions.ts#actionDeleteCmFolder",
+    "src/app/actions.ts#actionDeleteSupplierCert",
+    "src/app/actions.ts#actionLinkWiToBom",
     "src/app/actions.ts#actionMoveCmDocument",
     "src/app/actions.ts#actionMoveCmSubmission",
+    "src/app/actions.ts#actionPerformInspection",
+    "src/app/actions.ts#actionPlaceReplacementPr",
+    "src/app/actions.ts#actionQuickCreatePart",
+    "src/app/actions.ts#actionRecordCycleCountLine",
+    "src/app/actions.ts#actionRecordHumidity",
+    "src/app/actions.ts#actionRecordQualityEvent",
     "src/app/actions.ts#actionReleaseDocumentEcr",
+    "src/app/actions.ts#actionReleaseMaterialRequisition",
+    "src/app/actions.ts#actionRemoveBomLine",
     "src/app/actions.ts#actionSaveAudit",
+    "src/app/actions.ts#actionSaveInspectionTemplate",
+    "src/app/actions.ts#actionSaveToolboxInspection",
+    "src/app/actions.ts#actionScanWorkOrderToStation",
+    "src/app/actions.ts#actionSetIncidentResult",
+    "src/app/actions.ts#actionSetQualityItemStatus",
+    "src/app/actions.ts#actionSetToolReportStatus",
+    "src/app/actions.ts#actionSubmitWiToCm",
+    "src/app/actions.ts#actionToggleSupplierAsl",
+    "src/app/actions.ts#actionUpdateAslPolicy",
     "src/app/actions.ts#actionUpdateAuditFinding",
-    "src/app/actions.ts#actionVoteCm"
+    "src/app/actions.ts#actionUpdateCar",
+    "src/app/actions.ts#actionUpdateCustomer",
+    "src/app/actions.ts#actionUpdateIncidentSteps",
+    "src/app/actions.ts#actionUpdateItem",
+    "src/app/actions.ts#actionUpdateToolReportPieces",
+    "src/app/actions.ts#actionUpdateToolReportSteps",
+    "src/app/actions.ts#actionUpsertSupplierCert",
+    "src/app/actions.ts#actionVoteCm",
+    "src/lib/services/bom.ts#certifyBom",
+    "src/lib/services/bom.ts#certifyBomForPrototype"
   ],
-  "guard_only_remaining": 76,
+  "new_guard_positive": 44,
+  "new_guard_positive_refs": [
+    "src/app/actions.ts#actionAddBomLine",
+    "src/app/actions.ts#actionAddWiStep",
+    "src/app/actions.ts#actionAssignToolToToolbox",
+    "src/app/actions.ts#actionCancelCycleCount",
+    "src/app/actions.ts#actionCompleteCycleCount",
+    "src/app/actions.ts#actionConsumeVirtualAsset",
+    "src/app/actions.ts#actionCreateCycleCount",
+    "src/app/actions.ts#actionCreateLocation",
+    "src/app/actions.ts#actionCreateQualityItem",
+    "src/app/actions.ts#actionCreateSupplier",
+    "src/app/actions.ts#actionCreateTool",
+    "src/app/actions.ts#actionCreateToolReport",
+    "src/app/actions.ts#actionCreateToolbox",
+    "src/app/actions.ts#actionCreateWiRevision",
+    "src/app/actions.ts#actionCreateWorkInstruction",
+    "src/app/actions.ts#actionDeclarePieceUnrecoverable",
+    "src/app/actions.ts#actionDeleteSupplierCert",
+    "src/app/actions.ts#actionLinkWiToBom",
+    "src/app/actions.ts#actionPerformInspection",
+    "src/app/actions.ts#actionPlaceReplacementPr",
+    "src/app/actions.ts#actionQuickCreatePart",
+    "src/app/actions.ts#actionRecordCycleCountLine",
+    "src/app/actions.ts#actionRecordHumidity",
+    "src/app/actions.ts#actionRecordQualityEvent",
+    "src/app/actions.ts#actionReleaseMaterialRequisition",
+    "src/app/actions.ts#actionRemoveBomLine",
+    "src/app/actions.ts#actionSaveInspectionTemplate",
+    "src/app/actions.ts#actionSaveToolboxInspection",
+    "src/app/actions.ts#actionScanWorkOrderToStation",
+    "src/app/actions.ts#actionSetIncidentResult",
+    "src/app/actions.ts#actionSetQualityItemStatus",
+    "src/app/actions.ts#actionSetToolReportStatus",
+    "src/app/actions.ts#actionSubmitWiToCm",
+    "src/app/actions.ts#actionToggleSupplierAsl",
+    "src/app/actions.ts#actionUpdateAslPolicy",
+    "src/app/actions.ts#actionUpdateCar",
+    "src/app/actions.ts#actionUpdateCustomer",
+    "src/app/actions.ts#actionUpdateIncidentSteps",
+    "src/app/actions.ts#actionUpdateItem",
+    "src/app/actions.ts#actionUpdateToolReportPieces",
+    "src/app/actions.ts#actionUpdateToolReportSteps",
+    "src/app/actions.ts#actionUpsertSupplierCert",
+    "src/lib/services/bom.ts#certifyBom",
+    "src/lib/services/bom.ts#certifyBomForPrototype"
+  ],
+  "guard_only_remaining": 32,
   "suites": {
     "round2-auth-results.json": {
       "pass": 18
     },
     "round2-quality-results.json": {
-      "pass": 16,
-      "fail": 1
+      "pass": 17
     },
     "round3-admin-results.json": {
-      "pass": 9,
-      "fail": 4
+      "pass": 10,
+      "fail": 3
+    },
+    "round3-bom-supplier-positive-results.json": {
+      "pass": 7
     },
     "round3-cm-results.json": {
       "pass": 13,
@@ -129,16 +227,43 @@
       "pass": 8,
       "fail": 3
     },
+    "round3-inventory-positive-results.json": {
+      "pass": 8,
+      "fail": 2
+    },
     "round3-mfa-results.json": {
       "pass": 11,
       "fail": 3
+    },
+    "round3-physical-rework-results.json": {
+      "pass": 8,
+      "fail": 1
+    },
+    "round3-planning-positive-results.json": {
+      "pass": 5,
+      "fail": 2
     },
     "round3-quality-deep-results.json": {
       "pass": 6,
       "fail": 6
     },
+    "round3-quality-programs-positive-results.json": {
+      "pass": 7,
+      "fail": 3
+    },
     "round3-receiving-deep-results.json": {
       "pass": 7
+    },
+    "round3-remaining-pages-ui-results.json": {
+      "pass": 24,
+      "fail": 1
+    },
+    "round3-stations-positive-results.json": {
+      "pass": 2,
+      "fail": 3
+    },
+    "round3-support-positive-results.json": {
+      "pass": 5
     },
     "round3-ui5-results.json": {
       "pass": 18
@@ -148,20 +273,29 @@
     },
     "finance-151-regression": {
       "pass": 5
+    },
+    "workflow-149-regression": {
+      "pass": 5
+    },
+    "permission-150-152-regression": {
+      "pass": 5
     }
   },
   "callable_functions": {
     "total": 1549,
-    "tested": 717,
-    "pass": 673,
-    "untested": 832,
-    "fail": 44
+    "tested": 852,
+    "pass": 790,
+    "untested": 697,
+    "fail": 62
   },
   "scenarios_this_continuation": {
-    "total": 223,
-    "passed": 186,
-    "failed": 37
+    "total": 311,
+    "passed": 264,
+    "failed": 47
   },
-  "newly_tested_inventory": 98,
-  "newly_tested_actions": 45
+  "newly_tested_inventory": 150,
+  "newly_tested_actions": 79,
+  "remaining_pages": 0,
+  "baseline_verification_checks": 71,
+  "native_physical_route": "Actual receive->QA FAIL->supplier NCR/MRB->REWORK->BUILD/QA/TEST own-PIN signatures->Receiving->putaway; stock duplicates10vs5 with original hold5 remaining, existing MRB-005"
 }
