@@ -42,6 +42,12 @@ async function main() {
   assert.match(actions,/reserveHelpTurn/);assert.match(actions,/helpIdentity/);
   const identity=fs.readFileSync('src/lib/ai-help/identity.ts','utf8');assert.match(identity,/getSessionUser/);assert.match(identity,/demo:false/);
   assert.match(fs.readFileSync('src/components/support/support-bubble.tsx','utf8'),/AI can make mistakes/);
+  const translation=fs.readFileSync('src/app/support/actions.ts','utf8').split('export async function actionTranslateText')[1];
+  assert.match(translation,/helpIdentity/);assert.match(translation,/reserveHelpTurn/);assert.match(translation,/resolveLang/);
+  const {getCarinaFeatures}=await import('../src/lib/services/carina-features');
+  const mode=process.env.CARINA_AGENT_ACTIONS;process.env.CARINA_AGENT_ACTIONS='1';
+  assert.equal((await getCarinaFeatures()).agentActions,false,'Legacy testing override cannot enable mutations');
+  if(mode===undefined) delete process.env.CARINA_AGENT_ACTIONS;else process.env.CARINA_AGENT_ACTIONS=mode;
   console.log('AI help safety, parsing, grounding, context and transport tests passed.');
 }
 main().catch(e=>{console.error(e);process.exitCode=1;});

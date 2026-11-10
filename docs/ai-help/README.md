@@ -52,7 +52,10 @@ The existing Support tab remains a separate, user-submitted human channel.
   Chat output capped at 700 tokens (1000 hard maximum), four snippets, one upstream
   attempt, 25-second deadline. No retry cascade on auth, quota, model or network errors.
   TTS is one official-shape xAI request, capped text and 15-second deadline; no key
-  prefix, payload, provider body or raw error is returned/logged.
+  prefix, payload, provider body or raw error is returned/logged. The adjacent support
+  translation action also uses verified identity, the same chat budget, a bounded
+  redacted input and an allowlisted language. Anonymous support threads remain usable;
+  AI translation requires sign-in or a demo session so it cannot bypass AI budgets.
 
 ## Model and disclosure
 
