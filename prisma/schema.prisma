@@ -709,6 +709,7 @@ model WorkOrder {
   units                WorkOrderUnit[]
   serialInstalls       SerialInstall[]
   kitSerialAssignments KitSerialAssignment[]
+  journalEntries       JournalEntry[]
 
   @@index([status])
   @@index([workCenter])
@@ -1540,14 +1541,33 @@ model Program {
   startDate   DateTime?
   endDate     DateTime?
   notes       String?
+  /// The program is the contract. CLINs, funding, and job-cost rollups hang off this record.
+  contractNumber String?
+  /// FFP | TM | COST_PLUS | COMMERCIAL | IDIQ
+  contractType   String    @default("COMMERCIAL")
+  customerName   String?
+  /// Funded amount (what can be billed or spent against today)
+  fundedAmount   Float     @default(0)
+  /// Contract ceiling, which may be higher than current funding
+  ceilingAmount  Float     @default(0)
+  /// Cost-plus fee percent (8 = 8%). Not a determination that the fee is allowable.
+  feePercent     Float     @default(0)
+  agency         String?
+  /// PRIME | SUB
+  primeOrSub     String?
+  isGovernment   Boolean   @default(false)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  projects      Project[]
-  virtualAssets VirtualAsset[]
+  projects        Project[]
+  virtualAssets   VirtualAsset[]
+  clins           ProgramClin[]
+  laborCategories LaborCategory[]
+  journalEntries  JournalEntry[]
 
   @@index([status])
   @@index([portfolio])
+  @@index([contractNumber])
 }
 
 model Project {
@@ -3400,6 +3420,14 @@ model Account {
   /// Optional short charge code label (e.g. DIR-ENG, IND-G&A)
   chargeCode     String?
   description    String?
+  /// ALLOWABLE | UNALLOWABLE. Blank means not classified. Unallowable
+  /// accounts are left out of government billings and indirect-rate pools.
+  /// This is a worksheet flag for the company's accountant — not a determination.
+  allowability   String?
+  /// FAR citation the company associates with this account, e.g. 31.205-14
+  farCitation    String?
+  /// FRINGE | OVERHEAD | GA — indirect pool this expense feeds. Blank = not in a pool.
+  poolCode       String?
 
   journalLines      JournalLine[]
   partsInventory    Part[]            @relation("PartInventoryAccount")
@@ -3430,11 +3458,31 @@ model JournalEntry {
   /// Project / charge reference for job cost tracking
   projectId         String?
   chargeCode        String?
+  /// PMO program this entry rolls up to. Set from the project's program
+  /// when the source document is a job, project, or sales order — the
+  /// program record stays the contract.
+  programId         String?
+  program           Program?  @relation(fields: [programId], references: [id], onDelete: SetNull)
+  workOrderId       String?
+  workOrder         WorkOrder? @relation(fields: [workOrderId], references: [id], onDelete: SetNull)
+  /// Program CLIN / task order id (ProgramClin), when the charge is that specific.
+  clinId            String?
+  /// Company this entry belongs to. One default company until a second is added.
+  legalEntityId     String?
+  legalEntity       LegalEntity? @relation(fields: [legalEntityId], references: [id], onDelete: SetNull)
+  /// Set when this exact event was already posted, so shop-floor retries do not double-book.
+  idempotencyKey    String?   @unique
   createdById       String?
+  approvedById      String?
   createdAt         DateTime  @default(now())
 
   lines       JournalLine[]
   attachments JournalAttachment[]
+
+  @@index([programId])
+  @@index([workOrderId])
+  @@index([source, sourceId])
+  @@index([legalEntityId])
 }
 
 model JournalLine {
@@ -3447,6 +3495,24 @@ model JournalLine {
   credit         Float        @default(0)
   memo           String?
   chargeCode     String?
+  /// Copied from the journal so a line can be summed without joining the header.
+  programId      String?
+  projectId      String?
+  workOrderId    String?
+  clinId         String?
+  /// MATERIAL | LABOR | FRINGE | OVERHEAD | OSP | ODC | OTHER
+  /// Set only on the line that records the cost happening (not on transfers
+  /// between inventory accounts), so job cost is not counted twice.
+  costElement    String?
+  /// Snapshot of the account's unallowable flag at posting time.
+  unallowable    Boolean      @default(false)
+  farCitation    String?
+
+  @@index([programId])
+  @@index([workOrderId])
+  @@index([projectId])
+  @@index([costElement])
+  @@index([unallowable])
 }
 
 /// Receipts / supporting docs on journal entries
@@ -4196,7 +4262,13 @@ model TimeEntry {
   decisionNotes       String?
   laborRate           Float              @default(0) // optional $/hr for cost rollup
   costAmount          Float              @default(0) // hours * rate when posted
+  laborCategoryId     String?
+  laborCategory       LaborCategory?     @relation(fields: [laborCategoryId], references: [id], onDelete: SetNull)
+  /// OVERHEAD | GA | PAID_ABSENCE when this time is not charged to a job
+  indirectPool        String?
   createdAt           DateTime           @default(now())
+
+  changes TimeEntryChange[]
 
   @@index([projectId])
   @@index([engTaskId])
@@ -4878,8 +4950,125 @@ model AccountingSettings {
   closedThroughDate    DateTime?
   closedById           String?
   closedAt             DateTime?
+  /// STANDARD (shipments relieve finished goods at part standard cost) | AVERAGE
+  costingMethod        String    @default("STANDARD")
+  /// When on, the person who wrote a manual journal cannot approve it
+  /// unless they hold the controller override.
+  requireJournalSoD    Boolean   @default(false)
+  /// When on, a timesheet cannot be submitted while a weekday in the
+  /// period has less than a full day of time recorded.
+  requireTotalTime     Boolean   @default(false)
+  /// When on, editing a timecard that already had time requires a reason.
+  requireTimeChangeReason Boolean @default(false)
   updatedById          String?
   updatedAt            DateTime  @updatedAt
+}
+
+/// One company on the books. A single default row is enough today;
+/// journals carry the id so a second company can be split out later.
+model LegalEntity {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  journalEntries JournalEntry[]
+}
+
+/// Named month the company can close. Works together with
+/// AccountingSettings.closedThroughDate.
+model AccountingPeriod {
+  id         String    @id @default(cuid())
+  /// YYYY-MM
+  name       String    @unique
+  startDate  DateTime
+  endDate    DateTime
+  /// OPEN | CLOSED
+  status     String    @default("OPEN")
+  closedById String?
+  closedAt   DateTime?
+
+  @@index([status])
+  @@index([startDate, endDate])
+}
+
+/// Which accounts a shop-floor event debits and credits.
+/// Codes, not ids, so a renamed account id does not break the map.
+model GlAccountMap {
+  id         String  @id @default(cuid())
+  eventKey   String  @unique
+  label      String
+  debitCode  String
+  creditCode String
+  notes      String?
+}
+
+/// Indirect-cost pool. Actual rate = allowable pool expenses ÷ base.
+/// Provisional rate is what jobs are loaded with during the year.
+model IndirectPool {
+  id              String @id @default(cuid())
+  code            String @unique
+  name            String
+  /// DIRECT_LABOR | TOTAL_COST_INPUT
+  allocationBase  String @default("DIRECT_LABOR")
+  /// 0.35 = 35%
+  provisionalRate Float  @default(0)
+  description     String?
+}
+
+/// CLIN or task order on a PMO program (the contract).
+model ProgramClin {
+  id            String    @id @default(cuid())
+  programId     String
+  program       Program   @relation(fields: [programId], references: [id], onDelete: Cascade)
+  clinNumber    String
+  name          String
+  /// Blank inherits the program contract type. FFP | TM | COST_PLUS | OTHER
+  contractType  String?
+  fundedAmount  Float     @default(0)
+  ceilingAmount Float     @default(0)
+  feePercent    Float     @default(0)
+  popStart      DateTime?
+  popEnd        DateTime?
+  notes         String?
+
+  @@unique([programId, clinNumber])
+  @@index([programId])
+}
+
+/// Labor category used for time-and-materials billing support.
+model LaborCategory {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  /// What the contract lets you bill per hour
+  billingRate Float    @default(0)
+  /// What the hour costs the company, when it differs from the person's rate
+  costRate    Float    @default(0)
+  programId   String?
+  program     Program? @relation(fields: [programId], references: [id], onDelete: SetNull)
+
+  timeEntries TimeEntry[]
+
+  @@index([programId])
+}
+
+/// Why a time charge changed. Kept even if the time row is later removed.
+model TimeEntryChange {
+  id           String     @id @default(cuid())
+  timeEntryId  String?
+  timeEntry    TimeEntry? @relation(fields: [timeEntryId], references: [id], onDelete: SetNull)
+  timesheetId  String?
+  userId       String?
+  reason       String
+  field        String
+  beforeValue  String?
+  afterValue   String?
+  createdAt    DateTime   @default(now())
+
+  @@index([timeEntryId])
+  @@index([timesheetId])
 }
 
 /// One pay-period timesheet per employee. Entries attach as they are

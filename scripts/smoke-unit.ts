@@ -54,6 +54,21 @@ import {
 } from "../src/lib/services/subscription-plans";
 import { buildIntroScheduleUpdate } from "../src/lib/services/stripe-intro";
 import { LEGAL_DOCS } from "../src/lib/legal-content";
+import {
+  actualIndirectRate,
+  allocateIndirect,
+  allowablePoolCosts,
+  completionEntry,
+  describeTimeEdits,
+  gfpContractMatches,
+  isPeriodLocked,
+  journalApprovalBlock,
+  journalBalanceError,
+  netIncurred,
+  programOutlook,
+  provisionalBilling,
+  weekdayShortfalls,
+} from "../src/lib/services/posting-rules";
 
 function testChargeCodes() {
   assert.equal(sanitizeChargeCode("  Foo Bar!  "), "Foo-Bar");
@@ -599,9 +614,182 @@ async function testSocialImages() {
   console.log(`  ✓ social images (${rel.join(", ")})`);
 }
 
+function testPostingRules() {
+  assert.equal(journalBalanceError([{ debit: 10 }, { credit: 10 }]), null);
+  assert.match(
+    journalBalanceError([{ debit: 10 }, { credit: 4 }]) || "",
+    /not balanced/
+  );
+  assert.match(journalBalanceError([{ debit: 5 }]) || "", /two lines/);
+
+  const closed = new Date("2026-01-31T00:00:00Z");
+  assert.equal(
+    isPeriodLocked(new Date("2026-01-15T00:00:00Z"), closed, []),
+    true
+  );
+  assert.equal(
+    isPeriodLocked(new Date("2026-02-02T00:00:00Z"), closed, []),
+    false
+  );
+  assert.equal(
+    isPeriodLocked(new Date("2026-03-15T00:00:00Z"), null, [
+      { start: new Date("2026-03-01T00:00:00Z"), end: new Date("2026-03-31T00:00:00Z") },
+    ]),
+    true
+  );
+
+  assert.ok(
+    journalApprovalBlock({
+      creatorId: "a",
+      approverId: "a",
+      requireSoD: true,
+      approverIsController: false,
+    })
+  );
+  assert.equal(
+    journalApprovalBlock({
+      creatorId: "a",
+      approverId: "a",
+      requireSoD: true,
+      approverIsController: true,
+    }),
+    null
+  );
+  assert.equal(
+    journalApprovalBlock({
+      creatorId: "a",
+      approverId: "b",
+      requireSoD: true,
+      approverIsController: false,
+    }),
+    null
+  );
+
+  const lines = [
+    { programId: "p", costElement: "LABOR", debit: 100, credit: 0, unallowable: false },
+    { programId: "p", costElement: "MATERIAL", debit: 40, credit: 0, unallowable: false },
+    { programId: "p", costElement: "OTHER", debit: 15, credit: 0, unallowable: true },
+    // Moving WIP to finished goods has no cost element and must not count again.
+    { programId: "p", costElement: null, debit: 140, credit: 0, unallowable: false },
+    { programId: "other", costElement: "LABOR", debit: 999, credit: 0, unallowable: false },
+  ];
+  const incurred = netIncurred(lines, { programId: "p" });
+  assert.equal(incurred.labor, 100);
+  assert.equal(incurred.material, 40);
+  assert.equal(incurred.allowable, 140);
+  assert.equal(incurred.unallowable, 15);
+  const afterScrap = netIncurred(
+    [
+      ...lines,
+      { programId: "p", costElement: "MATERIAL", debit: 0, credit: 40, unallowable: false },
+    ],
+    { programId: "p" }
+  );
+  assert.equal(afterScrap.material, 0);
+  assert.equal(afterScrap.allowable, 100);
+  assert.equal(incurred.total, 155);
+
+  assert.equal(
+    allowablePoolCosts([
+      { amount: 50, unallowable: false },
+      { amount: 25, unallowable: true },
+    ]),
+    50
+  );
+  assert.equal(actualIndirectRate(50, 100), 0.5);
+  assert.equal(actualIndirectRate(50, 0), null);
+  const alloc = allocateIndirect(
+    [
+      { key: "p", base: 100 },
+      { key: "q", base: 50 },
+    ],
+    0.4
+  );
+  assert.deepEqual(alloc, [
+    { key: "p", amount: 40 },
+    { key: "q", amount: 20 },
+  ]);
+
+  const outlook = programOutlook({
+    funded: 500,
+    ceiling: 800,
+    billed: 200,
+    incurredAllowable: 100,
+    percentComplete: 50,
+    budget: 400,
+  });
+  assert.equal(outlook.eac, 200);
+  assert.equal(outlook.burn, 0.2);
+  assert.equal(outlook.remainingFunding, 300);
+  assert.equal(outlook.marginOnBillings, 100);
+  assert.equal(outlook.ceilingRoom, 700);
+
+  const done = completionEntry({
+    wipBalance: 110,
+    standardCost: 100,
+    fgAccountId: "fg",
+    wipAccountId: "wip",
+    varianceAccountId: "var",
+  });
+  assert.ok(done);
+  assert.equal(journalBalanceError(done!), null);
+  assert.equal(done!.find((l) => l.accountId === "fg")?.debit, 100);
+  assert.equal(done!.find((l) => l.accountId === "var")?.debit, 10);
+  assert.equal(completionEntry({
+    wipBalance: 0,
+    standardCost: 10,
+    fgAccountId: "fg",
+    wipAccountId: "wip",
+    varianceAccountId: "var",
+  }), null);
+
+  const tm = provisionalBilling({
+    contractType: "TM",
+    allowableCost: 999,
+    feePercent: 8,
+    tmHours: [{ hours: 10, billingRate: 50 }],
+    funded: 1000,
+  });
+  assert.equal(tm.amount, 500);
+  const cp = provisionalBilling({
+    contractType: "COST_PLUS",
+    allowableCost: 100,
+    feePercent: 8,
+    tmHours: [],
+    funded: 0,
+  });
+  assert.equal(cp.fee, 8);
+  assert.equal(cp.amount, 108);
+
+  const gaps = weekdayShortfalls({
+    datesWithHours: [{ date: "2026-01-05", hours: 8 }],
+    from: "2026-01-05",
+    to: "2026-01-06",
+    expected: 8,
+  });
+  assert.equal(gaps.length, 1);
+  assert.equal(gaps[0].date, "2026-01-06");
+
+  const edits = describeTimeEdits(
+    [{ key: "d|job", hours: 8, charge: "WO-1" }],
+    [{ key: "d|job", hours: 6, charge: "WO-2" }]
+  );
+  assert.equal(edits.length, 2);
+
+  assert.equal(
+    gfpContractMatches("FA8621-24-C-0001", ["FA8621-24-C-0001"]),
+    true
+  );
+  assert.equal(gfpContractMatches("FA8621-24-C-0001", ["", "A"]), false);
+  assert.equal(gfpContractMatches("FA8621-24-C-0001", ["PRG-AERO"]), false);
+
+  console.log("  ✓ posting rules, rates, program rollup, period lock");
+}
+
 async function main() {
   console.log("smoke-unit");
   testChargeCodes();
+  testPostingRules();
   testModules();
   testDemoModeHelper();
   testSessionIdleTimeout();

@@ -1488,17 +1488,35 @@ export async function dispositionMrb(params: {
           mrbCaseId: null,
         },
       });
-      await prisma.materialTransaction.create({
+      const scrapped = await prisma.materialTransaction.create({
         data: {
           type: "SCRAP",
           partId: item.partId,
           inventoryItemId: item.id,
           quantity: params.quantity,
+          unitCost: item.unitCost,
+          workOrderId: item.workOrderId,
           reference: mrb.number,
           notes: params.justification,
           userId: params.decidedById,
         },
       });
+      const scrapAmount = Math.round((params.quantity || 0) * (item.unitCost || 0) * 100) / 100;
+      if (scrapAmount > 0.001) {
+        try {
+          const { postScrap } = await import("@/lib/services/gl-posting");
+          await postScrap({
+            materialTransactionId: scrapped.id,
+            amount: scrapAmount,
+            workOrderId: item.workOrderId,
+            governmentOwned: item.ownership === "GOVERNMENT",
+            userId: params.decidedById,
+            memo: `Scrap ${mrb.number}`,
+          });
+        } catch (err) {
+          console.error("GL scrap", err);
+        }
+      }
     } else if (params.disposition === "USE_AS_IS") {
       // Release in place: only relocate if the material sits in a
       // quarantine cage — otherwise it stays wherever it lived before.

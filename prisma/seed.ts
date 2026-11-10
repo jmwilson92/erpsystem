@@ -307,24 +307,62 @@ async function main() {
   const accounts = await Promise.all(
     [
       { code: "1000", name: "Cash", type: "ASSET", balance: 850000 },
-      { code: "1100", name: "Accounts Receivable", type: "ASSET", balance: 245000 },
-      { code: "1200", name: "Inventory - Raw Materials", type: "ASSET", balance: 420000 },
-      { code: "1210", name: "Inventory - WIP", type: "ASSET", balance: 185000 },
+      { code: "1100", name: "Accounts Receivable", type: "ASSET", balance: 270000 },
+      { code: "1200", name: "Inventory - Raw Materials", type: "ASSET", balance: 412000 },
+      { code: "1210", name: "Inventory - WIP", type: "ASSET", balance: 213400 },
       { code: "1220", name: "Inventory - Finished Goods", type: "ASSET", balance: 310000 },
       { code: "1500", name: "Equipment", type: "ASSET", balance: 1200000 },
       { code: "2000", name: "Accounts Payable", type: "LIABILITY", balance: 178000 },
       { code: "2050", name: "Credit Card Payable", type: "LIABILITY", balance: 8400 },
-      { code: "2100", name: "Accrued Expenses", type: "LIABILITY", balance: 45000 },
+      { code: "2100", name: "Accrued Expenses", type: "LIABILITY", balance: 59000 },
       { code: "3000", name: "Retained Earnings", type: "EQUITY", balance: 2100000 },
       { code: "3100", name: "Common Stock & Paid-in Capital", type: "EQUITY", balance: 769000 },
-      { code: "4000", name: "Sales Revenue", type: "REVENUE", balance: 3200000 },
+      { code: "4000", name: "Sales Revenue", type: "REVENUE", balance: 3225000 },
       { code: "5000", name: "Cost of Goods Sold", type: "COGS", balance: 1850000 },
       { code: "6000", name: "Salaries & Wages", type: "EXPENSE", balance: 980000 },
       { code: "6100", name: "Facilities", type: "EXPENSE", balance: 240000 },
       { code: "6200", name: "Materials Variance", type: "EXPENSE", balance: 12000 },
+      { code: "6020", name: "Fringe benefits", type: "EXPENSE", balance: 4500, poolCode: "FRINGE" },
+      { code: "6050", name: "Applied direct labor", type: "EXPENSE", balance: -12000 },
+      { code: "6060", name: "Applied shop overhead", type: "EXPENSE", balance: -4800 },
+      { code: "6070", name: "Applied fringe", type: "EXPENSE", balance: -3600 },
+      { code: "6110", name: "Shop overhead pool", type: "EXPENSE", balance: 6000, poolCode: "OVERHEAD" },
+      { code: "6210", name: "Scrap", type: "EXPENSE", balance: 0 },
+      { code: "6300", name: "General and administrative", type: "EXPENSE", balance: 3000, poolCode: "GA" },
+      {
+        code: "6800",
+        name: "Unallowable costs",
+        type: "EXPENSE",
+        balance: 500,
+        allowability: "UNALLOWABLE",
+        farCitation: "31.205-14",
+      },
     ].map((a) => prisma.account.create({ data: a }))
   );
   console.log(`  ✓ ${accounts.length} GL accounts`);
+
+  await prisma.legalEntity.create({
+    data: { code: "MAIN", name: "Forge Dynamics LLC", isDefault: true },
+  });
+  await prisma.indirectPool.createMany({
+    data: [
+      { code: "FRINGE", name: "Fringe benefits", allocationBase: "DIRECT_LABOR", provisionalRate: 0.3, description: "Benefits loaded onto labor dollars." },
+      { code: "OVERHEAD", name: "Shop overhead", allocationBase: "DIRECT_LABOR", provisionalRate: 0.4, description: "Shop costs loaded on direct labor." },
+      { code: "GA", name: "General and administrative", allocationBase: "TOTAL_COST_INPUT", provisionalRate: 0.1, description: "Company-wide cost. Not put into inventory." },
+    ],
+  });
+  await prisma.glAccountMap.createMany({
+    data: [
+      { eventKey: "MATERIAL_ISSUE", label: "Material issued to a job", debitCode: "1210", creditCode: "1200" },
+      { eventKey: "LABOR_APPLIED", label: "Direct labor applied to a job", debitCode: "1210", creditCode: "6050" },
+      { eventKey: "FRINGE_APPLIED", label: "Fringe applied to direct labor", debitCode: "1210", creditCode: "6070" },
+      { eventKey: "OVERHEAD_APPLIED", label: "Shop overhead applied to a job", debitCode: "1210", creditCode: "6060" },
+      { eventKey: "WO_COMPLETE", label: "Finished job moved to finished goods", debitCode: "1220", creditCode: "1210" },
+      { eventKey: "SCRAP", label: "Material scrapped", debitCode: "6210", creditCode: "1200" },
+      { eventKey: "INV_ADJUST", label: "Inventory count difference", debitCode: "6200", creditCode: "1200" },
+      { eventKey: "OSP", label: "Outside processing on a job", debitCode: "1210", creditCode: "2000" },
+    ],
+  });
 
   // ── Connected bank + credit-card accounts with feeds ───────
   const acctByCode = (code: string) => accounts.find((a) => a.code === code);
@@ -1552,7 +1590,54 @@ async function main() {
       budgetCost: 5000000,
       startDate: daysAgo(200),
       endDate: daysFromNow(400),
+      contractNumber: "FA8621-24-C-0001",
+      contractType: "FFP",
+      customerName: "DoD / Prime Contractor",
+      fundedAmount: 500000,
+      ceilingAmount: 750000,
+      feePercent: 8,
+      agency: "USAF",
+      primeOrSub: "SUB",
+      isGovernment: true,
     },
+  });
+  await prisma.programClin.createMany({
+    data: [
+      {
+        programId: programAero.id,
+        clinNumber: "0001",
+        name: "LRIP hardware",
+        contractType: "FFP",
+        fundedAmount: 400000,
+        ceilingAmount: 600000,
+      },
+      {
+        programId: programAero.id,
+        clinNumber: "0002",
+        name: "Engineering support",
+        contractType: "TM",
+        fundedAmount: 100000,
+        ceilingAmount: 150000,
+      },
+    ],
+  });
+  await prisma.laborCategory.createMany({
+    data: [
+      {
+        code: "ENG-SR",
+        name: "Senior engineer",
+        billingRate: 185,
+        costRate: 95,
+        programId: programAero.id,
+      },
+      {
+        code: "TECH",
+        name: "Assembly technician",
+        billingRate: 95,
+        costRate: 42,
+        programId: programAero.id,
+      },
+    ],
   });
 
   const project = await prisma.project.create({
@@ -2490,7 +2575,139 @@ async function main() {
       },
     },
   });
-  console.log("  ✓ Sales, shipping, AR/AP, journal entries");
+  const acct = (code: string) => accounts.find((a) => a.code === code)!;
+  await prisma.journalEntry.create({
+    data: {
+      number: "JE-00002",
+      date: daysAgo(5),
+      description: "Material issued to WO-00001 (lot demo) — program Avionics",
+      status: "POSTED",
+      source: "INVENTORY",
+      postedAt: daysAgo(5),
+      programId: programAero.id,
+      projectId: project.id,
+      workOrderId: wo1.id,
+      lines: {
+        create: [
+          {
+            accountId: acct("1210").id,
+            debit: 8000,
+            credit: 0,
+            memo: "Lot LOT-AERO-DEMO issued to WO-00001",
+            programId: programAero.id,
+            projectId: project.id,
+            workOrderId: wo1.id,
+            costElement: "MATERIAL",
+          },
+          { accountId: acct("1200").id, debit: 0, credit: 8000, memo: "Raw material" },
+        ],
+      },
+    },
+  });
+  await prisma.journalEntry.create({
+    data: {
+      number: "JE-00003",
+      date: daysAgo(4),
+      description: "Direct labor, fringe, and shop overhead applied to WO-00001",
+      status: "POSTED",
+      source: "LABOR",
+      postedAt: daysAgo(4),
+      programId: programAero.id,
+      projectId: project.id,
+      workOrderId: wo1.id,
+      lines: {
+        create: [
+          { accountId: acct("1210").id, debit: 12000, credit: 0, memo: "Direct labor", programId: programAero.id, projectId: project.id, workOrderId: wo1.id, costElement: "LABOR" },
+          { accountId: acct("6050").id, debit: 0, credit: 12000, memo: "Applied labor" },
+          { accountId: acct("1210").id, debit: 3600, credit: 0, memo: "Fringe at 30%", programId: programAero.id, projectId: project.id, workOrderId: wo1.id, costElement: "FRINGE" },
+          { accountId: acct("6070").id, debit: 0, credit: 3600, memo: "Applied fringe" },
+          { accountId: acct("1210").id, debit: 4800, credit: 0, memo: "Shop overhead at 40%", programId: programAero.id, projectId: project.id, workOrderId: wo1.id, costElement: "OVERHEAD" },
+          { accountId: acct("6060").id, debit: 0, credit: 4800, memo: "Applied overhead" },
+        ],
+      },
+    },
+  });
+  await prisma.journalEntry.create({
+    data: {
+      number: "JE-00004",
+      date: daysAgo(3),
+      description: "Unallowable entertainment — excluded from the Avionics contract",
+      status: "POSTED",
+      source: "EXPENSE",
+      postedAt: daysAgo(3),
+      programId: programAero.id,
+      lines: {
+        create: [
+          {
+            accountId: acct("6800").id,
+            debit: 500,
+            credit: 0,
+            memo: "FAR 31.205-14 entertainment",
+            programId: programAero.id,
+            costElement: "OTHER",
+            unallowable: true,
+            farCitation: "31.205-14",
+          },
+          { accountId: acct("2100").id, debit: 0, credit: 500, memo: "Accrued" },
+        ],
+      },
+    },
+  });
+  await prisma.journalEntry.create({
+    data: {
+      number: "JE-00005",
+      date: daysAgo(2),
+      description: "Indirect pools — fringe, shop overhead, G&A",
+      status: "POSTED",
+      source: "MANUAL",
+      postedAt: daysAgo(2),
+      lines: {
+        create: [
+          { accountId: acct("6020").id, debit: 4500, credit: 0, memo: "Fringe pool" },
+          { accountId: acct("6110").id, debit: 6000, credit: 0, memo: "Shop overhead pool" },
+          { accountId: acct("6300").id, debit: 3000, credit: 0, memo: "G&A pool" },
+          { accountId: acct("2100").id, debit: 0, credit: 13500, memo: "Accrued indirect" },
+        ],
+      },
+    },
+  });
+  await prisma.journalEntry.create({
+    data: {
+      number: "JE-00006",
+      date: daysAgo(1),
+      description: "Progress billing — Avionics program",
+      status: "POSTED",
+      source: "AR",
+      postedAt: daysAgo(1),
+      programId: programAero.id,
+      projectId: project.id,
+      lines: {
+        create: [
+          { accountId: acct("1100").id, debit: 25000, credit: 0, memo: "Billed", programId: programAero.id },
+          { accountId: acct("4000").id, debit: 0, credit: 25000, memo: "Revenue", programId: programAero.id, projectId: project.id },
+        ],
+      },
+    },
+  });
+  const techCategory = await prisma.laborCategory.findUnique({ where: { code: "TECH" } });
+  if (techCategory) {
+    await prisma.timeEntry.create({
+      data: {
+        userId: tech1.id,
+        workOrderId: wo1.id,
+        projectId: project.id,
+        date: daysAgo(4),
+        hours: 8,
+        type: "REGULAR",
+        status: "APPROVED",
+        laborRate: 42,
+        costAmount: 336,
+        laborCategoryId: techCategory.id,
+        description: "Assembly on WO-00001",
+      },
+    });
+  }
+  console.log("  ✓ Sales, shipping, AR/AP, journal entries, program cost on the books");
 
   // ── Government Property ────────────────────────────────────
   const gfpInv = invItems[invItems.length - 1];

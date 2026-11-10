@@ -55,6 +55,15 @@ export async function createProgram(params: {
   startDate?: Date | null;
   endDate?: Date | null;
   notes?: string | null;
+  contractNumber?: string | null;
+  contractType?: string | null;
+  customerName?: string | null;
+  fundedAmount?: number;
+  ceilingAmount?: number;
+  feePercent?: number;
+  agency?: string | null;
+  primeOrSub?: string | null;
+  isGovernment?: boolean;
   userId?: string | null;
 }) {
   const name = params.name.trim();
@@ -71,6 +80,15 @@ export async function createProgram(params: {
       startDate: params.startDate || null,
       endDate: params.endDate || null,
       notes: params.notes?.trim() || null,
+      contractNumber: params.contractNumber?.trim() || null,
+      contractType: (params.contractType || "COMMERCIAL").toUpperCase(),
+      customerName: params.customerName?.trim() || null,
+      fundedAmount: params.fundedAmount ?? 0,
+      ceilingAmount: params.ceilingAmount ?? 0,
+      feePercent: params.feePercent ?? 0,
+      agency: params.agency?.trim() || null,
+      primeOrSub: params.primeOrSub?.trim().toUpperCase() || null,
+      isGovernment: params.isGovernment ?? false,
     },
   });
   await logAudit({
@@ -95,6 +113,15 @@ export async function updateProgram(params: {
   startDate?: Date | null;
   endDate?: Date | null;
   notes?: string | null;
+  contractNumber?: string | null;
+  contractType?: string | null;
+  customerName?: string | null;
+  fundedAmount?: number;
+  ceilingAmount?: number;
+  feePercent?: number;
+  agency?: string | null;
+  primeOrSub?: string | null;
+  isGovernment?: boolean;
   userId?: string | null;
 }) {
   return prisma.program.update({
@@ -112,8 +139,65 @@ export async function updateProgram(params: {
       ...(params.startDate !== undefined ? { startDate: params.startDate } : {}),
       ...(params.endDate !== undefined ? { endDate: params.endDate } : {}),
       ...(params.notes !== undefined ? { notes: params.notes } : {}),
+      ...(params.contractNumber !== undefined
+        ? { contractNumber: params.contractNumber }
+        : {}),
+      ...(params.contractType
+        ? { contractType: params.contractType.toUpperCase() }
+        : {}),
+      ...(params.customerName !== undefined
+        ? { customerName: params.customerName }
+        : {}),
+      ...(params.fundedAmount !== undefined
+        ? { fundedAmount: params.fundedAmount }
+        : {}),
+      ...(params.ceilingAmount !== undefined
+        ? { ceilingAmount: params.ceilingAmount }
+        : {}),
+      ...(params.feePercent !== undefined ? { feePercent: params.feePercent } : {}),
+      ...(params.agency !== undefined ? { agency: params.agency } : {}),
+      ...(params.primeOrSub !== undefined
+        ? { primeOrSub: params.primeOrSub?.toUpperCase() || null }
+        : {}),
+      ...(params.isGovernment !== undefined
+        ? { isGovernment: params.isGovernment }
+        : {}),
     },
   });
+}
+
+export async function addProgramClin(params: {
+  programId: string;
+  clinNumber: string;
+  name: string;
+  contractType?: string | null;
+  fundedAmount?: number;
+  ceilingAmount?: number;
+  feePercent?: number;
+  userId?: string | null;
+}) {
+  const clinNumber = params.clinNumber.trim();
+  const name = params.name.trim();
+  if (!clinNumber || !name) throw new Error("CLIN number and name are required");
+  const clin = await prisma.programClin.create({
+    data: {
+      programId: params.programId,
+      clinNumber,
+      name,
+      contractType: params.contractType?.trim().toUpperCase() || null,
+      fundedAmount: params.fundedAmount ?? 0,
+      ceilingAmount: params.ceilingAmount ?? 0,
+      feePercent: params.feePercent ?? 0,
+    },
+  });
+  await logAudit({
+    entityType: "Program",
+    entityId: params.programId,
+    action: "CLIN_ADDED",
+    userId: params.userId,
+    metadata: { clinNumber, name },
+  });
+  return clin;
 }
 
 export async function listPrograms() {

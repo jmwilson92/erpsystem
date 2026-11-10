@@ -65,7 +65,13 @@ export async function ensureDefaultPermissionGroups() {
       code: "GRP_ACCT",
       name: "Accounting",
       baseRole: "ACCOUNTING",
-      perms: ["accounting.journal.post", "accounting.reports.read"],
+      perms: [
+        "accounting.journal.post",
+        "accounting.journal.approve",
+        "accounting.period.close",
+        "accounting.govcon.manage",
+        "accounting.reports.read",
+      ],
     },
     {
       code: "GRP_MGR",

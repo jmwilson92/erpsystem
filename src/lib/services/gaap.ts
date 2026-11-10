@@ -4,6 +4,12 @@
  */
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
+import { userHasPermission } from "@/lib/auth";
+import {
+  isPeriodLocked,
+  journalApprovalBlock,
+  journalBalanceError,
+} from "@/lib/services/posting-rules";
 
 const isDebitNormal = (type: string) =>
   ["ASSET", "EXPENSE", "COGS"].includes(type);
@@ -397,30 +403,53 @@ export async function reclassifyJournalLines(params: {
 
   let moved = 0;
   let skipped = 0;
+  const reclassLines: {
+    accountId: string;
+    debit: number;
+    credit: number;
+    memo: string;
+  }[] = [];
   for (const l of lines) {
     if (l.accountId === target.id) {
       skipped++;
       continue;
     }
     if (l.journalEntry.status === "POSTED") {
-      await assertPeriodOpen(l.journalEntry.date, "reclassify");
-      const amt = (l.debit || 0) - (l.credit || 0); // raw debit-positive
-      const oldDelta = isDebitNormal(l.account.type) ? amt : -amt;
-      const newDelta = isDebitNormal(target.type) ? amt : -amt;
-      await prisma.account.update({
-        where: { id: l.accountId },
-        data: { balance: { decrement: oldDelta } },
-      });
-      await prisma.account.update({
-        where: { id: target.id },
-        data: { balance: { increment: newDelta } },
-      });
+      // Posted lines stay as they were written. A new journal moves the
+      // dollars. The open period is the date of that new journal (today).
+      await assertPeriodOpen(new Date(), "reclassify");
+      reclassLines.push(
+        {
+          accountId: target.id,
+          debit: l.debit || 0,
+          credit: l.credit || 0,
+          memo: `Reclass from ${l.account.code} (${l.journalEntry.number})`,
+        },
+        {
+          accountId: l.accountId,
+          debit: l.credit || 0,
+          credit: l.debit || 0,
+          memo: `Reclass to ${target.code} (${l.journalEntry.number})`,
+        }
+      );
+      moved++;
+      continue;
     }
     await prisma.journalLine.update({
       where: { id: l.id },
       data: { accountId: target.id },
     });
     moved++;
+  }
+
+  if (reclassLines.length > 0) {
+    await postJournal({
+      description: `Reclassify ${moved} posted line(s) to ${target.code} ${target.name}`,
+      source: "RECLASS",
+      createdById: params.userId || undefined,
+      status: "POSTED",
+      lines: reclassLines,
+    });
   }
 
   if (moved > 0) {
@@ -466,11 +495,24 @@ export async function postJournal(params: {
     credit?: number;
     memo?: string;
     chargeCode?: string;
+    programId?: string;
+    projectId?: string;
+    workOrderId?: string;
+    clinId?: string;
+    costElement?: string;
+    unallowable?: boolean;
+    farCitation?: string;
   }[];
   source?: string;
   sourceId?: string;
   projectId?: string;
   chargeCode?: string;
+  programId?: string;
+  workOrderId?: string;
+  clinId?: string;
+  legalEntityId?: string;
+  /** When set, a second call with the same key returns the original entry. */
+  idempotencyKey?: string;
   createdById?: string;
   /** Entry date (defaults to now). Used by recurring/reversing entries. */
   date?: Date;
@@ -487,16 +529,15 @@ export async function postJournal(params: {
     docType?: string;
   }[];
 }) {
-  const debit = params.lines.reduce((s, l) => s + (l.debit || 0), 0);
-  const credit = params.lines.reduce((s, l) => s + (l.credit || 0), 0);
-  if (Math.abs(debit - credit) > 0.001) {
-    throw new Error(
-      `Journal not balanced: debits ${debit} ≠ credits ${credit}`
-    );
+  if (params.idempotencyKey) {
+    const existing = await prisma.journalEntry.findUnique({
+      where: { idempotencyKey: params.idempotencyKey },
+      include: { lines: true, attachments: true },
+    });
+    if (existing) return existing;
   }
-  if (params.lines.length < 2) {
-    throw new Error("Journal needs at least two lines");
-  }
+  const balanceError = journalBalanceError(params.lines);
+  if (balanceError) throw new Error(balanceError);
   const source = params.source || "MANUAL";
   const status =
     params.status ||
@@ -506,6 +547,39 @@ export async function postJournal(params: {
   if (status === "POSTED") {
     await assertPeriodOpen(params.date || new Date(), "post");
   }
+
+  let programId = params.programId || null;
+  let projectId = params.projectId || null;
+  if (!programId && params.workOrderId) {
+    const wo = await prisma.workOrder.findUnique({
+      where: { id: params.workOrderId },
+      select: { projectId: true, project: { select: { programId: true } } },
+    });
+    projectId = projectId || wo?.projectId || null;
+    programId = wo?.project?.programId || null;
+  }
+  if (!programId && projectId) {
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      select: { programId: true },
+    });
+    programId = project?.programId || null;
+  }
+  let legalEntityId = params.legalEntityId || null;
+  if (!legalEntityId) {
+    const entity = await prisma.legalEntity.findFirst({
+      where: { isDefault: true },
+      select: { id: true },
+    });
+    legalEntityId = entity?.id || null;
+  }
+  const accountIds = [...new Set(params.lines.map((l) => l.accountId))];
+  const accounts = await prisma.account.findMany({
+    where: { id: { in: accountIds } },
+    select: { id: true, allowability: true, farCitation: true },
+  });
+  const accountById = new Map(accounts.map((a) => [a.id, a]));
+
   const je = await prisma.journalEntry.create({
     data: {
       number,
@@ -513,21 +587,38 @@ export async function postJournal(params: {
       status,
       source,
       sourceId: params.sourceId,
-      projectId: params.projectId,
+      projectId,
       chargeCode: params.chargeCode,
+      programId,
+      workOrderId: params.workOrderId || null,
+      clinId: params.clinId || null,
+      legalEntityId,
+      idempotencyKey: params.idempotencyKey || null,
       createdById: params.createdById,
       date: params.date || new Date(),
       reversesJournalId: params.reversesJournalId || null,
       autoReverseOn: params.autoReverseOn || null,
       postedAt: status === "POSTED" ? new Date() : null,
       lines: {
-        create: params.lines.map((l) => ({
-          accountId: l.accountId,
-          debit: l.debit || 0,
-          credit: l.credit || 0,
-          memo: l.memo || null,
-          chargeCode: l.chargeCode || params.chargeCode || null,
-        })),
+        create: params.lines.map((l) => {
+          const acct = accountById.get(l.accountId);
+          const unallowable =
+            l.unallowable === true || acct?.allowability === "UNALLOWABLE";
+          return {
+            accountId: l.accountId,
+            debit: l.debit || 0,
+            credit: l.credit || 0,
+            memo: l.memo || null,
+            chargeCode: l.chargeCode || params.chargeCode || null,
+            programId: l.programId || programId,
+            projectId: l.projectId || projectId,
+            workOrderId: l.workOrderId || params.workOrderId || null,
+            clinId: l.clinId || params.clinId || null,
+            costElement: l.costElement || null,
+            unallowable,
+            farCitation: l.farCitation || (unallowable ? acct?.farCitation : null) || null,
+          };
+        }),
       },
       attachments: params.attachments?.length
         ? {
@@ -608,10 +699,25 @@ export async function getAccountingCloseDate(): Promise<Date | null> {
 
 /** Throw if `date` falls in a closed period. */
 async function assertPeriodOpen(date: Date, action: string) {
-  const closed = await getAccountingCloseDate();
-  if (closed && date <= closed) {
+  const [closed, periods] = await Promise.all([
+    getAccountingCloseDate(),
+    prisma.accountingPeriod.findMany({
+      where: { status: "CLOSED" },
+      select: { startDate: true, endDate: true, name: true },
+    }),
+  ]);
+  if (
+    isPeriodLocked(
+      date,
+      closed,
+      periods.map((p) => ({ start: p.startDate, end: p.endDate }))
+    )
+  ) {
+    const through = closed
+      ? closed.toLocaleDateString()
+      : periods.map((p) => p.name).join(", ");
     throw new Error(
-      `Period is closed through ${closed.toLocaleDateString()} — cannot ${action} an entry dated ${date.toLocaleDateString()}. Reopen the period first (Accounting → month-end close).`
+      `Period is closed (${through}) — cannot ${action} an entry dated ${date.toLocaleDateString()}. Reopen the period first (Accounting → month-end close).`
     );
   }
 }
@@ -621,7 +727,7 @@ export async function setAccountingCloseDate(params: {
   date: Date | null;
   userId?: string | null;
 }) {
-  return prisma.accountingSettings.upsert({
+  const saved = await prisma.accountingSettings.upsert({
     where: { id: "default" },
     create: {
       id: "default",
@@ -635,6 +741,22 @@ export async function setAccountingCloseDate(params: {
       closedAt: params.date ? new Date() : null,
     },
   });
+  if (params.date) {
+    const through = params.date;
+    await prisma.accountingPeriod.updateMany({
+      where: { endDate: { lte: through } },
+      data: {
+        status: "CLOSED",
+        closedById: params.userId ?? null,
+        closedAt: new Date(),
+      },
+    });
+  } else {
+    await prisma.accountingPeriod.updateMany({
+      data: { status: "OPEN", closedById: null, closedAt: null },
+    });
+  }
+  return saved;
 }
 
 /** Approve a pending journal — posts balances. */
@@ -647,13 +769,33 @@ export async function approveJournal(params: {
     include: { lines: true },
   });
   if (je.status === "POSTED") return je;
+  const [settings, approverIsController] = await Promise.all([
+    prisma.accountingSettings.findUnique({
+      where: { id: "default" },
+      select: { requireJournalSoD: true },
+    }),
+    params.approvedById
+      ? userHasPermission(params.approvedById, "accounting.controller")
+      : Promise.resolve(false),
+  ]);
+  const block = journalApprovalBlock({
+    creatorId: je.createdById,
+    approverId: params.approvedById,
+    requireSoD: settings?.requireJournalSoD ?? false,
+    approverIsController,
+  });
+  if (block) throw new Error(block);
   await assertPeriodOpen(je.date, "post");
   if (!["PENDING_APPROVAL", "DRAFT"].includes(je.status)) {
     throw new Error(`Cannot approve journal in status ${je.status}`);
   }
   const updated = await prisma.journalEntry.update({
     where: { id: je.id },
-    data: { status: "POSTED", postedAt: new Date() },
+    data: {
+      status: "POSTED",
+      postedAt: new Date(),
+      approvedById: params.approvedById || null,
+    },
     include: { lines: true, attachments: true },
   });
   await applyJournalBalances(updated.lines);
@@ -674,16 +816,14 @@ export async function voidJournal(params: {
     include: { lines: true },
   });
   if (je.status === "VOID") return je;
-  await assertPeriodOpen(je.date, "void");
   if (je.status === "POSTED") {
-    // Reverse balances
-    await applyJournalBalances(
-      je.lines.map((l) => ({
-        accountId: l.accountId,
-        debit: l.credit,
-        credit: l.debit,
-      }))
-    );
+    // Posted entries stay on the books. A reversal in the open period
+    // undoes them. The original is not edited and is not dropped.
+    return reverseJournalEntry({
+      id: je.id,
+      userId: params.voidedById,
+      description: `Reversal of ${je.number}: ${params.reason.trim()}`,
+    });
   }
   return prisma.journalEntry.update({
     where: { id: je.id },
