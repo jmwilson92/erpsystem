@@ -98,6 +98,109 @@ async function main() {
       assert.equal(reversed.debit, line.credit); assert.equal(reversed.credit, line.debit);
     }
     console.log("PASS reversal preserves allowability, FAR and attribution");
+
+    const f = await import("../src/lib/services/order-fulfillment");
+    const bomSvc = await import("../src/lib/services/bom");
+    const planning = await import("../src/lib/services/planning");
+    const crm = await import("../src/lib/services/crm");
+    const part = await prisma.part.create({ data: { partNumber: "ASSEMBLY", description: "Fixture" } });
+    const component = await prisma.part.create({ data: { partNumber: "COMPONENT", description: "Fixture" } });
+    const bom = await prisma.bomHeader.create({ data: { partId: part.id, revision: "A", lines: { create: { componentPartId: component.id, quantity: 1 } } }, include: { lines: true } });
+    for (const quantity of [-1, 0, Infinity, Number.NaN]) {
+      await assert.rejects(bomSvc.updateBomLine({ bomLineId: bom.lines[0].id, quantity }), /Quantity/);
+      await assert.rejects(bomSvc.addBomLine({ bomHeaderId: bom.id, componentPartId: component.id, quantity }), /Quantity/);
+      await assert.rejects(bomSvc.createBomRevision({ partId: part.id, revision: "BAD", lines: [{ componentPartId: component.id, quantity }] }), /Quantity/);
+      await assert.rejects(planning.createForecast({ name: "Bad forecast", lines: [{ partId: part.id, quantity }] }), /quantity/);
+    }
+    assert.equal((await prisma.bomLine.findUniqueOrThrow({ where: { id: bom.lines[0].id } })).quantity, 1);
+    assert.equal(await prisma.forecast.count(), 0);
+    await bomSvc.updateBomLine({ bomLineId: bom.lines[0].id, quantity: 2 });
+    await planning.createForecast({ name: "Valid", lines: [{ partId: part.id, quantity: 2 }] });
+    console.log("PASS negative/zero/non-finite BOM and forecast quantities rejected without writes; positive accepted");
+
+    const lead = await prisma.lead.create({ data: { company: "Conversion fixture" } });
+    const firstDeal = await crm.convertLead({ leadId: lead.id, value: 10, userId: admin.id });
+    const dealCount = await prisma.opportunity.count();
+    const again = await crm.convertLead({ leadId: lead.id, value: 20, userId: admin.id });
+    assert.equal(again.id, firstDeal.id); assert.equal(again.value, 10);
+    assert.equal(await prisma.opportunity.count(), dealCount);
+    const racingLead = await prisma.lead.create({ data: { company: "Concurrent conversion" } });
+    const raced = await Promise.all([crm.convertLead({ leadId: racingLead.id }), crm.convertLead({ leadId: racingLead.id })]);
+    assert.equal(raced[0].id, raced[1].id);
+    console.log("PASS repeated/concurrent lead conversion returns one original deal");
+
+    const quote = await prisma.quote.create({ data: { number: "Q-TEST", customerId: customer.id, lines: { create: { partId: part.id, description: "Fixture", quantity: 1, unitPrice: 10 } } } });
+    // Request-scope redirect/cache side effects are expected outside Next; persisted business state is the assertion.
+    const call = async (fn: (fd: FormData) => Promise<void>, data: Record<string,string>) => { try { await fn(form(data)); } catch (e) { if (!/NEXT_REDIRECT|outside.*request|incrementalCache|static generation store/i.test(String(e))) throw e; } };
+    await call(a.actionRecordCustomerPo, { quoteId: quote.id, customerPo: "PO-ORIGINAL" });
+    assert.equal((await prisma.quote.findUniqueOrThrow({ where: { id: quote.id } })).status, "CONVERTED");
+    const soCount = await prisma.salesOrder.count();
+    await call(a.actionRecordCustomerPo, { quoteId: quote.id, customerPo: "PO-RETRY" });
+    const qAgain = await prisma.quote.findUniqueOrThrow({ where: { id: quote.id } });
+    assert.equal(qAgain.status, "CONVERTED"); assert.equal(qAgain.customerPo, "PO-ORIGINAL");
+    assert.equal(await prisma.salesOrder.count(), soCount);
+    console.log("PASS repeated customer PO action cannot regress quote or change PO");
+
+    const buyer = await prisma.user.create({ data: { name: "Distinct buyer persona", email: "buyer@example.invalid", role: "PURCHASING" } });
+    const pr = await prisma.purchaseRequest.create({ data: { number: "PR-TEST", status: "SUBMITTED", requestedById: operator.id, currentStepOrder: 1, buyerConfirmedPrices: true, buyerNotes: "Quote checked", quoteFileUrl: "data:text/plain,fixture" } });
+    const demand = await prisma.approval.create({ data: { entityType: "PurchaseRequest", entityId: pr.id, stage: "Confirm demand", stepOrder: 1 } });
+    const buyerStep = await prisma.approval.create({ data: { entityType: "PurchaseRequest", entityId: pr.id, stage: "Buyer package", stepOrder: 2 } });
+    const final = await prisma.approval.create({ data: { entityType: "PurchaseRequest", entityId: pr.id, stage: "Purchase approval", stepOrder: 3 } });
+    const prApproval = await import("../src/lib/services/pr-approval");
+    const prBuyer = await import("../src/lib/services/pr-buyer");
+    await prApproval.decidePrApproval({ purchaseRequestId: pr.id, userId: admin.id, userRole: "ADMIN", decision: "APPROVED" });
+    assert.equal((await prisma.approval.findUniqueOrThrow({ where: { id: demand.id } })).status, "APPROVED");
+    await assert.rejects(prBuyer.confirmBuyerPackageStep({ purchaseRequestId: pr.id, userId: admin.id, userRole: "ADMIN" }), /different person/);
+    await assert.rejects(prApproval.decidePrApproval({ purchaseRequestId: pr.id, userId: admin.id, userRole: "ADMIN", decision: "APPROVED" }), /different person/);
+    assert.equal((await prisma.approval.findUniqueOrThrow({ where: { id: buyerStep.id } })).status, "PENDING");
+    await prBuyer.confirmBuyerPackageStep({ purchaseRequestId: pr.id, userId: buyer.id, userRole: "PURCHASING" });
+    await assert.rejects(prApproval.decidePrApproval({ purchaseRequestId: pr.id, userId: buyer.id, userRole: "ADMIN", decision: "APPROVED" }), /different person/);
+    await prApproval.decidePrApproval({ purchaseRequestId: pr.id, userId: admin.id, userRole: "ADMIN", decision: "APPROVED" });
+    assert.equal((await prisma.approval.findUniqueOrThrow({ where: { id: final.id } })).approverId, admin.id);
+    console.log("PASS admin cannot sign demand and buyer; distinct persona can; charge owner may return for final approval");
+
+    const task = await prisma.workOrder.create({ data: { number: "TASK-TEST", type: "TASK_ONLY", status: "READY_FOR_PUTAWAY", workCenter: "RCV-01" } });
+    const wi = await prisma.workInstruction.create({ data: { documentNumber: "WI-TEST", title: "Task", steps: { create: { stepNumber: 1, title: "Task", instructions: "Do task" } } }, include: { steps: true } });
+    const completion = await prisma.workOrderStepCompletion.create({ data: { workOrderId: task.id, stepId: wi.steps[0].id } });
+    const stockCount = await prisma.inventoryItem.count();
+    await assert.rejects(f.completeWorkOrderToStock({ workOrderId: task.id }), /still open/);
+    await prisma.workOrderStepCompletion.update({ where: { id: completion.id }, data: { status: "FAILED" } });
+    await assert.rejects(f.completeWorkOrderToStock({ workOrderId: task.id }), /Failed/);
+    await prisma.workOrderStepCompletion.update({ where: { id: completion.id }, data: { status: "SIGNED", signedById: admin.id, signedAt: new Date() } });
+    const done = await f.completeWorkOrderToStock({ workOrderId: task.id, userId: admin.id });
+    assert.equal(done.inventoryItemId, null);
+    assert.equal((await prisma.workOrder.findUniqueOrThrow({ where: { id: task.id } })).status, "COMPLETED");
+    assert.equal(await prisma.inventoryItem.count(), stockCount);
+    await assert.rejects(f.completeWorkOrderToStock({ workOrderId: task.id }), /already COMPLETED/);
+    console.log("PASS task-only completion retains signed-step gates and creates no inventory, even without storage");
+
+    const warehouse = await prisma.warehouse.create({ data: { code: "TEST", name: "Fixture" } });
+    const storage = await prisma.location.create({ data: { warehouseId: warehouse.id, code: "STOCK", type: "STORAGE" } });
+    await prisma.location.create({ data: { warehouseId: warehouse.id, code: "STAGE", type: "STAGING" } });
+    const wo = await prisma.workOrder.create({ data: { number: "KIT-WO", partId: part.id, status: "KITTING" } });
+    const kit = await prisma.kitOrder.create({ data: { number: "KIT-TEST", workOrderId: wo.id, lines: { create: [{ partId: part.id, quantityRequired: 1 }, { partId: component.id, quantityRequired: 1 }] } } });
+    await prisma.inventoryItem.create({ data: { partId: part.id, locationId: storage.id, quantityOnHand: 2, quantityAvailable: 2 } });
+    await prisma.inventoryItem.create({ data: { partId: component.id, locationId: storage.id, quantityOnHand: 0.4, quantityAvailable: 0.4 } });
+    const staged = async (id: string) => (await prisma.inventoryItem.aggregate({ where: { workOrderId: wo.id, partId: id }, _sum: { quantityOnHand: true } }))._sum.quantityOnHand;
+    await assert.rejects(f.completeKitOrder({ kitOrderId: kit.id, userId: admin.id }), /short/i);
+    assert.equal(await staged(part.id), 1); assert.equal(await staged(component.id), 0.4);
+    await assert.rejects(f.completeKitOrder({ kitOrderId: kit.id, userId: admin.id }), /short/i);
+    assert.equal(await staged(part.id), 1); assert.equal(await staged(component.id), 0.4);
+    await prisma.inventoryItem.create({ data: { partId: component.id, locationId: storage.id, quantityOnHand: 0.6, quantityAvailable: 0.6 } });
+    await f.completeKitOrder({ kitOrderId: kit.id, userId: admin.id });
+    await f.completeKitOrder({ kitOrderId: kit.id, userId: admin.id });
+    assert.equal(await staged(part.id), 1); assert.equal(await staged(component.id), 1);
+    assert.equal((await prisma.kitOrder.findUniqueOrThrow({ where: { id: kit.id } })).status, "COMPLETE");
+    assert.equal(await prisma.inventoryItem.count({ where: { quantityOnHand: { lt: 0 } } }), 0);
+    console.log("PASS repeated short-kit retry stages exactly required quantities, including partial picks");
+    const raceWo = await prisma.workOrder.create({ data: { number: "KIT-RACE-WO", partId: part.id, status: "KITTING" } });
+    const raceKit = await prisma.kitOrder.create({ data: { number: "KIT-RACE", workOrderId: raceWo.id, lines: { create: { partId: part.id, quantityRequired: 1 } } } });
+    await Promise.allSettled([f.completeKitOrder({ kitOrderId: raceKit.id }), f.completeKitOrder({ kitOrderId: raceKit.id })]);
+    await f.completeKitOrder({ kitOrderId: raceKit.id });
+    assert.equal((await prisma.inventoryItem.aggregate({ where: { workOrderId: raceWo.id }, _sum: { quantityOnHand: true } }))._sum.quantityOnHand, 1);
+    assert.equal((await prisma.materialTransaction.aggregate({ where: { kitOrderId: raceKit.id }, _sum: { quantity: true } }))._sum.quantity, 1);
+    console.log("PASS competing kit completion cannot duplicate inventory or material issues");
+
   } finally { await prisma.$disconnect(); await socket.stop(); await pg.close(); }
 }
 main().catch(e => { console.error(e); process.exitCode = 1; });

@@ -1,3 +1,4 @@
+import { assertSeparatePrSigner } from "./pr-signers";
 // Server-side service (not a "use server" module — exports sync helpers like approvalActionLabel).
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
@@ -762,6 +763,7 @@ export async function decidePrApproval(params: {
     });
   }
   if (!current) throw new Error("No pending approval step found");
+  if (params.decision === "APPROVED") await assertSeparatePrSigner(pr.id, params.userId, current.id);
 
   const allowed = await canUserApproveStep({
     userId: params.userId,
