@@ -1126,7 +1126,8 @@ export async function actionCreateWoFromBom(formData: FormData): Promise<void> {
 }
 
 export async function actionCreateForecast(formData: FormData): Promise<void> {
-  const user = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("planning.forecast.create");
   const { createForecast } = await import("@/lib/services/planning");
   const name = ((formData.get("name") as string) || "").trim();
   const notes = ((formData.get("notes") as string) || "").trim() || null;
@@ -3834,7 +3835,8 @@ function safeReturnTo(raw: string | null): string | null {
 }
 
 export async function actionCreateCustomer(formData: FormData): Promise<void> {
-  const user = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("customers.manage");
   const data = parseCustomerForm(formData);
   const returnTo = safeReturnTo(formData.get("returnTo") as string | null);
 
@@ -3857,7 +3859,8 @@ export async function actionCreateCustomer(formData: FormData): Promise<void> {
 }
 
 export async function actionUpdateCustomer(formData: FormData): Promise<void> {
-  const user = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("customers.manage");
   const id = formData.get("id") as string;
   if (!id) throw new Error("Customer id required");
   const data = parseCustomerForm(formData);
@@ -3966,7 +3969,8 @@ function formBool(formData: FormData, key: string) {
 }
 
 export async function actionCreateItem(formData: FormData): Promise<void> {
-  const user = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("items.manage");
   const part = await createPart({
     partNumber: formStr(formData, "partNumber"),
     description: formStr(formData, "description"),
@@ -4000,7 +4004,8 @@ export async function actionCreateItem(formData: FormData): Promise<void> {
 export async function actionUpdateItem(formData: FormData): Promise<void> {
   const id = formStr(formData, "id");
   const returnTab = formStr(formData, "returnTab") || "general";
-  const user = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("items.manage");
 
   const data: Parameters<typeof updatePart>[1] = { userId: user?.id };
 
@@ -6510,7 +6515,8 @@ export async function actionGrantUserPermission(
 }
 
 export async function actionPostJournal(formData: FormData): Promise<void> {
-  const user = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("accounting.journal.post");
   const { postJournal } = await import("@/lib/services/gaap");
   const description = ((formData.get("description") as string) || "").trim();
   const debitAccountId = ((formData.get("debitAccountId") as string) || "").trim();

@@ -3,6 +3,8 @@
  * income statement, balance sheet, cash activity proxy from journals.
  */
 import { prisma } from "@/lib/db";
+import type { Prisma } from "@prisma/client";
+type LedgerDb = Prisma.TransactionClient;
 import { logAudit } from "@/lib/audit";
 import { userHasPermission } from "@/lib/auth";
 import {
@@ -465,17 +467,18 @@ export async function reclassifyJournalLines(params: {
 }
 
 async function applyJournalBalances(
-  lines: { accountId: string; debit: number; credit: number }[]
+  lines: { accountId: string; debit: number; credit: number }[],
+  db: LedgerDb = prisma
 ) {
   for (const line of lines) {
-    const acct = await prisma.account.findUnique({
+    const acct = await db.account.findUnique({
       where: { id: line.accountId },
     });
     if (!acct) continue;
     const delta = ["ASSET", "EXPENSE", "COGS"].includes(acct.type)
       ? (line.debit || 0) - (line.credit || 0)
       : (line.credit || 0) - (line.debit || 0);
-    await prisma.account.update({
+    await db.account.update({
       where: { id: acct.id },
       data: { balance: { increment: delta } },
     });
@@ -529,8 +532,23 @@ export async function postJournal(params: {
     docType?: string;
   }[];
 }) {
+  // Manual and user-entered settlement/expense entries cannot self-post around SoD.
+  const source = params.source || "MANUAL";
+  const immediate = params.status === "POSTED" || (!params.status && source !== "MANUAL");
+  if (["MANUAL", "AR_SETTLE", "EXPENSE"].includes(source) && immediate) {
+    const settings = await prisma.accountingSettings.findUnique({ where: { id: "default" } });
+    const controller = params.createdById ? await userHasPermission(params.createdById, "accounting.controller") : false;
+    if (settings?.requireJournalSoD && (!params.createdById || !controller)) {
+      throw new Error("Someone else needs to approve this entry. Submit for approval instead.");
+    }
+  }
+  return prisma.$transaction((tx) => postJournalInTransaction(params, tx));
+}
+
+async function postJournalInTransaction(params: Parameters<typeof postJournal>[0], db: LedgerDb) {
+
   if (params.idempotencyKey) {
-    const existing = await prisma.journalEntry.findUnique({
+    const existing = await db.journalEntry.findUnique({
       where: { idempotencyKey: params.idempotencyKey },
       include: { lines: true, attachments: true },
     });
@@ -542,16 +560,16 @@ export async function postJournal(params: {
   const status =
     params.status ||
     (source === "MANUAL" ? "PENDING_APPROVAL" : "POSTED");
-  const count = await prisma.journalEntry.count();
+  const count = await db.journalEntry.count();
   const number = `JE-${String(count + 1).padStart(5, "0")}`;
   if (status === "POSTED") {
-    await assertPeriodOpen(params.date || new Date(), "post");
+    await assertPeriodOpen(params.date || new Date(), "post", db);
   }
 
   let programId = params.programId || null;
   let projectId = params.projectId || null;
   if (!programId && params.workOrderId) {
-    const wo = await prisma.workOrder.findUnique({
+    const wo = await db.workOrder.findUnique({
       where: { id: params.workOrderId },
       select: { projectId: true, project: { select: { programId: true } } },
     });
@@ -559,7 +577,7 @@ export async function postJournal(params: {
     programId = wo?.project?.programId || null;
   }
   if (!programId && projectId) {
-    const project = await prisma.project.findUnique({
+    const project = await db.project.findUnique({
       where: { id: projectId },
       select: { programId: true },
     });
@@ -567,20 +585,20 @@ export async function postJournal(params: {
   }
   let legalEntityId = params.legalEntityId || null;
   if (!legalEntityId) {
-    const entity = await prisma.legalEntity.findFirst({
+    const entity = await db.legalEntity.findFirst({
       where: { isDefault: true },
       select: { id: true },
     });
     legalEntityId = entity?.id || null;
   }
   const accountIds = [...new Set(params.lines.map((l) => l.accountId))];
-  const accounts = await prisma.account.findMany({
+  const accounts = await db.account.findMany({
     where: { id: { in: accountIds } },
     select: { id: true, allowability: true, farCitation: true },
   });
   const accountById = new Map(accounts.map((a) => [a.id, a]));
 
-  const je = await prisma.journalEntry.create({
+  const je = await db.journalEntry.create({
     data: {
       number,
       description: params.description,
@@ -602,8 +620,10 @@ export async function postJournal(params: {
       lines: {
         create: params.lines.map((l) => {
           const acct = accountById.get(l.accountId);
-          const unallowable =
-            l.unallowable === true || acct?.allowability === "UNALLOWABLE";
+          // A reversal negates the original classification, not today's account defaults.
+          const unallowable = source === "REVERSAL" && l.unallowable !== undefined
+            ? l.unallowable
+            : l.unallowable === true || acct?.allowability === "UNALLOWABLE";
           return {
             accountId: l.accountId,
             debit: l.debit || 0,
@@ -616,7 +636,7 @@ export async function postJournal(params: {
             clinId: l.clinId || params.clinId || null,
             costElement: l.costElement || null,
             unallowable,
-            farCitation: l.farCitation || (unallowable ? acct?.farCitation : null) || null,
+            farCitation: source === "REVERSAL" ? l.farCitation || null : l.farCitation || (unallowable ? acct?.farCitation : null) || null,
           };
         }),
       },
@@ -636,8 +656,8 @@ export async function postJournal(params: {
   });
 
   if (status === "POSTED") {
-    await applyJournalBalances(je.lines);
-    await applyArSettlementFromJournal(je);
+    await applyJournalBalances(je.lines, db);
+    await applyArSettlementFromJournal(je, db);
   }
 
   return je;
@@ -655,25 +675,25 @@ async function applyArSettlementFromJournal(je: {
   source: string | null;
   sourceId: string | null;
   lines: { accountId: string; credit: number }[];
-}) {
+}, db: LedgerDb = prisma) {
   if (je.source !== "AR_SETTLE" || !je.sourceId) return;
-  const ar = await prisma.account.findFirst({ where: { code: "1100" } });
+  const ar = await db.account.findFirst({ where: { code: "1100" } });
   if (!ar) return;
   const credit = je.lines
     .filter((l) => l.accountId === ar.id)
     .reduce((s, l) => s + (l.credit || 0), 0);
   if (credit <= 0) return;
-  const inv = await prisma.arInvoice.findUnique({ where: { id: je.sourceId } });
+  const inv = await db.arInvoice.findUnique({ where: { id: je.sourceId } });
   if (!inv || ["PAID", "VOID"].includes(inv.status)) return;
   // Don't double-apply if this JE already settled the invoice.
-  const already = await prisma.arPayment.findFirst({
+  const already = await db.arPayment.findFirst({
     where: { invoiceId: inv.id, reference: je.number },
   });
   if (already) return;
   const amountPaid = Math.min(inv.total, inv.amountPaid + credit);
   const status =
     amountPaid >= inv.total - 0.001 ? "PAID" : amountPaid > 0 ? "PARTIAL" : inv.status;
-  await prisma.arPayment.create({
+  await db.arPayment.create({
     data: {
       invoiceId: inv.id,
       amount: Math.min(credit, inv.total - inv.amountPaid),
@@ -682,15 +702,15 @@ async function applyArSettlementFromJournal(je: {
       paymentDate: new Date(),
     },
   });
-  await prisma.arInvoice.update({
+  await db.arInvoice.update({
     where: { id: inv.id },
     data: { amountPaid, status },
   });
 }
 
 /** Current month-end close date, or null if the books are fully open. */
-export async function getAccountingCloseDate(): Promise<Date | null> {
-  const s = await prisma.accountingSettings.findUnique({
+export async function getAccountingCloseDate(db: LedgerDb = prisma): Promise<Date | null> {
+  const s = await db.accountingSettings.findUnique({
     where: { id: "default" },
     select: { closedThroughDate: true },
   });
@@ -698,10 +718,10 @@ export async function getAccountingCloseDate(): Promise<Date | null> {
 }
 
 /** Throw if `date` falls in a closed period. */
-async function assertPeriodOpen(date: Date, action: string) {
+async function assertPeriodOpen(date: Date, action: string, db: LedgerDb = prisma) {
   const [closed, periods] = await Promise.all([
-    getAccountingCloseDate(),
-    prisma.accountingPeriod.findMany({
+    getAccountingCloseDate(db),
+    db.accountingPeriod.findMany({
       where: { status: "CLOSED" },
       select: { startDate: true, endDate: true, name: true },
     }),
@@ -870,13 +890,20 @@ export async function recordArPayment(params: {
   paymentDate?: Date;
   userId?: string | null;
 }) {
-  if (params.amount <= 0) throw new Error("Payment amount must be positive");
-  const inv = await prisma.arInvoice.findUniqueOrThrow({
+  return prisma.$transaction((tx) => recordArPaymentInTransaction(params, tx));
+}
+
+async function recordArPaymentInTransaction(params: Parameters<typeof recordArPayment>[0], db: LedgerDb) {
+  // Schema-qualified Prisma update locks this invoice until the transaction finishes.
+  if (!Number.isFinite(params.amount) || params.amount <= 0) throw new Error("Payment amount must be positive");
+  const inv = await db.arInvoice.update({
     where: { id: params.invoiceId },
+    data: { amountPaid: { increment: 0 } },
   });
   if (["PAID", "VOID"].includes(inv.status)) {
     throw new Error(`Invoice ${inv.number} is ${inv.status}`);
   }
+  if (params.amount > inv.total - inv.amountPaid + 0.001) throw new Error("Payment exceeds outstanding invoice balance");
   const amountPaid = Math.min(inv.total, inv.amountPaid + params.amount);
   const status =
     amountPaid >= inv.total - 0.001
@@ -885,7 +912,7 @@ export async function recordArPayment(params: {
         ? "PARTIAL"
         : inv.status;
 
-  const payment = await prisma.arPayment.create({
+  const payment = await db.arPayment.create({
     data: {
       invoiceId: inv.id,
       amount: params.amount,
@@ -894,26 +921,28 @@ export async function recordArPayment(params: {
       paymentDate: params.paymentDate || new Date(),
     },
   });
-  await prisma.arInvoice.update({
+  await db.arInvoice.update({
     where: { id: inv.id },
     data: { amountPaid, status },
   });
 
   // Cash-side JE: Dr Cash / Cr AR
-  const cash = await prisma.account.findFirst({ where: { code: "1000" } });
-  const ar = await prisma.account.findFirst({ where: { code: "1100" } });
-  if (cash && ar && cash.id !== ar.id) {
-    await postJournal({
+  const cash = await db.account.findFirst({ where: { code: "1000" } });
+  const ar = await db.account.findFirst({ where: { code: "1100" } });
+  if (!cash || !ar || cash.id === ar.id) throw new Error("Cash and AR control accounts are required");
+  {
+    await postJournalInTransaction({
       description: `AR receipt ${inv.number}`,
       source: "AR",
       sourceId: payment.id,
       createdById: params.userId || undefined,
       status: "POSTED",
+      date: params.paymentDate || new Date(),
       lines: [
         { accountId: cash.id, debit: params.amount, memo: inv.number },
         { accountId: ar.id, credit: params.amount, memo: inv.number },
       ],
-    });
+    }, db);
   }
   return payment;
 }
@@ -927,13 +956,20 @@ export async function recordApPayment(params: {
   paymentDate?: Date;
   userId?: string | null;
 }) {
-  if (params.amount <= 0) throw new Error("Payment amount must be positive");
-  const inv = await prisma.apInvoice.findUniqueOrThrow({
+  return prisma.$transaction((tx) => recordApPaymentInTransaction(params, tx));
+}
+
+async function recordApPaymentInTransaction(params: Parameters<typeof recordApPayment>[0], db: LedgerDb) {
+  // Schema-qualified Prisma update locks this invoice until the transaction finishes.
+  if (!Number.isFinite(params.amount) || params.amount <= 0) throw new Error("Payment amount must be positive");
+  const inv = await db.apInvoice.update({
     where: { id: params.invoiceId },
+    data: { amountPaid: { increment: 0 } },
   });
   if (["PAID", "VOID"].includes(inv.status)) {
     throw new Error(`Invoice ${inv.number} is ${inv.status}`);
   }
+  if (params.amount > inv.total - inv.amountPaid + 0.001) throw new Error("Payment exceeds outstanding invoice balance");
   const amountPaid = Math.min(inv.total, inv.amountPaid + params.amount);
   const status =
     amountPaid >= inv.total - 0.001
@@ -942,7 +978,7 @@ export async function recordApPayment(params: {
         ? "PARTIAL"
         : inv.status;
 
-  const payment = await prisma.apPayment.create({
+  const payment = await db.apPayment.create({
     data: {
       invoiceId: inv.id,
       amount: params.amount,
@@ -951,25 +987,27 @@ export async function recordApPayment(params: {
       paymentDate: params.paymentDate || new Date(),
     },
   });
-  await prisma.apInvoice.update({
+  await db.apInvoice.update({
     where: { id: inv.id },
     data: { amountPaid, status },
   });
 
-  const cash = await prisma.account.findFirst({ where: { code: "1000" } });
-  const ap = await prisma.account.findFirst({ where: { code: "2000" } });
-  if (cash && ap) {
-    await postJournal({
+  const cash = await db.account.findFirst({ where: { code: "1000" } });
+  const ap = await db.account.findFirst({ where: { code: "2000" } });
+  if (!cash || !ap || cash.id === ap.id) throw new Error("Cash and AP control accounts are required");
+  {
+    await postJournalInTransaction({
       description: `AP payment ${inv.number}`,
       source: "AP",
       sourceId: payment.id,
       createdById: params.userId || undefined,
       status: "POSTED",
+      date: params.paymentDate || new Date(),
       lines: [
         { accountId: ap.id, debit: params.amount, memo: inv.number },
         { accountId: cash.id, credit: params.amount, memo: inv.number },
       ],
-    });
+    }, db);
   }
   return payment;
 }
@@ -1049,6 +1087,10 @@ export async function reverseJournalEntry(params: {
     source: "REVERSAL",
     sourceId: je.id,
     reversesJournalId: je.id,
+    programId: je.programId || undefined,
+    workOrderId: je.workOrderId || undefined,
+    clinId: je.clinId || undefined,
+    legalEntityId: je.legalEntityId || undefined,
     projectId: je.projectId || undefined,
     chargeCode: je.chargeCode || undefined,
     createdById: params.userId || undefined,
@@ -1060,6 +1102,13 @@ export async function reverseJournalEntry(params: {
       credit: l.debit || 0,
       memo: l.memo || undefined,
       chargeCode: l.chargeCode || undefined,
+      programId: l.programId || undefined,
+      projectId: l.projectId || undefined,
+      workOrderId: l.workOrderId || undefined,
+      clinId: l.clinId || undefined,
+      costElement: l.costElement || undefined,
+      unallowable: l.unallowable,
+      farCitation: l.farCitation || undefined,
     })),
   });
 }
