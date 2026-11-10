@@ -18,6 +18,7 @@ import { createHash, createCipheriv, createDecipheriv, randomBytes, scryptSync, 
 import type { PrismaClient } from "@prisma/client";
 import { prisma, controlPlaneClient, clientForSchema } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
+import { logAuthAudit } from "@/lib/auth-audit";
 import { generateSecret, otpauthUri, verifyCode } from "./totp";
 import { isMissingTableError } from "@/lib/services/module-health";
 
@@ -257,11 +258,11 @@ async function consumeFactor(
     minStep: cred.lastStep,
   });
   if (totp.ok) {
-    await db.mfaCredential.update({
-      where: { id: cred.id },
+    const claim = await db.mfaCredential.updateMany({
+      where: { id: cred.id, confirmedAt: { not: null }, OR: [{ lastStep: null }, { lastStep: { lt: totp.step } }] },
       data: { lastStep: totp.step },
     });
-    return { ok: true };
+    return { ok: claim.count === 1 };
   }
 
   const wanted = hashCode(code);
@@ -270,11 +271,11 @@ async function consumeFactor(
     const a = Buffer.from(rc.codeHash);
     const b = Buffer.from(wanted);
     if (a.length === b.length && timingSafeEqual(a, b)) {
-      await db.mfaRecoveryCode.update({
-        where: { id: rc.id },
+      const claim = await db.mfaRecoveryCode.updateMany({
+        where: { id: rc.id, usedAt: null },
         data: { usedAt: new Date() },
       });
-      return { ok: true, usedRecovery: true };
+      return { ok: claim.count === 1, usedRecovery: claim.count === 1 };
     }
   }
   return { ok: false };
@@ -290,7 +291,10 @@ export async function requiresMfa(
   const db = schema ? clientForSchema(schema) : controlPlaneClient();
   const cred = await db.mfaCredential
     .findUnique({ where: { userId }, select: { confirmedAt: true } })
-    .catch(() => null); // table missing on an unmigrated schema → no MFA
+    .catch((error) => {
+      if (isMissingTableError(error)) return null; // legacy schema has no enrollment
+      throw error; // DB/network errors must never turn a configured factor off
+    });
   return !!cred?.confirmedAt;
 }
 
@@ -332,68 +336,38 @@ export async function verifyChallenge(params: {
 }): Promise<ChallengeResult> {
   const cp = controlPlaneClient();
   const tokenHash = createHash("sha256").update(params.token).digest("hex");
-  const challenge = await cp.mfaChallenge.findUnique({ where: { tokenHash } });
-
-  if (!challenge || challenge.consumedAt || challenge.expiresAt < new Date()) {
-    return { ok: false, error: "That sign-in attempt expired — start again" };
-  }
-  if (challenge.attempts >= MAX_CHALLENGE_ATTEMPTS) {
-    return { ok: false, error: "Too many attempts — start again" };
-  }
-
-  const db = challenge.schemaName
-    ? clientForSchema(challenge.schemaName)
-    : controlPlaneClient();
-  const cred = await db.mfaCredential.findUnique({
-    where: { userId: challenge.userId },
-    include: { recoveryCodes: true },
+  const claimedAt = new Date();
+  // Reserve the challenge before touching a factor. This is a one-way claim on
+  // success/error, released only after a definitely invalid factor. A process or
+  // storage failure leaves it burned (fail closed), never a second success.
+  const claim = await cp.mfaChallenge.updateMany({
+    where: { tokenHash, consumedAt: null, expiresAt: { gt: claimedAt }, attempts: { lt: MAX_CHALLENGE_ATTEMPTS } },
+    data: { consumedAt: claimedAt, attempts: { increment: 1 } },
   });
-  if (!cred?.confirmedAt) {
-    // MFA was turned off between the two steps — nothing left to check.
-    await cp.mfaChallenge.update({
-      where: { id: challenge.id },
-      data: { consumedAt: new Date() },
-    });
-    return {
-      ok: true,
-      userId: challenge.userId,
-      schema: challenge.schemaName,
-      userAgent: challenge.userAgent,
-    };
+  if (claim.count !== 1) {
+    const current = await cp.mfaChallenge.findUnique({ where: { tokenHash } });
+    return { ok: false, error: current && !current.consumedAt && current.attempts >= MAX_CHALLENGE_ATTEMPTS
+      ? "Too many attempts — start again" : "That sign-in attempt expired — start again" };
   }
-
-  const accepted = await consumeFactor(cred, params.code, db);
+  const challenge = await cp.mfaChallenge.findUniqueOrThrow({ where: { tokenHash } });
+  const db = challenge.schemaName && challenge.schemaName !== "public" ? clientForSchema(challenge.schemaName) : cp;
+  const cred = await db.mfaCredential.findUnique({ where: { userId: challenge.userId }, include: { recoveryCodes: true } });
+  const accepted = cred?.confirmedAt ? await consumeFactor(cred, params.code, db) : { ok: true };
   if (!accepted.ok) {
-    await cp.mfaChallenge.update({
-      where: { id: challenge.id },
-      data: { attempts: { increment: 1 } },
+    // attempts is the claim's generation; a delayed failure cannot unlock a
+    // newer attempt even if two requests share the same millisecond timestamp.
+    await cp.mfaChallenge.updateMany({
+      where: { id: challenge.id, consumedAt: claimedAt, attempts: challenge.attempts },
+      data: { consumedAt: null },
     });
-    const left = MAX_CHALLENGE_ATTEMPTS - (challenge.attempts + 1);
-    return {
-      ok: false,
-      error:
-        left > 0
-          ? `That code isn't right — ${left} attempt${left === 1 ? "" : "s"} left`
-          : "Too many attempts — start again",
-    };
+    const left = MAX_CHALLENGE_ATTEMPTS - challenge.attempts;
+    return { ok: false, error: left > 0
+      ? `That code isn't right — ${left} attempt${left === 1 ? "" : "s"} left` : "Too many attempts — start again" };
   }
-
-  await cp.mfaChallenge.update({
-    where: { id: challenge.id },
-    data: { consumedAt: new Date() },
-  });
-  await logAudit({
-    entityType: "User",
-    entityId: challenge.userId,
-    action: accepted.usedRecovery ? "MFA_RECOVERY_USED" : "MFA_VERIFIED",
-    userId: challenge.userId,
-  });
-  return {
-    ok: true,
-    userId: challenge.userId,
-    schema: challenge.schemaName,
-    userAgent: challenge.userAgent,
-  };
+  if (cred?.confirmedAt) {
+    await logAuthAudit(challenge.userId, challenge.schemaName, accepted.usedRecovery ? "MFA_RECOVERY_USED" : "MFA_VERIFIED");
+  }
+  return { ok: true, userId: challenge.userId, schema: challenge.schemaName, userAgent: challenge.userAgent };
 }
 
 /** Housekeeping for the nightly cron — challenges are short-lived by design. */
