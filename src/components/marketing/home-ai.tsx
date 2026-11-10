@@ -24,34 +24,34 @@ type Card = {
 const MODES: { id: "agents" | "assistant"; label: string; cards: Card[] }[] = [
   {
     id: "agents",
-    label: "Agents",
+    label: "Workflow help",
     cards: [
       {
         icon: BadgeCheck,
         label: "Work orders",
-        title: "Finish or release a work order by asking",
-        body: "Carina can complete or release a work order from chat or voice. She confirms before the change, then uses the same completion path as the screen.",
+        title: "Understand work order release and completion",
+        body: "Carina explains the work order workflow and its prerequisites. You perform changes in the normal screen with the required permissions and sign-offs.",
         link: "Watch the demo",
       },
       {
         icon: ClipboardList,
         label: "Purchasing",
-        title: "Raise a purchase request in the conversation",
-        body: "Ask for a purchase request, including the charge it should hit. Missing details come back as questions. Nothing is filed until you confirm.",
+        title: "Get guidance on purchase requests",
+        body: "Ask how purchasing, charge codes and approvals fit together. The AI help assistant does not file or approve purchase requests.",
         link: "Learn more",
       },
       {
         icon: PackagePlus,
         label: "Records",
-        title: "Create the part, the customer, or the order",
-        body: "Agents can open a part, a customer, or a work order through the same services the forms use. You confirm the summary before the record exists.",
+        title: "Find the right record workflow",
+        body: "Get source-linked help for parts, customers and orders. Carina explains the process without creating or changing your records.",
         link: "Watch the demo",
       },
       {
         icon: ListChecks,
         label: "Time off",
-        title: "File a PTO request without leaving the bubble",
-        body: "A time-off request can start in the assistant. Carina collects the dates she still needs and asks you to confirm before the request is submitted.",
+        title: "Find workforce and approval guidance",
+        body: "Ask where time-off requests and approvals live, then use the authorized HR screen. Private workforce records are not loaded into AI help.",
         link: "Learn more",
       },
     ],
@@ -62,16 +62,16 @@ const MODES: { id: "agents" | "assistant"; label: string; cards: Card[] }[] = [
     cards: [
       {
         icon: ScanSearch,
-        label: "Live plant",
-        title: "Ask what the floor is actually doing",
-        body: "Carina answers from the live plant: work orders in progress, open NCRs and MRB, and WIP. Questions outside manufacturing ERP get a short refusal.",
+        label: "Grounded help",
+        title: "Ask how Protessera works",
+        body: "Carina uses reviewed product guides and page context, with source links. It does not access live plant data and offers human support when it cannot verify an answer.",
         link: "Watch the demo",
       },
       {
         icon: Route,
         label: "Tours",
         title: "Walk a real screen, not a made-up one",
-        body: "Guided tours and on-screen highlights come from a fixed catalog of pages and anchors in the product. She does not invent buttons that are not there.",
+        body: "Guided tours and on-screen highlights come from a fixed catalog of pages and anchors in the product. Tours use reviewed product steps; your permissions still apply.",
         link: "Learn more",
       },
       {

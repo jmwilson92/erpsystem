@@ -8,7 +8,7 @@
     "dev:app": "next dev --turbopack",
     "prestart": "prisma generate && prisma db push",
     "build": "next build",
-    "prebuild": "prisma generate && node scripts/gen-tenant-ddl.mjs",
+    "prebuild": "prisma generate && node scripts/gen-tenant-ddl.mjs && npm run help:build",
     "start": "next start",
     "lint": "eslint",
     "sync": "prisma generate && npm run db:push",
@@ -22,7 +22,7 @@
     "setup": "prisma generate && prisma db push && tsx prisma/seed.ts",
     "postinstall": "prisma generate",
     "typecheck": "tsc --noEmit",
-    "smoke": "tsx --tsconfig tsconfig.smoke.json scripts/smoke-unit.ts && npm run test:integrity",
+    "smoke": "tsx --tsconfig tsconfig.smoke.json scripts/smoke-unit.ts && npm run test:integrity && npm run test:ai-help",
     "assert:prod-env": "node scripts/assert-production-env.mjs",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
@@ -40,6 +40,9 @@
     "test:founding": "tsx --tsconfig tsconfig.smoke.json scripts/test-founding-billing.ts",
     "test:docs": "tsx scripts/test-docs.ts",
     "test:bom": "tsx scripts/test-bom-lifecycle.ts",
+    "help:build": "tsx scripts/build-ai-help.ts",
+    "test:ai-help": "tsx --tsconfig tsconfig.smoke.json scripts/test-ai-help.ts && tsx scripts/test-ai-help-db.ts",
+    "eval:ai-help": "tsx scripts/eval-ai-help.ts",
     "test:integrity": "tsx scripts/test-integrity.ts"
   },
   "prisma": {

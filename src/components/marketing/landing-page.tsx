@@ -715,12 +715,12 @@ export function LandingPage({
               id="ai-heading"
               className="mt-3 max-w-3xl text-4xl font-semibold tracking-tight text-[#10203f] sm:text-5xl"
             >
-              Carina answers from the plant, and can file the work when you confirm
+              Meet Carina: AI help powered by Grok
             </h2>
             <p className="mt-4 max-w-2xl text-base leading-relaxed text-[#3d4d66]">
-              The assistant is in the product help bubble. Agents run the same services
-              as the screens — work orders, purchase requests, parts, customers, and
-              time off — and they ask before they change a record.
+              The AI assistant is in the product help bubble, with source-linked product
+              guidance and optional voice. It can make mistakes, never changes records
+              or reads live plant data, and points you to human support when unsure.
             </p>
             <div className="mt-8">
               <HomeAi />

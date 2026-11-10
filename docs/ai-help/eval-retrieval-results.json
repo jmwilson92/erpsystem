@@ -1,0 +1,475 @@
+{
+  "mode": "retrieval coverage",
+  "model": "grok-4.7",
+  "retested": 0,
+  "total": 50,
+  "executed": 50,
+  "passed": 50,
+  "percent": 100,
+  "note": "Automated expected-source and regex rubric; human semantic review still required. Not a promise of perfection.",
+  "results": [
+    {
+      "id": "q01",
+      "pass": true,
+      "retrieved": [
+        "bom-certification",
+        "programs"
+      ]
+    },
+    {
+      "id": "q02",
+      "pass": true,
+      "retrieved": [
+        "bom-certification",
+        "order-to-cash",
+        "kitting",
+        "tour-work-order-lifecycle"
+      ]
+    },
+    {
+      "id": "q03",
+      "pass": true,
+      "retrieved": [
+        "bom-certification",
+        "kitting",
+        "tour-product-definition",
+        "order-to-cash"
+      ]
+    },
+    {
+      "id": "q04",
+      "pass": true,
+      "retrieved": [
+        "bom-certification",
+        "module-bom",
+        "tour-product-definition",
+        "signatures"
+      ]
+    },
+    {
+      "id": "q05",
+      "pass": true,
+      "retrieved": [
+        "bom-certification",
+        "order-to-cash",
+        "kitting",
+        "receiving"
+      ]
+    },
+    {
+      "id": "q06",
+      "pass": true,
+      "retrieved": [
+        "order-to-cash",
+        "tour-order-to-cash",
+        "module-sales-quotes",
+        "module-sales"
+      ]
+    },
+    {
+      "id": "q07",
+      "pass": true,
+      "retrieved": [
+        "order-to-cash",
+        "tour-procure-to-receive",
+        "receiving",
+        "tour-getting-started"
+      ]
+    },
+    {
+      "id": "q08",
+      "pass": true,
+      "retrieved": [
+        "signatures",
+        "getting-started",
+        "tour-my-work",
+        "bom-certification"
+      ]
+    },
+    {
+      "id": "q09",
+      "pass": true,
+      "retrieved": [
+        "signatures",
+        "kitting",
+        "getting-started",
+        "tour-work-order-lifecycle"
+      ]
+    },
+    {
+      "id": "q10",
+      "pass": true,
+      "retrieved": [
+        "signatures",
+        "docs",
+        "engineering-plm",
+        "tour-change-management"
+      ]
+    },
+    {
+      "id": "q11",
+      "pass": true,
+      "retrieved": [
+        "kitting",
+        "module-kitting",
+        "tour-work-order-lifecycle"
+      ]
+    },
+    {
+      "id": "q12",
+      "pass": true,
+      "retrieved": [
+        "bom-certification",
+        "kitting",
+        "tour-getting-started",
+        "order-to-cash"
+      ]
+    },
+    {
+      "id": "q13",
+      "pass": true,
+      "retrieved": [
+        "kitting",
+        "engineering-plm",
+        "receiving",
+        "signatures"
+      ]
+    },
+    {
+      "id": "q14",
+      "pass": true,
+      "retrieved": [
+        "receiving",
+        "tour-work-order-lifecycle",
+        "tour-rma-trace"
+      ]
+    },
+    {
+      "id": "q15",
+      "pass": true,
+      "retrieved": [
+        "receiving",
+        "pricing",
+        "tour-rma-trace",
+        "module-receiving"
+      ]
+    },
+    {
+      "id": "q16",
+      "pass": true,
+      "retrieved": [
+        "tour-rma-trace",
+        "module-trace-serials",
+        "receiving",
+        "tour-work-order-lifecycle"
+      ]
+    },
+    {
+      "id": "q17",
+      "pass": true,
+      "retrieved": [
+        "tour-quality-escape",
+        "quality",
+        "tour-getting-started"
+      ]
+    },
+    {
+      "id": "q18",
+      "pass": true,
+      "retrieved": [
+        "receiving",
+        "quality",
+        "tour-planning-mrp",
+        "tour-quality-escape"
+      ]
+    },
+    {
+      "id": "q19",
+      "pass": true,
+      "retrieved": [
+        "tour-rma-trace",
+        "module-rma",
+        "receiving",
+        "quality"
+      ]
+    },
+    {
+      "id": "q20",
+      "pass": true,
+      "retrieved": [
+        "quality",
+        "tour-suppliers-property"
+      ]
+    },
+    {
+      "id": "q21",
+      "pass": true,
+      "retrieved": [
+        "tour-change-management",
+        "tour-product-definition",
+        "engineering-plm",
+        "ai-help"
+      ]
+    },
+    {
+      "id": "q22",
+      "pass": true,
+      "retrieved": [
+        "engineering-plm",
+        "kitting",
+        "signatures",
+        "receiving"
+      ]
+    },
+    {
+      "id": "q23",
+      "pass": true,
+      "retrieved": [
+        "programs",
+        "module-pmo",
+        "tour-program-management"
+      ]
+    },
+    {
+      "id": "q24",
+      "pass": true,
+      "retrieved": [
+        "programs",
+        "tour-program-management",
+        "module-pmo-pi",
+        "tour-getting-started"
+      ]
+    },
+    {
+      "id": "q25",
+      "pass": true,
+      "retrieved": [
+        "programs",
+        "tour-program-management",
+        "module-budgets",
+        "tour-my-work"
+      ]
+    },
+    {
+      "id": "q26",
+      "pass": true,
+      "retrieved": [
+        "accounting",
+        "tour-accounting-money",
+        "order-to-cash",
+        "module-accounting"
+      ]
+    },
+    {
+      "id": "q27",
+      "pass": true,
+      "retrieved": [
+        "accounting",
+        "module-accounting-payroll",
+        "tour-accounting-money",
+        "tour-qms-calibration-tools"
+      ]
+    },
+    {
+      "id": "q28",
+      "pass": true,
+      "retrieved": [
+        "module-accounting-govcon",
+        "accounting"
+      ]
+    },
+    {
+      "id": "q29",
+      "pass": true,
+      "retrieved": [
+        "docs"
+      ]
+    },
+    {
+      "id": "q30",
+      "pass": true,
+      "retrieved": [
+        "docs",
+        "roles",
+        "signatures",
+        "ai-help"
+      ]
+    },
+    {
+      "id": "q31",
+      "pass": true,
+      "retrieved": [
+        "roles",
+        "module-admin-permissions",
+        "signatures",
+        "quality"
+      ]
+    },
+    {
+      "id": "q32",
+      "pass": true,
+      "retrieved": [
+        "ai-help",
+        "roles",
+        "module-guides",
+        "module-ai"
+      ]
+    },
+    {
+      "id": "q33",
+      "pass": true,
+      "retrieved": [
+        "getting-started",
+        "pricing",
+        "tour-shop-visibility",
+        "tour-admin-setup"
+      ]
+    },
+    {
+      "id": "q34",
+      "pass": true,
+      "retrieved": [
+        "getting-started",
+        "tour-getting-started",
+        "roles",
+        "tour-qms-calibration-tools"
+      ]
+    },
+    {
+      "id": "q35",
+      "pass": true,
+      "retrieved": [
+        "ai-help",
+        "roles",
+        "module-ai",
+        "signatures"
+      ]
+    },
+    {
+      "id": "q36",
+      "pass": true,
+      "retrieved": [
+        "ai-help",
+        "signatures",
+        "accounting"
+      ]
+    },
+    {
+      "id": "q37",
+      "pass": true,
+      "retrieved": [
+        "ai-help"
+      ]
+    },
+    {
+      "id": "q38",
+      "pass": true,
+      "retrieved": [
+        "pricing",
+        "getting-started",
+        "tour-billing-plan"
+      ]
+    },
+    {
+      "id": "q39",
+      "pass": true,
+      "retrieved": [
+        "pricing",
+        "tour-billing-plan",
+        "tour-admin-setup"
+      ]
+    },
+    {
+      "id": "q40",
+      "pass": true,
+      "retrieved": [
+        "pricing",
+        "module-billing",
+        "tour-billing-plan"
+      ]
+    },
+    {
+      "id": "q41",
+      "pass": true,
+      "retrieved": [
+        "pricing"
+      ]
+    },
+    {
+      "id": "q42",
+      "pass": true,
+      "retrieved": [
+        "pricing",
+        "getting-started",
+        "module-demo",
+        "tour-billing-plan"
+      ]
+    },
+    {
+      "id": "q43",
+      "pass": true,
+      "retrieved": [
+        "pricing"
+      ]
+    },
+    {
+      "id": "q44",
+      "pass": true,
+      "retrieved": [
+        "receiving",
+        "module-purchasing",
+        "module-purchasing-pr-new",
+        "order-to-cash"
+      ]
+    },
+    {
+      "id": "q45",
+      "pass": true,
+      "retrieved": [
+        "tour-work-order-lifecycle"
+      ]
+    },
+    {
+      "id": "q46",
+      "pass": true,
+      "retrieved": [
+        "bom-certification"
+      ]
+    },
+    {
+      "id": "q47",
+      "pass": true,
+      "retrieved": [
+        "roles",
+        "bom-certification",
+        "signatures",
+        "kitting"
+      ]
+    },
+    {
+      "id": "q48",
+      "pass": true,
+      "retrieved": [
+        "roles",
+        "ai-help",
+        "tour-admin-setup",
+        "tour-getting-started"
+      ]
+    },
+    {
+      "id": "q49",
+      "pass": true,
+      "retrieved": [
+        "tour-accounting-money",
+        "module-accounting"
+      ]
+    },
+    {
+      "id": "q50",
+      "pass": true,
+      "retrieved": [
+        "getting-started"
+      ]
+    }
+  ]
+}

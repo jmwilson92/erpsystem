@@ -1,0 +1,216 @@
+[
+  {
+    "id": "order-to-cash",
+    "title": "Quote to customer PO, sales order and work order",
+    "routes": [
+      "/sales/quotes",
+      "/sales",
+      "/work-orders"
+    ],
+    "sources": [
+      "src/app/actions.ts",
+      "src/lib/services/order-fulfillment.ts"
+    ],
+    "text": "Start in Sales > Quotes. Add a customer and quote lines, send or revise the quote, then record the customer's purchase order reference when converting to a sales order. A customer PO is not your supplier purchase order. Sales orders track demand, fulfillment and shipping. Create linked work orders for manufacturing, then kit, build, inspect and ship. Manufacturing production work orders require a matching CERTIFIED BOM. Review each resulting record; do not assume a quote automatically completes manufacturing or posts cash."
+  },
+  {
+    "id": "bom-certification",
+    "title": "Work order types, standalone production and optional prototype BOM certification",
+    "routes": [
+      "/bom",
+      "/work-orders"
+    ],
+    "sources": [
+      "src/lib/services/bom.ts",
+      "src/lib/services/work-orders.ts",
+      "docs/rollouts/bom-optional-prototype.md"
+    ],
+    "text": "The prototype step is optional. A DRAFT or IN_REVIEW BOM can be certified directly for production when Prototype required is off. When Prototype required is on, prototype evidence is required before production certification. Only CERTIFIED BOM revisions for the same part can be used to create, release or start PRODUCTION work orders. A standalone production WO still requires a certified BOM; it does not require a sales order. TASK_ONLY, REWORK, INSPECTION, REPAIR and PROTOTYPE are separate types with their own rules, not ways to bypass production certification. Certification uses the signer's PIN, locks the revision and obsoletes the previous certified revision. To change a certified or obsolete BOM, create a new revision. Never tell users prototype is mandatory for all BOMs."
+  },
+  {
+    "id": "signatures",
+    "title": "PIN electronic signatures and traveler steps",
+    "routes": [
+      "/account",
+      "/work-orders",
+      "/qa",
+      "/docs"
+    ],
+    "sources": [
+      "src/lib/services/signature-pin.ts",
+      "src/lib/services/work-orders.ts",
+      "src/lib/services/docs.ts"
+    ],
+    "text": "Set or change your electronic sign-off PIN under My Account. A password is not the sign-off PIN. Enter the PIN only in the application's signature field, never in AI chat or a support message. Traveler and inspection sign-offs require the appropriate permission and PIN verification; they record the signer. Controlled Docs signatures bind to an exact revision and content hash. The assistant cannot sign, approve or bypass a signature. If a signature fails, check your PIN setup, permissions, step prerequisites and current revision, then contact human support if it persists."
+  },
+  {
+    "id": "kitting",
+    "title": "Kitting shortages and completing work orders versus traveler steps",
+    "routes": [
+      "/kitting",
+      "/planning",
+      "/work-orders",
+      "/inventory"
+    ],
+    "sources": [
+      "src/lib/services/kitting.ts",
+      "src/lib/services/work-orders.ts",
+      "src/lib/services/purchase-requests.ts"
+    ],
+    "text": "Work Orders tracks planned, released, kitted and in-progress manufacturing work. Kitting shows upcoming kits and material shortages. Planning/MRP and purchase requests help cover missing material. Receipt and putaway can update kit readiness. Production start checks the certified BOM and kit prerequisites; inspect blockers instead of forcing status changes. Travelers carry the work instructions and sign-off steps. Completing a WO is different from completing one traveler step and does not mean a customer shipment or invoice has been completed."
+  },
+  {
+    "id": "receiving",
+    "title": "Purchase orders, receiving travelers and serialized stock",
+    "routes": [
+      "/purchasing",
+      "/receiving",
+      "/inventory",
+      "/trace/serials"
+    ],
+    "sources": [
+      "src/lib/services/receiving.ts",
+      "src/lib/services/receiving-inspection.ts",
+      "src/lib/services/stock-serials.ts"
+    ],
+    "text": "Purchasing handles purchase requests, approval and supplier POs. Receiving uses receiving travelers for supplier deliveries and customer-furnished property. Work through the receipt, inspection and putaway steps; partial receipts remain distinct from closing the PO. Serialized items need the required individual serial records and quantities, not just a free-text serial note. Trace/Serials shows as-built genealogy. Quarantined or rejected material must follow quality disposition, not be silently returned to available stock. Review quantities and serials if receiving or PO closure is blocked."
+  },
+  {
+    "id": "quality",
+    "title": "QA, NCR, MRB and corrective action",
+    "routes": [
+      "/qa",
+      "/quality",
+      "/mrb",
+      "/rma",
+      "/quality/programs"
+    ],
+    "sources": [
+      "src/lib/services/inspections.ts",
+      "src/lib/services/quality-incidents.ts",
+      "src/lib/services/quality-programs.ts",
+      "src/app/actions.ts"
+    ],
+    "text": "QA Inspection records inspections. NCR/Quality tracks nonconformances; MRB handles material review and disposition; CAR tracks corrective action and root cause. RMA is for customer returns. Quality Programs includes calibration, audits, tool control, ESD, FOD, HAZMAT, safety and counterfeit controls. Use the relevant review and authorization workflow before disposition or closing a case. An NCR is not a CAR and creating a CAR does not by itself release held material. The software supports compliance records; it does not guarantee AS9100, CMMC or DCAA certification."
+  },
+  {
+    "id": "engineering-plm",
+    "title": "Engineering PLM, work instructions and traveler steps",
+    "routes": [
+      "/engineering",
+      "/products",
+      "/requirements",
+      "/cm",
+      "/bom",
+      "/work-instructions",
+      "/test-procedures"
+    ],
+    "sources": [
+      "src/lib/services/products.ts",
+      "src/lib/services/requirements.ts",
+      "src/lib/services/work-instructions.ts",
+      "src/lib/services/test-procedures.ts",
+      "src/lib/services/cm-library.ts"
+    ],
+    "text": "Products is the PLM product catalog. Engineering tracks engineering work; Requirements tracks requirements and verification coverage. BOMs, Work Instructions and Test Procedures define controlled product and build information. Config Management handles engineering changes and baselines. Use revisions and controlled change review rather than editing a released definition in place. Work instructions supply traveler steps; test procedures support acceptance and functional testing. Existence of a screen is not proof that an integration or automatic downstream action is configured."
+  },
+  {
+    "id": "programs",
+    "title": "PMO programs, projects, WBS, budgets and earned value",
+    "routes": [
+      "/pmo",
+      "/pmo/programs",
+      "/pmo/projects",
+      "/pmo/wbs",
+      "/pmo/pi",
+      "/pmo/alerts",
+      "/budgets"
+    ],
+    "sources": [
+      "src/lib/services/pmo.ts",
+      "src/lib/services/program-financials.ts",
+      "src/lib/services/program-policy.ts",
+      "src/lib/services/budgets.ts"
+    ],
+    "text": "PMO organizes programs, projects, work breakdown structures, PI planning and alerts. Budgets define direct or indirect charge codes and enacted budget authority. Projects can link manufacturing and costs. Earned value uses planned value, earned value and actual cost: SPI is earned value divided by planned value; CPI is earned value divided by actual cost. Values depend on the underlying records and do not certify financial accuracy. Review program policy and budget approval before spending; the assistant cannot enact a budget."
+  },
+  {
+    "id": "accounting",
+    "title": "Accounting, AR/AP posting and GovCon",
+    "routes": [
+      "/accounting",
+      "/accounting/govcon",
+      "/accounting/banking",
+      "/accounting/payroll",
+      "/reports"
+    ],
+    "sources": [
+      "src/lib/services/gl-posting.ts",
+      "src/lib/services/gaap.ts",
+      "src/lib/services/posting-rules.ts",
+      "src/lib/services/program-financials.ts",
+      "docs/accounting/how-it-hits-the-books.md"
+    ],
+    "text": "Accounting includes the general ledger, journals, AR/AP, financial reports, payroll and bank reconciliation. GovCon Contracts & Rates tracks contracts, CLINs, indirect rates, job costs and unallowable cost treatment. Post source documents through their workflow and verify the resulting ledger entries; do not create a manual duplicate journal to hide a failed posting. If AR/AP posting, reversal or reconciliation fails, capture the record reference and use human support. Do not claim payments, payroll tax filing, bank feeds or regulatory certification are automatic merely because a screen exists. Consult a qualified accountant for accounting or legal advice."
+  },
+  {
+    "id": "docs",
+    "title": "Tenant Docs knowledge base",
+    "routes": [
+      "/docs"
+    ],
+    "sources": [
+      "src/lib/services/docs.ts",
+      "docs/DOCS-KNOWLEDGE-BASE.md"
+    ],
+    "text": "Docs is the tenant's internal knowledge base: spaces, hierarchical pages, templates, version history, backlinks and record links. Editors save new revisions; concurrent edits are version-checked. Use page history to inspect an earlier version and restore it as a new saved revision, preserving history. Controlled page signatures bind to a revision and its content hash using PIN verification. This assistant's product help uses reviewed in-repository guidance, not private company Docs or arbitrary uploaded instructions. It cannot read or disclose another company's pages."
+  },
+  {
+    "id": "roles",
+    "title": "Permissions, identity and safe support",
+    "routes": [
+      "/admin/users",
+      "/admin/permissions",
+      "/account",
+      "/support"
+    ],
+    "sources": [
+      "src/lib/auth.ts",
+      "src/lib/services/permissions.ts",
+      "src/components/layout/app-shell.tsx"
+    ],
+    "text": "Access depends on the signed-in user, assigned role, permissions and tenant. A menu item or a guided tour does not grant permission. Ask a company administrator to review a missing module or denied action; do not switch identities, forge cookies or bypass a permission check. The AI help assistant is read-only: it explains procedures but does not create, finish, delete, post, approve, sign or modify ERP records. It does not fetch live plant, HR, payroll or other tenant data. For live status, open the authorized module. Use Help & Support for a human; submitting a ticket is a separate user action."
+  },
+  {
+    "id": "getting-started",
+    "title": "First setup, configure your shop and quick navigation menus",
+    "routes": [
+      "/setup",
+      "/guides",
+      "/items",
+      "/customers",
+      "/suppliers",
+      "/account"
+    ],
+    "sources": [
+      "src/app/setup/page.tsx",
+      "src/lib/guides.ts",
+      "src/lib/navigation.ts"
+    ],
+    "text": "Start with company setup and users, then catalog items, customers, suppliers and controlled manufacturing definitions. Set a sign-off PIN in My Account. Use Guides for interactive walkthroughs and Ctrl-K or Command-K for navigation. Begin with a small end-to-end test: quote, sales order, certified BOM, work order, kit, traveler sign-offs, receiving/stock, shipment and accounting review. Import and integration availability must be checked in the actual module; do not assume every external ERP or bank is connected. Human help is available through the Help & Support tab."
+  },
+  {
+    "id": "ai-help",
+    "title": "Carina AI help, privacy, limits and human escalation",
+    "routes": [
+      "/ai",
+      "/support"
+    ],
+    "sources": [
+      "src/lib/services/ai.ts",
+      "src/app/ai/actions.ts",
+      "src/components/support/support-bubble.tsx"
+    ],
+    "text": "Carina is Protessera's existing AI assistant powered by Grok from xAI, not a separate text model. It can make mistakes. Chat, optional voice, language preferences and guided tours are available from the existing Help bubble; settings are at My AI Assistant. It is read-only product help grounded in reviewed product guides, with source links and page context. It does not access live records or execute changes. General questions and answers and thumbs feedback are logged in the current tenant's audit log for review, with common secrets redacted. Do not enter secrets, PINs, passwords, personal, export-controlled or other sensitive data; question text is sent to xAI when an AI response is requested. If uncertain, unavailable or contradicted by the current screen, use the Support tab for a human. Rate limits and request budgets protect availability and cost; no automatic ticket is sent."
+  }
+]

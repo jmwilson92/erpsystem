@@ -17,6 +17,9 @@ import {
   setSupportTyping,
   updateSupportTicket,
 } from "@/lib/services/support";
+import { helpIdentity } from "@/lib/ai-help/identity";
+import { reserveHelpTurn, redactHelpText } from "@/lib/ai-help/budget";
+import { resolveLang } from "@/lib/carina-language";
 import { grokConfigured, grokTranslate } from "@/lib/services/grok";
 
 /** Support staff portal only — not ERP company (tenant) admins. */
@@ -412,21 +415,24 @@ export async function actionTranslateText(params: {
   targetLanguage: string;
 }): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
   try {
+    const identity=await helpIdentity();
+    if(!identity) return {ok:false,error:"Sign in or start a demo to use AI translation. Human support still works without translation."};
     if (!grokConfigured()) {
       return {
         ok: false,
         error: "Translation needs XAI_API_KEY configured on the server.",
       };
     }
-    const text = params.text?.trim();
+    const text = typeof params?.text === "string" ? redactHelpText(params.text.trim().slice(0,2000)) : "";
     if (!text) return { ok: false, error: "Nothing to translate" };
-    const lang = params.targetLanguage?.trim() || "English";
+    const lang = resolveLang(typeof params.targetLanguage === "string" ? params.targetLanguage.slice(0,40) : "English").name;
+    await reserveHelpTurn(identity.user.id,identity.demo);
     const out = await grokTranslate(text, lang);
     return { ok: true, text: out };
-  } catch (e) {
+  } catch {
     return {
       ok: false,
-      error: e instanceof Error ? e.message : "Translation failed",
+      error: "AI translation is unavailable. Use the original message or try again later.",
     };
   }
 }

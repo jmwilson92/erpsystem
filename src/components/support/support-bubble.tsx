@@ -19,6 +19,8 @@ import {
   useTransition,
 } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
+import type { HelpCitation } from "@/lib/ai-help/knowledge";
 import {
   LifeBuoy,
   MessageCircle,
@@ -42,7 +44,7 @@ import {
   actionTranslateText,
   type SupportThreadMessage,
 } from "@/app/support/actions";
-import { actionAiConversation } from "@/app/ai/actions";
+import { actionAiConversation, actionAiFeedback } from "@/app/ai/actions";
 import {
   SUPPORT_CATEGORIES,
   SUPPORT_PRIORITIES,
@@ -78,7 +80,7 @@ type ActiveThread = {
   token?: string;
 };
 
-type CarinaMsg = { role: "user" | "assistant"; content: string };
+type CarinaMsg = { role: "user" | "assistant"; content: string; citations?: HelpCitation[]; answerId?: string; feedback?: boolean };
 
 function guestAiKey(): string {
   try {
@@ -116,6 +118,7 @@ export function SupportBubble({
   autoOpen?: boolean;
   enableAi?: boolean;
 }) {
+  const pathname = usePathname();
   const aiAllowed = enableAi;
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<Tab>(aiAllowed ? "ai" : "support");
@@ -135,7 +138,7 @@ export function SupportBubble({
     {
       role: "assistant",
       content:
-        "Hi — I'm Carina. I help with Protessera (production, quality, purchasing, inventory…). Ask in the chat, or enable voice and say my name from any page.",
+        "Hi — I'm Carina, Protessera’s AI help assistant powered by Grok. I can make mistakes. I explain the system but don’t change records or access live data. Ask here or choose Support for a human.",
     },
   ]);
   const [carinaInput, setCarinaInput] = useState("");
@@ -343,6 +346,7 @@ export function SupportBubble({
     startTransition(async () => {
       try {
         const result = await actionAiConversation(nextHistory, {
+          page: pathname,
           pendingAction: carinaPendingRef.current,
           language: carinaLang.code,
           source,
@@ -364,7 +368,7 @@ export function SupportBubble({
         }
         setCarinaMsgs((m) => [
           ...m,
-          { role: "assistant", content: result.text },
+          { role: "assistant", content: result.text, citations: result.citations, answerId: result.answerId },
         ]);
         if (result.href) {
           window.dispatchEvent(
@@ -598,9 +602,10 @@ export function SupportBubble({
                   Settings
                 </Link>
                 <span className="ml-auto text-[10px] text-slate-600">
-                  ERP only
+                  AI · powered by Grok
                 </span>
               </div>
+                <p className="px-3 py-2 text-[11px] text-slate-400">AI can make mistakes. Read-only help, not live data. Questions, answers and feedback are logged in your workspace for review. Questions go to xAI; don’t share PINs, secrets, personal or controlled data. <button type="button" className="underline" onClick={()=>setTab("support")}>Human support</button></p>
               <div
                 ref={scrollerRef}
                 className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 py-3"
@@ -626,6 +631,8 @@ export function SupportBubble({
                     >
                       {m.content}
                     </div>
+                    {!!m.citations?.length && <div className="flex flex-wrap gap-2 text-xs">{m.citations.map(c=><Link className="underline text-teal-300" key={c.id} href={c.href}>{c.title}</Link>)}</div>}
+                    {m.answerId && <div className="flex gap-3 text-xs" aria-label="Rate AI answer">{[true,false].map(helpful=><button type="button" disabled={m.feedback!==undefined} key={String(helpful)} aria-label={helpful?'Helpful answer':'Unhelpful answer'} onClick={async()=>{ const result=await actionAiFeedback(m.answerId!,helpful); if(result.ok) setCarinaMsgs(rows=>rows.map((row,j)=>j===i?{...row,feedback:helpful}:row)); }}>{helpful?'👍':'👎'}</button>)}{m.feedback!==undefined && <span>Thanks for the feedback.</span>}</div>}
                   </div>
                 ))}
               </div>
