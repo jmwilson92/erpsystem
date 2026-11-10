@@ -1,5 +1,7 @@
 "use server";
 
+import { isRedirectError } from "next/dist/client/components/redirect-error";
+
 import { revalidatePath } from "next/cache";
 import { flashToast } from "@/lib/flash";
 import {
@@ -814,15 +816,21 @@ export async function actionUpdateWoStatus(formData: FormData) {
   const toStatus = formData.get("toStatus") as string;
   const user = await getCurrentUser();
 
-  // Route COMPLETED through stock + shipping handoff
-  if (toStatus === "COMPLETED") {
-    await completeWorkOrderToStock({ workOrderId, userId: user?.id });
-  } else {
-    await updateWorkOrderStatus({
-      workOrderId,
-      toStatus,
-      userId: user?.id,
-    });
+  try {
+    // Route COMPLETED through stock + shipping handoff
+    if (toStatus === "COMPLETED") {
+      await completeWorkOrderToStock({ workOrderId, userId: user?.id });
+    } else {
+      await updateWorkOrderStatus({
+        workOrderId,
+        toStatus,
+        userId: user?.id,
+      });
+    }
+
+  } catch (err) {
+    if (isRedirectError(err)) throw err;
+    await flashToast(err instanceof Error ? err.message : "Could not update work order", "error");
   }
 
   revalidateFulfillmentPaths([`/work-orders/${workOrderId}`]);
@@ -1038,26 +1046,43 @@ export async function actionUpdateWiStepRouting(
   revalidatePath("/work-instructions");
 }
 
-export async function actionCertifyBomForPrototype(formData: FormData) {
-  const { requirePermission } = await import("@/lib/auth");
-  const user = await requirePermission("bom.certify");
-  const bomHeaderId = formData.get("bomHeaderId") as string;
+export async function actionSetBomPrototypeRequirement(formData: FormData): Promise<void> {
+  const { setBomPrototypeRequirement } = await import("@/lib/services/bom");
+  const bomHeaderId = String(formData.get("bomHeaderId") || "");
+  const path = String(formData.get("certificationPath") || "");
+  if (!["PROTOTYPE", "DIRECT"].includes(path)) throw new Error("Choose a valid certification path");
+  try {
+    await setBomPrototypeRequirement(bomHeaderId, path === "PROTOTYPE");
+    await flashToast("BOM certification path saved");
+  } catch (err) { if (isRedirectError(err)) throw err; await flashToast(err instanceof Error ? err.message : "Could not save BOM path", "error"); }
+  revalidatePath(`/bom/${bomHeaderId}`);
+}
 
-  await certifyBomForPrototype({ bomHeaderId, userId: user.id });
+export async function actionSetBomPrototypeDefault(formData: FormData): Promise<void> {
+  const { setBomPrototypeDefault } = await import("@/lib/services/bom");
+  const path = String(formData.get("certificationPath") || "");
+  if (!["PROTOTYPE", "DIRECT"].includes(path)) throw new Error("Choose a valid certification path");
+  await setBomPrototypeDefault(path === "PROTOTYPE");
+  await flashToast("Default saved — applies only to new BOM revisions");
+  revalidatePath("/admin/settings");
+}
 
-  await flashToast("BOM certified for prototype — drawing can now be released");
+export async function actionCertifyBomForPrototype(formData: FormData): Promise<void> {
+  const bomHeaderId = String(formData.get("bomHeaderId") || "");
+  try {
+    await certifyBomForPrototype({ bomHeaderId, pinCode: String(formData.get("pinCode") || "") });
+    await flashToast("BOM certified for prototype — drawing can now be released");
+  } catch (err) { if (isRedirectError(err)) throw err; await flashToast(err instanceof Error ? err.message : "Could not certify BOM", "error"); }
   revalidatePath("/bom");
   revalidatePath(`/bom/${bomHeaderId}`);
 }
 
-export async function actionCertifyBom(formData: FormData) {
-  const { requirePermission } = await import("@/lib/auth");
-  const user = await requirePermission("bom.certify");
-  const bomHeaderId = formData.get("bomHeaderId") as string;
-
-  await certifyBom({ bomHeaderId, userId: user.id });
-
-  await flashToast("BOM certified for production");
+export async function actionCertifyBom(formData: FormData): Promise<void> {
+  const bomHeaderId = String(formData.get("bomHeaderId") || "");
+  try {
+    await certifyBom({ bomHeaderId, pinCode: String(formData.get("pinCode") || "") });
+    await flashToast("BOM certified for production");
+  } catch (err) { if (isRedirectError(err)) throw err; await flashToast(err instanceof Error ? err.message : "Could not certify BOM", "error"); }
   revalidatePath("/bom");
   revalidatePath(`/bom/${bomHeaderId}`);
 }
@@ -1070,7 +1095,9 @@ export async function actionCreateWoFromBom(formData: FormData): Promise<void> {
   const status = ((formData.get("status") as string) || "PLANNED").trim();
   const user = await getCurrentUser();
 
-  const wo = await createWorkOrder({
+  let wo;
+  try {
+    wo = await createWorkOrder({
     bomHeaderId,
     quantity,
     type,
@@ -1083,6 +1110,13 @@ export async function actionCreateWoFromBom(formData: FormData): Promise<void> {
     workCenter: "ASM-01",
     status,
   });
+
+  } catch (err) {
+    if (isRedirectError(err)) throw err;
+    await flashToast(err instanceof Error ? err.message : "Could not create work order", "error");
+    revalidatePath(`/bom/${bomHeaderId}`);
+    return;
+  }
 
   await flashToast(`Work order ${wo.number} created`);
   revalidatePath("/work-orders");

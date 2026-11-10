@@ -38,7 +38,8 @@
     "verify:serials": "tsx scripts/verify/chunk-serials-rma.ts",
     "verify:chunk": "tsx scripts/verify/run-all.ts",
     "test:founding": "tsx --tsconfig tsconfig.smoke.json scripts/test-founding-billing.ts",
-    "test:docs": "tsx scripts/test-docs.ts"
+    "test:docs": "tsx scripts/test-docs.ts",
+    "test:bom": "tsx scripts/test-bom-lifecycle.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

@@ -373,6 +373,8 @@ model BomHeader {
   status                 String    @default("DRAFT") // DRAFT, PROTOTYPE (prototype-certified), IN_REVIEW, CERTIFIED (production), OBSOLETE
   description            String?
   isPrototype            Boolean   @default(false)
+  // Existing revisions retain the prototype gate; new BOMs inherit the company default.
+  prototypeRequired      Boolean   @default(true)
   // Drawing that originated this BOM (BOMs are numbered after their drawing,
   // created via a document ECR with "this drawing includes a BOM").
   drawingNumber          String?
@@ -4559,6 +4561,7 @@ model CompanySettings {
   /// JSON [{name:"Break",minutes:15},{name:"Lunch",minutes:30}] — header break timers
   breaksConfig         String?
   /// Where finished kits are staged (guides the kitter after picking)
+  bomPrototypeRequired Boolean @default(true)
   kittingLocation      String?
   setupCompleted       Boolean   @default(false)
   // ── Subscription / billing (instance-per-customer SaaS) ──────────

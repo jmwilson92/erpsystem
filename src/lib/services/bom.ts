@@ -2,6 +2,8 @@
 
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
+import { requirePermission } from "@/lib/auth";
+import { verifySignaturePin } from "./signature-pin";
 
 /**
  * Certify a drawing-originated BOM for PROTOTYPE. This is the first gate:
@@ -11,9 +13,13 @@ import { logAudit } from "@/lib/audit";
  */
 export async function certifyBomForPrototype(params: {
   bomHeaderId: string;
+  /** Compatibility only; signer always comes from the authenticated session. */
   userId?: string;
   notes?: string;
+  pinCode?: string;
 }) {
+  const signer = await requirePermission("bom.certify");
+  await verifySignaturePin(signer.id, params.pinCode);
   const bom = await prisma.bomHeader.findUnique({
     where: { id: params.bomHeaderId },
     include: { part: true },
@@ -25,28 +31,16 @@ export async function certifyBomForPrototype(params: {
       `Only DRAFT or IN_REVIEW BOMs can be certified for prototype. Current status: ${bom.status}`
     );
   }
-  const certified = await prisma.bomHeader.update({
-    where: { id: bom.id },
-    data: {
-      status: "PROTOTYPE",
-      isPrototype: true,
-      prototypeCertifiedAt: new Date(),
-      prototypeCertifiedById: params.userId,
-      notes: params.notes || bom.notes,
-    },
-  });
-
-  await logAudit({
-    entityType: "BomHeader",
-    entityId: bom.id,
-    action: "PROTOTYPE_CERTIFIED",
-    userId: params.userId,
-    changes: {
-      from: bom.status,
-      to: "PROTOTYPE",
-      revision: bom.revision,
-      partNumber: bom.part.partNumber,
-    },
+  const changes = { from: bom.status, to: "PROTOTYPE", revision: bom.revision,
+    partNumber: bom.part.partNumber, certificationPath: "PROTOTYPE", pinVerified: true, signerName: signer.name };
+  const certified = await prisma.$transaction(async (tx) => {
+    const result = await tx.bomHeader.update({
+      where: { id: bom.id, updatedAt: bom.updatedAt },
+      data: { status: "PROTOTYPE", isPrototype: true, prototypeRequired: true,
+        prototypeCertifiedAt: new Date(), prototypeCertifiedById: signer.id, notes: params.notes || bom.notes },
+    });
+    await tx.auditLog.create({ data: { entityType: "BomHeader", entityId: bom.id, action: "PROTOTYPE_CERTIFIED", userId: signer.id, changes: JSON.stringify(changes) } });
+    return result;
   });
 
   return certified;
@@ -54,91 +48,107 @@ export async function certifyBomForPrototype(params: {
 
 export async function certifyBom(params: {
   bomHeaderId: string;
+  /** Compatibility only; signer always comes from the authenticated session. */
   userId?: string;
   notes?: string;
+  pinCode?: string;
 }) {
+  const signer = await requirePermission("bom.certify");
+  await verifySignaturePin(signer.id, params.pinCode);
   const bom = await prisma.bomHeader.findUnique({
     where: { id: params.bomHeaderId },
     include: { part: true },
   });
   if (!bom) throw new Error("BOM not found");
 
-  if (!["PROTOTYPE", "IN_REVIEW"].includes(bom.status)) {
+  if (!["DRAFT", "PROTOTYPE", "IN_REVIEW"].includes(bom.status)) {
     throw new Error(
-      `Only PROTOTYPE or IN_REVIEW BOMs can be certified for production. Current status: ${bom.status}`
+      `Only DRAFT, IN_REVIEW or PROTOTYPE BOMs can be certified for production. Current status: ${bom.status}`
     );
   }
 
-  // Production certification requires a completed prototype build. A prototype
-  // WO is created from the prototype-certified BOM and must reach COMPLETED
-  // before the BOM can graduate to production.
-  const completedProto = await prisma.workOrder.findFirst({
-    where: {
-      bomHeaderId: bom.id,
-      type: "PROTOTYPE",
-      status: "COMPLETED",
-    },
-    select: { id: true, number: true },
-  });
-  if (!completedProto) {
-    throw new Error(
-      "Production certification is blocked until a prototype work order for this BOM is COMPLETED. Create a prototype WO, build it, and complete it first."
-    );
+  if (bom.prototypeRequired) {
+    // The prototype-required path retains the completed build and released-WI gates. A prototype
+    // WO is created from the prototype-certified BOM and must reach COMPLETED
+    // before the BOM can graduate to production.
+    const completedProto = await prisma.workOrder.findFirst({
+      where: {
+        bomHeaderId: bom.id,
+        type: "PROTOTYPE",
+        status: "COMPLETED",
+      },
+      select: { id: true, number: true },
+    });
+    if (!completedProto) {
+      throw new Error(
+        "Production certification is blocked until a prototype work order for this BOM is COMPLETED. Create a prototype WO, build it, and complete it first."
+      );
+    }
+
+    // Released work instruction must be on file (CM released after prototype build)
+    const releasedWi = await prisma.workInstruction.findFirst({
+      where: {
+        partId: bom.partId,
+        status: "RELEASED",
+      },
+      select: { id: true, documentNumber: true, revision: true },
+    });
+    if (!releasedWi) {
+      throw new Error(
+        "Production certification needs a RELEASED work instruction for this part. Finish the prototype WO (submits WI to CM), then release the WI from CM submissions."
+      );
+    }
+
   }
 
-  // Released work instruction must be on file (CM released after prototype build)
-  const releasedWi = await prisma.workInstruction.findFirst({
-    where: {
-      partId: bom.partId,
-      status: "RELEASED",
-    },
-    select: { id: true, documentNumber: true, revision: true },
-  });
-  if (!releasedWi) {
-    throw new Error(
-      "Production certification needs a RELEASED work instruction for this part. Finish the prototype WO (submits WI to CM), then release the WI from CM submissions."
-    );
-  }
-
-  // Obsolete previous certified revisions for same part
-  await prisma.bomHeader.updateMany({
-    where: {
-      partId: bom.partId,
-      status: "CERTIFIED",
-      id: { not: bom.id },
-    },
-    data: {
-      status: "OBSOLETE",
-      obsoleteDate: new Date(),
-    },
-  });
-
-  const certified = await prisma.bomHeader.update({
-    where: { id: bom.id },
-    data: {
-      status: "CERTIFIED",
-      isPrototype: false,
-      certifiedAt: new Date(),
-      certifiedById: params.userId,
-      effectiveDate: new Date(),
-      notes: params.notes || bom.notes,
-    },
-  });
-
-  await logAudit({
-    entityType: "BomHeader",
-    entityId: bom.id,
-    action: "CERTIFIED",
-    userId: params.userId,
-    changes: {
-      from: bom.status,
-      to: "CERTIFIED",
-      revision: bom.revision,
-      partNumber: bom.part.partNumber,
-    },
+  const changes = { from: bom.status, to: "CERTIFIED", revision: bom.revision, partNumber: bom.part.partNumber,
+    certificationPath: bom.prototypeRequired ? "PROTOTYPE" : "DIRECT", prototypeRequired: bom.prototypeRequired,
+    pinVerified: true, signerName: signer.name };
+  // Certification + obsoleting the previous revision + signature evidence are atomic.
+  const certified = await prisma.$transaction(async (tx) => {
+    await tx.bomHeader.updateMany({
+      where: { partId: bom.partId, status: "CERTIFIED", id: { not: bom.id } },
+      data: { status: "OBSOLETE", obsoleteDate: new Date() },
+    });
+    const result = await tx.bomHeader.update({
+      where: { id: bom.id, updatedAt: bom.updatedAt },
+      data: { status: "CERTIFIED", isPrototype: false, certifiedAt: new Date(), certifiedById: signer.id,
+        effectiveDate: new Date(), notes: params.notes || bom.notes },
+    });
+    await tx.auditLog.create({ data: { entityType: "BomHeader", entityId: bom.id, action: "CERTIFIED", userId: signer.id, changes: JSON.stringify(changes) } });
+    return result;
   });
 
   return certified;
+}
+
+
+/** Choose the certification route before the revision is locked. */
+export async function setBomPrototypeRequirement(bomHeaderId: string, prototypeRequired: boolean) {
+  const user = await requirePermission("bom.certify");
+  if (typeof prototypeRequired !== "boolean") throw new Error("Choose a valid certification path");
+  const bom = await prisma.bomHeader.findUnique({ where: { id: bomHeaderId } });
+  if (!bom) throw new Error("BOM not found");
+  if (!["DRAFT", "IN_REVIEW", "PROTOTYPE"].includes(bom.status)) {
+    throw new Error("Cannot change the certification path of a certified or obsolete BOM — create a new revision");
+  }
+  const updated = await prisma.bomHeader.update({
+    where: { id: bom.id, updatedAt: bom.updatedAt }, data: { prototypeRequired },
+  });
+  await logAudit({ entityType: "BomHeader", entityId: bom.id, action: "CERTIFICATION_PATH_CHANGED", userId: user.id,
+    changes: { from: bom.prototypeRequired ? "PROTOTYPE" : "DIRECT", to: prototypeRequired ? "PROTOTYPE" : "DIRECT", revision: bom.revision } });
+  return updated;
+}
+
+export async function setBomPrototypeDefault(prototypeRequired: boolean) {
+  const user = await requirePermission("admin.permissions");
+  if (typeof prototypeRequired !== "boolean") throw new Error("Choose a valid certification path");
+  const before = await prisma.companySettings.findUnique({ where: { id: "default" } });
+  await prisma.companySettings.upsert({ where: { id: "default" },
+    create: { id: "default", bomPrototypeRequired: prototypeRequired, updatedById: user.id },
+    update: { bomPrototypeRequired: prototypeRequired, updatedById: user.id } });
+  await logAudit({ entityType: "CompanySettings", entityId: "default", action: "BOM_CERTIFICATION_DEFAULT_CHANGED", userId: user.id,
+    changes: { from: before?.bomPrototypeRequired ?? true, to: prototypeRequired } });
 }
 
 export async function createBomRevision(params: {
@@ -146,6 +156,7 @@ export async function createBomRevision(params: {
   fromBomId?: string;
   revision: string;
   asPrototype?: boolean;
+  prototypeRequired?: boolean;
   description?: string;
   drawingNumber?: string;
   originEcrNumber?: string;
@@ -172,11 +183,16 @@ export async function createBomRevision(params: {
     }));
   }
 
+  const company = await prisma.companySettings.findUnique({
+    where: { id: "default" }, select: { bomPrototypeRequired: true },
+  });
+  const prototypeRequired = params.asPrototype ? true : (params.prototypeRequired ?? company?.bomPrototypeRequired ?? true);
   const bom = await prisma.bomHeader.create({
     data: {
       partId: params.partId,
       revision: params.revision,
-      status: params.asPrototype ? "PROTOTYPE" : "DRAFT",
+      status: "DRAFT",
+      prototypeRequired,
       isPrototype: params.asPrototype || false,
       description: params.description,
       drawingNumber: params.drawingNumber,
@@ -202,6 +218,7 @@ export async function createBomRevision(params: {
     metadata: {
       revision: params.revision,
       prototype: params.asPrototype,
+      certificationPath: prototypeRequired ? "PROTOTYPE" : "DIRECT",
       lineCount: lines.length,
     },
   });
