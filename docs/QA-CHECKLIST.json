@@ -126,8 +126,8 @@
     "file": "src/app/actions.ts",
     "line": 133,
     "name": "actionReceivePo",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "finance-supply-results.json: PASS PO receiving action persists dock receipt and material trace"
   },
   {
     "id": "ACTION-0005",
@@ -256,8 +256,8 @@
     "file": "src/app/actions.ts",
     "line": 718,
     "name": "actionSignOffStep",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "priority-results.json: PASS Start kitted production and sign traveler via own PIN actions"
   },
   {
     "id": "ACTION-0018",
@@ -266,8 +266,8 @@
     "file": "src/app/actions.ts",
     "line": 773,
     "name": "actionSendWoToReceivingPutaway",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "priority-results.json: PASS Completed production handoff then stock action closes WO"
   },
   {
     "id": "ACTION-0019",
@@ -366,8 +366,8 @@
     "file": "src/app/actions.ts",
     "line": 1065,
     "name": "actionCreateWoFromBom",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "manufacturing-edge-results.json: PASS Standalone production action uses existing certified BOM without SO"
   },
   {
     "id": "ACTION-0029",
@@ -376,8 +376,8 @@
     "file": "src/app/actions.ts",
     "line": 1094,
     "name": "actionCreateForecast",
-    "status": "untested",
-    "evidence": ""
+    "status": "fail",
+    "evidence": "priority-results.json: FAIL Permission OPERATOR denied actionCreateForecast"
   },
   {
     "id": "ACTION-0030",
@@ -656,8 +656,8 @@
     "file": "src/app/actions.ts",
     "line": 1870,
     "name": "actionCreateTaskWo",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "priority-results.json: PASS Standalone task WO action creates without sales order"
   },
   {
     "id": "ACTION-0058",
@@ -666,8 +666,8 @@
     "file": "src/app/actions.ts",
     "line": 1895,
     "name": "actionCreateProductionWo",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "manufacturing-edge-results.json: PASS Standalone production action uses existing certified BOM without SO"
   },
   {
     "id": "ACTION-0059",
@@ -686,8 +686,8 @@
     "file": "src/app/actions.ts",
     "line": 1930,
     "name": "actionCreateStandalonePr",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "priority-results.json: PASS Permission OPERATOR denied purchasing PR action without writes; priority-results.json: PASS Standalone PR draft action + submission routes approvals"
   },
   {
     "id": "ACTION-0061",
@@ -716,8 +716,8 @@
     "file": "src/app/actions.ts",
     "line": 2125,
     "name": "actionSaveBuyerPackage",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "finance-supply-results.json: PASS PR routing, buyer action, final approval and PO conversion actions"
   },
   {
     "id": "ACTION-0064",
@@ -746,8 +746,8 @@
     "file": "src/app/actions.ts",
     "line": 2312,
     "name": "actionConvertPrToPo",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "finance-supply-results.json: PASS PR routing, buyer action, final approval and PO conversion actions; finance-supply-results.json: PASS Repeated PR-to-PO conversion does not create duplicate"
   },
   {
     "id": "ACTION-0067",
@@ -976,8 +976,8 @@
     "file": "src/app/actions.ts",
     "line": 3311,
     "name": "actionCreateQuote",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "priority-results.json: PASS HTTP action create quote preserves line and PO reference"
   },
   {
     "id": "ACTION-0090",
@@ -1056,8 +1056,8 @@
     "file": "src/app/actions.ts",
     "line": 3619,
     "name": "actionRecordCustomerPo",
-    "status": "untested",
-    "evidence": ""
+    "status": "fail",
+    "evidence": "priority-results.json: PASS Customer PO action converts quote to linked SO; priority-results.json: FAIL Repeat customer PO conversion does not regress converted quote"
   },
   {
     "id": "ACTION-0098",
@@ -1086,8 +1086,8 @@
     "file": "src/app/actions.ts",
     "line": 3704,
     "name": "actionPlanSalesOrder",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "manufacturing-edge-results.json: PASS OPERATOR cannot invoke SO planning action"
   },
   {
     "id": "ACTION-0101",
@@ -1106,8 +1106,8 @@
     "file": "src/app/actions.ts",
     "line": 3802,
     "name": "actionCreateCustomer",
-    "status": "untested",
-    "evidence": ""
+    "status": "fail",
+    "evidence": "priority-results.json: PASS HTTP action create customer persists; priority-results.json: PASS HTTP action duplicate preferred customer code safely deconflicts; priority-results.json: FAIL Permission OPERATOR denied actionCreateCustomer"
   },
   {
     "id": "ACTION-0103",
@@ -1166,8 +1166,8 @@
     "file": "src/app/actions.ts",
     "line": 3934,
     "name": "actionCreateItem",
-    "status": "untested",
-    "evidence": ""
+    "status": "fail",
+    "evidence": "priority-results.json: PASS HTTP action create catalog item persists; priority-results.json: FAIL Permission OPERATOR denied actionCreateItem"
   },
   {
     "id": "ACTION-0109",
@@ -1306,8 +1306,8 @@
     "file": "src/app/actions.ts",
     "line": 4348,
     "name": "actionCreateKit",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "priority-results.json: PASS WO materials readiness and kit action create"
   },
   {
     "id": "ACTION-0123",
@@ -1316,8 +1316,8 @@
     "file": "src/app/actions.ts",
     "line": 4381,
     "name": "actionCompleteKit",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "priority-results.json: PASS Complete kit action issues materials without negative stock"
   },
   {
     "id": "ACTION-0124",
@@ -1456,8 +1456,8 @@
     "file": "src/app/actions.ts",
     "line": 4886,
     "name": "actionCompleteWoToStock",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "priority-results.json: PASS Completed production handoff then stock action closes WO"
   },
   {
     "id": "ACTION-0138",
@@ -2286,8 +2286,8 @@
     "file": "src/app/actions.ts",
     "line": 6478,
     "name": "actionPostJournal",
-    "status": "untested",
-    "evidence": ""
+    "status": "fail",
+    "evidence": "priority-results.json: FAIL Permission OPERATOR denied posting journal action; priority-results.json: PASS Journal action creates balanced pending entry; finance-supply-results.json: FAIL Non-controller accountant cannot postNow around required approval"
   },
   {
     "id": "ACTION-0221",
@@ -4126,8 +4126,8 @@
     "file": "src/app/api/demo/end/route.ts",
     "line": 11,
     "name": "GET /api/demo/end",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "demo-results.json: PASS Native demo Start -> server cookie -> ping -> end"
   },
   {
     "id": "API-0005",
@@ -4166,8 +4166,8 @@
     "file": "src/app/api/demo/ping/route.ts",
     "line": 6,
     "name": "POST /api/demo/ping",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "demo-results.json: PASS Native demo Start -> server cookie -> ping -> end"
   },
   {
     "id": "API-0009",
@@ -4466,8 +4466,8 @@
     "file": "src/app/crm/actions.ts",
     "line": 39,
     "name": "actionCreateLead",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "priority-results.json: PASS HTTP action create CRM lead persists"
   },
   {
     "id": "ACTION-0395",
@@ -4636,8 +4636,8 @@
     "file": "src/app/demo-actions.ts",
     "line": 13,
     "name": "actionStartTestDrive",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "demo-results.json: PASS Native demo Start -> server cookie -> ping -> end"
   },
   {
     "id": "ACTION-0405",
@@ -6246,8 +6246,8 @@
     "file": "src/app/service/actions.ts",
     "line": 35,
     "name": "actionCreateTicket",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "priority-results.json: PASS HTTP action create service ticket persists"
   },
   {
     "id": "ACTION-0441",
@@ -10507,7 +10507,7 @@
     "line": 490,
     "name": "postJournal",
     "status": "pass",
-    "evidence": "GL balanced journal remains pending / idempotency"
+    "evidence": "GL balanced journal remains pending / idempotency; priority-results.json: PASS Closed-period post rejected with no JE/line writes"
   },
   {
     "id": "SERVICE-0362",
@@ -10526,8 +10526,8 @@
     "file": "src/lib/services/gaap.ts",
     "line": 726,
     "name": "setAccountingCloseDate",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "priority-results.json: PASS Closed-period post rejected with no JE/line writes"
   },
   {
     "id": "SERVICE-0364",
@@ -10536,8 +10536,8 @@
     "file": "src/lib/services/gaap.ts",
     "line": 763,
     "name": "approveJournal",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "priority-results.json: PASS Accounting self-approval denied when separation enabled; priority-results.json: PASS Accounting approval applies once and is repeat safe"
   },
   {
     "id": "SERVICE-0365",
@@ -10566,8 +10566,8 @@
     "file": "src/lib/services/gaap.ts",
     "line": 865,
     "name": "recordArPayment",
-    "status": "untested",
-    "evidence": ""
+    "status": "fail",
+    "evidence": "finance-supply-results.json: FAIL AR rejected GL posting rolls back payment and invoice"
   },
   {
     "id": "SERVICE-0368",
@@ -10576,8 +10576,8 @@
     "file": "src/lib/services/gaap.ts",
     "line": 922,
     "name": "recordApPayment",
-    "status": "untested",
-    "evidence": ""
+    "status": "fail",
+    "evidence": "finance-supply-results.json: FAIL AP rejected GL posting rolls back payment and invoice"
   },
   {
     "id": "SERVICE-0369",
@@ -10596,8 +10596,8 @@
     "file": "src/lib/services/gaap.ts",
     "line": 1028,
     "name": "reverseJournalEntry",
-    "status": "untested",
-    "evidence": ""
+    "status": "fail",
+    "evidence": "finance-supply-results.json: FAIL Journal reversal retains FAR unallowable classification; finance-supply-results.json: PASS Journal reversal is balanced and cannot run twice"
   },
   {
     "id": "SERVICE-0371",
@@ -11787,7 +11787,7 @@
     "line": 105,
     "name": "createSalesOrder",
     "status": "pass",
-    "evidence": "scripts/verify/chunk-c2-money-path.ts; scenario only"
+    "evidence": "scripts/verify/chunk-c2-money-path.ts; scenario only; priority-results.json: PASS Invalid customer FK leaves no sales order or lines; priority-results.json: PASS Invalid second SO line rolls back entire header/lines"
   },
   {
     "id": "SERVICE-0476",
@@ -11817,7 +11817,7 @@
     "line": 367,
     "name": "planSalesOrderFulfillment",
     "status": "pass",
-    "evidence": "scripts/verify/chunk-c2-money-path.ts; scenario only"
+    "evidence": "scripts/verify/chunk-c2-money-path.ts; scenario only; priority-results.json: PASS Plan linked SO creates production WO from existing certified BOM"
   },
   {
     "id": "SERVICE-0479",
@@ -11836,8 +11836,8 @@
     "file": "src/lib/services/order-fulfillment.ts",
     "line": 787,
     "name": "planWorkOrderMaterials",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "priority-results.json: PASS WO materials readiness and kit action create"
   },
   {
     "id": "SERVICE-0481",
@@ -11846,8 +11846,8 @@
     "file": "src/lib/services/order-fulfillment.ts",
     "line": 967,
     "name": "refreshWorkOrderMaterialReadiness",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "priority-results.json: PASS WO materials readiness and kit action create"
   },
   {
     "id": "SERVICE-0482",
@@ -11906,8 +11906,8 @@
     "file": "src/lib/services/order-fulfillment.ts",
     "line": 1361,
     "name": "completeKitOrder",
-    "status": "untested",
-    "evidence": ""
+    "status": "fail",
+    "evidence": "manufacturing-edge-results.json: FAIL Resume multi-line short kit does not duplicate already staged stock"
   },
   {
     "id": "SERVICE-0488",
@@ -12876,8 +12876,8 @@
     "file": "src/lib/services/pr-approval.ts",
     "line": 636,
     "name": "canUserApproveStep",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "priority-results.json: PASS PR denial wrong-person approval leaves pipeline unchanged"
   },
   {
     "id": "ACTION-0509",
@@ -12886,8 +12886,8 @@
     "file": "src/lib/services/pr-approval.ts",
     "line": 690,
     "name": "decidePrApproval",
-    "status": "untested",
-    "evidence": ""
+    "status": "fail",
+    "evidence": "priority-results.json: PASS PR denial wrong-person approval leaves pipeline unchanged; priority-results.json: FAIL Same admin cannot sign demand AND buyer on same PR; finance-supply-results.json: PASS PR routing, buyer action, final approval and PO conversion actions"
   },
   {
     "id": "ACTION-0510",
@@ -13006,8 +13006,8 @@
     "file": "src/lib/services/pr-buyer.ts",
     "line": 474,
     "name": "confirmBuyerPackageStep",
-    "status": "untested",
-    "evidence": ""
+    "status": "fail",
+    "evidence": "priority-results.json: FAIL Same admin cannot sign demand AND buyer on same PR"
   },
   {
     "id": "SERVICE-0573",
@@ -13416,8 +13416,8 @@
     "file": "src/lib/services/purchase-requests.ts",
     "line": 55,
     "name": "createStandalonePurchaseRequest",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "finance-supply-results.json: PASS PR catalog validation rejects unknown/inactive parts before writes; finance-supply-results.json: PASS PR routing, buyer action, final approval and PO conversion actions"
   },
   {
     "id": "SERVICE-0614",
@@ -13426,8 +13426,8 @@
     "file": "src/lib/services/purchase-requests.ts",
     "line": 276,
     "name": "submitDraftPurchaseRequest",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "priority-results.json: PASS Standalone PR draft action + submission routes approvals"
   },
   {
     "id": "SERVICE-0615",
@@ -15316,8 +15316,8 @@
     "file": "src/lib/services/supply-chain.ts",
     "line": 27,
     "name": "receivePurchaseOrder",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "finance-supply-results.json: PASS Receiving overquantity fails without receipts or inventory changes"
   },
   {
     "id": "ACTION-0537",
@@ -15826,8 +15826,8 @@
     "file": "src/lib/services/tenancy.ts",
     "line": 149,
     "name": "dropSchema",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "demo-results.json: PASS Demo invalid schema names and public clone/drop protected"
   },
   {
     "id": "SERVICE-0823",
@@ -15846,8 +15846,8 @@
     "file": "src/lib/services/tenancy.ts",
     "line": 202,
     "name": "getTenantBySchema",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "demo-results.json: PASS Provision demo registry/schema and read isolated seeded records"
   },
   {
     "id": "SERVICE-0825",
@@ -15856,8 +15856,8 @@
     "file": "src/lib/services/tenancy.ts",
     "line": 208,
     "name": "touchTenant",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "demo-results.json: PASS Demo heartbeat and destroy preserve public and mark registry"
   },
   {
     "id": "SERVICE-0826",
@@ -15866,8 +15866,8 @@
     "file": "src/lib/services/tenancy.ts",
     "line": 216,
     "name": "destroyTenant",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "demo-results.json: PASS Demo heartbeat and destroy preserve public and mark registry"
   },
   {
     "id": "SERVICE-0827",
@@ -15876,8 +15876,8 @@
     "file": "src/lib/services/tenancy.ts",
     "line": 224,
     "name": "sweepIdleDemos",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "demo-results.json: PASS Idle demo sweep removes only expired demo"
   },
   {
     "id": "SERVICE-0828",
@@ -15886,8 +15886,8 @@
     "file": "src/lib/services/tenancy.ts",
     "line": 256,
     "name": "demoSchemaIsLive",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "demo-results.json: PASS Provision demo registry/schema and read isolated seeded records; demo-results.json: PASS Demo heartbeat and destroy preserve public and mark registry"
   },
   {
     "id": "SERVICE-0829",
@@ -15896,8 +15896,8 @@
     "file": "src/lib/services/tenancy.ts",
     "line": 269,
     "name": "tenantClient",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "demo-results.json: PASS Provision demo registry/schema and read isolated seeded records"
   },
   {
     "id": "SERVICE-0830",
@@ -15906,8 +15906,8 @@
     "file": "src/lib/services/tenancy.ts",
     "line": 280,
     "name": "demoTemplateExists",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "demo-results.json: PASS Local demo_template clone and template existence"
   },
   {
     "id": "SERVICE-0831",
@@ -15916,8 +15916,8 @@
     "file": "src/lib/services/tenancy.ts",
     "line": 294,
     "name": "cloneSchema",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "demo-results.json: PASS Demo invalid schema names and public clone/drop protected; demo-results.json: PASS Local demo_template clone and template existence"
   },
   {
     "id": "SERVICE-0832",
@@ -15976,8 +15976,8 @@
     "file": "src/lib/services/tenancy.ts",
     "line": 577,
     "name": "provisionDemo",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "demo-results.json: PASS Provision demo registry/schema and read isolated seeded records"
   },
   {
     "id": "SERVICE-0838",
@@ -16847,7 +16847,7 @@
     "line": 450,
     "name": "startWorkOrderProduction",
     "status": "pass",
-    "evidence": "scripts/verify/chunk-e-mfg.ts; scenario only"
+    "evidence": "scripts/verify/chunk-e-mfg.ts; scenario only; priority-results.json: PASS Start kitted production and sign traveler via own PIN actions"
   },
   {
     "id": "SERVICE-0913",
