@@ -75,3 +75,9 @@ NODE_OPTIONS=--max-old-space-size=6144 npm run build
 The full suite also passes with `TZ=America/Los_Angeles`, including UTC round-trips between raw backfill SQL and Prisma. Client-role insert/update/delete attempts cannot forge or clear founder entitlements.
 
 No production credentials or real Stripe objects are used in these tests. Real Stripe sandbox checkout/renewal simulation and browser interaction verification remain release checks; do not claim live billing was exercised.
+
+### CI scope and standalone regression command
+
+The existing GitHub Typecheck & lint (including airgap build/DDL sync) and Service verification checks passed for the implementation commit. The new `npm run test:founding` suite also passed locally, including an explicit Pacific timezone run. It is **not** automatically invoked by the unchanged workflow: the existing GitHub OAuth authorization cannot write workflow files, so the optional CI hook was excluded rather than requesting broader credentials. Run the new suite explicitly during release verification; a maintainer can add the hook separately with appropriate approval/access.
+
+The read-only Stripe review CLI's rejection of `--apply` was also checked with all DB/Stripe credentials removed and dotenv loading disabled; no live configuration was accessed. On a PR checkout, use the same `STALE_CHECK_REF=origin/billing-founding-member-lifetime` prefix as the schema commands when explicitly running the review tool before merge.
