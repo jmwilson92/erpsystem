@@ -3,11 +3,16 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { PGLiteSocketServer } from "@electric-sql/pglite-socket";
 async function main() {
-  assert(!/^\s*["']use server["']/m.test(readFileSync("src/lib/services/gfp.ts", "utf8")), "GFP services must not be exposed as unauthenticated RPCs accepting actor ids");
+  // Services accept internal actor IDs; only guarded app actions may be RPCs.
+  // All callers of these modules are server actions, server-rendered pages or
+  // other services. A directive here silently registers spoofable endpoints.
+  for (const file of readdirSync("src/lib/services").filter(f => f.endsWith(".ts"))) {
+    assert(!/^\s*["']use server["']/m.test(readFileSync(`src/lib/services/${file}`, "utf8")), `${file}: internal services must not become actor-id RPCs`);
+  }
   Object.assign(globalThis, { AsyncLocalStorage });
   const pg = await PGlite.create();
   const ddl = execFileSync(process.execPath, ["node_modules/prisma/build/index.js", "migrate", "diff", "--from-empty", "--to-schema", "prisma/schema.prisma", "--script"], {

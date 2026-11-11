@@ -1,5 +1,3 @@
-"use server";
-
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { createWorkOrder } from "@/lib/services/work-orders";

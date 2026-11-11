@@ -1,5 +1,3 @@
-"use server";
-
 import { prisma } from "@/lib/db";
 import { endOfWorkingDay } from "@/lib/services/schedule";
 import { getCapacityAndWorkload } from "@/lib/services/capacity";
