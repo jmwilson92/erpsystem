@@ -395,23 +395,7 @@ export async function startPrApprovalWorkflow(params: {
     : await getDefaultApprovalPolicy();
 
   if (!policy || !policy.isActive || policy.steps.length === 0) {
-    await prisma.purchaseRequest.update({
-      where: { id: pr.id },
-      data: {
-        status: "APPROVED",
-        currentStepOrder: 0,
-        approvedById: params.userId,
-        approvedAt: new Date(),
-      },
-    });
-    await logAudit({
-      entityType: "PurchaseRequest",
-      entityId: pr.id,
-      action: "AUTO_APPROVED",
-      userId: params.userId,
-      metadata: { reason: "No active approval policy" },
-    });
-    return { status: "APPROVED" as const, approvals: [] };
+    throw new Error("An active approval policy with approval steps is required; no automatic approval is permitted for a missing or invalid policy");
   }
 
   const charge = await resolveChargeContext(pr.id);
@@ -994,13 +978,9 @@ export async function saveApprovalPolicy(params: {
   }[];
   userId?: string;
 }) {
-  if (params.isDefault) {
-    await prisma.approvalPolicy.updateMany({
-      where: { entityType: "PurchaseRequest", isDefault: true },
-      data: { isDefault: false },
-    });
-  }
-
+  if ((params.isActive ?? true) && !params.steps.length) throw new Error("An active policy requires approval steps");
+  if (params.steps.some(s => !s.name.trim() || !Number.isInteger(s.stepOrder) || s.stepOrder < 1 || !Number.isFinite(s.minAmount) || s.minAmount < 0) ||
+      new Set(params.steps.map(s => s.stepOrder)).size !== params.steps.length) throw new Error("Invalid approval policy steps");
   const stepCreate = params.steps.map((s) => ({
     stepOrder: s.stepOrder,
     name: s.name,
@@ -1011,47 +991,18 @@ export async function saveApprovalPolicy(params: {
     required: s.required ?? true,
   }));
 
-  if (params.id) {
-    await prisma.approvalPolicyStep.deleteMany({
-      where: { policyId: params.id },
-    });
-    const policy = await prisma.approvalPolicy.update({
-      where: { id: params.id },
-      data: {
-        name: params.name,
-        description: params.description,
-        isDefault: params.isDefault ?? false,
-        isActive: params.isActive ?? true,
-        steps: { create: stepCreate },
-      },
-      include: { steps: { orderBy: { stepOrder: "asc" } } },
-    });
-    await logAudit({
-      entityType: "ApprovalPolicy",
-      entityId: policy.id,
-      action: "UPDATED",
-      userId: params.userId,
-    });
-    return policy;
-  }
-
-  const policy = await prisma.approvalPolicy.create({
-    data: {
-      name: params.name,
-      entityType: "PurchaseRequest",
-      description: params.description,
-      isDefault: params.isDefault ?? false,
-      isActive: params.isActive ?? true,
-      steps: { create: stepCreate },
-    },
-    include: { steps: { orderBy: { stepOrder: "asc" } } },
+  const policy = await prisma.$transaction(async db => {
+    if (params.isDefault) await db.approvalPolicy.updateMany({ where: { entityType: "PurchaseRequest", isDefault: true }, data: { isDefault: false } });
+    const data = { name: params.name, description: params.description, isDefault: params.isDefault ?? false,
+      isActive: params.isActive ?? true, steps: { create: stepCreate } };
+    if (params.id) {
+      await db.approvalPolicyStep.deleteMany({ where: { policyId: params.id } });
+      return db.approvalPolicy.update({ where: { id: params.id, entityType: "PurchaseRequest" }, data,
+        include: { steps: { orderBy: { stepOrder: "asc" } } } });
+    }
+    return db.approvalPolicy.create({ data: { ...data, entityType: "PurchaseRequest" }, include: { steps: { orderBy: { stepOrder: "asc" } } } });
   });
-  await logAudit({
-    entityType: "ApprovalPolicy",
-    entityId: policy.id,
-    action: "CREATED",
-    userId: params.userId,
-  });
+  await logAudit({ entityType: "ApprovalPolicy", entityId: policy.id, action: params.id ? "UPDATED" : "CREATED", userId: params.userId });
   return policy;
 }
 

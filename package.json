@@ -22,7 +22,7 @@
     "setup": "prisma generate && prisma db push && tsx prisma/seed.ts",
     "postinstall": "prisma generate",
     "typecheck": "tsc --noEmit",
-    "smoke": "tsx --tsconfig tsconfig.smoke.json scripts/smoke-unit.ts && npm run test:integrity && npm run test:ai-help && npm run test:qa && npm run test:qa-workflows && npm run test:qa-finance && npm run test:qa-permissions && npm run test:qa-auth-recovery",
+    "smoke": "tsx --tsconfig tsconfig.smoke.json scripts/smoke-unit.ts && npm run test:integrity && npm run test:ai-help && npm run test:qa && npm run test:qa-workflows && npm run test:qa-finance && npm run test:qa-permissions && npm run test:qa-auth-recovery && npm run test:qa-budget-approvals",
     "assert:prod-env": "node scripts/assert-production-env.mjs",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
@@ -48,7 +48,8 @@
     "test:qa-workflows": "tsx --tsconfig tsconfig.smoke.json scripts/test-qa-workflows.ts",
     "test:qa-finance": "tsx scripts/test-qa-finance.ts",
     "test:qa-permissions": "tsx scripts/test-qa-permissions.ts",
-    "test:qa-auth-recovery": "tsx scripts/test-qa-auth-recovery.ts"
+    "test:qa-auth-recovery": "tsx scripts/test-qa-auth-recovery.ts",
+    "test:qa-budget-approvals": "tsx scripts/test-qa-budget-approvals.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

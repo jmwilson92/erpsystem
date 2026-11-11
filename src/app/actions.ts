@@ -4722,7 +4722,8 @@ export async function actionEnsureProjectWbsChargeCodes(
 }
 
 export async function actionUpdateBudget(formData: FormData): Promise<void> {
-  const user = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("budgets.manage");
   const budgetId = formData.get("budgetId") as string;
   const { updateBudget } = await import("@/lib/services/budgets");
   const ownerRaw = ((formData.get("ownerId") as string) || "").trim();
@@ -4818,7 +4819,8 @@ export async function actionCloseBudget(formData: FormData): Promise<void> {
 export async function actionPostBudgetCharge(
   formData: FormData
 ): Promise<void> {
-  const user = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("budgets.manage");
   const budgetId = formData.get("budgetId") as string;
   const { postBudgetCharge } = await import("@/lib/services/budgets");
   try {
@@ -4849,7 +4851,8 @@ export async function actionPostBudgetCharge(
 export async function actionSetUserCompensation(
   formData: FormData
 ): Promise<void> {
-  const actor = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const actor = await requirePermission("admin.users.manage");
   const userId = formData.get("userId") as string;
   const { setUserCompensation } = await import("@/lib/services/budgets");
   const hourlyRaw = ((formData.get("hourlyRate") as string) || "").trim();
