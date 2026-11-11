@@ -1,5 +1,4 @@
 import { userHasPermission } from "@/lib/auth";
-"use server";
 
 import { verifySignaturePin } from "./signature-pin";
 
