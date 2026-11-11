@@ -10,7 +10,8 @@
  * Matters for adhesives, sealants, o-rings, resins, and calibration standards —
  * the AS9100 auditor's favourite finding.
  */
-import { prisma } from "@/lib/db";
+import { Prisma } from "@prisma/client";
+import { prisma, currentRequestSchema, isValidSchemaName } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 
 /** Days before expiry that stock is considered "expiring soon". */
@@ -51,36 +52,27 @@ export async function recordLot(params: {
   const expiresAt =
     params.expiresAt ?? computeExpiry(part?.shelfLifeDays, receivedAt);
 
-  const lot = await prisma.lot.upsert({
-    where: { lotNumber: params.lotNumber },
-    create: {
-      lotNumber: params.lotNumber,
-      partId: params.partId,
-      quantity: params.quantity,
-      receivedAt,
-      supplierId: params.supplierId || null,
-      poNumber: params.poNumber || null,
-      expiresAt,
-    },
-    update: {
-      quantity: params.quantity,
-      receivedAt,
-      ...(expiresAt ? { expiresAt } : {}),
-    },
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.lot.findUnique({ where: { lotNumber: params.lotNumber } });
+    if (existing && existing.partId !== params.partId) {
+      throw new Error("Lot number is already registered to another part");
+    }
+    // Include the immutable part identity in the unique predicate: a concurrent
+    // first receipt for another part must fail its insert, never update this lot.
+    const lot = await tx.lot.upsert({
+      where: { lotNumber: params.lotNumber, partId: params.partId },
+      create: {
+        lotNumber: params.lotNumber, partId: params.partId, quantity: params.quantity,
+        receivedAt, supplierId: params.supplierId || null, poNumber: params.poNumber || null, expiresAt,
+      },
+      update: { quantity: params.quantity, receivedAt, ...(expiresAt ? { expiresAt } : {}) },
+    });
+    await logAudit({
+      entityType: "Lot", entityId: lot.id, action: "RECEIVED", userId: params.userId,
+      metadata: { lotNumber: lot.lotNumber, partNumber: part?.partNumber, expiresAt: expiresAt?.toISOString() ?? null },
+    }, tx);
+    return lot;
   });
-
-  await logAudit({
-    entityType: "Lot",
-    entityId: lot.id,
-    action: "RECEIVED",
-    userId: params.userId,
-    metadata: {
-      lotNumber: lot.lotNumber,
-      partNumber: part?.partNumber,
-      expiresAt: expiresAt?.toISOString() ?? null,
-    },
-  });
-  return lot;
 }
 
 export type ExpiringLot = {
@@ -174,31 +166,50 @@ export async function checkLotUsable(lotId: string): Promise<string | null> {
  * lots were moved.
  */
 export async function quarantineExpiredLots(userId?: string): Promise<number> {
-  const expired = await prisma.lot.findMany({
-    where: {
-      status: "AVAILABLE",
-      quantity: { gt: 0 },
-      expiresAt: { not: null, lt: new Date() },
-    },
-    select: { id: true, lotNumber: true },
-    take: 500,
-  });
-  if (expired.length === 0) return 0;
-
-  await prisma.lot.updateMany({
-    where: { id: { in: expired.map((l) => l.id) } },
-    data: { status: "QUARANTINE" },
-  });
-  for (const l of expired) {
-    await logAudit({
-      entityType: "Lot",
-      entityId: l.id,
-      action: "QUARANTINED_EXPIRED",
-      userId,
-      metadata: { lotNumber: l.lotNumber },
-    });
-  }
-  return expired.length;
+  const schema = await currentRequestSchema();
+  if (!isValidSchemaName(schema)) throw new Error("Invalid inventory schema");
+  const lotTable = Prisma.raw(`"${schema}"."Lot"`);
+  const stockTable = Prisma.raw(`"${schema}"."InventoryItem"`);
+  const now = new Date();
+  return prisma.$transaction(async (tx) => {
+    // Include pre-fix QUARANTINE labels with still-released physical stock.
+    // Filter those in SQL so healthy old holds cannot starve the bounded sweep.
+    // Both identifiers come only from the validated request schema, never input.
+    const expired = await tx.$queryRaw<{ id: string; lotNumber: string; partId: string; status: string }[]>(Prisma.sql`
+      SELECT l.id, l."lotNumber", l."partId", l.status FROM ${lotTable} l
+      WHERE l."expiresAt" < ${now} AND (l.status = 'AVAILABLE' OR
+        (l.status = 'QUARANTINE' AND EXISTS (
+          SELECT 1 FROM ${stockTable} i WHERE i."partId" = l."partId" AND i."lotNumber" = l."lotNumber"
+          AND i."quantityOnHand" > 0 AND (i."quantityAvailable" > 0 OR i."quantityQuarantine" < i."quantityOnHand")
+        )))
+      ORDER BY l.id LIMIT 500 FOR UPDATE OF l SKIP LOCKED`);
+    for (const lot of expired) {
+      // Hold the actual rows before reading quantities. A concurrent issue must
+      // complete first, or see changed updatedAt/hold fields and fail its CAS.
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM ${stockTable}
+        WHERE "partId" = ${lot.partId} AND "lotNumber" = ${lot.lotNumber}
+        AND "quantityOnHand" > 0 ORDER BY id FOR UPDATE`);
+      const items = await tx.inventoryItem.findMany({ where: {
+        partId: lot.partId, lotNumber: lot.lotNumber, quantityOnHand: { gt: 0 },
+      } });
+      for (const item of items) {
+        // Preserve reservations and existing MRB/WO, serial, cost and ownership
+        // identity. Quarantine is a physical hold, not an issue or cancellation.
+        await tx.inventoryItem.update({ where: { id: item.id }, data: {
+          quantityAvailable: 0, quantityQuarantine: item.quantityOnHand,
+        } });
+      }
+      await tx.lot.update({ where: { id: lot.id }, data: { status: "QUARANTINE" } });
+      await tx.traceEvent.create({ data: { eventType: "QUARANTINED_EXPIRED", partId: lot.partId,
+        lotNumber: lot.lotNumber, quantity: items.reduce((sum, item) => sum + item.quantityOnHand, 0),
+        notes: "Expired lot physical stock held; existing reservations and trace identity retained", userId,
+      } });
+      await logAudit({ entityType: "Lot", entityId: lot.id, action: "QUARANTINED_EXPIRED", userId,
+        metadata: { lotNumber: lot.lotNumber, inventoryItemIds: items.map(item => item.id), repairedExistingHold: lot.status === "QUARANTINE" },
+      }, tx);
+    }
+    return expired.length;
+  }, { timeout: 30_000 });
 }
 
 /** Lots for one part, newest first — feeds the shelf-life panel on an item. */
