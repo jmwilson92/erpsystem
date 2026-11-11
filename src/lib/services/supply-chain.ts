@@ -1,3 +1,4 @@
+import { moveMrbHeldQuantity } from "./mrb-stock";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import {
@@ -1328,13 +1329,15 @@ export async function dispositionMrb(params: {
   });
   if (!mrb) throw new Error("MRB case not found");
 
+  if (!["USE_AS_IS", "REWORK", "SCRAP", "RETURN_TO_SUPPLIER", "REPAIR"].includes(params.disposition)) throw new Error("Invalid MRB disposition");
   if (!Number.isFinite(params.quantity) || params.quantity <= 0) throw new Error("Disposition quantity must be positive and finite");
   if (!["OPEN", "IN_REVIEW"].includes(mrb.status)) throw new Error("MRB case is already dispositioned or closed");
   const heldQuantity = mrb.inventoryHolds.length
     ? mrb.inventoryHolds.reduce((sum, item) => sum + item.quantityOnHand, 0)
     : mrb.serialId ? 1 : mrb.ncr.quantity;
-  if (params.disposition === "SCRAP" && params.quantity > heldQuantity + 0.0001) throw new Error("Scrap quantity exceeds held inventory");
+  if (params.quantity > heldQuantity + 0.0001) throw new Error("Disposition quantity exceeds held inventory");
 
+  if (["REWORK", "REPAIR"].includes(params.disposition) && !mrb.ncr.partId) throw new Error("Recovery requires the nonconforming part identity");
   const carNumber = params.createCar
     ? `CAR-${String((await prisma.mrbDisposition.count()) + 1).padStart(5, "0")}`
     : null;
@@ -1392,91 +1395,8 @@ export async function dispositionMrb(params: {
     else repairWorkOrderId = wo.id;
   }
 
-  // SCRAP: mark serial dead so replacements are issued on the RMA WO
-  if (params.disposition === "SCRAP" && mrb.serialId) {
-    await prisma.serialNumber.update({
-      where: { id: mrb.serialId },
-      data: { status: "SCRAPPED", parentSerialId: null },
-    });
-  }
-
-  // Resume RMA repair when MRB is resolved (unless still holding other opens)
-  if (mrb.rmaId && !(params.disposition === "SCRAP" && params.quantity < heldQuantity - 0.0001)) {
-    const openSiblings = await prisma.mrbCase.count({
-      where: {
-        rmaId: mrb.rmaId,
-        id: { not: mrb.id },
-        status: { in: ["OPEN", "IN_REVIEW"] },
-      },
-    });
-    if (openSiblings === 0) {
-      await prisma.rma.update({
-        where: { id: mrb.rmaId },
-        data: { status: "IN_WORK" },
-      });
-    }
-  }
-
-  // RETURN_TO_SUPPLIER opens a return shipment with a packing list so the
-  // material can be shipped back through the normal pack/ship flow.
   let returnShipmentId: string | null = null;
-  if (params.disposition === "RETURN_TO_SUPPLIER") {
-    const count = await prisma.shipment.count();
-    const shipment = await prisma.shipment.create({
-      data: {
-        number: `SHP-${String(count + 1).padStart(5, "0")}`,
-        mrbCaseId: mrb.id,
-        status: "PICKING",
-        shipToAddress: mrb.ncr.supplier
-          ? `${mrb.ncr.supplier.name} (RMA — return of nonconforming material)`
-          : "Supplier (RMA — return of nonconforming material)",
-        notes: `Return to supplier per ${mrb.number} / ${mrb.ncr.number}. ${params.justification}`,
-        lines: {
-          create: [
-            {
-              partId: mrb.ncr.partId,
-              description: `${mrb.ncr.part?.partNumber || "Material"} — nonconforming return (${mrb.number})`,
-              quantity: params.quantity,
-              lotNumber: mrb.inventoryHolds[0]?.lotNumber || null,
-            },
-          ],
-        },
-      },
-    });
-    returnShipmentId = shipment.id;
-  }
-
-  // SCRAP can raise a replacement PR so the shortage is covered.
   let replacementPrId: string | null = null;
-  if (params.disposition === "SCRAP" && params.createReplacementPr) {
-    const prCount = await prisma.purchaseRequest.count();
-    const estUnit =
-      mrb.ncr.part?.standardCost || 0;
-    const pr = await prisma.purchaseRequest.create({
-      data: {
-        number: `PR-${String(prCount + 1).padStart(5, "0")}`,
-        status: "SUBMITTED",
-        requestedById: params.decidedById,
-        department: "QUALITY",
-        justification: `Replacement for material scrapped under ${mrb.number} / ${mrb.ncr.number}. ${params.justification}`,
-        totalEstimate: estUnit * params.quantity,
-        supplierId: mrb.ncr.supplierId,
-        triggerSource: "MRB_SCRAP",
-        mrbCaseId: mrb.id,
-        lines: {
-          create: [
-            {
-              partId: mrb.ncr.partId,
-              description: `${mrb.ncr.part?.partNumber || "Material"} — replacement for scrap (${mrb.number})`,
-              quantity: params.quantity,
-              estimatedUnitCost: estUnit,
-            },
-          ],
-        },
-      },
-    });
-    replacementPrId = pr.id;
-  }
 
   const scrapPostings: { id: string; quantity: number; unitCost: number; workOrderId: string | null; ownership: string }[] = [];
   const disposition = await prisma.$transaction(async (db) => {
@@ -1487,7 +1407,71 @@ export async function dispositionMrb(params: {
     const heldQuantity = holds.length
       ? holds.reduce((sum, item) => sum + item.quantityOnHand, 0)
       : mrb.serialId ? 1 : mrb.ncr.quantity;
-    if (params.disposition === "SCRAP" && params.quantity > heldQuantity + 0.0001) throw new Error("Scrap quantity exceeds held inventory");
+    if (params.quantity > heldQuantity + 0.0001) throw new Error("Disposition quantity exceeds held inventory");
+    // SCRAP: mark serial dead so replacements are issued on the RMA WO
+    if (params.disposition === "SCRAP" && mrb.serialId) {
+      await db.serialNumber.update({
+        where: { id: mrb.serialId },
+        data: { status: "SCRAPPED", parentSerialId: null },
+      });
+    }
+  
+    if (params.disposition === "RETURN_TO_SUPPLIER") {
+      const count = await db.shipment.count();
+      const shipment = await db.shipment.create({
+        data: {
+          number: `SHP-${String(count + 1).padStart(5, "0")}`,
+          mrbCaseId: mrb.id,
+          status: "PICKING",
+          shipToAddress: mrb.ncr.supplier
+            ? `${mrb.ncr.supplier.name} (RMA — return of nonconforming material)`
+            : "Supplier (RMA — return of nonconforming material)",
+          notes: `Return to supplier per ${mrb.number} / ${mrb.ncr.number}. ${params.justification}`,
+          lines: {
+            create: [
+              {
+                partId: mrb.ncr.partId,
+                description: `${mrb.ncr.part?.partNumber || "Material"} — nonconforming return (${mrb.number})`,
+                quantity: params.quantity,
+                lotNumber: mrb.inventoryHolds[0]?.lotNumber || null,
+              },
+            ],
+          },
+        },
+      });
+      returnShipmentId = shipment.id;
+    }
+  
+    if (params.disposition === "SCRAP" && params.createReplacementPr) {
+      const prCount = await db.purchaseRequest.count();
+      const estUnit =
+        mrb.ncr.part?.standardCost || 0;
+      const pr = await db.purchaseRequest.create({
+        data: {
+          number: `PR-${String(prCount + 1).padStart(5, "0")}`,
+          status: "SUBMITTED",
+          requestedById: params.decidedById,
+          department: "QUALITY",
+          justification: `Replacement for material scrapped under ${mrb.number} / ${mrb.ncr.number}. ${params.justification}`,
+          totalEstimate: estUnit * params.quantity,
+          supplierId: mrb.ncr.supplierId,
+          triggerSource: "MRB_SCRAP",
+          mrbCaseId: mrb.id,
+          lines: {
+            create: [
+              {
+                partId: mrb.ncr.partId,
+                description: `${mrb.ncr.part?.partNumber || "Material"} — replacement for scrap (${mrb.number})`,
+                quantity: params.quantity,
+                estimatedUnitCost: estUnit,
+              },
+            ],
+          },
+        },
+      });
+      replacementPrId = pr.id;
+    }
+  
     const disposition = await db.mrbDisposition.create({
       data: {
         mrbCaseId: mrb.id,
@@ -1543,66 +1527,20 @@ export async function dispositionMrb(params: {
           },
         });
         scrapPostings.push({ id: scrapped.id, quantity: scrapQty, unitCost: item.unitCost, workOrderId: item.workOrderId, ownership: item.ownership });
-      } else if (params.disposition === "USE_AS_IS") {
-        // Release in place: only relocate if the material sits in a
-        // quarantine cage — otherwise it stays wherever it lived before.
-        const currentLoc = await db.location.findUnique({
-          where: { id: item.locationId },
-        });
-        const storageLoc =
-          currentLoc?.type === "QUARANTINE"
-            ? await db.location.findFirst({ where: { type: "STORAGE" } })
-            : null;
-        await db.inventoryItem.update({
-          where: { id: item.id },
-          data: {
-            quantityAvailable: item.quantityOnHand,
-            quantityQuarantine: 0,
-            mrbCaseId: null,
-            ...(storageLoc ? { locationId: storageLoc.id } : {}),
-          },
-        });
-        await db.materialTransaction.create({
-          data: {
-            type: "RELEASE",
-            partId: item.partId,
-            inventoryItemId: item.id,
-            quantity: item.quantityOnHand,
-            reference: mrb.number,
-            notes: `Released after ${params.disposition}`,
-            userId: params.decidedById,
-          },
-        });
-      } else if (params.disposition === "RETURN_TO_SUPPLIER") {
-        await db.inventoryItem.update({
-          where: { id: item.id },
-          data: {
-            quantityOnHand: 0,
-            quantityAvailable: 0,
-            quantityQuarantine: 0,
-            mrbCaseId: null,
-          },
-        });
-        await db.materialTransaction.create({
-          data: {
-            type: "TRANSFER",
-            partId: item.partId,
-            inventoryItemId: item.id,
-            quantity: params.quantity,
-            reference: mrb.number,
-            notes: "Return to supplier",
-            userId: params.decidedById,
-          },
-        });
       }
       // REWORK / REPAIR leave material in quarantine — the spawned WO
       // consumes it and returns conforming stock on completion.
     }
 
-    const partialScrap = params.disposition === "SCRAP" && params.quantity < heldQuantity - 0.0001;
+    if (holds.length && ["USE_AS_IS", "RETURN_TO_SUPPLIER"].includes(params.disposition)) {
+      await moveMrbHeldQuantity(db, { mrbCaseId: mrb.id, quantity: params.quantity,
+        kind: params.disposition === "USE_AS_IS" ? "RELEASE" : "RETURN", reference: mrb.number,
+        notes: params.justification, userId: params.decidedById });
+    }
+    const partialScrap = ["SCRAP", "USE_AS_IS", "RETURN_TO_SUPPLIER"].includes(params.disposition) && params.quantity < heldQuantity - 0.0001;
     await db.mrbCase.update({
       where: { id: mrb.id },
-      data: { status: partialScrap ? "OPEN" : "DISPOSITIONED", closedAt: partialScrap ? null : new Date() },
+      data: { status: partialScrap ? "OPEN" : "DISPOSITIONED", closedAt: partialScrap || ["REWORK", "REPAIR"].includes(params.disposition) ? null : new Date() },
     });
 
     await db.nonConformance.update({
@@ -1613,7 +1551,17 @@ export async function dispositionMrb(params: {
       },
     });
 
+    if (mrb.rmaId && !partialScrap && !["REWORK", "REPAIR"].includes(params.disposition)) {
+      const siblings = await db.mrbCase.count({ where: { rmaId: mrb.rmaId, id: { not: mrb.id }, status: { in: ["OPEN", "IN_REVIEW"] } } });
+      if (!siblings) await db.rma.updateMany({ where: { id: mrb.rmaId, status: { notIn: ["CANCELLED", "CLOSED", "SHIPPED", "COMPLETED"] } }, data: { status: "IN_WORK" } });
+    }
     return disposition;
+  }).catch(async error => {
+    for (const id of [reworkWorkOrderId, repairWorkOrderId].filter((id): id is string => !!id)) {
+      try { await prisma.workOrder.deleteMany({ where: { id, mrbCaseId: mrb.id, status: "PLANNED" } }); }
+      catch { console.error("Uncommitted MRB recovery work order requires reconciliation", { workOrderId: id }); }
+    }
+    throw error;
   });
 
   // Existing GL integration is best-effort; each posting uses its material

@@ -1810,6 +1810,12 @@ export async function completeWorkOrderToStock(params: {
     (await prisma.location.findFirst());
   if (!storageLoc || !wo.partId) throw new Error("Cannot complete — missing storage or part");
 
+  if (wo.mrbCaseId && ["REWORK", "REPAIR"].includes(wo.type)) {
+    const { completeMrbStockRecovery } = await import("./mrb-stock");
+    const recovered = await completeMrbStockRecovery({ ...params, mrbCaseId: wo.mrbCaseId, storageLocationId: storageLoc.id });
+    if (recovered) return recovered;
+  }
+
   const lotNumber =
     params.lotNumber || `LOT-WO-${wo.number.replace(/\W/g, "")}`;
   // Serialized parts get one serial PER UNIT (with as-built genealogy),
