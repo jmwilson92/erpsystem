@@ -80,19 +80,13 @@ export async function setCalToolDisposition(params: {
   disposition: "PULL_FOR_RECAL" | "NO_ACTION";
   userId?: string;
 }) {
-  const mrb = await prisma.mrbCase.findUnique({ where: { id: params.mrbCaseId } });
-  if (!mrb) throw new Error("MRB case not found");
-  await prisma.mrbCase.update({
-    where: { id: params.mrbCaseId },
-    data: { calToolDisposition: params.disposition },
+  if (!["PULL_FOR_RECAL", "NO_ACTION"].includes(params.disposition)) throw new Error("Invalid calibration-tool disposition");
+  await prisma.$transaction(async db => {
+    const mrb = await db.mrbCase.update({ where: { id: params.mrbCaseId }, data: { updatedAt: new Date() } });
+    if (!mrb.calToolId) throw new Error("Link a calibration tool before dispositioning it");
+    await db.mrbCase.update({ where: { id: mrb.id }, data: { calToolDisposition: params.disposition } });
+    if (params.disposition === "PULL_FOR_RECAL") await db.qualityItem.update({ where: { id: mrb.calToolId }, data: { status: "OUT_OF_SERVICE", nextDueAt: new Date() } });
   });
-  // Pulling for recal takes the tool out of service and flags it overdue-ish.
-  if (params.disposition === "PULL_FOR_RECAL" && mrb.calToolId) {
-    await prisma.qualityItem.update({
-      where: { id: mrb.calToolId },
-      data: { status: "OUT_OF_SERVICE", nextDueAt: new Date() },
-    });
-  }
   await logAudit({ entityType: "MrbCase", entityId: params.mrbCaseId, action: "CAL_TOOL_DISPOSITION", userId: params.userId, metadata: { disposition: params.disposition } });
 }
 
