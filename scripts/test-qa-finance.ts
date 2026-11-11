@@ -65,14 +65,16 @@ async function main() {
     const valid = await bank.importBankTransactions({ bankAccountId: acct.id, text: "date,description,debit,credit\n2026-01-03,Good debit,10,\n2026-01-04,Good credit,,12.50" });
     assert.equal(valid.imported, 2); assert.equal(valid.errors.length, 0);
     console.log("PASS BANK-002 malformed/missing/nonfinite amounts reject without rows or balance changes; debit/credit blanks work");
-    const report = await p.expenseReport.create({ data: { number: "EXP-QA", title: "QA report", userId: employee.id, status: "APPROVED", lines: { create: { description: "QA expense", amount: 20, category: "OTHER", date: new Date() } } } });
+    const report = await p.expenseReport.create({ data: { number: "EXP-QA", title: "QA report", userId: employee.id, status: "DRAFT", lines: { create: { description: "QA expense", amount: 20, category: "OTHER", date: new Date() } } } });
+    await hr.advanceExpenseReport({ id: report.id, status: "SUBMITTED", userId: employee.id, approver: employee });
+    await hr.advanceExpenseReport({ id: report.id, status: "APPROVED", userId: manager.id, approver: manager });
     await assert.rejects(hr.advanceExpenseReport({ id: report.id, status: "PAID", userId: manager.id, approver: manager }), /cannot go/);
     assert.equal((await p.expenseReport.findUniqueOrThrow({ where: { id: report.id } })).status, "APPROVED");
     assert.equal(await p.journalEntry.count({ where: { source: "EXPENSE" } }), 0);
     await hr.payExpenseReport({ id: report.id, processor: admin });
     assert.equal((await p.expenseReport.findUniqueOrThrow({ where: { id: report.id } })).status, "PAID");
     assert.equal(await p.journalEntry.count({ where: { source: "EXPENSE", sourceId: report.id } }), 1);
-    console.log("PASS ACCT-010 HR generic transition cannot mark paid; existing controller reimbursement posts balanced journal (ACCT-009 policy unchanged)");
+    console.log("PASS ACCT-010 HR generic transition cannot mark paid; independently approved controller reimbursement posts balanced journal");
     const supplier = await p.supplier.create({ data: { code: "FIN-QA", name: "QA supplier" } });
     const gaap = await import("../src/lib/services/gaap");
     const billing = await import("../src/lib/services/billing");

@@ -3,6 +3,7 @@
  * income statement, balance sheet, cash activity proxy from journals.
  */
 import { prisma } from "@/lib/db";
+import { independentExpenseApproval, reimbursementAmount } from "@/lib/expense-approval";
 import type { Prisma } from "@prisma/client";
 type LedgerDb = Prisma.TransactionClient;
 import { logAudit } from "@/lib/audit";
@@ -534,6 +535,9 @@ export async function postJournal(params: {
 }, db?: LedgerDb) {
   // Manual and user-entered settlement/expense entries cannot self-post around SoD.
   const source = params.source || "MANUAL";
+  if (source === "EXPENSE" && params.sourceId && await (db || prisma).expenseReport.findUnique({ where: { id: params.sourceId }, select: { id: true } })) {
+    throw new Error("Use the independently approved reimbursement workflow for employee expenses");
+  }
   const immediate = params.status === "POSTED" || (!params.status && source !== "MANUAL");
   if (["MANUAL", "AR_SETTLE", "EXPENSE"].includes(source) && immediate) {
     const settings = await prisma.accountingSettings.findUnique({ where: { id: "default" } });
@@ -543,6 +547,27 @@ export async function postJournal(params: {
     }
   }
   return db ? postJournalInTransaction(params, db) : prisma.$transaction((tx) => postJournalInTransaction(params, tx));
+}
+
+/** Internal dedicated route: caller holds parent/line locks in this transaction.
+ * No caller-supplied lines/status or SoD override flag. */
+export async function postApprovedExpenseReimbursement(params: { reportId: string; processorId: string }, db: LedgerDb) {
+  const report = await db.expenseReport.findUniqueOrThrow({ where: { id: params.reportId }, include: { lines: true, user: { select: { name: true } } } });
+  if (report.status !== "APPROVED") throw new Error("Expense must be independently approved before reimbursement");
+  const approval = await independentExpenseApproval(db, report, params.processorId);
+  const amount = reimbursementAmount(report);
+  const expense = await db.account.findFirst({ where: { code: "6200", isActive: true } });
+  const cash = await db.account.findFirst({ where: { code: "1000", isActive: true } });
+  if (!expense || !cash || expense.type !== "EXPENSE" || cash.type !== "ASSET") throw new Error("Active expense6200 and cash1000 GL accounts are required for reimbursement");
+  if (await db.journalEntry.findFirst({ where: { source: "EXPENSE", sourceId: report.id, status: { not: "VOID" } } })) {
+    throw new Error("A reimbursement journal already exists; reconcile before retrying");
+  }
+  const journal = await postJournalInTransaction({
+    description: `Expense reimbursement — ${report.user.name} (${report.number})`, source: "EXPENSE", sourceId: report.id,
+    createdById: params.processorId, idempotencyKey: `expense-reimbursement:${report.id}`, status: "POSTED",
+    lines: [{ accountId: expense.id, debit: amount, memo: "Independently approved employee expense" }, { accountId: cash.id, credit: amount, memo: "Reimbursement paid" }],
+  }, db);
+  return db.journalEntry.update({ where: { id: journal.id }, data: { approvedById: approval.userId }, include: { lines: true } });
 }
 
 async function postJournalInTransaction(params: Parameters<typeof postJournal>[0], db: LedgerDb) {
@@ -792,6 +817,9 @@ export async function approveJournal(params: {
       include: { lines: true },
     });
     if (je.status === "POSTED") return je;
+    if (je.source === "EXPENSE" && je.sourceId && await db.expenseReport.findUnique({ where: { id: je.sourceId }, select: { id: true } })) {
+      throw new Error("Use the independently approved reimbursement workflow; submitters and administrators cannot bypass it with journal approval");
+    }
     const settings = await db.accountingSettings.findUnique({
       where: { id: "default" }, select: { requireJournalSoD: true },
     });
