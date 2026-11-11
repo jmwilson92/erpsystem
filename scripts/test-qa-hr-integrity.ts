@@ -97,6 +97,10 @@ async function main() {
       const expenseBefore = await snapshot(); await assert.rejects(invoke(a.actionAdvanceExpense, { id: foreignExpense.id, status: "SUBMITTED" }), /Not authorized/); await assert.rejects(request(() => a.actionAdvanceExpense(form({ id: foreignExpense.id, status: "SUBMITTED" }))), /Sign in required/); assert.equal(await snapshot(), expenseBefore);
       await invoke(a.actionAdvanceExpense, { id: ownExpense.id, status: "SUBMITTED" }); await invoke(a.actionAdvanceExpense, { id: foreignExpense.id, status: "SUBMITTED" }, "CM");
       assert.equal((await db.expenseReport.findUniqueOrThrow({ where: { id: foreignExpense.id } })).status, "SUBMITTED");
+      const concurrentExpense = await db.expenseReport.create({ data: { number: "QA-CONCURRENT", userId: users[1].id, title: "Concurrent owned submission" } });
+      const submissions = await Promise.allSettled([1, 2].map(() => invoke(a.actionAdvanceExpense, { id: concurrentExpense.id, status: "SUBMITTED" })));
+      assert.equal(submissions.filter(result => result.status === "fulfilled").length, 1);
+      assert.equal(await db.auditLog.count({ where: { entityId: concurrentExpense.id, action: "EXPENSE_SUBMITTED" } }), 1);
       console.log(`PASS HR-005 ${scope} foreign/anonymous expense submission denied; owner and authorized direct manager retain valid submission`);
       const review = await db.performanceReview.create({ data: { employeeId: users[2].id, reviewerId: users[3].id, period: "Synthetic review", status: "IN_PROGRESS" } });
       const reviewForm = { employeeId: users[2].id, period: "Synthetic review", overallRating: "250", ratingRationale: "Synthetic rationale" };
@@ -104,6 +108,9 @@ async function main() {
         for (const id of ["", review.id]) { const before = await snapshot(); await assert.rejects(invoke(a.actionSavePerformanceReview, { ...reviewForm, id, overallRating: rating }, "CM"), /1 to 5/); assert.equal(await snapshot(), before); }
       }
       for (const rating of ["1", "3.5", "5"]) { await invoke(a.actionSavePerformanceReview, { ...reviewForm, id: review.id, overallRating: rating }, "CM"); assert.equal((await db.performanceReview.findUniqueOrThrow({ where: { id: review.id } })).overallRating, Number(rating)); }
+      const beforeValidReview = await db.performanceReview.count();
+      await invoke(a.actionSavePerformanceReview, { ...reviewForm, period: "Valid new review", overallRating: "4" }, "CM");
+      assert.equal(await db.performanceReview.count(), beforeValidReview + 1);
       await db.performanceReview.update({ where: { id: review.id }, data: { status: "COMPLETED" } }); const completedBefore = await snapshot(); await assert.rejects(invoke(a.actionSavePerformanceReview, { ...reviewForm, id: review.id, overallRating: "4" }, "CM"), /completed/); assert.equal(await snapshot(), completedBefore);
       console.log(`PASS HR-006 ${scope} both native create/edit score paths reject out-of-scale/nonfinite evidence; legitimate1–5 scores preserved; completed reviews immutable`);
       await db.payrollPolicy.create({ data: { id: "default", timesheetFrequency: "WEEKLY", weekStartsOn: 1, periodAnchor: new Date(2026, 0, 5), holidays: JSON.stringify([{ date: "2026-11-09", name: "Synthetic Monday" }]) } });
