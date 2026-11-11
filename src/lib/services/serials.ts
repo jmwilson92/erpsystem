@@ -100,49 +100,28 @@ export async function assignUnitSerial(params: {
   serial: string;
   userId?: string;
 }) {
-  const wo = await prisma.workOrder.findUnique({
-    where: { id: params.workOrderId },
-    include: { part: true },
+  const serial = params.serial.trim().toUpperCase();
+  if (!serial) throw new Error("Serial number required");
+  return prisma.$transaction(async db => {
+    const wo = await db.workOrder.update({ where: { id: params.workOrderId }, data: { updatedAt: new Date() }, include: { part: true } });
+    if (!wo.partId) throw new Error("Work order has no part");
+    if (!Number.isInteger(wo.quantity) || wo.quantity <= 0 || !Number.isInteger(params.unitIndex) || params.unitIndex < 1 || params.unitIndex > wo.quantity) throw new Error("Unit index must identify an existing whole work-order unit");
+    await db.workOrderUnit.createMany({ data: Array.from({ length: wo.quantity }, (_, i) => ({ workOrderId: wo.id, unitIndex: i + 1, status: "OPEN" })), skipDuplicates: true });
+    const unit = await db.workOrderUnit.findUniqueOrThrow({ where: { workOrderId_unitIndex: { workOrderId: wo.id, unitIndex: params.unitIndex } }, include: { serial: true } });
+    if (unit.serial && unit.serial.serial !== serial) throw new Error("Unit already has a serial; use a controlled transfer instead");
+    let sn = await db.serialNumber.findUnique({ where: { serial } });
+    if (!sn) {
+      sn = await db.serialNumber.create({ data: { serial, partId: wo.partId, workOrderId: wo.id, status: "ISSUED" } });
+      await logAudit({ entityType: "SerialNumber", entityId: sn.id, action: "CREATED", userId: params.userId, metadata: { serial, partId: wo.partId } },db);
+    }
+    if (sn.partId !== wo.partId) throw new Error("Serial is for a different part than this WO");
+    if (sn.workOrderId && sn.workOrderId !== wo.id) throw new Error("Serial is already assigned to another work order");
+    if (sn.parentSerialId || ["SCRAPPED", "SHIPPED", "INSTALLED", "QUARANTINE"].includes(sn.status)) throw new Error("Serial is not available for top-unit assignment");
+    if (await db.workOrderUnit.count({ where: { serialId: sn.id, id: { not: unit.id }, OR: [{ workOrderId: wo.id }, { workOrder: { status: { notIn: ["COMPLETED", "CANCELLED", "CLOSED"] } } }] } })) throw new Error("Serial is already assigned to another active unit");
+    const claim = await db.serialNumber.updateMany({ where: { id: sn.id, OR: [{ workOrderId: null }, { workOrderId: wo.id }] }, data: { workOrderId: wo.id, status: sn.status === "IN_STOCK" ? "ISSUED" : sn.status } });
+    if (!claim.count) throw new Error("Serial was assigned concurrently; refresh and retry");
+    return db.workOrderUnit.update({ where: { id: unit.id }, data: { serialId: sn.id, status: unit.serialId === sn.id ? unit.status : "IN_BUILD" }, include: { serial: true } });
   });
-  if (!wo) throw new Error("Work order not found");
-  if (!wo.partId) throw new Error("Work order has no part");
-
-  await ensureWorkOrderUnits({ workOrderId: wo.id });
-
-  let sn = await prisma.serialNumber.findUnique({
-    where: { serial: params.serial.trim().toUpperCase() },
-  });
-  if (!sn) {
-    sn = await mintSerial({
-      serial: params.serial,
-      partId: wo.partId,
-      workOrderId: wo.id,
-      status: "ISSUED",
-      userId: params.userId,
-    });
-  } else if (sn.partId !== wo.partId) {
-    throw new Error(
-      `Serial ${sn.serial} is for a different part than this WO`
-    );
-  }
-
-  const unit = await prisma.workOrderUnit.update({
-    where: {
-      workOrderId_unitIndex: {
-        workOrderId: wo.id,
-        unitIndex: params.unitIndex,
-      },
-    },
-    data: { serialId: sn.id, status: "IN_BUILD" },
-    include: { serial: true },
-  });
-
-  await prisma.serialNumber.update({
-    where: { id: sn.id },
-    data: { workOrderId: wo.id, status: sn.status === "IN_STOCK" ? "ISSUED" : sn.status },
-  });
-
-  return unit;
 }
 
 /**

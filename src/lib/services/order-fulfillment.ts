@@ -1150,116 +1150,61 @@ export async function captureReceivingPhotos(params: {
  * Move inspected material from RECEIVING → STORAGE (putaway).
  * Optionally attaches mock photos if none exist yet.
  */
-export async function putAwayInventory(params: {
-  inventoryItemId: string;
-  userId?: string;
-  capturePhotos?: boolean;
-  targetLocationCode?: string;
+async function assertReceivingPutawayClear(db: Prisma.TransactionClient, item: {
+  id: string; quantityOnHand: number; quantityCommitted: number; quantityQuarantine: number; mrbCaseId: string | null;
+  location: { type: string }; part: { requiresGdtInspection: boolean; requiresFunctionalTest: boolean };
 }) {
-  const item = await prisma.inventoryItem.findUnique({
-    where: { id: params.inventoryItemId },
-    include: { location: true, part: true },
-  });
-  if (!item) throw new Error("Inventory item not found");
-  if (item.quantityQuarantine > 0 || item.mrbCaseId) {
-    throw new Error("Cannot put away quarantined / MRB material");
+  if (item.quantityQuarantine > 0 || item.mrbCaseId) throw new Error("Cannot put away quarantined / MRB material");
+  if (!Number.isFinite(item.quantityOnHand) || item.quantityOnHand <= 0 || item.quantityCommitted < 0 || item.quantityCommitted > item.quantityOnHand) throw new Error("Invalid stock quantities for putaway");
+  const inspections = await db.inspection.findMany({ where: { inventoryItemId: item.id } });
+  const release = await db.materialTransaction.findFirst({ where: { inventoryItemId: item.id, type: "RELEASE", reference: { not: null } }, orderBy: { createdAt: "desc" } });
+  const authorized = release?.reference ? await db.mrbDisposition.findFirst({ where: {
+    mrbCase: { number: release.reference }, OR: [ { disposition: "USE_AS_IS" },
+      ...(release.workOrderId ? [{ disposition: "REWORK", reworkWorkOrderId: release.workOrderId }, { disposition: "REPAIR", repairWorkOrderId: release.workOrderId }] : []) ],
+  } }) : null;
+  // A committed MRB release supersedes its original failed/pending inspections,
+  // not a later new hold. This preserves approved partial use-as-is and rework.
+  const active = authorized && release ? inspections.filter(row => row.updatedAt > release.createdAt) : inspections;
+  const receiving = item.location.type === "RECEIVING";
+  if (active.some(row => !["PASSED", "WAIVED"].includes(row.status) && (receiving || row.status !== "FAILED" || !!authorized))) throw new Error("Complete required receiving inspections before putaway");
+  if (receiving && !authorized) {
+    const accepted = (type: string) => inspections.some(row => row.type === type && ["PASSED", "WAIVED"].includes(row.status));
+    if (item.part.requiresGdtInspection && (!accepted("VISUAL") || !accepted("GDT"))) throw new Error("Required visual and GD&T inspection release is missing");
+    if (item.part.requiresFunctionalTest && !accepted("FUNCTIONAL")) throw new Error("Required functional inspection release is missing");
   }
+}
 
-  const storageLoc =
-    (await prisma.location.findFirst({
-      where: params.targetLocationCode
-        ? { code: params.targetLocationCode }
-        : { type: "STORAGE" },
-    })) ||
-    (await prisma.location.findFirst({ where: { type: "STORAGE" } })) ||
-    (await prisma.location.findFirst({ where: { type: "GFP" } }));
-
-  if (!storageLoc) throw new Error("No STORAGE/GFP location configured");
-
+export async function putAwayInventory(params: {
+  inventoryItemId: string; userId?: string; capturePhotos?: boolean; targetLocationCode?: string;
+}) {
+  const item = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: params.inventoryItemId }, include: { location: true, part: true } });
+  await assertReceivingPutawayClear(prisma, item);
+  const storageLoc = (await prisma.location.findFirst({ where: params.targetLocationCode ? { code: params.targetLocationCode } : { type: "STORAGE" } })) ||
+    (await prisma.location.findFirst({ where: { type: "STORAGE" } })) || (await prisma.location.findFirst({ where: { type: "GFP" } }));
+  if (!storageLoc || !["STORAGE", "GFP", "SHIPPING"].includes(storageLoc.type)) throw new Error("A STORAGE/GFP location is required for putaway");
   let photoUrls: string[] = [];
-  if (params.capturePhotos !== false) {
-    const existing = await prisma.receivingPhoto.count({
-      where: { inventoryItemId: item.id },
-    });
-    if (existing === 0) {
-      const photos = await captureReceivingPhotos({
-        partId: item.partId,
-        inventoryItemId: item.id,
-        lotNumber: item.lotNumber || undefined,
-        userId: params.userId,
-      });
-      photoUrls = photos.map((p) => p.url);
-    }
+  if (params.capturePhotos !== false && await prisma.receivingPhoto.count({ where: { inventoryItemId: item.id } }) === 0) {
+    photoUrls = (await captureReceivingPhotos({ partId: item.partId, inventoryItemId: item.id, lotNumber: item.lotNumber || undefined, userId: params.userId })).map(p => p.url);
   }
-
-  // GFP area putaway → material is government-owned instance (P/N itself is not GFP)
-  const isGfpArea =
-    storageLoc.type === "GFP" ||
-    storageLoc.code.toUpperCase().startsWith("GFP");
-  const ownership = isGfpArea
-    ? "GOVERNMENT"
-    : item.ownership === "GOVERNMENT"
-      ? "GOVERNMENT"
-      : "COMPANY";
-
   const fromCode = item.location.code;
-  const updated = await prisma.inventoryItem.update({
-    where: { id: item.id },
-    data: {
-      locationId: storageLoc.id,
-      ownership,
-      // ensure available after putaway (inspection already passed)
-      quantityAvailable: item.quantityOnHand - item.quantityCommitted,
-    },
+  const updated = await prisma.$transaction(async db => {
+    const claim = await db.inventoryItem.updateMany({ where: { id: item.id, updatedAt: item.updatedAt }, data: { updatedAt: new Date() } });
+    if (!claim.count) throw new Error("Stock changed before putaway; refresh and retry");
+    const current = await db.inventoryItem.findUniqueOrThrow({ where: { id: item.id }, include: { location: true, part: true } });
+    await assertReceivingPutawayClear(db, current);
+    const ownership = storageLoc.type === "GFP" || storageLoc.code.toUpperCase().startsWith("GFP") ? "GOVERNMENT" : current.ownership === "GOVERNMENT" ? "GOVERNMENT" : "COMPANY";
+    const result = await db.inventoryItem.update({ where: { id: item.id }, data: { locationId: storageLoc.id, ownership, quantityAvailable: current.quantityOnHand - current.quantityCommitted } });
+    await db.materialTransaction.create({ data: { type: "PUTAWAY", partId: item.partId, inventoryItemId: item.id, quantity: current.quantityOnHand, unitCost: current.unitCost,
+      fromLocation: fromCode, toLocation: storageLoc.code, lotNumber: item.lotNumber, serialNumber: item.serialNumber,
+      reference: `PUTAWAY-${item.id.slice(-6)}`, notes: "Put away after receiving inspection", photoUrls: photoUrls.length ? JSON.stringify(photoUrls) : undefined, userId: params.userId } });
+    await db.traceEvent.create({ data: { eventType: "PUTAWAY", partId: item.partId, lotNumber: item.lotNumber, serialNumber: item.serialNumber,
+      quantity: current.quantityOnHand, fromLocation: fromCode, toLocation: storageLoc.code, photoUrls: photoUrls.length ? JSON.stringify(photoUrls) : undefined,
+      notes: `Put away ${item.part.partNumber} to ${storageLoc.code}`, userId: params.userId } });
+    return result;
   });
-
-  await prisma.materialTransaction.create({
-    data: {
-      type: "PUTAWAY",
-      partId: item.partId,
-      inventoryItemId: item.id,
-      quantity: item.quantityOnHand,
-      unitCost: item.unitCost,
-      fromLocation: fromCode,
-      toLocation: storageLoc.code,
-      lotNumber: item.lotNumber,
-      serialNumber: item.serialNumber,
-      reference: `PUTAWAY-${item.id.slice(-6)}`,
-      notes: "Put away after receiving inspection",
-      photoUrls: photoUrls.length ? JSON.stringify(photoUrls) : undefined,
-      userId: params.userId,
-    },
-  });
-
-  await recordTrace({
-    eventType: "PUTAWAY",
-    partId: item.partId,
-    lotNumber: item.lotNumber,
-    serialNumber: item.serialNumber,
-    quantity: item.quantityOnHand,
-    fromLocation: fromCode,
-    toLocation: storageLoc.code,
-    photoUrls: photoUrls.length ? photoUrls : undefined,
-    notes: `Put away ${item.part.partNumber} to ${storageLoc.code}`,
-    userId: params.userId,
-  });
-
   await refreshAllWaitingMaterial(params.userId);
-
-  await logAudit({
-    entityType: "InventoryItem",
-    entityId: item.id,
-    action: "PUTAWAY",
-    userId: params.userId,
-    metadata: { from: fromCode, to: storageLoc.code },
-  });
-
-  // Re-evaluate kanban (may clear need if stock now above min, or still low)
-  await triggerKanbanReplenishment({
-    userId: params.userId,
-    partIds: [item.partId],
-  });
-
+  await logAudit({ entityType: "InventoryItem", entityId: item.id, action: "PUTAWAY", userId: params.userId, metadata: { from: fromCode, to: storageLoc.code } });
+  await triggerKanbanReplenishment({ userId: params.userId, partIds: [item.partId] });
   return updated;
 }
 

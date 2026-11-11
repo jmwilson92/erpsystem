@@ -1,6 +1,5 @@
-"use server";
-
 import { prisma } from "./db";
+import type { Prisma } from "@prisma/client";
 
 /**
  * Source address for the audit record.
@@ -36,9 +35,9 @@ export async function logAudit(params: {
   userId?: string | null;
   changes?: Record<string, unknown> | null;
   metadata?: Record<string, unknown> | null;
-}) {
+}, tx?: Prisma.TransactionClient) {
   try {
-    await prisma.auditLog.create({
+    await (tx || prisma).auditLog.create({
       data: {
         entityType: params.entityType,
         entityId: params.entityId,
@@ -50,6 +49,7 @@ export async function logAudit(params: {
       },
     });
   } catch (e) {
+    if (tx) throw e;
     console.error("Audit log failed:", e);
   }
 
