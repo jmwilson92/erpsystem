@@ -566,8 +566,8 @@
     "file": "src/app/actions.ts",
     "line": 1597,
     "name": "actionBootstrapInstance",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Empty instance native bootstrap creates one platform admin session and cannot be reclaimed"
   },
   {
     "id": "ACTION-0047",
@@ -596,8 +596,8 @@
     "file": "src/app/actions.ts",
     "line": 1647,
     "name": "actionClaimTenant",
-    "status": "untested",
-    "evidence": ""
+    "status": "fail",
+    "evidence": "; main bd44f68 round12: PASS Native customer claim sets password and tenant session and consumes token before replay; main bd44f68 round12: FAIL Onboarding token-consumption failure must fail closed before password/session changes; main bd44f68 round12: PASS Native HTTP customer claim positive control precedes anonymous-demo boundary test"
   },
   {
     "id": "ACTION-0050",
@@ -606,8 +606,8 @@
     "file": "src/app/actions.ts",
     "line": 1675,
     "name": "actionReissueOnboarding",
-    "status": "untested",
-    "evidence": ""
+    "status": "fail",
+    "evidence": "; main bd44f68 round12: PASS Platform owner native onboarding reissue rotates hashed one-time token; main bd44f68 round12: FAIL Anonymous demo persona cannot mint and redeem a customer onboarding claim link; main bd44f68 round12: FAIL Anonymous demo HTTP action must not reissue and redeem a customer owner claim link"
   },
   {
     "id": "ACTION-0051",
@@ -786,8 +786,8 @@
     "file": "src/app/actions.ts",
     "line": 2516,
     "name": "actionAiChat",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS AI chat, probe, voice smoke and translation stay local or fail closed without paid keys"
   },
   {
     "id": "ACTION-0069",
@@ -1476,8 +1476,8 @@
     "file": "src/app/actions.ts",
     "line": 4919,
     "name": "actionCompleteWoToStock",
-    "status": "fail",
-    "evidence": "priority-results.json: PASS Completed production handoff then stock action closes WO; round2-finance-results.json: FAIL Task-only WO completes traveler then official completion without inventory; FIX VERIFIED current 3de5ba1: integrity-retest.log / bom-lifecycle-retest.log and current HTTP retests; current/round2-finance-results.json: PASS Task-only WO completes traveler then official completion without inventory; main152: FAIL Physical-route rework final putaway conserves five original units and clears MRB hold; main153: FAIL Physical-route rework final putaway conserves five original units and clears MRB hold; main155: FAIL Physical-route rework final putaway conserves five original units and clears MRB hold; main3957b55 round11: FAIL Physical-route rework final putaway conserves five original units and clears MRB hold"
+    "status": "pass",
+    "evidence": "priority-results.json: PASS Completed production handoff then stock action closes WO; round2-finance-results.json: FAIL Task-only WO completes traveler then official completion without inventory; FIX VERIFIED current 3de5ba1: integrity-retest.log / bom-lifecycle-retest.log and current HTTP retests; current/round2-finance-results.json: PASS Task-only WO completes traveler then official completion without inventory; main152: FAIL Physical-route rework final putaway conserves five original units and clears MRB hold; main153: FAIL Physical-route rework final putaway conserves five original units and clears MRB hold; main155: FAIL Physical-route rework final putaway conserves five original units and clears MRB hold; main3957b55 round11: FAIL Physical-route rework final putaway conserves five original units and clears MRB hold; main bd44f68 round12: PASS MRB-005 public genuine released-WI/receipt/failed-QA/rework/three-signature/Receiving/putaway chain restores five original units, not ten; injected final trace failure rolls back everything; main bd44f68 round12: PASS MRB-005 tenant_qamrb01 genuine released-WI/receipt/failed-QA/rework/three-signature/Receiving/putaway chain restores five original units, not ten; injected final trace failure rolls back everything"
   },
   {
     "id": "ACTION-0138",
@@ -2656,8 +2656,8 @@
     "file": "src/app/actions.ts",
     "line": 7252,
     "name": "actionSwitchDemoUser",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Native demo persona switch enter and end operate only on local demo"
   },
   {
     "id": "ACTION-0256",
@@ -3106,8 +3106,8 @@
     "file": "src/app/actions.ts",
     "line": 8430,
     "name": "actionCreatePlaidLinkToken",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Plaid actions deny operators and fail closed for admins without keys"
   },
   {
     "id": "ACTION-0301",
@@ -3116,8 +3116,8 @@
     "file": "src/app/actions.ts",
     "line": 8451,
     "name": "actionExchangePlaidToken",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Plaid actions deny operators and fail closed for admins without keys"
   },
   {
     "id": "ACTION-0302",
@@ -3126,8 +3126,8 @@
     "file": "src/app/actions.ts",
     "line": 8480,
     "name": "actionSyncPlaid",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Plaid actions deny operators and fail closed for admins without keys"
   },
   {
     "id": "ACTION-0303",
@@ -3296,8 +3296,8 @@
     "file": "src/app/actions.ts",
     "line": 8931,
     "name": "actionActivatePlan",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Native beta plan activation and free Shop checkout never contact Stripe"
   },
   {
     "id": "ACTION-0320",
@@ -3306,8 +3306,8 @@
     "file": "src/app/actions.ts",
     "line": 8960,
     "name": "actionStartCheckout",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Native beta plan activation and free Shop checkout never contact Stripe"
   },
   {
     "id": "ACTION-0321",
@@ -3316,8 +3316,8 @@
     "file": "src/app/actions.ts",
     "line": 9028,
     "name": "actionStartTrial",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Native local trial and cancellation persist local state only"
   },
   {
     "id": "ACTION-0322",
@@ -3326,8 +3326,8 @@
     "file": "src/app/actions.ts",
     "line": 9038,
     "name": "actionCancelSubscription",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Native local trial and cancellation persist local state only"
   },
   {
     "id": "ACTION-0323",
@@ -3946,8 +3946,8 @@
     "file": "src/app/admin/insights/actions.ts",
     "line": 21,
     "name": "actionSetIssueStatus",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Native platform issue triage persists resolved state and audit history"
   },
   {
     "id": "PAGE-0010",
@@ -4026,8 +4026,8 @@
     "file": "src/app/ai/actions.ts",
     "line": 38,
     "name": "actionAiChat",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS AI chat, probe, voice smoke and translation stay local or fail closed without paid keys"
   },
   {
     "id": "ACTION-0385",
@@ -4096,8 +4096,8 @@
     "file": "src/app/ai/actions.ts",
     "line": 152,
     "name": "actionProbeGrok",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS AI chat, probe, voice smoke and translation stay local or fail closed without paid keys"
   },
   {
     "id": "ACTION-0392",
@@ -4106,8 +4106,8 @@
     "file": "src/app/ai/actions.ts",
     "line": 158,
     "name": "actionVoiceSmokeTest",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS AI chat, probe, voice smoke and translation stay local or fail closed without paid keys"
   },
   {
     "id": "ACTION-0571",
@@ -4427,7 +4427,7 @@
     "line": 1,
     "name": "/cm/ecr/[id]",
     "status": "pass",
-    "evidence": "HTTP render only; buttons/visuals need UI pass; main151: PASS Desktop new-priority page hydration /cm/ecr/cmwbbjbch000e34a1f3h61s66; main152: PASS Desktop new-priority page hydration /cm/ecr/cmwbc75we000erfa110mkum7l; main153: PASS Desktop new-priority page hydration /cm/ecr/cmwbcvb69000e1ga1zwudwesf; main155: PASS Desktop new-priority page hydration /cm/ecr/cmwbdxpoz000em4a10rorm902; main3957b55 round11: PASS Desktop new-priority page hydration /cm/ecr/cmwbenqvk000erca10od3hhkd"
+    "evidence": "HTTP render only; buttons/visuals need UI pass; main151: PASS Desktop new-priority page hydration /cm/ecr/cmwbbjbch000e34a1f3h61s66; main152: PASS Desktop new-priority page hydration /cm/ecr/cmwbc75we000erfa110mkum7l; main153: PASS Desktop new-priority page hydration /cm/ecr/cmwbcvb69000e1ga1zwudwesf; main155: PASS Desktop new-priority page hydration /cm/ecr/cmwbdxpoz000em4a10rorm902; main3957b55 round11: PASS Desktop new-priority page hydration /cm/ecr/cmwbenqvk000erca10od3hhkd; main bd44f68 round12: PASS Desktop new-priority page hydration /cm/ecr/cmwbez168000eiqa1jm2qepap"
   },
   {
     "id": "PAGE-0027",
@@ -4676,8 +4676,8 @@
     "file": "src/app/demo-actions.ts",
     "line": 103,
     "name": "actionEnterExistingDemo",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Native demo persona switch enter and end operate only on local demo"
   },
   {
     "id": "ACTION-0406",
@@ -4686,8 +4686,8 @@
     "file": "src/app/demo-actions.ts",
     "line": 129,
     "name": "actionEndTestDrive",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Native demo persona switch enter and end operate only on local demo"
   },
   {
     "id": "ACTION-0407",
@@ -4987,7 +4987,7 @@
     "line": 1,
     "name": "/government-property/[id]",
     "status": "pass",
-    "evidence": "HTTP render only; buttons/visuals need UI pass; main151: PASS Desktop new-priority page hydration /government-property/cmwbbfpbl00g95aa1bmecg2ih; main152: PASS Desktop new-priority page hydration /government-property/cmwbc3r4k00g9r3a1vsbuijz3; main153: PASS Desktop new-priority page hydration /government-property/cmwbcsm7i00g9hsa1gx5x5t0r; main155: PASS Desktop new-priority page hydration /government-property/cmwbdv0v700g93aa1dku267kw; main3957b55 round11: PASS Desktop new-priority page hydration /government-property/cmwbeld9q00g9fqa1nnwam020"
+    "evidence": "HTTP render only; buttons/visuals need UI pass; main151: PASS Desktop new-priority page hydration /government-property/cmwbbfpbl00g95aa1bmecg2ih; main152: PASS Desktop new-priority page hydration /government-property/cmwbc3r4k00g9r3a1vsbuijz3; main153: PASS Desktop new-priority page hydration /government-property/cmwbcsm7i00g9hsa1gx5x5t0r; main155: PASS Desktop new-priority page hydration /government-property/cmwbdv0v700g93aa1dku267kw; main3957b55 round11: PASS Desktop new-priority page hydration /government-property/cmwbeld9q00g9fqa1nnwam020; main bd44f68 round12: PASS Desktop new-priority page hydration /government-property/cmwbex1j000g9tua1svv4mpcq"
   },
   {
     "id": "PAGE-0054",
@@ -5726,8 +5726,8 @@
     "file": "src/app/pricing/actions.ts",
     "line": 23,
     "name": "actionStartPublicCheckout",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Public free Shop checkout redirects to signup without payment request"
   },
   {
     "id": "PAGE-0112",
@@ -6436,8 +6436,8 @@
     "file": "src/app/signup/actions.ts",
     "line": 18,
     "name": "actionStartTrial",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Native public no-card signup provisions a local tenant and returns claim path"
   },
   {
     "id": "PAGE-0167",
@@ -6576,8 +6576,8 @@
     "file": "src/app/support/actions.ts",
     "line": 413,
     "name": "actionTranslateText",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS AI chat, probe, voice smoke and translation stay local or fail closed without paid keys"
   },
   {
     "id": "PAGE-0172",
@@ -6786,8 +6786,8 @@
     "file": "src/lib/ai-help/answer.ts",
     "line": 12,
     "name": "helpSystem",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Offline help system, parser, retrieval, citations and grok-only cache"
   },
   {
     "id": "SERVICE-0940",
@@ -6796,8 +6796,8 @@
     "file": "src/lib/ai-help/answer.ts",
     "line": 16,
     "name": "parseHelpAnswer",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Offline help system, parser, retrieval, citations and grok-only cache"
   },
   {
     "id": "SERVICE-0941",
@@ -6856,8 +6856,8 @@
     "file": "src/lib/ai-help/cache.ts",
     "line": 5,
     "name": "cachedHelp",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Offline help system, parser, retrieval, citations and grok-only cache"
   },
   {
     "id": "SERVICE-0947",
@@ -6866,8 +6866,8 @@
     "file": "src/lib/ai-help/identity.ts",
     "line": 5,
     "name": "helpIdentity",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS AI chat, probe, voice smoke and translation stay local or fail closed without paid keys"
   },
   {
     "id": "SERVICE-0948",
@@ -6886,8 +6886,8 @@
     "file": "src/lib/ai-help/knowledge.ts",
     "line": 19,
     "name": "retrieveHelp",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Offline help system, parser, retrieval, citations and grok-only cache"
   },
   {
     "id": "SERVICE-0950",
@@ -6896,8 +6896,8 @@
     "file": "src/lib/ai-help/knowledge.ts",
     "line": 37,
     "name": "citation",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Offline help system, parser, retrieval, citations and grok-only cache"
   },
   {
     "id": "SERVICE-0001",
@@ -6906,8 +6906,8 @@
     "file": "src/lib/airgap-stubs/analytics.tsx",
     "line": 10,
     "name": "Analytics",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Analytics stub, API auth helpers and schema/sandbox guards"
   },
   {
     "id": "SERVICE-0002",
@@ -6916,8 +6916,8 @@
     "file": "src/lib/airgap.ts",
     "line": 22,
     "name": "airgapEnabled",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Airgap configuration detects integrations and switches off client egress"
   },
   {
     "id": "SERVICE-0003",
@@ -6926,8 +6926,8 @@
     "file": "src/lib/airgap.ts",
     "line": 45,
     "name": "conflictingIntegrations",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Airgap configuration detects integrations and switches off client egress"
   },
   {
     "id": "SERVICE-0004",
@@ -6936,8 +6936,8 @@
     "file": "src/lib/airgap.ts",
     "line": 65,
     "name": "geocodingEnabled",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Airgap configuration detects integrations and switches off client egress"
   },
   {
     "id": "SERVICE-0005",
@@ -6946,8 +6946,8 @@
     "file": "src/lib/airgap.ts",
     "line": 70,
     "name": "analyticsEnabled",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Airgap configuration detects integrations and switches off client egress"
   },
   {
     "id": "SERVICE-0006",
@@ -6966,8 +6966,8 @@
     "file": "src/lib/api-auth.ts",
     "line": 22,
     "name": "unauthorized",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Analytics stub, API auth helpers and schema/sandbox guards"
   },
   {
     "id": "SERVICE-0008",
@@ -6976,8 +6976,8 @@
     "file": "src/lib/api-auth.ts",
     "line": 26,
     "name": "forbidden",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Analytics stub, API auth helpers and schema/sandbox guards"
   },
   {
     "id": "SERVICE-0009",
@@ -7086,8 +7086,8 @@
     "file": "src/lib/auth-core.ts",
     "line": 126,
     "name": "hashPassword",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Empty instance native bootstrap creates one platform admin session and cannot be reclaimed"
   },
   {
     "id": "SERVICE-0017",
@@ -7146,8 +7146,8 @@
     "file": "src/lib/auth-core.ts",
     "line": 323,
     "name": "destroySession",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Explicit session destruction clears local session row and pending MFA query is false"
   },
   {
     "id": "SERVICE-0023",
@@ -7176,8 +7176,8 @@
     "file": "src/lib/auth-core.ts",
     "line": 462,
     "name": "hasPendingMfa",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Explicit session destruction clears local session row and pending MFA query is false"
   },
   {
     "id": "SERVICE-0026",
@@ -7196,8 +7196,8 @@
     "file": "src/lib/auth-core.ts",
     "line": 489,
     "name": "needsBootstrap",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Empty instance native bootstrap creates one platform admin session and cannot be reclaimed"
   },
   {
     "id": "SERVICE-0028",
@@ -7206,8 +7206,8 @@
     "file": "src/lib/auth-core.ts",
     "line": 510,
     "name": "bootstrapFirstAdmin",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Empty instance native bootstrap creates one platform admin session and cannot be reclaimed"
   },
   {
     "id": "SERVICE-0029",
@@ -7216,8 +7216,8 @@
     "file": "src/lib/auth-core.ts",
     "line": 557,
     "name": "claimTenant",
-    "status": "untested",
-    "evidence": ""
+    "status": "fail",
+    "evidence": "; main bd44f68 round12: PASS Native customer claim sets password and tenant session and consumes token before replay; main bd44f68 round12: FAIL Onboarding token-consumption failure must fail closed before password/session changes"
   },
   {
     "id": "SERVICE-0030",
@@ -7356,8 +7356,8 @@
     "file": "src/lib/barcode.ts",
     "line": 64,
     "name": "code39Bars",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Code39 has stable sentinels supported alphabet and positive ordered bars"
   },
   {
     "id": "SERVICE-0044",
@@ -7366,8 +7366,8 @@
     "file": "src/lib/carina-audio.ts",
     "line": 10,
     "name": "carinaAudioGen",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Carina audio generation and stop remain local without a window"
   },
   {
     "id": "SERVICE-0045",
@@ -7376,8 +7376,8 @@
     "file": "src/lib/carina-audio.ts",
     "line": 14,
     "name": "carinaBumpAudioGen",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Carina audio generation and stop remain local without a window"
   },
   {
     "id": "SERVICE-0046",
@@ -7386,8 +7386,8 @@
     "file": "src/lib/carina-audio.ts",
     "line": 19,
     "name": "carinaIsAudioCurrent",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Carina audio generation and stop remain local without a window"
   },
   {
     "id": "SERVICE-0047",
@@ -7396,8 +7396,8 @@
     "file": "src/lib/carina-audio.ts",
     "line": 23,
     "name": "carinaIsSpeaking",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Carina audio generation and stop remain local without a window"
   },
   {
     "id": "SERVICE-0048",
@@ -7406,8 +7406,8 @@
     "file": "src/lib/carina-audio.ts",
     "line": 27,
     "name": "carinaStopAllAudio",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Carina audio generation and stop remain local without a window"
   },
   {
     "id": "SERVICE-0049",
@@ -7416,8 +7416,8 @@
     "file": "src/lib/carina-audio.ts",
     "line": 52,
     "name": "carinaPlaySpeech",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Carina audio generation and stop remain local without a window"
   },
   {
     "id": "SERVICE-0050",
@@ -7426,8 +7426,8 @@
     "file": "src/lib/carina-catalog.ts",
     "line": 753,
     "name": "getCatalogAnchor",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Catalog anchors score, invent, resolve and convert to tour steps"
   },
   {
     "id": "SERVICE-0051",
@@ -7436,8 +7436,8 @@
     "file": "src/lib/carina-catalog.ts",
     "line": 757,
     "name": "listCatalogForPrompt",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Catalog anchors score, invent, resolve and convert to tour steps"
   },
   {
     "id": "SERVICE-0052",
@@ -7446,8 +7446,8 @@
     "file": "src/lib/carina-catalog.ts",
     "line": 804,
     "name": "scoreCatalogMatch",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Catalog anchors score, invent, resolve and convert to tour steps"
   },
   {
     "id": "SERVICE-0053",
@@ -7456,8 +7456,8 @@
     "file": "src/lib/carina-catalog.ts",
     "line": 845,
     "name": "wantsPointOnly",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Catalog anchors score, invent, resolve and convert to tour steps"
   },
   {
     "id": "SERVICE-0054",
@@ -7466,8 +7466,8 @@
     "file": "src/lib/carina-catalog.ts",
     "line": 852,
     "name": "bestPointAnchor",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Catalog anchors score, invent, resolve and convert to tour steps"
   },
   {
     "id": "SERVICE-0055",
@@ -7476,8 +7476,8 @@
     "file": "src/lib/carina-catalog.ts",
     "line": 861,
     "name": "inventStepsFromCatalog",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Catalog anchors score, invent, resolve and convert to tour steps"
   },
   {
     "id": "SERVICE-0056",
@@ -7486,8 +7486,8 @@
     "file": "src/lib/carina-catalog.ts",
     "line": 904,
     "name": "resolveAnchorIds",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Catalog anchors score, invent, resolve and convert to tour steps"
   },
   {
     "id": "SERVICE-0057",
@@ -7496,8 +7496,8 @@
     "file": "src/lib/carina-catalog.ts",
     "line": 919,
     "name": "anchorsToTourSteps",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Catalog anchors score, invent, resolve and convert to tour steps"
   },
   {
     "id": "SERVICE-0058",
@@ -7506,8 +7506,8 @@
     "file": "src/lib/carina-language.ts",
     "line": 53,
     "name": "resolveLang",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Language resolution, switch detection and SSR storage no-ops"
   },
   {
     "id": "SERVICE-0059",
@@ -7516,8 +7516,8 @@
     "file": "src/lib/carina-language.ts",
     "line": 68,
     "name": "loadStoredLang",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Language resolution, switch detection and SSR storage no-ops"
   },
   {
     "id": "SERVICE-0060",
@@ -7526,8 +7526,8 @@
     "file": "src/lib/carina-language.ts",
     "line": 77,
     "name": "storeLang",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Language resolution, switch detection and SSR storage no-ops"
   },
   {
     "id": "SERVICE-0061",
@@ -7536,8 +7536,8 @@
     "file": "src/lib/carina-language.ts",
     "line": 90,
     "name": "detectLanguageSwitch",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Language resolution, switch detection and SSR storage no-ops"
   },
   {
     "id": "SERVICE-0062",
@@ -7546,8 +7546,8 @@
     "file": "src/lib/carina-language.ts",
     "line": 134,
     "name": "ttsLanguageCode",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Language resolution, switch detection and SSR storage no-ops"
   },
   {
     "id": "SERVICE-0063",
@@ -7556,8 +7556,8 @@
     "file": "src/lib/carina-voice-bus.ts",
     "line": 9,
     "name": "enableCarinaVoiceEvent",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Voice bus events persist and read as no-ops without a window"
   },
   {
     "id": "SERVICE-0064",
@@ -7566,8 +7566,8 @@
     "file": "src/lib/carina-voice-bus.ts",
     "line": 13,
     "name": "stopCarinaVoiceEvent",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Voice bus events persist and read as no-ops without a window"
   },
   {
     "id": "SERVICE-0065",
@@ -7576,8 +7576,8 @@
     "file": "src/lib/carina-voice-bus.ts",
     "line": 17,
     "name": "carinaListenChangedEvent",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Voice bus events persist and read as no-ops without a window"
   },
   {
     "id": "SERVICE-0066",
@@ -7586,8 +7586,8 @@
     "file": "src/lib/carina-voice-bus.ts",
     "line": 26,
     "name": "carinaRecAliveEvent",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Voice bus events persist and read as no-ops without a window"
   },
   {
     "id": "SERVICE-0067",
@@ -7596,8 +7596,8 @@
     "file": "src/lib/carina-voice-bus.ts",
     "line": 32,
     "name": "persistWantListen",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Voice bus events persist and read as no-ops without a window"
   },
   {
     "id": "SERVICE-0068",
@@ -7606,8 +7606,8 @@
     "file": "src/lib/carina-voice-bus.ts",
     "line": 44,
     "name": "readWantListen",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Voice bus events persist and read as no-ops without a window"
   },
   {
     "id": "SERVICE-0069",
@@ -7616,8 +7616,8 @@
     "file": "src/lib/carina-voice-bus.ts",
     "line": 53,
     "name": "carinaPointEvent",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Voice bus events persist and read as no-ops without a window"
   },
   {
     "id": "SERVICE-0070",
@@ -7626,8 +7626,8 @@
     "file": "src/lib/compare/metadata.ts",
     "line": 5,
     "name": "comparePageMetadata",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Compare document model, pages, pricing copy and metadata"
   },
   {
     "id": "SERVICE-0071",
@@ -7636,8 +7636,8 @@
     "file": "src/lib/compare/model.ts",
     "line": 31,
     "name": "classifyHref",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Compare document model, pages, pricing copy and metadata"
   },
   {
     "id": "SERVICE-0072",
@@ -7656,8 +7656,8 @@
     "file": "src/lib/compare/model.ts",
     "line": 132,
     "name": "parseCompareDocument",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Compare document model, pages, pricing copy and metadata"
   },
   {
     "id": "SERVICE-0074",
@@ -7666,8 +7666,8 @@
     "file": "src/lib/compare/model.ts",
     "line": 175,
     "name": "inlineToText",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Compare document model, pages, pricing copy and metadata"
   },
   {
     "id": "SERVICE-0075",
@@ -7686,8 +7686,8 @@
     "file": "src/lib/compare/model.ts",
     "line": 224,
     "name": "faqEntries",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Compare document model, pages, pricing copy and metadata"
   },
   {
     "id": "SERVICE-0077",
@@ -7716,8 +7716,8 @@
     "file": "src/lib/compare/model.ts",
     "line": 268,
     "name": "demoCta",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Compare document model, pages, pricing copy and metadata"
   },
   {
     "id": "SERVICE-0080",
@@ -7726,8 +7726,8 @@
     "file": "src/lib/compare/model.ts",
     "line": 281,
     "name": "subsectionLabel",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Compare document model, pages, pricing copy and metadata"
   },
   {
     "id": "SERVICE-0081",
@@ -7736,8 +7736,8 @@
     "file": "src/lib/compare/model.ts",
     "line": 291,
     "name": "headingId",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Compare document model, pages, pricing copy and metadata"
   },
   {
     "id": "SERVICE-0082",
@@ -7746,8 +7746,8 @@
     "file": "src/lib/compare/pages.ts",
     "line": 37,
     "name": "getComparePage",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Compare document model, pages, pricing copy and metadata"
   },
   {
     "id": "SERVICE-0083",
@@ -7756,8 +7756,8 @@
     "file": "src/lib/compare/pages.ts",
     "line": 42,
     "name": "requireComparePage",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Compare document model, pages, pricing copy and metadata"
   },
   {
     "id": "SERVICE-0084",
@@ -7776,8 +7776,8 @@
     "file": "src/lib/compare/pricing-copy.ts",
     "line": 41,
     "name": "pricingTableCell",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Compare document model, pages, pricing copy and metadata"
   },
   {
     "id": "SERVICE-0086",
@@ -7786,8 +7786,8 @@
     "file": "src/lib/compare/pricing-copy.ts",
     "line": 51,
     "name": "pricingSetupSentence",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Compare document model, pages, pricing copy and metadata"
   },
   {
     "id": "SERVICE-0087",
@@ -7796,8 +7796,8 @@
     "file": "src/lib/compare/pricing-copy.ts",
     "line": 64,
     "name": "pricingFaqLead",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Compare document model, pages, pricing copy and metadata"
   },
   {
     "id": "SERVICE-0088",
@@ -7806,8 +7806,8 @@
     "file": "src/lib/compare/pricing-copy.ts",
     "line": 74,
     "name": "materializeCompareCopy",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Compare document model, pages, pricing copy and metadata"
   },
   {
     "id": "SERVICE-0089",
@@ -7816,8 +7816,8 @@
     "file": "src/lib/confetti.ts",
     "line": 6,
     "name": "fireConfetti",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Confetti is a server no-op; DXF, legal, tours and site URL stay local"
   },
   {
     "id": "SERVICE-0090",
@@ -7846,8 +7846,8 @@
     "file": "src/lib/db.ts",
     "line": 86,
     "name": "isValidSchemaName",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Analytics stub, API auth helpers and schema/sandbox guards"
   },
   {
     "id": "SERVICE-0093",
@@ -7866,8 +7866,8 @@
     "file": "src/lib/db.ts",
     "line": 157,
     "name": "currentRequestSchema",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Request app URL uses configured APP_URL and current schema is public on the fixture"
   },
   {
     "id": "SERVICE-0095",
@@ -7876,8 +7876,8 @@
     "file": "src/lib/db.ts",
     "line": 202,
     "name": "sandboxDir",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Analytics stub, API auth helpers and schema/sandbox guards"
   },
   {
     "id": "SERVICE-0096",
@@ -7886,8 +7886,8 @@
     "file": "src/lib/db.ts",
     "line": 206,
     "name": "sandboxDbPath",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Analytics stub, API auth helpers and schema/sandbox guards"
   },
   {
     "id": "SERVICE-0097",
@@ -7896,8 +7896,8 @@
     "file": "src/lib/db.ts",
     "line": 210,
     "name": "materializeSandbox",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Analytics stub, API auth helpers and schema/sandbox guards"
   },
   {
     "id": "SERVICE-0098",
@@ -7906,8 +7906,8 @@
     "file": "src/lib/db.ts",
     "line": 216,
     "name": "destroySandbox",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Analytics stub, API auth helpers and schema/sandbox guards"
   },
   {
     "id": "SERVICE-0099",
@@ -7986,8 +7986,8 @@
     "file": "src/lib/dxf.ts",
     "line": 27,
     "name": "toolLabelDxf",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Confetti is a server no-op; DXF, legal, tours and site URL stay local"
   },
   {
     "id": "SERVICE-0107",
@@ -7996,8 +7996,8 @@
     "file": "src/lib/federal-holidays.ts",
     "line": 62,
     "name": "holidayDate",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Observed federal holidays handle weekend and last weekday rules"
   },
   {
     "id": "SERVICE-0108",
@@ -8006,8 +8006,8 @@
     "file": "src/lib/federal-holidays.ts",
     "line": 70,
     "name": "computeObservedHolidays",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Observed federal holidays handle weekend and last weekday rules"
   },
   {
     "id": "SERVICE-0109",
@@ -8036,8 +8036,8 @@
     "file": "src/lib/guides.ts",
     "line": 812,
     "name": "getTour",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Confetti is a server no-op; DXF, legal, tours and site URL stay local"
   },
   {
     "id": "SERVICE-0112",
@@ -8046,8 +8046,8 @@
     "file": "src/lib/guides.ts",
     "line": 817,
     "name": "listToursForAi",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Confetti is a server no-op; DXF, legal, tours and site URL stay local"
   },
   {
     "id": "SERVICE-0113",
@@ -8056,8 +8056,8 @@
     "file": "src/lib/guides.ts",
     "line": 835,
     "name": "matchTourFromQuery",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Confetti is a server no-op; DXF, legal, tours and site URL stay local"
   },
   {
     "id": "SERVICE-0114",
@@ -8066,8 +8066,8 @@
     "file": "src/lib/legal-content.ts",
     "line": 293,
     "name": "getLegalDoc",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Confetti is a server no-op; DXF, legal, tours and site URL stay local"
   },
   {
     "id": "SERVICE-0115",
@@ -8096,8 +8096,8 @@
     "file": "src/lib/modules.ts",
     "line": 183,
     "name": "moduleLabel",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Work area and module labels reject unknown area and preserve manufacturing label"
   },
   {
     "id": "SERVICE-0118",
@@ -8106,8 +8106,8 @@
     "file": "src/lib/navigation.ts",
     "line": 220,
     "name": "activeNavHref",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Navigation deepest route and query-specific CAR tie breaker"
   },
   {
     "id": "SERVICE-0119",
@@ -8116,8 +8116,8 @@
     "file": "src/lib/pdf.ts",
     "line": 15,
     "name": "createBrandedPdf",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Branded traveler and purchase-order PDFs have a PDF header"
   },
   {
     "id": "SERVICE-0120",
@@ -8126,8 +8126,8 @@
     "file": "src/lib/pdf.ts",
     "line": 77,
     "name": "generateWorkOrderTravelerPdf",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Branded traveler and purchase-order PDFs have a PDF header"
   },
   {
     "id": "SERVICE-0121",
@@ -8136,8 +8136,8 @@
     "file": "src/lib/pdf.ts",
     "line": 138,
     "name": "generatePurchaseOrderPdf",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Branded traveler and purchase-order PDFs have a PDF header"
   },
   {
     "id": "SERVICE-0122",
@@ -8146,8 +8146,8 @@
     "file": "src/lib/platform.ts",
     "line": 13,
     "name": "isPlatformContext",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Native platform issue triage persists resolved state and audit history"
   },
   {
     "id": "SERVICE-0123",
@@ -8156,8 +8156,8 @@
     "file": "src/lib/platform.ts",
     "line": 21,
     "name": "isPlatformSupportEnabled",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Native platform issue triage persists resolved state and audit history"
   },
   {
     "id": "SERVICE-0124",
@@ -8166,8 +8166,8 @@
     "file": "src/lib/provenance.ts",
     "line": 12,
     "name": "workOrderHoldProvenance",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS WO hold and MRB provenance preserve correct source links"
   },
   {
     "id": "SERVICE-0125",
@@ -8176,8 +8176,8 @@
     "file": "src/lib/provenance.ts",
     "line": 30,
     "name": "workOrderMrbProvenance",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS WO hold and MRB provenance preserve correct source links"
   },
   {
     "id": "SERVICE-0126",
@@ -8186,8 +8186,8 @@
     "file": "src/lib/qr.ts",
     "line": 7,
     "name": "workOrderQrPayload",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS WO QR payload query escaping and generated SVG PNG signatures"
   },
   {
     "id": "SERVICE-0127",
@@ -8196,8 +8196,8 @@
     "file": "src/lib/qr.ts",
     "line": 20,
     "name": "generateQrDataUrl",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS WO QR payload query escaping and generated SVG PNG signatures"
   },
   {
     "id": "SERVICE-0128",
@@ -8206,8 +8206,8 @@
     "file": "src/lib/qr.ts",
     "line": 33,
     "name": "generateQrSvg",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS WO QR payload query escaping and generated SVG PNG signatures"
   },
   {
     "id": "SERVICE-0129",
@@ -8226,8 +8226,8 @@
     "file": "src/lib/redact-secrets.ts",
     "line": 30,
     "name": "redactError",
-    "status": "untested",
-    "evidence": ""
+    "status": "fail",
+    "evidence": "; main bd44f68 round12: PASS Error redaction removes synthetic bearer and onboarding capabilities; main bd44f68 round12: FAIL Error redaction must remove database URL embedded credentials"
   },
   {
     "id": "SERVICE-0131",
@@ -8236,8 +8236,8 @@
     "file": "src/lib/request-app-url.ts",
     "line": 8,
     "name": "requestAppUrl",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Request app URL uses configured APP_URL and current schema is public on the fixture"
   },
   {
     "id": "SERVICE-0132",
@@ -8246,8 +8246,8 @@
     "file": "src/lib/request-origin.ts",
     "line": 7,
     "name": "publicOriginFromRequest",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Forwarded Codespaces origin removes duplicate port and retains relative target"
   },
   {
     "id": "SERVICE-0133",
@@ -8256,8 +8256,8 @@
     "file": "src/lib/request-origin.ts",
     "line": 43,
     "name": "publicUrlFromRequest",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Forwarded Codespaces origin removes duplicate port and retains relative target"
   },
   {
     "id": "SERVICE-0134",
@@ -8306,8 +8306,8 @@
     "file": "src/lib/services/ai.ts",
     "line": 10,
     "name": "processAiQuery",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS AI chat, probe, voice smoke and translation stay local or fail closed without paid keys"
   },
   {
     "id": "SERVICE-0141",
@@ -8326,8 +8326,8 @@
     "file": "src/lib/services/asl.ts",
     "line": 13,
     "name": "getAslPolicy",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Local fixture readers retain known sales, quality, product and traveler records"
   },
   {
     "id": "SERVICE-0143",
@@ -8346,8 +8346,8 @@
     "file": "src/lib/services/asl.ts",
     "line": 65,
     "name": "certIsValid",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Supplier certificate validity respects revoked and expiry boundaries"
   },
   {
     "id": "SERVICE-0145",
@@ -8356,8 +8356,8 @@
     "file": "src/lib/services/asl.ts",
     "line": 74,
     "name": "supplierMeetsCertPolicy",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Local fixture readers retain known sales, quality, product and traveler records"
   },
   {
     "id": "SERVICE-0146",
@@ -8396,8 +8396,8 @@
     "file": "src/lib/services/asl.ts",
     "line": 257,
     "name": "refreshCertStatuses",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Local fixture readers retain known sales, quality, product and traveler records"
   },
   {
     "id": "SERVICE-0150",
@@ -8556,8 +8556,8 @@
     "file": "src/lib/services/banking.ts",
     "line": 393,
     "name": "suggestBankCategories",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Email composition, support notify and CRM contact stay local without delivery"
   },
   {
     "id": "SERVICE-0166",
@@ -8856,8 +8856,8 @@
     "file": "src/lib/services/budgets.ts",
     "line": 834,
     "name": "postTimesheetBudgetCharges",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Approved timesheet charges exact forty dollars once and resolves budget by charge code"
   },
   {
     "id": "SERVICE-0185",
@@ -8866,8 +8866,8 @@
     "file": "src/lib/services/budgets.ts",
     "line": 884,
     "name": "chargeBudgetMaterialFromPr",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS PR material helper posts one exact booked material charge"
   },
   {
     "id": "SERVICE-0186",
@@ -8936,8 +8936,8 @@
     "file": "src/lib/services/carina-actions.ts",
     "line": 326,
     "name": "tryCarinaAction",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Carina rate limit allows app traffic and caps public guests; unknown action is none"
   },
   {
     "id": "SERVICE-0189",
@@ -8976,8 +8976,8 @@
     "file": "src/lib/services/carina-rate-limit.ts",
     "line": 38,
     "name": "checkCarinaRateLimit",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Carina rate limit allows app traffic and caps public guests; unknown action is none"
   },
   {
     "id": "SERVICE-0193",
@@ -9016,8 +9016,8 @@
     "file": "src/lib/services/cm-library.ts",
     "line": 112,
     "name": "ensureWorkInstructionsFolder",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Email composition, support notify and CRM contact stay local without delivery"
   },
   {
     "id": "SERVICE-0197",
@@ -9096,8 +9096,8 @@
     "file": "src/lib/services/cm-library.ts",
     "line": 463,
     "name": "mapCrToColumn",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Supplier PO eligibility, WO prefixes, quality status, ratings and PR catalog rules"
   },
   {
     "id": "SERVICE-0205",
@@ -9106,8 +9106,8 @@
     "file": "src/lib/services/cm-library.ts",
     "line": 485,
     "name": "mapDocumentEcrToColumn",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Supplier PO eligibility, WO prefixes, quality status, ratings and PR catalog rules"
   },
   {
     "id": "SERVICE-0206",
@@ -9116,8 +9116,8 @@
     "file": "src/lib/services/cm-library.ts",
     "line": 491,
     "name": "mapWiToColumn",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Supplier PO eligibility, WO prefixes, quality status, ratings and PR catalog rules"
   },
   {
     "id": "SERVICE-0207",
@@ -9126,8 +9126,8 @@
     "file": "src/lib/services/cm-library.ts",
     "line": 500,
     "name": "mapBomToColumn",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Supplier PO eligibility, WO prefixes, quality status, ratings and PR catalog rules"
   },
   {
     "id": "SERVICE-0208",
@@ -9426,8 +9426,8 @@
     "file": "src/lib/services/company.ts",
     "line": 20,
     "name": "getCompanyDepartments",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Local fixture readers retain known sales, quality, product and traveler records"
   },
   {
     "id": "SERVICE-0238",
@@ -9596,8 +9596,8 @@
     "file": "src/lib/services/crm.ts",
     "line": 383,
     "name": "createContact",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Email composition, support notify and CRM contact stay local without delivery"
   },
   {
     "id": "SERVICE-0255",
@@ -9696,8 +9696,8 @@
     "file": "src/lib/services/dashboard-pulse.ts",
     "line": 39,
     "name": "disciplineForUser",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Supplier PO eligibility, WO prefixes, quality status, ratings and PR catalog rules"
   },
   {
     "id": "SERVICE-0263",
@@ -9866,8 +9866,8 @@
     "file": "src/lib/services/docs.ts",
     "line": 173,
     "name": "isDocsSchemaMissing",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Supplier PO eligibility, WO prefixes, quality status, ratings and PR catalog rules"
   },
   {
     "id": "SERVICE-0280",
@@ -9886,8 +9886,8 @@
     "file": "src/lib/services/email.ts",
     "line": 117,
     "name": "composePoEmail",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Email composition, support notify and CRM contact stay local without delivery"
   },
   {
     "id": "SERVICE-0282",
@@ -9896,8 +9896,8 @@
     "file": "src/lib/services/email.ts",
     "line": 165,
     "name": "composeQuoteEmail",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Email composition, support notify and CRM contact stay local without delivery"
   },
   {
     "id": "SERVICE-0283",
@@ -10486,8 +10486,8 @@
     "file": "src/lib/services/fleet.ts",
     "line": 55,
     "name": "getVehicle",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Timesheet and notification queues, brand and optional equipment/fleet reads"
   },
   {
     "id": "SERVICE-0342",
@@ -10576,8 +10576,8 @@
     "file": "src/lib/services/fleet.ts",
     "line": 379,
     "name": "getVehicleCost",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Timesheet and notification queues, brand and optional equipment/fleet reads"
   },
   {
     "id": "SERVICE-0351",
@@ -11086,8 +11086,8 @@
     "file": "src/lib/services/grok.ts",
     "line": 18,
     "name": "grokChat",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Plaid and Grok stay fail-closed locally and never open an external socket"
   },
   {
     "id": "SERVICE-0387",
@@ -11096,8 +11096,8 @@
     "file": "src/lib/services/grok.ts",
     "line": 56,
     "name": "grokTranslate",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Plaid and Grok stay fail-closed locally and never open an external socket"
   },
   {
     "id": "SERVICE-0388",
@@ -11106,8 +11106,8 @@
     "file": "src/lib/services/grok.ts",
     "line": 77,
     "name": "probeGrok",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Plaid and Grok stay fail-closed locally and never open an external socket"
   },
   {
     "id": "SERVICE-0389",
@@ -11116,8 +11116,8 @@
     "file": "src/lib/services/hr.ts",
     "line": 63,
     "name": "getTrainingMatrix",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Training matrix includes scoped missing certification then current completion"
   },
   {
     "id": "SERVICE-0390",
@@ -11126,8 +11126,8 @@
     "file": "src/lib/services/hr.ts",
     "line": 186,
     "name": "getComplianceItems",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Training matrix includes scoped missing certification then current completion"
   },
   {
     "id": "SERVICE-0391",
@@ -11136,8 +11136,8 @@
     "file": "src/lib/services/hr.ts",
     "line": 280,
     "name": "getHrPersona",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS HR manager profile review and team views retain intended employee"
   },
   {
     "id": "SERVICE-0392",
@@ -11186,8 +11186,8 @@
     "file": "src/lib/services/hr.ts",
     "line": 459,
     "name": "getExpenseReimbursements",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Training matrix includes scoped missing certification then current completion"
   },
   {
     "id": "SERVICE-0397",
@@ -11226,8 +11226,8 @@
     "file": "src/lib/services/hr.ts",
     "line": 595,
     "name": "certExpiryTone",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Training matrix includes scoped missing certification then current completion"
   },
   {
     "id": "SERVICE-0401",
@@ -11236,8 +11236,8 @@
     "file": "src/lib/services/hr.ts",
     "line": 605,
     "name": "getPendingApprovals",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Training matrix includes scoped missing certification then current completion"
   },
   {
     "id": "SERVICE-0402",
@@ -11246,8 +11246,8 @@
     "file": "src/lib/services/hr.ts",
     "line": 645,
     "name": "getEmployeeProfile",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS HR manager profile review and team views retain intended employee"
   },
   {
     "id": "SERVICE-0403",
@@ -11256,8 +11256,8 @@
     "file": "src/lib/services/hr.ts",
     "line": 717,
     "name": "getTeamOverview",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS HR manager profile review and team views retain intended employee"
   },
   {
     "id": "SERVICE-0404",
@@ -11266,8 +11266,8 @@
     "file": "src/lib/services/hr.ts",
     "line": 738,
     "name": "upsertPerformanceReview",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS HR manager profile review and team views retain intended employee"
   },
   {
     "id": "SERVICE-0405",
@@ -11406,8 +11406,8 @@
     "file": "src/lib/services/items.ts",
     "line": 284,
     "name": "listApprovedSuppliers",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Local fixture readers retain known sales, quality, product and traveler records"
   },
   {
     "id": "SERVICE-0419",
@@ -11416,8 +11416,8 @@
     "file": "src/lib/services/items.ts",
     "line": 294,
     "name": "isSupplierApprovedForPo",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Supplier PO eligibility, WO prefixes, quality status, ratings and PR catalog rules"
   },
   {
     "id": "SERVICE-0420",
@@ -11446,8 +11446,8 @@
     "file": "src/lib/services/kitting.ts",
     "line": 38,
     "name": "getUpcomingKits",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Local fixture readers retain known sales, quality, product and traveler records"
   },
   {
     "id": "SERVICE-0423",
@@ -11466,8 +11466,8 @@
     "file": "src/lib/services/kitting.ts",
     "line": 113,
     "name": "getKitRefsForMrs",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Local fixture readers retain known sales, quality, product and traveler records"
   },
   {
     "id": "SERVICE-0425",
@@ -11516,8 +11516,8 @@
     "file": "src/lib/services/license.ts",
     "line": 95,
     "name": "canonicalPayload",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Offline license canonical bytes stable and SaaS not-required posture explicit"
   },
   {
     "id": "SERVICE-0430",
@@ -11526,8 +11526,8 @@
     "file": "src/lib/services/license.ts",
     "line": 109,
     "name": "licenseRequired",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Offline license canonical bytes stable and SaaS not-required posture explicit"
   },
   {
     "id": "SERVICE-0431",
@@ -11536,8 +11536,8 @@
     "file": "src/lib/services/license.ts",
     "line": 125,
     "name": "getLicenseStatus",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Offline license canonical bytes stable and SaaS not-required posture explicit"
   },
   {
     "id": "SERVICE-0432",
@@ -11546,8 +11546,8 @@
     "file": "src/lib/services/license.ts",
     "line": 231,
     "name": "licenseBootLine",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Offline license canonical bytes stable and SaaS not-required posture explicit"
   },
   {
     "id": "SERVICE-0433",
@@ -11556,8 +11556,8 @@
     "file": "src/lib/services/logistics.ts",
     "line": 31,
     "name": "listCarriers",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Freight lists summary and URL escaping reconcile exact incremental amounts"
   },
   {
     "id": "SERVICE-0434",
@@ -11586,8 +11586,8 @@
     "file": "src/lib/services/logistics.ts",
     "line": 77,
     "name": "trackingLink",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Freight lists summary and URL escaping reconcile exact incremental amounts"
   },
   {
     "id": "SERVICE-0437",
@@ -11606,8 +11606,8 @@
     "file": "src/lib/services/logistics.ts",
     "line": 123,
     "name": "listFreight",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Freight lists summary and URL escaping reconcile exact incremental amounts"
   },
   {
     "id": "SERVICE-0439",
@@ -11616,8 +11616,8 @@
     "file": "src/lib/services/logistics.ts",
     "line": 142,
     "name": "getFreightSummary",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Freight lists summary and URL escaping reconcile exact incremental amounts"
   },
   {
     "id": "SERVICE-0440",
@@ -11636,8 +11636,8 @@
     "file": "src/lib/services/logistics.ts",
     "line": 187,
     "name": "listLandedCosts",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Unapplied landed-cost readers retain a synthetic receipt charge"
   },
   {
     "id": "SERVICE-0442",
@@ -11686,8 +11686,8 @@
     "file": "src/lib/services/logistics.ts",
     "line": 436,
     "name": "getUnappliedCharges",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Unapplied landed-cost readers retain a synthetic receipt charge"
   },
   {
     "id": "SERVICE-0447",
@@ -11706,8 +11706,8 @@
     "file": "src/lib/services/maintenance.ts",
     "line": 52,
     "name": "getEquipment",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Timesheet and notification queues, brand and optional equipment/fleet reads"
   },
   {
     "id": "SERVICE-0449",
@@ -11916,8 +11916,8 @@
     "file": "src/lib/services/module-health.ts",
     "line": 15,
     "name": "isMissingTableError",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Schema health distinguishes missing tables from unavailable connection"
   },
   {
     "id": "SERVICE-0470",
@@ -11926,8 +11926,28 @@
     "file": "src/lib/services/module-health.ts",
     "line": 29,
     "name": "checkModuleHealth",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Schema health distinguishes missing tables from unavailable connection"
+  },
+  {
+    "id": "SERVICE-0515",
+    "kind": "service",
+    "module": "Quality / NCR",
+    "file": "src/lib/services/mrb-stock.ts",
+    "line": 5,
+    "name": "moveMrbHeldQuantity",
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS MRB-004/006/007 public partial multi-hold supplier return and use-as-is move exactly requested units, retain remainder, reject invalid/oversized quantities before side effects; main bd44f68 round12: PASS MRB-005 public genuine released-WI/receipt/failed-QA/rework/three-signature/Receiving/putaway chain restores five original units, not ten; injected final trace failure rolls back everything; main bd44f68 round12: PASS public MRB recovery service fixtures conserve partial/full/serialized original quantity, ownership/cost/lot/SNs and permit exactly one concurrent completion; main bd44f68 round12: PASS MRB-004/006/007 tenant_qamrb01 partial multi-hold supplier return and use-as-is move exactly requested units, retain remainder, reject invalid/oversized quantities before side effects; main bd44f68 round12: PASS MRB-005 tenant_qamrb01 genuine released-WI/receipt/failed-QA/rework/three-signature/Receiving/putaway chain restores five original units, not ten; injected final trace failure rolls back everything; main bd44f68 round12: PASS tenant_qamrb01 MRB recovery service fixtures conserve partial/full/serialized original quantity, ownership/cost/lot/SNs and permit exactly one concurrent completion"
+  },
+  {
+    "id": "SERVICE-0516",
+    "kind": "service",
+    "module": "Quality / NCR",
+    "file": "src/lib/services/mrb-stock.ts",
+    "line": 58,
+    "name": "completeMrbStockRecovery",
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS MRB-005 public genuine released-WI/receipt/failed-QA/rework/three-signature/Receiving/putaway chain restores five original units, not ten; injected final trace failure rolls back everything; main bd44f68 round12: PASS public MRB recovery service fixtures conserve partial/full/serialized original quantity, ownership/cost/lot/SNs and permit exactly one concurrent completion; main bd44f68 round12: PASS MRB-005 tenant_qamrb01 genuine released-WI/receipt/failed-QA/rework/three-signature/Receiving/putaway chain restores five original units, not ten; injected final trace failure rolls back everything; main bd44f68 round12: PASS tenant_qamrb01 MRB recovery service fixtures conserve partial/full/serialized original quantity, ownership/cost/lot/SNs and permit exactly one concurrent completion"
   },
   {
     "id": "SERVICE-0471",
@@ -11936,8 +11956,8 @@
     "file": "src/lib/services/notifications.ts",
     "line": 24,
     "name": "getNotificationSummary",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Timesheet and notification queues, brand and optional equipment/fleet reads"
   },
   {
     "id": "SERVICE-0472",
@@ -11946,8 +11966,8 @@
     "file": "src/lib/services/order-fulfillment.ts",
     "line": 8,
     "name": "recordTrace",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Email composition, support notify and CRM contact stay local without delivery"
   },
   {
     "id": "SERVICE-0473",
@@ -12046,8 +12066,8 @@
     "file": "src/lib/services/order-fulfillment.ts",
     "line": 1030,
     "name": "refreshAllWaitingMaterial",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Local fixture readers retain known sales, quality, product and traveler records"
   },
   {
     "id": "SERVICE-0483",
@@ -12116,25 +12136,25 @@
     "file": "src/lib/services/order-fulfillment.ts",
     "line": 1732,
     "name": "completeWorkOrderToStock",
-    "status": "fail",
-    "evidence": "Task-only WO can complete without inventory part; FIX VERIFIED current 3de5ba1: integrity-retest.log / bom-lifecycle-retest.log and current HTTP retests; main151: FAIL Rework completion conserves original material instead of duplicating stock; main152: FAIL Physical-route rework final putaway conserves five original units and clears MRB hold; main152: FAIL Rework completion conserves original material instead of duplicating stock; main153: FAIL Physical-route rework final putaway conserves five original units and clears MRB hold; main153: FAIL Rework completion conserves original material instead of duplicating stock; main155: FAIL Physical-route rework final putaway conserves five original units and clears MRB hold; main155: FAIL Rework completion conserves original material instead of duplicating stock; main3957b55 round11: FAIL Physical-route rework final putaway conserves five original units and clears MRB hold; main3957b55 round11: FAIL Rework completion conserves original material instead of duplicating stock"
+    "status": "pass",
+    "evidence": "Task-only WO can complete without inventory part; FIX VERIFIED current 3de5ba1: integrity-retest.log / bom-lifecycle-retest.log and current HTTP retests; main151: FAIL Rework completion conserves original material instead of duplicating stock; main152: FAIL Physical-route rework final putaway conserves five original units and clears MRB hold; main152: FAIL Rework completion conserves original material instead of duplicating stock; main153: FAIL Physical-route rework final putaway conserves five original units and clears MRB hold; main153: FAIL Rework completion conserves original material instead of duplicating stock; main155: FAIL Physical-route rework final putaway conserves five original units and clears MRB hold; main155: FAIL Rework completion conserves original material instead of duplicating stock; main3957b55 round11: FAIL Physical-route rework final putaway conserves five original units and clears MRB hold; main3957b55 round11: FAIL Rework completion conserves original material instead of duplicating stock; main bd44f68 round12: PASS MRB-005 public genuine released-WI/receipt/failed-QA/rework/three-signature/Receiving/putaway chain restores five original units, not ten; injected final trace failure rolls back everything"
   },
   {
     "id": "SERVICE-0490",
     "kind": "service",
     "module": "CRM / Sales",
     "file": "src/lib/services/order-fulfillment.ts",
-    "line": 1991,
+    "line": 1997,
     "name": "syncSalesOrderReadyStatus",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Local fixture readers retain known sales, quality, product and traveler records"
   },
   {
     "id": "SERVICE-0491",
     "kind": "service",
     "module": "CRM / Sales",
     "file": "src/lib/services/order-fulfillment.ts",
-    "line": 2023,
+    "line": 2029,
     "name": "canShipNow",
     "status": "pass",
     "evidence": "; main153: PASS Native SO creation auto-plans available stock and queues one shipment; main155: PASS Native SO creation auto-plans available stock and queues one shipment; main3957b55 round11: PASS Native SO creation auto-plans available stock and queues one shipment"
@@ -12144,7 +12164,7 @@
     "kind": "service",
     "module": "CRM / Sales",
     "file": "src/lib/services/order-fulfillment.ts",
-    "line": 2063,
+    "line": 2069,
     "name": "ensureShipmentForSalesOrder",
     "status": "pass",
     "evidence": "; main153: PASS Native SO creation auto-plans available stock and queues one shipment; main155: PASS Native SO creation auto-plans available stock and queues one shipment; main3957b55 round11: PASS Native SO creation auto-plans available stock and queues one shipment; main3957b55 round11: PASS SHIP-002 public real SO plan/verify/pack/ship stays terminal and packing does not double-deduct SO stock; main3957b55 round11: PASS SHIP-002 tenant_qaship01 real SO plan/verify/pack/ship stays terminal and packing does not double-deduct SO stock"
@@ -12154,7 +12174,7 @@
     "kind": "service",
     "module": "CRM / Sales",
     "file": "src/lib/services/order-fulfillment.ts",
-    "line": 2155,
+    "line": 2161,
     "name": "createManualShipment",
     "status": "pass",
     "evidence": "; main153: PASS Native manual shipment create verify and photo pack issue exact stock; main155: PASS Native manual shipment create verify and photo pack issue exact stock; main3957b55 round11: PASS Native manual shipment create verify and photo pack issue exact stock"
@@ -12164,7 +12184,7 @@
     "kind": "service",
     "module": "CRM / Sales",
     "file": "src/lib/services/order-fulfillment.ts",
-    "line": 2242,
+    "line": 2248,
     "name": "verifyShipmentPackingList",
     "status": "pass",
     "evidence": "scripts/verify/chunk-c2-money-path.ts; scenario only; main153: PASS Native verified packing evidence and SO ship conserve stock and create AR; main155: PASS Native verified packing evidence and SO ship conserve stock and create AR; main3957b55 round11: PASS Native verified packing evidence and SO ship conserve stock and create AR"
@@ -12174,7 +12194,7 @@
     "kind": "service",
     "module": "CRM / Sales",
     "file": "src/lib/services/order-fulfillment.ts",
-    "line": 2264,
+    "line": 2270,
     "name": "packShipment",
     "status": "pass",
     "evidence": "scripts/verify/chunk-c2-money-path.ts; scenario only; main153: PASS Native verified packing evidence and SO ship conserve stock and create AR; main153: FAIL Repeated manual pack must not issue the same inventory twice; main153: FAIL Already shipped shipment cannot reopen through ordinary packing; main155: PASS Native verified packing evidence and SO ship conserve stock and create AR; main155: FAIL Repeated manual pack must not issue the same inventory twice; main155: FAIL Already shipped shipment cannot reopen through ordinary packing; main3957b55 round11: PASS Native verified packing evidence and SO ship conserve stock and create AR; main3957b55 round11: PASS Native manual shipment create verify and photo pack issue exact stock; main3957b55 round11: PASS Repeated manual pack must not issue the same inventory twice; main3957b55 round11: PASS Manual duplicate-part lines aggregate availability before any issue; main3957b55 round11: PASS Already shipped shipment cannot reopen through ordinary packing; main3957b55 round11: PASS SHIP-002 public repeated and concurrent manual packing issues stock once and preserves packing evidence; main3957b55 round11: PASS SHIP-003 public duplicate-part demand aggregates across bins, rejects eight-from-five atomically, and ignores quarantine stock; main3957b55 round11: PASS public competing shipments cannot overdraw shared stock; trace failure rolls back packed state and deductions and retry succeeds; main3957b55 round11: PASS SHIP-002 public real SO plan/verify/pack/ship stays terminal and packing does not double-deduct SO stock; main3957b55 round11: PASS SHIP-002 tenant_qaship01 repeated and concurrent manual packing issues stock once and preserves packing evidence; main3957b55 round11: PASS SHIP-003 tenant_qaship01 duplicate-part demand aggregates across bins, rejects eight-from-five atomically, and ignores quarantine stock; main3957b55 round11: PASS tenant_qaship01 competing shipments cannot overdraw shared stock; trace failure rolls back packed state and deductions and retry succeeds; main3957b55 round11: PASS SHIP-002 tenant_qaship01 real SO plan/verify/pack/ship stays terminal and packing does not double-deduct SO stock"
@@ -12184,7 +12204,7 @@
     "kind": "service",
     "module": "CRM / Sales",
     "file": "src/lib/services/order-fulfillment.ts",
-    "line": 2338,
+    "line": 2360,
     "name": "shipSalesOrder",
     "status": "pass",
     "evidence": "scripts/verify/chunk-c2-money-path.ts; scenario only; main153: PASS Native verified packing evidence and SO ship conserve stock and create AR; main155: PASS Native verified packing evidence and SO ship conserve stock and create AR; main3957b55 round11: PASS Native verified packing evidence and SO ship conserve stock and create AR; main3957b55 round11: PASS SHIP-002 public real SO plan/verify/pack/ship stays terminal and packing does not double-deduct SO stock; main3957b55 round11: PASS SHIP-002 tenant_qaship01 real SO plan/verify/pack/ship stays terminal and packing does not double-deduct SO stock"
@@ -12194,10 +12214,10 @@
     "kind": "service",
     "module": "CRM / Sales",
     "file": "src/lib/services/order-fulfillment.ts",
-    "line": 2622,
+    "line": 2644,
     "name": "getDigitalTraveler",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Local fixture readers retain known sales, quality, product and traveler records"
   },
   {
     "id": "SERVICE-0499",
@@ -12286,8 +12306,8 @@
     "file": "src/lib/services/plaid.ts",
     "line": 25,
     "name": "plaidEnabled",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Plaid and Grok stay fail-closed locally and never open an external socket; main bd44f68 round12: PASS Plaid actions deny operators and fail closed for admins without keys"
   },
   {
     "id": "SERVICE-0508",
@@ -12296,8 +12316,8 @@
     "file": "src/lib/services/plaid.ts",
     "line": 73,
     "name": "createLinkToken",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Plaid and Grok stay fail-closed locally and never open an external socket"
   },
   {
     "id": "SERVICE-0509",
@@ -12306,8 +12326,8 @@
     "file": "src/lib/services/plaid.ts",
     "line": 102,
     "name": "exchangePublicToken",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Plaid and Grok stay fail-closed locally and never open an external socket"
   },
   {
     "id": "SERVICE-0510",
@@ -12316,8 +12336,8 @@
     "file": "src/lib/services/plaid.ts",
     "line": 182,
     "name": "syncPlaidTransactions",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Plaid and Grok stay fail-closed locally and never open an external socket"
   },
   {
     "id": "SERVICE-0511",
@@ -12326,8 +12346,8 @@
     "file": "src/lib/services/plaid.ts",
     "line": 295,
     "name": "syncAllPlaid",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Plaid and Grok stay fail-closed locally and never open an external socket"
   },
   {
     "id": "ACTION-0491",
@@ -12776,8 +12796,8 @@
     "file": "src/lib/services/pmo.ts",
     "line": 1141,
     "name": "getProjectDetail",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Local fixture readers retain known sales, quality, product and traveler records"
   },
   {
     "id": "SERVICE-0543",
@@ -13386,8 +13406,8 @@
     "file": "src/lib/services/products.ts",
     "line": 727,
     "name": "listProducts",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Local fixture readers retain known sales, quality, product and traveler records"
   },
   {
     "id": "SERVICE-0592",
@@ -13396,8 +13416,8 @@
     "file": "src/lib/services/products.ts",
     "line": 773,
     "name": "getProductDetail",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Local fixture readers retain known sales, quality, product and traveler records"
   },
   {
     "id": "SERVICE-0593",
@@ -13596,8 +13616,8 @@
     "file": "src/lib/services/purchase-requests.ts",
     "line": 30,
     "name": "prRequiresCatalogParts",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Supplier PO eligibility, WO prefixes, quality status, ratings and PR catalog rules"
   },
   {
     "id": "SERVICE-0613",
@@ -13716,8 +13736,8 @@
     "file": "src/lib/services/quality-programs.ts",
     "line": 31,
     "name": "ensureQualityPrograms",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Local fixture readers retain known sales, quality, product and traveler records"
   },
   {
     "id": "SERVICE-0625",
@@ -13726,8 +13746,8 @@
     "file": "src/lib/services/quality-programs.ts",
     "line": 59,
     "name": "statusFor",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Supplier PO eligibility, WO prefixes, quality status, ratings and PR catalog rules"
   },
   {
     "id": "SERVICE-0626",
@@ -13736,8 +13756,8 @@
     "file": "src/lib/services/quality-programs.ts",
     "line": 69,
     "name": "refreshProgramStatuses",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Local fixture readers retain known sales, quality, product and traveler records"
   },
   {
     "id": "SERVICE-0627",
@@ -13746,8 +13766,8 @@
     "file": "src/lib/services/quality-programs.ts",
     "line": 79,
     "name": "getProgramByKey",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Local fixture readers retain known sales, quality, product and traveler records"
   },
   {
     "id": "SERVICE-0628",
@@ -13796,8 +13816,8 @@
     "file": "src/lib/services/radiators.ts",
     "line": 28,
     "name": "getRadiatorSlides",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Local fixture readers retain known sales, quality, product and traveler records"
   },
   {
     "id": "ACTION-0516",
@@ -13896,8 +13916,8 @@
     "file": "src/lib/services/receiving-inspection.ts",
     "line": 1154,
     "name": "listOpenTestInspections",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Local fixture readers retain known sales, quality, product and traveler records"
   },
   {
     "id": "SERVICE-0633",
@@ -13906,8 +13926,8 @@
     "file": "src/lib/services/receiving-station-guide.ts",
     "line": 28,
     "name": "guideForReceivingInspection",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Receiving helper guides preserve QA-before-test failed hold and complete stepper"
   },
   {
     "id": "SERVICE-0634",
@@ -13916,8 +13936,8 @@
     "file": "src/lib/services/receiving-station-guide.ts",
     "line": 159,
     "name": "batchStationNextGuides",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Local fixture readers retain known sales, quality, product and traveler records"
   },
   {
     "id": "SERVICE-0635",
@@ -13926,8 +13946,8 @@
     "file": "src/lib/services/receiving-time.ts",
     "line": 23,
     "name": "defaultStationCode",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Local fixture readers retain known sales, quality, product and traveler records"
   },
   {
     "id": "SERVICE-0636",
@@ -13956,8 +13976,8 @@
     "file": "src/lib/services/receiving-time.ts",
     "line": 273,
     "name": "materialHandlerHasOpenWork",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Local fixture readers retain known sales, quality, product and traveler records"
   },
   {
     "id": "SERVICE-0639",
@@ -13996,8 +14016,8 @@
     "file": "src/lib/services/receiving-time.ts",
     "line": 540,
     "name": "stationAreaOf",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Receiving helper guides preserve QA-before-test failed hold and complete stepper"
   },
   {
     "id": "SERVICE-0643",
@@ -14006,8 +14026,8 @@
     "file": "src/lib/services/receiving-time.ts",
     "line": 555,
     "name": "inferDeliverArea",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Receiving helper guides preserve QA-before-test failed hold and complete stepper"
   },
   {
     "id": "SERVICE-0644",
@@ -14016,8 +14036,8 @@
     "file": "src/lib/services/receiving-ui.ts",
     "line": 10,
     "name": "nextActionForTraveler",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Receiving helper guides preserve QA-before-test failed hold and complete stepper"
   },
   {
     "id": "SERVICE-0645",
@@ -14026,8 +14046,8 @@
     "file": "src/lib/services/receiving-ui.ts",
     "line": 254,
     "name": "stepperState",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Receiving helper guides preserve QA-before-test failed hold and complete stepper"
   },
   {
     "id": "SERVICE-0646",
@@ -14036,8 +14056,8 @@
     "file": "src/lib/services/receiving-ui.ts",
     "line": 311,
     "name": "listNextLabel",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Receiving helper guides preserve QA-before-test failed hold and complete stepper"
   },
   {
     "id": "ACTION-0526",
@@ -14456,8 +14476,8 @@
     "file": "src/lib/services/review-cycles.ts",
     "line": 344,
     "name": "canViewPerson",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Timesheet and notification queues, brand and optional equipment/fleet reads"
   },
   {
     "id": "SERVICE-0679",
@@ -14466,8 +14486,8 @@
     "file": "src/lib/services/review-cycles.ts",
     "line": 355,
     "name": "getPersonPage",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Timesheet and notification queues, brand and optional equipment/fleet reads"
   },
   {
     "id": "SERVICE-0680",
@@ -14476,8 +14496,8 @@
     "file": "src/lib/services/review-cycles.ts",
     "line": 388,
     "name": "parseSelfRatings",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Supplier PO eligibility, WO prefixes, quality status, ratings and PR catalog rules"
   },
   {
     "id": "SERVICE-0681",
@@ -15116,8 +15136,8 @@
     "file": "src/lib/services/signup-lead.ts",
     "line": 16,
     "name": "captureSignupLead",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Native public no-card signup provisions a local tenant and returns claim path"
   },
   {
     "id": "SERVICE-0745",
@@ -15196,8 +15216,8 @@
     "file": "src/lib/services/stripe.ts",
     "line": 313,
     "name": "createTrialCheckoutSession",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Plaid and Grok stay fail-closed locally and never open an external socket"
   },
   {
     "id": "SERVICE-0753",
@@ -15504,7 +15524,7 @@
     "kind": "service",
     "module": "Purchasing / Receiving",
     "file": "src/lib/services/supply-chain.ts",
-    "line": 25,
+    "line": 26,
     "name": "receivePurchaseOrder",
     "status": "pass",
     "evidence": "finance-supply-results.json: PASS Receiving overquantity fails without receipts or inventory changes; round2-quality-results.json: PASS QC flagged receipt routes to pending VISUAL/GDT with unavailable stock; round2-quality-results.json: FAIL Serialized receiving rejects missing serials before receipt writes; round2-quality-results.json: FAIL Serialized receiving rejects count mismatch serials before receipt writes; round2-quality-results.json: FAIL Serialized receiving rejects duplicate serials before receipt writes; round2-quality-results.json: FAIL Valid received serials become selectable stock serial identities; current/round2-quality-results.json: PASS QC flagged receipt routes to pending VISUAL/GDT with unavailable stock; current/round2-quality-results.json: FAIL Serialized receiving rejects missing serials before receipt writes; current/round2-quality-results.json: FAIL Serialized receiving rejects count mismatch serials before receipt writes; current/round2-quality-results.json: FAIL Serialized receiving rejects duplicate serials before receipt writes; current/round2-quality-results.json: FAIL Valid received serials become selectable stock serial identities; current/round3-receiving-deep-results.json: PASS Mixed receiving partial split keeps QA/Test stock unavailable and plain stock available; current/round3-receiving-deep-results.json: PASS Mixed receiving remainder consumes only remaining quantities; current/round3-receiving-deep-results.json: FAIL Closed-short purchase order must not accept material; current/round3-receiving-deep-results.json: FAIL Duplicate PO-line entries in one receipt cannot overreceive; current/round3-receiving-deep-results.json: PASS Concurrent receipt requests cannot receive more than open PO balance; main151: PASS QC flagged receipt routes to pending VISUAL/GDT with unavailable stock; main151: PASS Serialized receiving rejects missing serials before receipt writes; main151: PASS Serialized receiving rejects count mismatch serials before receipt writes; main151: PASS Serialized receiving rejects duplicate serials before receipt writes; main151: PASS Valid received serials become selectable stock serial identities; main151: PASS Mixed receiving partial split keeps QA/Test stock unavailable and plain stock available; main151: PASS Mixed receiving remainder consumes only remaining quantities; main151: PASS Closed-short purchase order must not accept material; main151: PASS Duplicate PO-line entries in one receipt cannot overreceive; main151: PASS Concurrent receipt requests cannot receive more than open PO balance; main151: PASS RCV-001/002 duplicate PO lines and terminal PO statuses reject before receipt/stock/AP writes; main152: PASS QC flagged receipt routes to pending VISUAL/GDT with unavailable stock; main152: PASS Serialized receiving rejects missing serials before receipt writes; main152: PASS Serialized receiving rejects count mismatch serials before receipt writes; main152: PASS Serialized receiving rejects duplicate serials before receipt writes; main152: PASS Valid received serials become selectable stock serial identities; main152: PASS Mixed receiving partial split keeps QA/Test stock unavailable and plain stock available; main152: PASS Mixed receiving remainder consumes only remaining quantities; main152: PASS Closed-short purchase order must not accept material; main152: PASS Duplicate PO-line entries in one receipt cannot overreceive; main152: PASS Concurrent receipt requests cannot receive more than open PO balance; main152: PASS RCV-001/002 duplicate PO lines and terminal PO statuses reject before receipt/stock/AP writes; main153: PASS QC flagged receipt routes to pending VISUAL/GDT with unavailable stock; main153: PASS Serialized receiving rejects missing serials before receipt writes; main153: PASS Serialized receiving rejects count mismatch serials before receipt writes; main153: PASS Serialized receiving rejects duplicate serials before receipt writes; main153: PASS Valid received serials become selectable stock serial identities; main153: PASS Mixed receiving partial split keeps QA/Test stock unavailable and plain stock available; main153: PASS Mixed receiving remainder consumes only remaining quantities; main153: PASS Closed-short purchase order must not accept material; main153: PASS Duplicate PO-line entries in one receipt cannot overreceive; main153: PASS Concurrent receipt requests cannot receive more than open PO balance; main153: PASS RCV-001/002 duplicate PO lines and terminal PO statuses reject before receipt/stock/AP writes; main155: PASS QC flagged receipt routes to pending VISUAL/GDT with unavailable stock; main155: PASS Serialized receiving rejects missing serials before receipt writes; main155: PASS Serialized receiving rejects count mismatch serials before receipt writes; main155: PASS Serialized receiving rejects duplicate serials before receipt writes; main155: PASS Valid received serials become selectable stock serial identities; main155: PASS Mixed receiving partial split keeps QA/Test stock unavailable and plain stock available; main155: PASS Mixed receiving remainder consumes only remaining quantities; main155: PASS Closed-short purchase order must not accept material; main155: PASS Duplicate PO-line entries in one receipt cannot overreceive; main155: PASS Concurrent receipt requests cannot receive more than open PO balance; main155: PASS RCV-001/002 duplicate PO lines and terminal PO statuses reject before receipt/stock/AP writes; main3957b55 round11: PASS QC flagged receipt routes to pending VISUAL/GDT with unavailable stock; main3957b55 round11: PASS Serialized receiving rejects missing serials before receipt writes; main3957b55 round11: PASS Serialized receiving rejects count mismatch serials before receipt writes; main3957b55 round11: PASS Serialized receiving rejects duplicate serials before receipt writes; main3957b55 round11: PASS Valid received serials become selectable stock serial identities; main3957b55 round11: PASS Mixed receiving partial split keeps QA/Test stock unavailable and plain stock available; main3957b55 round11: PASS Mixed receiving remainder consumes only remaining quantities; main3957b55 round11: PASS Closed-short purchase order must not accept material; main3957b55 round11: PASS Duplicate PO-line entries in one receipt cannot overreceive; main3957b55 round11: PASS Concurrent receipt requests cannot receive more than open PO balance; main3957b55 round11: PASS RCV-001/002 duplicate PO lines and terminal PO statuses reject before receipt/stock/AP writes"
@@ -15514,7 +15534,7 @@
     "kind": "service",
     "module": "Purchasing / Receiving",
     "file": "src/lib/services/supply-chain.ts",
-    "line": 790,
+    "line": 791,
     "name": "receiveGfpTraveler",
     "status": "pass",
     "evidence": "; main155: PASS Native GFP traveler create receive close real line progression; main3957b55 round11: PASS Native GFP traveler create receive close real line progression"
@@ -15524,7 +15544,7 @@
     "kind": "service",
     "module": "Purchasing / Receiving",
     "file": "src/lib/services/supply-chain.ts",
-    "line": 1180,
+    "line": 1181,
     "name": "createNcrAndMrbFromInspection",
     "status": "pass",
     "evidence": "round2-quality-results.json: PASS QC failure creates NCR/MRB and quarantines all affected material; current/round2-quality-results.json: PASS QC failure creates NCR/MRB and quarantines all affected material; main151: PASS QC failure creates NCR/MRB and quarantines all affected material; main152: PASS QC failure creates NCR/MRB and quarantines all affected material; main153: PASS QC failure creates NCR/MRB and quarantines all affected material; main155: PASS QC failure creates NCR/MRB and quarantines all affected material; main3957b55 round11: PASS QC failure creates NCR/MRB and quarantines all affected material"
@@ -15534,7 +15554,7 @@
     "kind": "service",
     "module": "Purchasing / Receiving",
     "file": "src/lib/services/supply-chain.ts",
-    "line": 1285,
+    "line": 1286,
     "name": "closeMrbCase",
     "status": "pass",
     "evidence": "round2-quality-results.json: PASS Open MRB cannot close before disposition; round2-quality-results.json: PASS MRB USE_AS_IS action releases quarantine and close action finalizes; current/round2-quality-results.json: PASS Open MRB cannot close before disposition; current/round2-quality-results.json: PASS MRB USE_AS_IS action releases quarantine and close action finalizes; main151: PASS Open MRB cannot close before disposition; main151: PASS MRB USE_AS_IS action releases quarantine and close action finalizes; main152: PASS Open MRB cannot close before disposition; main152: PASS MRB USE_AS_IS action releases quarantine and close action finalizes; main153: PASS Open MRB cannot close before disposition; main153: PASS MRB USE_AS_IS action releases quarantine and close action finalizes; main155: PASS Open MRB cannot close before disposition; main155: PASS MRB USE_AS_IS action releases quarantine and close action finalizes; main3957b55 round11: PASS Open MRB cannot close before disposition; main3957b55 round11: PASS MRB USE_AS_IS action releases quarantine and close action finalizes"
@@ -15544,9 +15564,9 @@
     "kind": "service",
     "module": "Purchasing / Receiving",
     "file": "src/lib/services/supply-chain.ts",
-    "line": 1312,
+    "line": 1313,
     "name": "dispositionMrb",
-    "status": "fail",
+    "status": "pass",
     "evidence": "scripts/verify/chunk-serials-rma.ts; scenario only; round2-quality-results.json: PASS MRB USE_AS_IS action releases quarantine and close action finalizes; round2-quality-results.json: FAIL MRB partial SCRAP preserves remainder quantity; round2-quality-results.json: FAIL MRB rejects negative disposition quantity before writing; round2-quality-results.json: FAIL Repeated MRB disposition cannot create duplicate decisions/postings; current/round2-quality-results.json: PASS MRB USE_AS_IS action releases quarantine and close action finalizes; current/round2-quality-results.json: FAIL MRB partial SCRAP preserves remainder quantity; current/round2-quality-results.json: FAIL MRB rejects negative disposition quantity before writing; current/round2-quality-results.json: FAIL Repeated MRB disposition cannot create duplicate decisions/postings; main151: PASS MRB USE_AS_IS action releases quarantine and close action finalizes; main151: PASS MRB partial SCRAP preserves remainder quantity; main151: PASS MRB rejects negative disposition quantity before writing; main151: PASS Repeated MRB disposition cannot create duplicate decisions/postings; main151: PASS MRB rework disposition creates linked typed WO and retains quarantine; main151: PASS MRB repair disposition creates linked REPAIR work order; main151: PASS Full supplier return creates exact shipment and retires returned stock; main151: FAIL Partial supplier return preserves unreturned quarantined quantity; main151: FAIL Partial use-as-is releases only the dispositioned quantity; main151: FAIL Nonscrap MRB quantity cannot exceed held inventory; main152: PASS MRB USE_AS_IS action releases quarantine and close action finalizes; main152: PASS MRB partial SCRAP preserves remainder quantity; main152: PASS MRB rejects negative disposition quantity before writing; main152: PASS Repeated MRB disposition cannot create duplicate decisions/postings; main152: PASS Actual MRB rework disposition spawns released-WI three-step traveler; main152: PASS MRB rework disposition creates linked typed WO and retains quarantine; main152: PASS MRB repair disposition creates linked REPAIR work order; main152: PASS Full supplier return creates exact shipment and retires returned stock; main152: FAIL Partial supplier return preserves unreturned quarantined quantity; main152: FAIL Partial use-as-is releases only the dispositioned quantity; main152: FAIL Nonscrap MRB quantity cannot exceed held inventory; main153: PASS MRB USE_AS_IS action releases quarantine and close action finalizes; main153: PASS MRB partial SCRAP preserves remainder quantity; main153: PASS MRB rejects negative disposition quantity before writing; main153: PASS Repeated MRB disposition cannot create duplicate decisions/postings; main153: PASS Actual MRB rework disposition spawns released-WI three-step traveler; main153: PASS MRB rework disposition creates linked typed WO and retains quarantine; main153: PASS MRB repair disposition creates linked REPAIR work order; main153: PASS Full supplier return creates exact shipment and retires returned stock; main153: FAIL Partial supplier return preserves unreturned quarantined quantity; main153: FAIL Partial use-as-is releases only the dispositioned quantity; main153: FAIL Nonscrap MRB quantity cannot exceed held inventory; main155: PASS MRB USE_AS_IS action releases quarantine and close action finalizes; main155: PASS MRB partial SCRAP preserves remainder quantity; main155: PASS MRB rejects negative disposition quantity before writing; main155: PASS Repeated MRB disposition cannot create duplicate decisions/postings; main155: PASS Actual MRB rework disposition spawns released-WI three-step traveler; main155: PASS MRB rework disposition creates linked typed WO and retains quarantine; main155: PASS MRB repair disposition creates linked REPAIR work order; main155: PASS Full supplier return creates exact shipment and retires returned stock; main155: FAIL Partial supplier return preserves unreturned quarantined quantity; main155: FAIL Partial use-as-is releases only the dispositioned quantity; main155: FAIL Nonscrap MRB quantity cannot exceed held inventory; main3957b55 round11: PASS MRB USE_AS_IS action releases quarantine and close action finalizes; main3957b55 round11: PASS MRB partial SCRAP preserves remainder quantity; main3957b55 round11: PASS MRB rejects negative disposition quantity before writing; main3957b55 round11: PASS Repeated MRB disposition cannot create duplicate decisions/postings; main3957b55 round11: PASS Actual MRB rework disposition spawns released-WI three-step traveler; main3957b55 round11: PASS MRB rework disposition creates linked typed WO and retains quarantine; main3957b55 round11: PASS MRB repair disposition creates linked REPAIR work order; main3957b55 round11: PASS Full supplier return creates exact shipment and retires returned stock; main3957b55 round11: FAIL Partial supplier return preserves unreturned quarantined quantity; main3957b55 round11: FAIL Partial use-as-is releases only the dispositioned quantity; main3957b55 round11: FAIL Nonscrap MRB quantity cannot exceed held inventory"
   },
   {
@@ -15554,7 +15574,7 @@
     "kind": "service",
     "module": "Purchasing / Receiving",
     "file": "src/lib/services/supply-chain.ts",
-    "line": 1671,
+    "line": 1619,
     "name": "logCarActivity",
     "status": "pass",
     "evidence": "; main152: PASS Authorized CAR update action retains response and activity history; main153: PASS Authorized CAR update action retains response and activity history; main155: PASS Authorized CAR update action retains response and activity history; main3957b55 round11: PASS Authorized CAR update action retains response and activity history"
@@ -15564,7 +15584,7 @@
     "kind": "service",
     "module": "Purchasing / Receiving",
     "file": "src/lib/services/supply-chain.ts",
-    "line": 1695,
+    "line": 1643,
     "name": "updateCar",
     "status": "pass",
     "evidence": "; main152: PASS Authorized CAR update action retains response and activity history; main153: PASS Authorized CAR update action retains response and activity history; main155: PASS Authorized CAR update action retains response and activity history; main3957b55 round11: PASS Authorized CAR update action retains response and activity history"
@@ -15574,7 +15594,7 @@
     "kind": "service",
     "module": "Purchasing / Receiving",
     "file": "src/lib/services/supply-chain.ts",
-    "line": 1845,
+    "line": 1793,
     "name": "listOpenCars",
     "status": "pass",
     "evidence": "; main152: PASS Authorized CAR update action retains response and activity history; main153: PASS Authorized CAR update action retains response and activity history; main155: PASS Authorized CAR update action retains response and activity history; main3957b55 round11: PASS Authorized CAR update action retains response and activity history"
@@ -15584,7 +15604,7 @@
     "kind": "service",
     "module": "Purchasing / Receiving",
     "file": "src/lib/services/supply-chain.ts",
-    "line": 1863,
+    "line": 1811,
     "name": "updateSupplierScorecard",
     "status": "pass",
     "evidence": "; main155: PASS Native supplier scorecard refresh and monthly idempotent history; main3957b55 round11: PASS Native supplier scorecard refresh and monthly idempotent history"
@@ -15594,17 +15614,17 @@
     "kind": "service",
     "module": "Purchasing / Receiving",
     "file": "src/lib/services/supply-chain.ts",
-    "line": 1960,
+    "line": 1908,
     "name": "getValueStreamMetrics",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Local fixture readers retain known sales, quality, product and traveler records"
   },
   {
     "id": "ACTION-0546",
     "kind": "service",
     "module": "Purchasing / Receiving",
     "file": "src/lib/services/supply-chain.ts",
-    "line": 2033,
+    "line": 1981,
     "name": "capStatus",
     "status": "untested",
     "evidence": ""
@@ -15614,7 +15634,7 @@
     "kind": "service",
     "module": "Purchasing / Receiving",
     "file": "src/lib/services/supply-chain.ts",
-    "line": 2041,
+    "line": 1989,
     "name": "maxUtil",
     "status": "untested",
     "evidence": ""
@@ -15626,8 +15646,8 @@
     "file": "src/lib/services/support.ts",
     "line": 46,
     "name": "isSupportStaffRole",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Support staff and owner query gates scope records and unread queue counts"
   },
   {
     "id": "SERVICE-0784",
@@ -15636,8 +15656,8 @@
     "file": "src/lib/services/support.ts",
     "line": 61,
     "name": "listSupportStaffNotifyEmails",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Support staff and owner query gates scope records and unread queue counts"
   },
   {
     "id": "SERVICE-0785",
@@ -15646,8 +15666,8 @@
     "file": "src/lib/services/support.ts",
     "line": 82,
     "name": "notifySupportStaff",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Email composition, support notify and CRM contact stay local without delivery"
   },
   {
     "id": "SERVICE-0786",
@@ -15676,8 +15696,8 @@
     "file": "src/lib/services/support.ts",
     "line": 345,
     "name": "listMySupportTickets",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Support staff and owner query gates scope records and unread queue counts"
   },
   {
     "id": "SERVICE-0789",
@@ -15686,8 +15706,8 @@
     "file": "src/lib/services/support.ts",
     "line": 357,
     "name": "listSupportTicketsByGuestEmail",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Support staff and owner query gates scope records and unread queue counts"
   },
   {
     "id": "SERVICE-0790",
@@ -15696,8 +15716,8 @@
     "file": "src/lib/services/support.ts",
     "line": 370,
     "name": "listAllSupportTickets",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Support staff and owner query gates scope records and unread queue counts"
   },
   {
     "id": "SERVICE-0791",
@@ -15706,8 +15726,8 @@
     "file": "src/lib/services/support.ts",
     "line": 401,
     "name": "countOpenSupportForStaff",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Support staff and owner query gates scope records and unread queue counts"
   },
   {
     "id": "SERVICE-0792",
@@ -15716,8 +15736,8 @@
     "file": "src/lib/services/support.ts",
     "line": 410,
     "name": "countUnreadRepliesForUser",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Support staff and owner query gates scope records and unread queue counts"
   },
   {
     "id": "SERVICE-0793",
@@ -15746,8 +15766,8 @@
     "file": "src/lib/services/support.ts",
     "line": 463,
     "name": "canAccessTicket",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Support staff and owner query gates scope records and unread queue counts"
   },
   {
     "id": "SERVICE-0796",
@@ -15786,8 +15806,8 @@
     "file": "src/lib/services/support.ts",
     "line": 689,
     "name": "listPlatformAdmins",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Support staff and owner query gates scope records and unread queue counts"
   },
   {
     "id": "SERVICE-0800",
@@ -15866,8 +15886,8 @@
     "file": "src/lib/services/telemetry.ts",
     "line": 67,
     "name": "recordEvent",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Telemetry records sanitize query paths and dashboards reconcile known events"
   },
   {
     "id": "SERVICE-0808",
@@ -15876,8 +15896,8 @@
     "file": "src/lib/services/telemetry.ts",
     "line": 96,
     "name": "trackEvent",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Telemetry records sanitize query paths and dashboards reconcile known events"
   },
   {
     "id": "SERVICE-0809",
@@ -15886,8 +15906,8 @@
     "file": "src/lib/services/telemetry.ts",
     "line": 114,
     "name": "getTelemetryHealth",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Telemetry records sanitize query paths and dashboards reconcile known events"
   },
   {
     "id": "SERVICE-0810",
@@ -15896,8 +15916,8 @@
     "file": "src/lib/services/telemetry.ts",
     "line": 154,
     "name": "getDemoFunnel",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Telemetry records sanitize query paths and dashboards reconcile known events"
   },
   {
     "id": "SERVICE-0811",
@@ -15906,8 +15926,8 @@
     "file": "src/lib/services/telemetry.ts",
     "line": 199,
     "name": "getTopPages",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Telemetry records sanitize query paths and dashboards reconcile known events"
   },
   {
     "id": "SERVICE-0812",
@@ -15916,8 +15936,8 @@
     "file": "src/lib/services/telemetry.ts",
     "line": 217,
     "name": "getTopActions",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Telemetry records sanitize query paths and dashboards reconcile known events"
   },
   {
     "id": "SERVICE-0813",
@@ -15926,8 +15946,8 @@
     "file": "src/lib/services/telemetry.ts",
     "line": 270,
     "name": "issueFingerprint",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Telemetry records sanitize query paths and dashboards reconcile known events"
   },
   {
     "id": "SERVICE-0814",
@@ -15936,8 +15956,8 @@
     "file": "src/lib/services/telemetry.ts",
     "line": 308,
     "name": "getErrorGroups",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Telemetry records sanitize query paths and dashboards reconcile known events"
   },
   {
     "id": "SERVICE-0815",
@@ -15946,8 +15966,8 @@
     "file": "src/lib/services/telemetry.ts",
     "line": 415,
     "name": "getIssueTrackingHealth",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Telemetry records sanitize query paths and dashboards reconcile known events"
   },
   {
     "id": "SERVICE-0816",
@@ -15956,8 +15976,8 @@
     "file": "src/lib/services/telemetry.ts",
     "line": 427,
     "name": "setIssueStatus",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Native platform issue triage persists resolved state and audit history"
   },
   {
     "id": "SERVICE-0817",
@@ -15966,8 +15986,8 @@
     "file": "src/lib/services/telemetry.ts",
     "line": 502,
     "name": "getIssueHistories",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Native platform issue triage persists resolved state and audit history"
   },
   {
     "id": "SERVICE-0818",
@@ -15976,8 +15996,8 @@
     "file": "src/lib/services/telemetry.ts",
     "line": 566,
     "name": "getLiveDemos",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Telemetry records sanitize query paths and dashboards reconcile known events"
   },
   {
     "id": "SERVICE-0819",
@@ -15986,8 +16006,8 @@
     "file": "src/lib/services/telemetry.ts",
     "line": 606,
     "name": "getDailyStarts",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Telemetry records sanitize query paths and dashboards reconcile known events"
   },
   {
     "id": "SERVICE-0820",
@@ -15996,8 +16016,8 @@
     "file": "src/lib/services/tenancy.ts",
     "line": 121,
     "name": "applyHardening",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Provision real local customer schema and repeat synthetic subscription lookup without external calls"
   },
   {
     "id": "SERVICE-0821",
@@ -16006,8 +16026,8 @@
     "file": "src/lib/services/tenancy.ts",
     "line": 129,
     "name": "provisionSchema",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Provision real local customer schema and repeat synthetic subscription lookup without external calls"
   },
   {
     "id": "SERVICE-0822",
@@ -16126,8 +16146,8 @@
     "file": "src/lib/services/tenancy.ts",
     "line": 442,
     "name": "demoIdleMinutes",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Supplier PO eligibility, WO prefixes, quality status, ratings and PR catalog rules"
   },
   {
     "id": "SERVICE-0834",
@@ -16176,8 +16196,8 @@
     "file": "src/lib/services/tenancy.ts",
     "line": 622,
     "name": "provisionCustomerTenant",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Provision real local customer schema and repeat synthetic subscription lookup without external calls"
   },
   {
     "id": "SERVICE-0839",
@@ -16186,8 +16206,8 @@
     "file": "src/lib/services/tenancy.ts",
     "line": 782,
     "name": "registerTenantLogin",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Provision real local customer schema and repeat synthetic subscription lookup without external calls"
   },
   {
     "id": "SERVICE-0840",
@@ -16196,8 +16216,8 @@
     "file": "src/lib/services/tenancy.ts",
     "line": 803,
     "name": "issueOnboardingLink",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Platform owner native onboarding reissue rotates hashed one-time token"
   },
   {
     "id": "SERVICE-0841",
@@ -16206,8 +16226,8 @@
     "file": "src/lib/services/tenancy.ts",
     "line": 820,
     "name": "tenantBySetupToken",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Platform owner native onboarding reissue rotates hashed one-time token"
   },
   {
     "id": "SERVICE-0842",
@@ -16216,8 +16236,8 @@
     "file": "src/lib/services/tenancy.ts",
     "line": 832,
     "name": "clearSetupToken",
-    "status": "untested",
-    "evidence": ""
+    "status": "fail",
+    "evidence": "; main bd44f68 round12: PASS Native customer claim sets password and tenant session and consumes token before replay; main bd44f68 round12: FAIL Onboarding token-consumption failure must fail closed before password/session changes"
   },
   {
     "id": "SERVICE-0843",
@@ -16226,8 +16246,8 @@
     "file": "src/lib/services/tenancy.ts",
     "line": 842,
     "name": "tenantByStripe",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Provision real local customer schema and repeat synthetic subscription lookup without external calls"
   },
   {
     "id": "SERVICE-0844",
@@ -16496,8 +16516,8 @@
     "file": "src/lib/services/timesheets.ts",
     "line": 1013,
     "name": "getTimecardReviewQueue",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Timesheet and notification queues, brand and optional equipment/fleet reads"
   },
   {
     "id": "SERVICE-0869",
@@ -16576,8 +16596,8 @@
     "file": "src/lib/services/timesheets.ts",
     "line": 1466,
     "name": "getPtoBalances",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Timesheet and notification queues, brand and optional equipment/fleet reads"
   },
   {
     "id": "SERVICE-0877",
@@ -16776,8 +16796,8 @@
     "file": "src/lib/services/traceability.ts",
     "line": 24,
     "name": "getWoMaterialGenealogy",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Local fixture readers retain known sales, quality, product and traveler records"
   },
   {
     "id": "SERVICE-0897",
@@ -16786,8 +16806,8 @@
     "file": "src/lib/services/traceability.ts",
     "line": 127,
     "name": "getTraceChain",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Local fixture readers retain known sales, quality, product and traveler records"
   },
   {
     "id": "ACTION-0550",
@@ -16896,8 +16916,8 @@
     "file": "src/lib/services/wip-locations.ts",
     "line": 17,
     "name": "resolveStagingLocation",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Local fixture readers retain known sales, quality, product and traveler records"
   },
   {
     "id": "SERVICE-0899",
@@ -16996,8 +17016,8 @@
     "file": "src/lib/services/work-orders.ts",
     "line": 19,
     "name": "workOrderPrefix",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Supplier PO eligibility, WO prefixes, quality status, ratings and PR catalog rules"
   },
   {
     "id": "SERVICE-0909",
@@ -17006,8 +17026,8 @@
     "file": "src/lib/services/work-orders.ts",
     "line": 32,
     "name": "resolveWorkOrderSource",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Local fixture readers retain known sales, quality, product and traveler records"
   },
   {
     "id": "SERVICE-0952",
@@ -17016,8 +17036,8 @@
     "file": "src/lib/services/work-orders.ts",
     "line": 46,
     "name": "assertProductionBomCertified",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Local fixture readers retain known sales, quality, product and traveler records"
   },
   {
     "id": "SERVICE-0910",
@@ -17106,8 +17126,8 @@
     "file": "src/lib/services/work-orders.ts",
     "line": 1058,
     "name": "defaultReceivingWorkCenterCode",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Local fixture readers retain known sales, quality, product and traveler records"
   },
   {
     "id": "SERVICE-0919",
@@ -17126,8 +17146,8 @@
     "file": "src/lib/services/work-orders.ts",
     "line": 1153,
     "name": "getFloorBoardData",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Local fixture readers retain known sales, quality, product and traveler records"
   },
   {
     "id": "ACTION-0560",
@@ -17226,8 +17246,8 @@
     "file": "src/lib/site.ts",
     "line": 43,
     "name": "getSiteUrl",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Confetti is a server no-op; DXF, legal, tours and site URL stay local"
   },
   {
     "id": "SERVICE-0922",
@@ -17236,8 +17256,8 @@
     "file": "src/lib/tab-brand.ts",
     "line": 18,
     "name": "getTabBrand",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Timesheet and notification queues, brand and optional equipment/fleet reads"
   },
   {
     "id": "SERVICE-0923",
@@ -17246,8 +17266,8 @@
     "file": "src/lib/utils.ts",
     "line": 5,
     "name": "cn",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Display utilities preserve precedence fallback and government cage recognition"
   },
   {
     "id": "SERVICE-0924",
@@ -17256,8 +17276,8 @@
     "file": "src/lib/utils.ts",
     "line": 9,
     "name": "formatCurrency",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Money formatting and EVM reconcile exact signed control values"
   },
   {
     "id": "SERVICE-0925",
@@ -17266,8 +17286,8 @@
     "file": "src/lib/utils.ts",
     "line": 19,
     "name": "compactCurrency",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Money formatting and EVM reconcile exact signed control values"
   },
   {
     "id": "SERVICE-0926",
@@ -17276,8 +17296,8 @@
     "file": "src/lib/utils.ts",
     "line": 28,
     "name": "formatNumber",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Money formatting and EVM reconcile exact signed control values"
   },
   {
     "id": "SERVICE-0927",
@@ -17286,8 +17306,8 @@
     "file": "src/lib/utils.ts",
     "line": 34,
     "name": "formatPercent",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Money formatting and EVM reconcile exact signed control values"
   },
   {
     "id": "SERVICE-0928",
@@ -17306,8 +17326,8 @@
     "file": "src/lib/utils.ts",
     "line": 48,
     "name": "formatRelative",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Display utilities preserve precedence fallback and government cage recognition"
   },
   {
     "id": "SERVICE-0930",
@@ -17316,8 +17336,8 @@
     "file": "src/lib/utils.ts",
     "line": 55,
     "name": "statusColor",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Display utilities preserve precedence fallback and government cage recognition"
   },
   {
     "id": "SERVICE-0931",
@@ -17326,8 +17346,8 @@
     "file": "src/lib/utils.ts",
     "line": 177,
     "name": "priorityColor",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Display utilities preserve precedence fallback and government cage recognition"
   },
   {
     "id": "SERVICE-0932",
@@ -17336,8 +17356,8 @@
     "file": "src/lib/utils.ts",
     "line": 181,
     "name": "scoreRatingColor",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Display utilities preserve precedence fallback and government cage recognition"
   },
   {
     "id": "SERVICE-0933",
@@ -17346,8 +17366,8 @@
     "file": "src/lib/utils.ts",
     "line": 192,
     "name": "computeEvm",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Money formatting and EVM reconcile exact signed control values"
   },
   {
     "id": "SERVICE-0934",
@@ -17356,8 +17376,8 @@
     "file": "src/lib/utils.ts",
     "line": 200,
     "name": "parseJsonArray",
-    "status": "untested",
-    "evidence": ""
+    "status": "fail",
+    "evidence": "; main bd44f68 round12: PASS JSON array parser accepts arrays and safely rejects malformed syntax; main bd44f68 round12: FAIL JSON array parser must not return valid non-array JSON to array consumers"
   },
   {
     "id": "SERVICE-0935",
@@ -17366,8 +17386,8 @@
     "file": "src/lib/utils.ts",
     "line": 209,
     "name": "slugify",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Display utilities preserve precedence fallback and government cage recognition"
   },
   {
     "id": "SERVICE-0936",
@@ -17376,8 +17396,8 @@
     "file": "src/lib/utils.ts",
     "line": 214,
     "name": "isGfpLocation",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Display utilities preserve precedence fallback and government cage recognition"
   },
   {
     "id": "SERVICE-0937",
@@ -17386,8 +17406,8 @@
     "file": "src/lib/work-areas.ts",
     "line": 11,
     "name": "isWorkArea",
-    "status": "untested",
-    "evidence": ""
+    "status": "pass",
+    "evidence": "; main bd44f68 round12: PASS Work area and module labels reject unknown area and preserve manufacturing label"
   },
   {
     "id": "API-0025",
