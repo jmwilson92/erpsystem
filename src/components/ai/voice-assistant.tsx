@@ -1349,9 +1349,10 @@ export function VoiceAssistant({
       {error && <p className="text-xs text-amber-300">{error}</p>}
 
       <p className="text-[11px] text-slate-600">
-        Examples: “{name}, how is the production floor?” · “{name}, show me how
-        to create a work order” · “{name}, walk me through MRB” · “{name},
-        finish work order WO-10042”. If “Hearing:” never updates, use
+        Read-only product help — no live ERP data access or record changes.
+        Examples: “{name}, show me how to create a work order” · “{name},
+        walk me through MRB” · “{name}, explain work order completion”.
+        If “Hearing:” never updates, use
         Chrome/Edge on HTTPS with mic allowed and the tab focused.
       </p>
 

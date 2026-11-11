@@ -36,6 +36,13 @@ async function main() {
     calls=0;globalThis.fetch=async()=>{calls++;throw Error('must never call')};
     assert.equal((await answerHelp('Finish WO-1')).source,'local');assert.equal(calls,0);
   } finally {globalThis.fetch=original;if(key===undefined) delete process.env.XAI_API_KEY;else process.env.XAI_API_KEY=key;}
+  const voice=fs.readFileSync('src/components/ai/voice-assistant.tsx','utf8');
+  const examples=voice.slice(voice.indexOf('Examples:'),voice.indexOf('If “Hearing:”'));
+  assert.match(voice,/Read-only product help — no live ERP data access or record changes/);
+  assert.match(examples,/show me how to create a work order/);
+  assert.match(examples,/explain work order completion/);
+  assert.ok(!/how is the production floor|finish work order|WO-10042/i.test(examples),'Voice examples must not promise live data or ERP mutations');
+  console.log('PASS AI-001 voice examples advertise only read-only product guidance; backend mutation/live-data refusal unchanged');
   const ai=fs.readFileSync('src/lib/services/ai.ts','utf8');
   assert.ok(!/getAiContextSummary|tryCarinaAction|getFloorBoardData/.test(ai),'Help must not load live data or execute actions');
   const actions=fs.readFileSync('src/app/ai/actions.ts','utf8');

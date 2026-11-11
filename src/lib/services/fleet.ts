@@ -1,3 +1,5 @@
+import { withMutationLock } from "@/lib/mutation-lock";
+import type { Prisma } from "@prisma/client";
 /**
  * Fleet management — service vans, trucks, forklifts, trailers.
  *
@@ -129,17 +131,9 @@ export async function updateVehicle(
 }
 
 /** Move the odometer forward only — a lower reading is a typo, not a rollback. */
-export async function recordOdometer(vehicleId: string, reading: number) {
+export async function recordOdometer(vehicleId: string, reading: number, db: Prisma.TransactionClient = prisma) {
   if (!Number.isFinite(reading) || reading < 0) return;
-  const v = await prisma.vehicle.findUnique({
-    where: { id: vehicleId },
-    select: { odometer: true },
-  });
-  if (!v || reading <= v.odometer) return;
-  await prisma.vehicle.update({
-    where: { id: vehicleId },
-    data: { odometer: reading },
-  });
+  await db.vehicle.updateMany({ where: { id: vehicleId, odometer: { lt: reading } }, data: { odometer: reading } });
 }
 
 // ─── Maintenance ────────────────────────────────────────────────
@@ -186,57 +180,64 @@ export async function completeMaintenance(params: {
   vendor?: string | null;
   userId?: string;
 }) {
-  const existing = await prisma.vehicleMaintenance.findUnique({
-    where: { id: params.id },
-  });
-  if (!existing) throw new Error("Maintenance record not found");
+  return withMutationLock("VehicleMaintenance", params.id, async db => {
+    const existing = await db.vehicleMaintenance.findUnique({
+      where: { id: params.id },
+    });
+    if (!existing) throw new Error("Maintenance record not found");
+    if (existing.status === "COMPLETED") return existing;
+    if (existing.status !== "SCHEDULED") throw new Error("Only scheduled maintenance can be completed");
+    for (const value of [params.completedOdometer, params.cost]) if (value != null && (!Number.isFinite(value) || value < 0)) throw new Error("Maintenance readings/cost must be finite and nonnegative");
+    for (const interval of [existing.intervalDays, existing.intervalDistance]) if (interval && (!Number.isFinite(interval) || interval < 0)) throw new Error("Invalid maintenance interval");
 
-  const completedAt = params.completedAt ?? new Date();
-  const done = await prisma.vehicleMaintenance.update({
-    where: { id: params.id },
-    data: {
-      status: "COMPLETED",
-      completedAt,
-      completedOdometer: params.completedOdometer ?? null,
-      cost: params.cost ?? null,
-      vendor: params.vendor?.trim() || null,
-    },
-  });
-
-  if (params.completedOdometer != null) {
-    await recordOdometer(existing.vehicleId, params.completedOdometer);
-  }
-
-  // Roll the next occurrence when this item is on an interval.
-  if (existing.intervalDays || existing.intervalDistance) {
-    const nextDue = existing.intervalDays
-      ? new Date(completedAt.getTime() + existing.intervalDays * 86_400_000)
-      : null;
-    const baseOdo = params.completedOdometer ?? existing.dueOdometer ?? null;
-    const nextOdo =
-      existing.intervalDistance && baseOdo != null
-        ? baseOdo + existing.intervalDistance
-        : null;
-    await prisma.vehicleMaintenance.create({
+    const completedAt = params.completedAt ?? new Date();
+    if (!Number.isFinite(completedAt.getTime())) throw new Error("Invalid completion date");
+    const done = await db.vehicleMaintenance.update({
+      where: { id: params.id, status: "SCHEDULED" },
       data: {
-        vehicleId: existing.vehicleId,
-        type: existing.type,
-        description: existing.description,
-        dueAt: nextDue,
-        dueOdometer: nextOdo,
-        intervalDays: existing.intervalDays,
-        intervalDistance: existing.intervalDistance,
+        status: "COMPLETED",
+        completedAt,
+        completedOdometer: params.completedOdometer ?? null,
+        cost: params.cost ?? null,
+        vendor: params.vendor?.trim() || null,
       },
     });
-  }
 
-  await logAudit({
-    entityType: "VehicleMaintenance",
-    entityId: params.id,
-    action: "COMPLETED",
-    userId: params.userId,
+    if (params.completedOdometer != null) {
+      await recordOdometer(existing.vehicleId, params.completedOdometer, db);
+    }
+
+    // Roll the next occurrence when this item is on an interval.
+    if (existing.intervalDays || existing.intervalDistance) {
+      const nextDue = existing.intervalDays
+        ? new Date(completedAt.getTime() + existing.intervalDays * 86_400_000)
+        : null;
+      const baseOdo = params.completedOdometer ?? existing.dueOdometer ?? null;
+      const nextOdo =
+        existing.intervalDistance && baseOdo != null
+          ? baseOdo + existing.intervalDistance
+          : null;
+      await db.vehicleMaintenance.create({
+        data: {
+          vehicleId: existing.vehicleId,
+          type: existing.type,
+          description: existing.description,
+          dueAt: nextDue,
+          dueOdometer: nextOdo,
+          intervalDays: existing.intervalDays,
+          intervalDistance: existing.intervalDistance,
+        },
+      });
+    }
+
+    await logAudit({
+      entityType: "VehicleMaintenance",
+      entityId: params.id,
+      action: "COMPLETED",
+      userId: params.userId,
+    }, db);
+    return done;
   });
-  return done;
 }
 
 export type DueItem = {
@@ -354,21 +355,26 @@ export async function addFuelLog(params: {
   filledAt?: Date;
   userId?: string;
 }) {
-  const row = await prisma.fuelLog.create({
-    data: {
-      vehicleId: params.vehicleId,
-      gallons: params.gallons,
-      cost: params.cost,
-      odometer: params.odometer ?? null,
-      location: params.location?.trim() || null,
-      filledAt: params.filledAt ?? new Date(),
-      userId: params.userId || null,
-    },
+  if (!Number.isFinite(params.gallons) || params.gallons <= 0 || !Number.isFinite(params.cost) || params.cost < 0) throw new Error("Fuel quantity must be finite and positive; cost finite and nonnegative");
+  if (params.odometer != null && (!Number.isFinite(params.odometer) || params.odometer < 0)) throw new Error("Fuel odometer must be finite and nonnegative");
+  if (params.filledAt && !Number.isFinite(params.filledAt.getTime())) throw new Error("Invalid fuel date");
+  return prisma.$transaction(async db => {
+    const row = await db.fuelLog.create({
+      data: {
+        vehicleId: params.vehicleId,
+        gallons: params.gallons,
+        cost: params.cost,
+        odometer: params.odometer ?? null,
+        location: params.location?.trim() || null,
+        filledAt: params.filledAt ?? new Date(),
+        userId: params.userId || null,
+      },
+    });
+    if (params.odometer != null) {
+      await recordOdometer(params.vehicleId, params.odometer, db);
+    }
+    return row;
   });
-  if (params.odometer != null) {
-    await recordOdometer(params.vehicleId, params.odometer);
-  }
-  return row;
 }
 
 /**
