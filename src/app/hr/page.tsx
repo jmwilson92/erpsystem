@@ -115,6 +115,16 @@ export default async function HrPage({
           getReviewPolicy(),
         ])
       : [[], [], [], [], [], [], null];
+  const expenseSubmissions = expenses.length ? await prisma.auditLog.findMany({
+    where: { entityType: "ExpenseReport", action: "EXPENSE_SUBMITTED", entityId: { in: expenses.map(expense => expense.id) } },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }], select: { entityId: true, userId: true },
+  }) : [];
+  const expenseSubmitters = new Map<string, Set<string>>();
+  for (const submission of expenseSubmissions) {
+    if (!expenseSubmitters.has(submission.entityId)) expenseSubmitters.set(submission.entityId, new Set());
+    if (submission.userId) expenseSubmitters.get(submission.entityId)!.add(submission.userId);
+  }
+
 
   const pendingTime = timeEntries.filter((t) => t.status === "SUBMITTED");
   const pendingPto = pto.filter((p) => p.status === "PENDING");
@@ -735,7 +745,7 @@ export default async function HrPage({
                             <form action={actionAdvanceExpense}>
                               <input type="hidden" name="id" value={e.id} />
                               <input type="hidden" name="status" value="APPROVED" />
-                              <Button type="submit" size="sm">
+                              <Button type="submit" size="sm" disabled={e.userId === me.id || expenseSubmitters.get(e.id)?.has(me.id) || !expenseSubmitters.get(e.id)?.size} title="An independent reviewer must approve; missing submission identity requires return and re-submission">
                                 Approve
                               </Button>
                             </form>
@@ -755,9 +765,15 @@ export default async function HrPage({
                           </>
                         )}
                         {e.status === "APPROVED" && (
-                          <span className="text-[11px] text-slate-500">
-                            Approved — accounting records payment
-                          </span>
+                          <>
+                            <span className="text-[11px] text-slate-500">Approved — accounting records payment</span>
+                            <form action={actionAdvanceExpense} className="flex gap-1">
+                              <input type="hidden" name="id" value={e.id} />
+                              <input type="hidden" name="status" value="REJECTED" />
+                              <Input name="decisionNotes" required placeholder="Reason for return" className="h-8 w-36 text-xs" />
+                              <Button type="submit" size="sm" variant="outline">Return for reapproval</Button>
+                            </form>
+                          </>
                         )}
                       </div>
                     </div>

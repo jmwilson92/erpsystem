@@ -2,7 +2,9 @@
  * HR / Workforce workflows — PTO decisions, time approval with labor cost
  * posting, expense report lifecycle, and goal progress.
  */
-import { prisma } from "@/lib/db";
+import { Prisma } from "@prisma/client";
+import { prisma, currentRequestSchema, isValidSchemaName } from "@/lib/db";
+import { assertIndependentExpenseActor, expenseFingerprint, reimbursementAmount } from "@/lib/expense-approval";
 import { logAudit } from "@/lib/audit";
 import { userHasPermission } from "@/lib/auth";
 import { assertReviewRating } from "@/lib/review-rating";
@@ -464,7 +466,7 @@ export async function decideTimeEntry(params: {
 const EXPENSE_TRANSITIONS: Record<string, string[]> = {
   DRAFT: ["SUBMITTED"],
   SUBMITTED: ["APPROVED", "REJECTED"],
-  APPROVED: [], // Payment only through payExpenseReport / accounting ledger.
+  APPROVED: ["REJECTED"], // An unpaid legacy/stale approval may be returned with a reason. Payment remains ledger-only.
   REJECTED: ["SUBMITTED"],
   PAID: [],
 };
@@ -478,58 +480,35 @@ export async function getExpenseReimbursements() {
   });
 }
 
-/**
- * Accounting reimburses an approved expense report: marks it PAID and posts a
- * best-effort reimbursement journal entry (Dr expense, Cr cash). Paying is an
- * accounting function, gated by accounting.journal.post.
- */
-export async function payExpenseReport(params: {
-  id: string;
-  processor: { id: string; role: string };
-}) {
-  const ok = await userHasPermission(params.processor.id, "accounting.journal.post");
-  if (!ok) throw new Error("Recording reimbursement requires accounting authority");
-  const report = await prisma.expenseReport.findUniqueOrThrow({
-    where: { id: params.id },
-    include: { lines: true, user: { select: { name: true } } },
-  });
-  if (report.status !== "APPROVED") {
-    throw new Error(`Expense ${report.number} is ${report.status}, not APPROVED`);
+/** Lock parent + lines; parent FOR UPDATE also prevents concurrent FK line inserts. */
+async function expenseLockTables() {
+  const schema = await currentRequestSchema();
+  if (!isValidSchemaName(schema)) throw new Error("Invalid expense schema");
+  return { report: Prisma.raw(`"${schema}"."ExpenseReport"`), lines: Prisma.raw(`"${schema}"."ExpenseLine"`) };
+}
+async function lockExpense(db: Prisma.TransactionClient, id: string, tables: Awaited<ReturnType<typeof expenseLockTables>>) {
+  await db.$queryRaw(Prisma.sql`SELECT id FROM ${tables.report} WHERE id = ${id} FOR UPDATE`);
+  await db.$queryRaw(Prisma.sql`SELECT id FROM ${tables.lines} WHERE "reportId" = ${id} ORDER BY id FOR UPDATE`);
+}
+
+/** Independently approved reimbursement, ledger/balances/paid state/audit atomically. */
+export async function payExpenseReport(params: { id: string; processor: { id: string; role: string } }) {
+  if (!await userHasPermission(params.processor.id, "accounting.journal.post")) {
+    throw new Error("Recording reimbursement requires accounting authority");
   }
-  const amount = report.lines.reduce((s, l) => s + (l.amount || 0), 0);
-  let journalEntryId: string | null = null;
-  if (amount > 0) {
-    const [exp, cash] = await Promise.all([
-      prisma.account.findFirst({ where: { code: "6200" } }),
-      prisma.account.findFirst({ where: { code: "1000" } }),
-    ]);
-    if (exp && cash) {
-      const { postJournal } = await import("@/lib/services/gaap");
-      const je = await postJournal({
-        description: `Expense reimbursement — ${report.user.name} (${report.number})`,
-        source: "EXPENSE",
-        sourceId: report.id,
-        createdById: params.processor.id,
-        lines: [
-          { accountId: exp.id, debit: amount, memo: "Employee expense" },
-          { accountId: cash.id, credit: amount, memo: "Reimbursement paid" },
-        ],
-      });
-      journalEntryId = je.id;
-    }
-  }
-  const updated = await prisma.expenseReport.update({
-    where: { id: report.id },
-    data: { status: "PAID" },
+  const tables = await expenseLockTables();
+  return prisma.$transaction(async tx => {
+    await lockExpense(tx, params.id, tables);
+    const report = await tx.expenseReport.findUniqueOrThrow({ where: { id: params.id }, include: { lines: true } });
+    if (report.status !== "APPROVED") throw new Error(`Expense ${report.number} is ${report.status}, not APPROVED`);
+    const { postApprovedExpenseReimbursement } = await import("@/lib/services/gaap");
+    const journal = await postApprovedExpenseReimbursement({ reportId: report.id, processorId: params.processor.id }, tx);
+    const updated = await tx.expenseReport.update({ where: { id: report.id, status: "APPROVED" }, data: { status: "PAID" } });
+    await logAudit({ entityType: "ExpenseReport", entityId: report.id, action: "EXPENSE_PAID", userId: params.processor.id,
+      changes: { amount: reimbursementAmount(report), journalEntryId: journal.id, approvedById: journal.approvedById },
+    }, tx);
+    return updated;
   });
-  await logAudit({
-    entityType: "ExpenseReport",
-    entityId: report.id,
-    action: "EXPENSE_PAID",
-    userId: params.processor.id,
-    changes: { amount, journalEntryId },
-  });
-  return updated;
 }
 
 export async function advanceExpenseReport(params: {
@@ -562,7 +541,17 @@ export async function advanceExpenseReport(params: {
       `Expense ${existing.number}: cannot go ${existing.status} → ${params.status}`
     );
   }
+  const tables = await expenseLockTables();
   return prisma.$transaction(async tx => {
+    await lockExpense(tx, params.id, tables);
+    const current = await tx.expenseReport.findUniqueOrThrow({ where: { id: params.id }, include: { lines: true } });
+    if (current.userId !== existing.userId || current.status !== existing.status || current.submittedAt?.getTime() !== existing.submittedAt?.getTime()) throw new Error("Expense changed; refresh and retry");
+    let approvalEvidence: { submissionAuditId: string; submitterId: string; expenseFingerprint: string } | undefined;
+    if (params.status === "APPROVED") {
+      const submission = await assertIndependentExpenseActor(tx, current, actor.id);
+      reimbursementAmount(current);
+      approvalEvidence = { submissionAuditId: submission.id, submitterId: submission.userId!, expenseFingerprint: expenseFingerprint(current) };
+    }
     const report = await tx.expenseReport.update({
       where: { id: params.id, userId: existing.userId, status: existing.status },
       data: {
@@ -581,6 +570,7 @@ export async function advanceExpenseReport(params: {
       action: `EXPENSE_${params.status}`,
       userId: actor.id,
       changes: { from: existing.status, to: params.status },
+      metadata: approvalEvidence,
     }, tx);
     return report;
   });
