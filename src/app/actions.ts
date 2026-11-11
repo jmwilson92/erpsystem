@@ -1,5 +1,7 @@
 "use server";
 
+import { parseCalendarDate } from "@/lib/calendar-date";
+
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 
 import { revalidatePath } from "next/cache";
@@ -7140,7 +7142,8 @@ export async function actionQueueShipmentAndOpen(
 
 export async function actionDecidePto(formData: FormData): Promise<void> {
   const { decidePtoRequest } = await import("@/lib/services/hr");
-  const user = await getCurrentUser();
+  const { requireUser } = await import("@/lib/auth");
+  const user = await requireUser();
   const decision =
     (formData.get("decision") as string) === "REJECTED"
       ? "REJECTED"
@@ -7150,8 +7153,8 @@ export async function actionDecidePto(formData: FormData): Promise<void> {
     decision,
     decisionNotes:
       ((formData.get("decisionNotes") as string) || "").trim() || null,
-    userId: user?.id,
-    approver: user ? { id: user.id, role: user.role } : null,
+    userId: user.id,
+    approver: user,
   });
   await flashToast(
     decision === "REJECTED" ? "PTO request rejected" : "PTO request approved"
@@ -7162,15 +7165,18 @@ export async function actionDecidePto(formData: FormData): Promise<void> {
 
 export async function actionRequestPto(formData: FormData): Promise<void> {
   const { createPtoRequest } = await import("@/lib/services/hr");
-  const userId = (formData.get("userId") as string) || "";
-  const startDate = new Date((formData.get("startDate") as string) || "");
-  const endDate = new Date((formData.get("endDate") as string) || "");
+  const { requireUser } = await import("@/lib/auth");
+  const actor = await requireUser();
+  const userId = (formData.get("userId") as string) || actor.id;
+  const startDate = parseCalendarDate(String(formData.get("startDate") || ""));
+  const endDate = parseCalendarDate(String(formData.get("endDate") || ""));
   const hours = Number(formData.get("hours") || 0);
   if (!userId || Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime()) || hours <= 0) {
     return;
   }
   await createPtoRequest({
     userId,
+    actor,
     type: ((formData.get("type") as string) || "PTO").trim(),
     startDate,
     endDate,
@@ -7183,7 +7189,8 @@ export async function actionRequestPto(formData: FormData): Promise<void> {
 
 export async function actionDecideTimeEntry(formData: FormData): Promise<void> {
   const { decideTimeEntry } = await import("@/lib/services/hr");
-  const user = await getCurrentUser();
+  const { requireUser } = await import("@/lib/auth");
+  const user = await requireUser();
   const decision =
     (formData.get("decision") as string) === "REJECTED"
       ? "REJECTED"
@@ -7193,8 +7200,8 @@ export async function actionDecideTimeEntry(formData: FormData): Promise<void> {
     decision,
     decisionNotes:
       ((formData.get("decisionNotes") as string) || "").trim() || null,
-    userId: user?.id,
-    approver: user ? { id: user.id, role: user.role } : null,
+    userId: user.id,
+    approver: user,
   });
   await flashToast(
     decision === "REJECTED" ? "Time entry rejected" : "Time entry approved"
@@ -7205,15 +7212,16 @@ export async function actionDecideTimeEntry(formData: FormData): Promise<void> {
 
 export async function actionAdvanceExpense(formData: FormData): Promise<void> {
   const { advanceExpenseReport } = await import("@/lib/services/hr");
-  const user = await getCurrentUser();
+  const { requireUser } = await import("@/lib/auth");
+  const user = await requireUser();
   const status = ((formData.get("status") as string) || "").trim();
   await advanceExpenseReport({
     id: formData.get("id") as string,
     status,
     decisionNotes:
       ((formData.get("decisionNotes") as string) || "").trim() || null,
-    userId: user?.id,
-    approver: user ? { id: user.id, role: user.role } : null,
+    userId: user.id,
+    approver: user,
   });
   await flashToast(`Expense report ${status.toLowerCase()}`);
   revalidatePath("/hr");
@@ -7239,11 +7247,12 @@ export async function actionUpdateGoalProgress(
   formData: FormData
 ): Promise<void> {
   const { updateGoalProgress } = await import("@/lib/services/hr");
-  const user = await getCurrentUser();
+  const { requireUser } = await import("@/lib/auth");
+  const user = await requireUser();
   await updateGoalProgress({
     id: formData.get("id") as string,
     progress: Number(formData.get("progress") || 0),
-    userId: user?.id,
+    actor: user,
   });
   revalidatePath("/hr");
 }
@@ -7781,7 +7790,7 @@ export async function actionAddTimesheetEntry(
   const { addTimesheetEntry } = await import("@/lib/services/timesheets");
   const user = await getCurrentUser();
   if (!user) return;
-  const date = new Date((formData.get("date") as string) || "");
+  const date = parseCalendarDate(String(formData.get("date") || ""));
   if (Number.isNaN(date.getTime())) return;
   await addTimesheetEntry({
     userId: user.id,
