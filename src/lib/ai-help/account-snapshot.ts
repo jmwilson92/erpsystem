@@ -218,7 +218,7 @@ export async function loadAccountSnapshot(
           select: {
             id: true,
             quantityAvailable: true,
-            part: { select: { number: true, minStock: true, isKanban: true } },
+            part: { select: { partNumber: true, minStock: true, isKanban: true } },
           },
           take: 200,
         }),
@@ -233,11 +233,11 @@ export async function loadAccountSnapshot(
       }
       for (const row of lowAvailable) {
         if (row.part.isKanban && row.part.minStock > 0) continue;
-        const key = `${row.part.number}:${row.quantityAvailable}`;
+        const key = `${row.part.partNumber}:${row.quantityAvailable}`;
         if (seen.has(key)) continue;
         seen.add(key);
         samples.push({
-          part: row.part.number,
+          part: row.part.partNumber,
           available: row.quantityAvailable,
           min: row.part.minStock || 5,
         });
