@@ -1,3 +1,4 @@
+import { userHasPermission } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { randomUUID } from "crypto";
@@ -505,11 +506,47 @@ export function mapBomToColumn(status: string): CmBoardColumn {
   return "IN_WORK";
 }
 
+/** Board drag is not a substitute for assigned-seat voting or document release. */
+function assertBoardApproval(cr: {
+  documentNumber: string | null;
+  boardMembers: { role: string; userId: string | null; vote: string | null }[];
+}) {
+  const doc = Boolean(cr.documentNumber);
+  const selected = cr.boardMembers.filter(m => doc
+    ? ["APPROVER", "ENGINEERING", "QUALITY"].includes(m.role)
+    : m.role !== "CHAIR");
+  const voters = selected.length || doc ? selected : cr.boardMembers;
+  if (!voters.length || voters.some(m => !m.userId || !m.vote || !["APPROVE", "REJECT", "ABSTAIN"].includes(m.vote)) ||
+      new Set(voters.map(m => m.userId)).size !== voters.length ||
+      (doc && (voters.length < 2 || voters.some(m => m.vote !== "APPROVE"))) ||
+      (!doc && voters.filter(m => m.vote === "APPROVE").length <= voters.filter(m => m.vote === "REJECT").length)) {
+    throw new Error("Complete assigned board votes before approval or release (documents require two distinct approvers)");
+  }
+}
+
 export async function moveChangeRequestColumn(params: {
   changeRequestId: string;
   column: CmBoardColumn;
   userId?: string;
 }) {
+  if (!(await userHasPermission(params.userId, "cm.ecr.manage"))) {
+    throw new Error("CM management permission required");
+  }
+  const current = await prisma.changeRequest.findUniqueOrThrow({
+    where: { id: params.changeRequestId }, include: { boardMembers: true },
+  });
+  if (current.documentNumber && ["IN_WORK", "RELEASED"].includes(params.column)) {
+    throw new Error("Document ECRs require formal CM release into a library folder; they cannot return to In work");
+  }
+  if (["IMPLEMENTED", "CLOSED"].includes(current.status)) {
+    throw new Error("Released change requests cannot be moved on the board");
+  }
+  if (params.column === "APPROVED" || params.column === "RELEASED") {
+    assertBoardApproval(current);
+    if (!["REVIEW_BOARD", "APPROVED"].includes(current.status)) {
+      throw new Error("Complete board review before approval or implementation");
+    }
+  }
   const statusMap: Record<CmBoardColumn, string> = {
     IN_WORK: "DRAFT",
     SUBMITTED: "SUBMITTED",
@@ -518,8 +555,9 @@ export async function moveChangeRequestColumn(params: {
     RELEASED: "IMPLEMENTED",
   };
   const status = statusMap[params.column];
-  const cr = await prisma.changeRequest.update({
-    where: { id: params.changeRequestId },
+  if (!status) throw new Error("Invalid column");
+  const changed = await prisma.changeRequest.updateMany({
+    where: { id: current.id, status: current.status, updatedAt: current.updatedAt },
     data: {
       status,
       ...(params.column === "APPROVED" || params.column === "RELEASED"
@@ -527,6 +565,8 @@ export async function moveChangeRequestColumn(params: {
         : {}),
     },
   });
+  if (!changed.count) throw new Error("Change request changed; refresh before moving");
+  const cr = await prisma.changeRequest.findUniqueOrThrow({ where: { id: current.id } });
   await logAudit({
     entityType: "ChangeRequest",
     entityId: cr.id,
@@ -1025,16 +1065,7 @@ export async function releaseDocumentEcr(params: {
       throw new Error("ECR must be approved before release");
     }
   }
-  if (cr.status === "REVIEW_BOARD") {
-    const approvers = cr.boardMembers.filter((m) =>
-      ["APPROVER", "ENGINEERING", "QUALITY"].includes(m.role)
-    );
-    if (approvers.length < 2) {
-      throw new Error("Assign two approvers and complete votes first");
-    }
-    const allOk = approvers.every((m) => m.vote === "APPROVE");
-    if (!allOk) throw new Error("Both approvers must approve before release");
-  }
+  assertBoardApproval(cr);
 
   if (!cr.documentNumber || !cr.documentTitle || !cr.documentRevision) {
     throw new Error("ECR missing document number / title / revision");

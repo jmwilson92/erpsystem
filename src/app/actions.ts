@@ -837,7 +837,8 @@ export async function actionUpdateWoStatus(formData: FormData) {
 }
 
 export async function actionSaveWorkCenter(formData: FormData): Promise<void> {
-  const user = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("workcenters.manage");
   const id = ((formData.get("id") as string) || "").trim() || undefined;
   const code = ((formData.get("code") as string) || "").trim();
   const name = ((formData.get("name") as string) || "").trim();
@@ -3100,7 +3101,8 @@ export async function actionMoveCmBoardCard(params: {
   isDocumentEcr?: boolean;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    const user = await getCurrentUser();
+    const { requirePermission } = await import("@/lib/auth");
+    const user = await requirePermission("cm.ecr.manage");
     const column = params.column.toUpperCase() as
       | "IN_WORK"
       | "SUBMITTED"
@@ -3117,21 +3119,8 @@ export async function actionMoveCmBoardCard(params: {
     if (!allowed.includes(column)) {
       return { ok: false, error: "Invalid column" };
     }
-    // Document ECRs must use formal release (folder pick) — not drag into Released
-    if (params.isDocumentEcr && column === "RELEASED") {
-      return {
-        ok: false,
-        error:
-          "Document ECRs must use CM release (pick library folder) from Approved — cannot drop into Released",
-      };
-    }
-    if (params.isDocumentEcr && column === "IN_WORK") {
-      return {
-        ok: false,
-        error:
-          "Document ECRs land in Submitted when filed — not In work",
-      };
-    }
+    // The service resolves actual persisted document type and approval evidence.
+    // isDocumentEcr is only a legacy client hint, never an authorization input.
     const { moveChangeRequestColumn } = await import("@/lib/services/cm-library");
     await moveChangeRequestColumn({
       changeRequestId: params.changeRequestId,
@@ -5156,7 +5145,8 @@ export async function actionRequestCmNumber(formData: FormData): Promise<void> {
 }
 
 export async function actionAssignCmNumber(formData: FormData): Promise<void> {
-  const user = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("cm.ecr.manage");
   const { assignNumberToRequest } = await import("@/lib/services/cm-numbers");
   await assignNumberToRequest({
     requestId: formData.get("requestId") as string,
@@ -5172,7 +5162,8 @@ export async function actionAssignCmNumber(formData: FormData): Promise<void> {
 export async function actionRejectCmNumberRequest(
   formData: FormData
 ): Promise<void> {
-  const user = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("cm.ecr.manage");
   const { rejectNumberRequest } = await import("@/lib/services/cm-numbers");
   await rejectNumberRequest({
     requestId: formData.get("requestId") as string,
@@ -5197,7 +5188,8 @@ export async function actionCancelCmNumberRequest(
 }
 
 export async function actionRegisterCmNumber(formData: FormData): Promise<void> {
-  const user = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("cm.ecr.manage");
   const { registerNumberManually } = await import("@/lib/services/cm-numbers");
   await registerNumberManually({
     number: ((formData.get("number") as string) || "").trim(),
@@ -5217,7 +5209,8 @@ export async function actionRegisterCmNumber(formData: FormData): Promise<void> 
 export async function actionUpdateCmNumberScheme(
   formData: FormData
 ): Promise<void> {
-  const user = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("cm.ecr.manage");
   const { updateNumberScheme } = await import("@/lib/services/cm-numbers");
   const padRaw = ((formData.get("padLength") as string) || "").trim();
   const nextRaw = ((formData.get("nextSequence") as string) || "").trim();
@@ -6871,7 +6864,8 @@ export async function actionRequestGfpConsumption(
 export async function actionDecideGfpConsumption(
   formData: FormData
 ): Promise<void> {
-  const user = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("gfp.manage");
   if (!user) throw new Error("No user");
   const { decideGfpConsumption } = await import("@/lib/services/gfp");
   const approve = formData.get("approve") === "true";
