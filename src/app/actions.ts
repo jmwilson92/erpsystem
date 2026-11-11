@@ -6239,7 +6239,7 @@ export async function actionUpdateEngTask(formData: FormData): Promise<void> {
     status: ((formData.get("status") as string) || "").trim() || undefined,
     priority: ((formData.get("priority") as string) || "").trim() || undefined,
     assigneeId: ((formData.get("assigneeId") as string) || "").trim() || null,
-    percentComplete: optNum(formData, "percentComplete"),
+    percentComplete: String(formData.get("percentComplete") || "").trim() ? Number(formData.get("percentComplete")) : undefined,
     engSprintId:
       formData.has("engSprintId") ? sprintRaw || null : undefined,
   });
@@ -6306,7 +6306,7 @@ export async function actionBreakDownTask(formData: FormData): Promise<void> {
 export async function actionAddEngDependency(
   formData: FormData
 ): Promise<void> {
-  const { addEngDependency } = await import("@/lib/services/engineering-work");
+  const { addEngDependencies } = await import("@/lib/services/engineering-work");
   const type = ((formData.get("type") as string) || "FINISH_TO_START").trim();
   const notes = ((formData.get("notes") as string) || "").trim() || null;
   const targetTaskId =
@@ -6329,24 +6329,10 @@ export async function actionAddEngDependency(
   if (singleSourceTask) depTaskIds.push(singleSourceTask);
   if (singleSourceSaga) depSagaIds.push(singleSourceSaga);
 
-  for (const sourceTaskId of depTaskIds) {
-    await addEngDependency({
-      type,
-      notes,
-      sourceTaskId,
-      targetTaskId,
-      targetSagaId,
-    });
-  }
-  for (const sourceSagaId of depSagaIds) {
-    await addEngDependency({
-      type,
-      notes,
-      sourceSagaId,
-      targetTaskId,
-      targetSagaId,
-    });
-  }
+  await addEngDependencies([
+    ...depTaskIds.map(sourceTaskId => ({ type, notes, sourceTaskId, targetTaskId, targetSagaId })),
+    ...depSagaIds.map(sourceSagaId => ({ type, notes, sourceSagaId, targetTaskId, targetSagaId })),
+  ]);
   revalidatePath("/engineering");
   if (targetTaskId) revalidatePath(`/engineering/tasks/${targetTaskId}`);
   const ret = ((formData.get("returnTo") as string) || "/engineering").trim();
