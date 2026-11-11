@@ -162,42 +162,36 @@ export async function runDueRecurringJournals(userId?: string | null) {
   });
   const posted: { templateId: string; number: string; date: Date }[] = [];
   for (const t of due) {
-    let lines: RecurringLine[];
-    try {
-      lines = parseLines(t.linesJson);
-    } catch {
-      continue;
-    }
-    let runAt = t.nextRunAt || new Date();
-    let guard = 0;
-    while (runAt <= new Date() && guard < 12) {
-      guard++;
+    for (let guard = 0; guard < 12; guard++) {
       try {
-        const je = await postJournal({
-          description: t.name,
-          source: "RECURRING",
-          sourceId: t.id,
-          createdById: userId || t.createdById || undefined,
-          date: runAt,
-          status: "POSTED",
-          autoReverseOn: t.autoReverse ? firstOfNextMonth(runAt) : undefined,
-          lines: lines.map((l) => ({
-            accountId: l.accountId,
-            debit: l.debit || 0,
-            credit: l.credit || 0,
-            memo: l.memo || t.name,
-          })),
+        const result = await prisma.$transaction(async db => {
+          const current = await db.recurringJournal.findUnique({ where: { id: t.id } });
+          if (!current?.isActive || !current.nextRunAt || current.nextRunAt > new Date()) return null;
+          const runAt = current.nextRunAt;
+          const lines = parseLines(current.linesJson);
+          const nextRunAt = computeNextRun(current.frequency, current.dayOfMonth, runAt);
+          if (nextRunAt <= runAt) throw new Error("Recurring schedule must advance");
+          const claim = await db.recurringJournal.updateMany({
+            where: { id: current.id, isActive: true, nextRunAt: runAt, linesJson: current.linesJson,
+              frequency: current.frequency, dayOfMonth: current.dayOfMonth, autoReverse: current.autoReverse },
+            data: { lastRunAt: new Date(), nextRunAt },
+          });
+          if (!claim.count) return null;
+          const je = await postJournal({ description: current.name, source: "RECURRING", sourceId: current.id,
+            createdById: userId || current.createdById || undefined, date: runAt, status: "POSTED",
+            autoReverseOn: current.autoReverse ? firstOfNextMonth(runAt) : undefined,
+            lines: lines.map(l => ({ accountId: l.accountId, debit: l.debit || 0, credit: l.credit || 0, memo: l.memo || current.name })),
+          }, db);
+          return { templateId: current.id, number: je.number, date: runAt };
         });
-        posted.push({ templateId: t.id, number: je.number, date: runAt });
+        if (!result) break;
+        posted.push(result);
       } catch {
-        // period closed or account deleted — skip this occurrence
+        // A failed occurrence remains due: journal, balances and schedule roll back.
+        // Keep processing other templates, but never skip forward past this failure.
+        break;
       }
-      runAt = computeNextRun(t.frequency, t.dayOfMonth, runAt);
     }
-    await prisma.recurringJournal.update({
-      where: { id: t.id },
-      data: { lastRunAt: new Date(), nextRunAt: runAt },
-    });
   }
   return posted;
 }

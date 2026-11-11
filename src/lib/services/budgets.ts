@@ -7,6 +7,8 @@
  * Owner approves: timesheet hours charged to this code, and PRs buying against it.
  * User picks charge code; project default is `{projectName}-{wbsCode}`.
  */
+import type { Prisma } from "@prisma/client";
+import { postJournal } from "./gaap";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 
@@ -712,6 +714,9 @@ export async function setUserCompensation(params: {
   annualSalary?: number | null;
   actorId?: string;
 }) {
+  for (const value of [params.hourlyRate, params.annualSalary]) {
+    if (value != null && (!Number.isFinite(value) || value < 0)) throw new Error("Compensation must be finite and nonnegative");
+  }
   const data: { hourlyRate?: number; annualSalary?: number | null } = {};
   if (params.hourlyRate !== undefined) {
     data.hourlyRate = Math.max(0, Number(params.hourlyRate) || 0);
@@ -763,164 +768,66 @@ export async function postBudgetCharge(params: {
   chargeDate?: Date;
   bookJournal?: boolean;
 }) {
-  const amount = Math.round(Math.max(0, params.amount) * 100) / 100;
-  if (amount <= 0 && !(params.hours && params.hours > 0)) {
-    throw new Error("Charge amount or hours must be > 0");
+  if (!Number.isFinite(params.amount) || params.amount < 0 ||
+      (params.hours != null && (!Number.isFinite(params.hours) || params.hours < 0))) {
+    throw new Error("Charge amounts and hours must be finite and nonnegative");
   }
-
-  const budget = await prisma.budget.findUnique({
-    where: { id: params.budgetId },
-  });
-  if (!budget) throw new Error("Budget not found");
-  if (budget.status !== "ENACTED") {
-    throw new Error(
-      `Budget is ${budget.status} — only ENACTED budgets accept charges`
-    );
-  }
-
-  if (params.timeEntryId) {
-    const existing = await prisma.budgetCharge.findFirst({
-      where: { timeEntryId: params.timeEntryId },
-    });
-    if (existing) return existing;
-  }
-
-  let journalEntryId: string | null = null;
-  if (params.bookJournal !== false && amount > 0) {
-    try {
-      journalEntryId = await bookBudgetExpenseJournal({
-        budget,
-        category: params.category,
-        amount,
-        description: params.description || `${params.category} charge`,
-        chargeCode: budget.chargeCode,
-      });
-    } catch {
-      /* best-effort */
+  if (!["LABOR", "MATERIAL", "OTHER"].includes(params.category)) throw new Error("Invalid charge category");
+  if (params.chargeDate && !Number.isFinite(params.chargeDate.getTime())) throw new Error("Invalid charge date");
+  const amount = Math.round(params.amount * 100) / 100;
+  if (amount <= 0 && !(params.hours && params.hours > 0)) throw new Error("Charge amount or hours must be > 0");
+  return prisma.$transaction(async db => {
+    // Tenant-qualified row lock serializes actuals and time-entry deduplication.
+    const budget = await db.budget.update({ where: { id: params.budgetId }, data: { updatedAt: new Date() } });
+    if (budget.status !== "ENACTED") throw new Error(`Budget is ${budget.status} — only ENACTED budgets accept charges`);
+    if (params.timeEntryId) {
+      const existing = await db.budgetCharge.findFirst({ where: { timeEntryId: params.timeEntryId } });
+      if (existing) return existing;
     }
-  }
-
-  const hours = params.hours ?? null;
-  const charge = await prisma.budgetCharge.create({
-    data: {
-      budgetId: budget.id,
-      category: params.category,
-      amount,
-      hours,
-      description: params.description || null,
-      source: params.source || "MANUAL",
-      sourceId: params.sourceId || null,
-      timeEntryId: params.timeEntryId || null,
-      purchaseOrderId: params.purchaseOrderId || null,
-      purchaseRequestId: params.purchaseRequestId || null,
-      userId: params.userId || null,
-      chargeDate: params.chargeDate || new Date(),
-      journalEntryId,
-    },
+    const journalEntryId = params.bookJournal !== false && amount > 0
+      ? await bookBudgetExpenseJournal({ budget, category: params.category, amount,
+          description: params.description || `${params.category} charge`, chargeCode: budget.chargeCode,
+          chargeDate: params.chargeDate, userId: params.userId }, db)
+      : null;
+    const charge = await db.budgetCharge.create({ data: {
+      budgetId: budget.id, category: params.category, amount, hours: params.hours ?? null,
+      description: params.description || null, source: params.source || "MANUAL", sourceId: params.sourceId || null,
+      timeEntryId: params.timeEntryId || null, purchaseOrderId: params.purchaseOrderId || null,
+      purchaseRequestId: params.purchaseRequestId || null, userId: params.userId || null,
+      chargeDate: params.chargeDate || new Date(), journalEntryId,
+    } });
+    await db.budget.update({ where: { id: budget.id }, data: {
+      actualLabor: { increment: params.category === "LABOR" ? amount : 0 },
+      actualMaterial: { increment: params.category === "MATERIAL" ? amount : 0 },
+      actualOther: { increment: params.category === "OTHER" ? amount : 0 },
+      actualTotal: { increment: amount },
+      actualLaborHours: { increment: params.category === "LABOR" ? params.hours || 0 : 0 },
+    } });
+    return charge;
   });
-
-  const labor =
-    budget.actualLabor + (params.category === "LABOR" ? amount : 0);
-  const material =
-    budget.actualMaterial + (params.category === "MATERIAL" ? amount : 0);
-  const other =
-    budget.actualOther + (params.category === "OTHER" ? amount : 0);
-  const laborHours =
-    budget.actualLaborHours +
-    (params.category === "LABOR" && hours ? hours : 0);
-
-  await prisma.budget.update({
-    where: { id: budget.id },
-    data: {
-      actualLabor: labor,
-      actualMaterial: material,
-      actualOther: other,
-      actualTotal: labor + material + other,
-      actualLaborHours: laborHours,
-    },
-  });
-
-  return charge;
 }
 
 async function bookBudgetExpenseJournal(params: {
-  budget: {
-    id: string;
-    number: string;
-    name: string;
-    costClass: string;
-    chargeCode: string | null;
-  };
-  category: string;
-  amount: number;
-  description: string;
-  chargeCode: string | null;
-}): Promise<string | null> {
-  const expense = await prisma.account.findFirst({
-    where: {
-      isActive: true,
-      OR: [
-        { chargeCode: params.chargeCode || undefined },
-        {
-          type: "EXPENSE",
-          subtype:
-            params.budget.costClass === "DIRECT"
-              ? "DIRECT_COST"
-              : "INDIRECT_COST",
-        },
-        { type: "EXPENSE" },
-      ],
-    },
-    orderBy: { code: "asc" },
-  });
-  const clearing = await prisma.account.findFirst({
-    where: {
-      isActive: true,
-      OR: [{ type: "LIABILITY" }, { type: "ASSET" }],
-    },
-    orderBy: { code: "asc" },
-  });
-  if (!expense || !clearing || expense.id === clearing.id) return null;
-
-  const count = await prisma.journalEntry.count();
-  const number = `JE-B-${String(count + 1).padStart(5, "0")}`;
-  const je = await prisma.journalEntry.create({
-    data: {
-      number,
-      description: `${params.budget.number} ${params.category}: ${params.description}`,
-      status: "POSTED",
-      source: "BUDGET",
-      sourceId: params.budget.id,
-      chargeCode: params.chargeCode,
-      postedAt: new Date(),
-      lines: {
-        create: [
-          {
-            accountId: expense.id,
-            debit: params.amount,
-            credit: 0,
-            memo: params.budget.name,
-            chargeCode: params.chargeCode,
-          },
-          {
-            accountId: clearing.id,
-            debit: 0,
-            credit: params.amount,
-            memo: `Clearing ${params.category}`,
-            chargeCode: params.chargeCode,
-          },
-        ],
-      },
-    },
-  });
-  await prisma.account.update({
-    where: { id: expense.id },
-    data: { balance: { increment: params.amount } },
-  });
-  await prisma.account.update({
-    where: { id: clearing.id },
-    data: { balance: { decrement: params.amount } },
-  });
+  budget: { id: string; number: string; name: string; costClass: string; chargeCode: string | null };
+  category: string; amount: number; description: string; chargeCode: string | null;
+  chargeDate?: Date; userId?: string | null;
+}, db: Prisma.TransactionClient): Promise<string> {
+  const expenseFilter = { isActive: true, type: "EXPENSE" };
+  const expense = (params.chargeCode ? await db.account.findFirst({ where: { ...expenseFilter, chargeCode: params.chargeCode } }) : null)
+    || await db.account.findFirst({ where: { ...expenseFilter, subtype: params.budget.costClass === "DIRECT" ? "DIRECT_COST" : "INDIRECT_COST" }, orderBy: { code: "asc" } })
+    || await db.account.findFirst({ where: expenseFilter, orderBy: { code: "asc" } });
+  const clearing = await db.account.findFirst({ where: { isActive: true, type: "LIABILITY" }, orderBy: { code: "asc" } })
+    || await db.account.findFirst({ where: { isActive: true, type: "ASSET" }, orderBy: { code: "asc" } });
+  if (!expense || !clearing) throw new Error("Expense and clearing GL accounts are required to book this budget charge");
+  const je = await postJournal({
+    description: `${params.budget.number} ${params.category}: ${params.description}`,
+    source: "BUDGET", sourceId: params.budget.id, chargeCode: params.chargeCode || undefined,
+    createdById: params.userId || undefined, date: params.chargeDate, status: "POSTED",
+    lines: [
+      { accountId: expense.id, debit: params.amount, memo: params.budget.name, chargeCode: params.chargeCode || undefined },
+      { accountId: clearing.id, credit: params.amount, memo: `Clearing ${params.category}`, chargeCode: params.chargeCode || undefined },
+    ],
+  }, db);
   return je.id;
 }
 
