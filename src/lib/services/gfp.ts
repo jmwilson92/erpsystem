@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { userHasPermission } from "@/lib/auth";
 
 import { verifySignaturePin } from "./signature-pin";
@@ -156,146 +157,55 @@ export async function setGfpAuditInterval(params: {
   return updated;
 }
 
-export async function completeGfpAudit(params: {
-  auditId?: string;
-  propertyId: string;
-  result: "PASS" | "FAIL" | "N_A";
-  findings?: string;
-  notes?: string;
-  auditedById?: string;
-}) {
-  const prop = await prisma.governmentProperty.findUnique({
-    where: { id: params.propertyId },
-  });
-  if (!prop) throw new Error("GFP item not found");
-
-  let audit = params.auditId
-    ? await prisma.gfpAuditRecord.findUnique({ where: { id: params.auditId } })
-    : await prisma.gfpAuditRecord.findFirst({
-        where: {
-          propertyId: prop.id,
-          status: { in: ["SCHEDULED", "OVERDUE"] },
-        },
-        orderBy: { scheduledFor: "asc" },
-      });
-
-  const now = new Date();
-  if (audit) {
-    audit = await prisma.gfpAuditRecord.update({
-      where: { id: audit.id },
-      data: {
-        status: "COMPLETED",
-        completedAt: now,
-        result: params.result,
-        findings: params.findings,
-        notes: params.notes,
-        auditedById: params.auditedById,
-      },
-    });
-  } else {
-    audit = await prisma.gfpAuditRecord.create({
-      data: {
-        propertyId: prop.id,
-        scheduledFor: now,
-        completedAt: now,
-        status: "COMPLETED",
-        result: params.result,
-        findings: params.findings,
-        notes: params.notes,
-        auditedById: params.auditedById,
-      },
-    });
-  }
-
-  const interval = prop.auditIntervalDays || 90;
-  const nextAuditDue = new Date(now);
-  nextAuditDue.setDate(nextAuditDue.getDate() + interval);
-
-  await prisma.governmentProperty.update({
-    where: { id: prop.id },
-    data: {
-      lastInventoryDate: now,
-      nextAuditDue,
-      condition:
-        params.result === "FAIL" ? prop.condition : prop.condition,
-    },
-  });
-
-  await prisma.gfpAuditRecord.create({
-    data: {
-      propertyId: prop.id,
-      scheduledFor: nextAuditDue,
-      status: "SCHEDULED",
-    },
-  });
-
-  await prisma.complianceCheck.create({
-    data: {
-      propertyId: prop.id,
-      checkType: "PHYSICAL_INVENTORY",
-      status: params.result === "N_A" ? "N_A" : params.result,
-      checkedById: params.auditedById,
-      checkedAt: now,
-      notes: params.notes,
-      findings: params.findings,
-    },
-  });
-
-  await logAudit({
-    entityType: "GfpAuditRecord",
-    entityId: audit.id,
-    action: "COMPLETED",
-    userId: params.auditedById,
-    changes: { result: params.result },
-  });
-  return audit;
+async function lockGfpProperty(db: Prisma.TransactionClient, id: string) {
+  const before = await db.governmentProperty.findUnique({ where: { id } });
+  if (!before) throw new Error("GFP item not found");
+  // No timestamp mutation for an idempotent retry, but obtain the row lock and
+  // refuse a stale write if another property operation won first.
+  const claim = await db.governmentProperty.updateMany({ where: { id, updatedAt: before.updatedAt }, data: { updatedAt: before.updatedAt } });
+  if (!claim.count) throw new Error("GFP property changed concurrently; refresh and retry");
+  return db.governmentProperty.findUniqueOrThrow({ where: { id }, include: { inventoryItem: { include: { part: true, location: true } } } });
 }
 
-export async function checkoutGfp(params: {
-  propertyId: string;
-  checkedOutById: string;
-  purpose?: string;
-  expectedReturn?: Date | null;
+export async function completeGfpAudit(params: {
+  auditId?: string; propertyId: string; result: "PASS" | "FAIL" | "N_A";
+  findings?: string; notes?: string; auditedById?: string;
 }) {
-  const prop = await prisma.governmentProperty.findUnique({
-    where: { id: params.propertyId },
+  if (!["PASS", "FAIL", "N_A"].includes(params.result)) throw new Error("Invalid GFP audit result");
+  const outcome = await prisma.$transaction(async db => {
+    const prop = await lockGfpProperty(db, params.propertyId);
+    const existing = params.auditId ? await db.gfpAuditRecord.findUnique({ where: { id: params.auditId } }) :
+      await db.gfpAuditRecord.findFirst({ where: { propertyId: prop.id, status: { in: ["SCHEDULED", "OVERDUE"] } }, orderBy: { scheduledFor: "asc" } });
+    if (params.auditId && (!existing || existing.propertyId !== prop.id)) throw new Error("Audit does not belong to this property");
+    if (existing?.status === "COMPLETED") return { audit: existing, completed: false };
+    if (existing && !["SCHEDULED", "OVERDUE"].includes(existing.status)) throw new Error("Audit is not pending completion");
+    const now = new Date(), nextAuditDue = new Date(now);
+    nextAuditDue.setDate(nextAuditDue.getDate() + (prop.auditIntervalDays || 90));
+    const data = { status: "COMPLETED", completedAt: now, result: params.result, findings: params.findings, notes: params.notes, auditedById: params.auditedById };
+    const audit = existing ? await db.gfpAuditRecord.update({ where: { id: existing.id }, data }) :
+      await db.gfpAuditRecord.create({ data: { ...data, propertyId: prop.id, scheduledFor: now } });
+    await db.governmentProperty.update({ where: { id: prop.id }, data: { lastInventoryDate: now, nextAuditDue } });
+    const next = await db.gfpAuditRecord.findFirst({ where: { propertyId: prop.id, status: { in: ["SCHEDULED", "OVERDUE"] } }, orderBy: { scheduledFor: "asc" } });
+    if (next) await db.gfpAuditRecord.update({ where: { id: next.id }, data: { scheduledFor: nextAuditDue, status: "SCHEDULED" } });
+    else await db.gfpAuditRecord.create({ data: { propertyId: prop.id, scheduledFor: nextAuditDue, status: "SCHEDULED" } });
+    await db.complianceCheck.create({ data: { propertyId: prop.id, checkType: "PHYSICAL_INVENTORY", status: params.result, checkedById: params.auditedById, checkedAt: now, notes: params.notes, findings: params.findings } });
+    return { audit, completed: true };
   });
-  if (!prop) throw new Error("GFP item not found");
-  if (prop.status === "CONSUMED" || prop.status === "DISPOSED") {
-    throw new Error("Cannot check out disposed/consumed property");
-  }
-  if (prop.checkedOutToId || prop.status === "CHECKED_OUT") {
-    throw new Error("Item is already checked out");
-  }
+  if (outcome.completed) await logAudit({ entityType: "GfpAuditRecord", entityId: outcome.audit.id, action: "COMPLETED", userId: params.auditedById, metadata: { propertyId: params.propertyId, result: params.result } });
+  return outcome.audit;
+}
 
-  const now = new Date();
-  const checkout = await prisma.gfpCheckout.create({
-    data: {
-      propertyId: prop.id,
-      checkedOutById: params.checkedOutById,
-      checkedOutAt: now,
-      purpose: params.purpose,
-      expectedReturn: params.expectedReturn || undefined,
-      status: "OPEN",
-    },
+export async function checkoutGfp(params: { propertyId: string; checkedOutById: string; purpose?: string; expectedReturn?: Date | null }) {
+  if (params.expectedReturn && !Number.isFinite(params.expectedReturn.getTime())) throw new Error("Invalid expected return date");
+  const checkout = await prisma.$transaction(async db => {
+    const prop = await lockGfpProperty(db, params.propertyId);
+    if (!["ACTIVE", "IN_STORAGE", "IN_USE"].includes(prop.status) || prop.checkedOutToId || await db.gfpCheckout.count({ where: { propertyId: prop.id, status: "OPEN" } })) throw new Error("Item is already checked out or unavailable");
+    const now = new Date();
+    const row = await db.gfpCheckout.create({ data: { propertyId: prop.id, checkedOutById: params.checkedOutById, checkedOutAt: now, purpose: params.purpose, expectedReturn: params.expectedReturn || undefined, status: "OPEN" } });
+    await db.governmentProperty.update({ where: { id: prop.id }, data: { status: "CHECKED_OUT", checkedOutToId: params.checkedOutById, checkedOutAt: now } });
+    return row;
   });
-
-  await prisma.governmentProperty.update({
-    where: { id: prop.id },
-    data: {
-      status: "CHECKED_OUT",
-      checkedOutToId: params.checkedOutById,
-      checkedOutAt: now,
-    },
-  });
-
-  await logAudit({
-    entityType: "GovernmentProperty",
-    entityId: prop.id,
-    action: "CHECKOUT",
-    userId: params.checkedOutById,
-    metadata: { checkoutId: checkout.id, purpose: params.purpose },
-  });
+  await logAudit({ entityType: "GovernmentProperty", entityId: params.propertyId, action: "CHECKOUT", userId: params.checkedOutById, metadata: { checkoutId: checkout.id, purpose: params.purpose } });
   return checkout;
 }
 
@@ -494,126 +404,75 @@ export async function searchGfpItems(q: string) {
   });
 }
 
-export async function requestGfpConsumption(params: {
-  propertyId: string;
-  workOrderId?: string;
-  quantity?: number;
-  reason?: string;
-  requestedById?: string;
-}) {
-  const prop = await prisma.governmentProperty.findUnique({
-    where: { id: params.propertyId },
-  });
-  if (!prop) throw new Error("GFP item not found");
-  if (["DISPOSED", "CONSUMED"].includes(prop.status)) {
-    throw new Error("Property already disposed/consumed");
+function assertGfpConsumptionQuantity(prop: Awaited<ReturnType<typeof lockGfpProperty>>, quantity: number, workOrderId?: string | null) {
+  if (!Number.isFinite(quantity) || quantity <= 0) throw new Error("Consumption quantity must be positive and finite");
+  if (["DISPOSED", "CONSUMED", "LOST"].includes(prop.status)) throw new Error("Property is unavailable or already disposed/consumed");
+  const stock = prop.inventoryItem;
+  if (!stock) {
+    if (prop.propertyType === "MATERIAL" || prop.classification === "MATERIAL") throw new Error("Material consumption requires linked inventory");
+    if (quantity !== 1) throw new Error("An individual asset can only be consumed as one whole unit");
+    return;
   }
+  if (stock.ownership !== "GOVERNMENT" || stock.mrbCaseId || stock.quantityQuarantine > 0) throw new Error("Only released government-owned inventory can be consumed");
+  const staged = !!workOrderId && stock.workOrderId === workOrderId;
+  if (!Number.isFinite(stock.quantityOnHand) || quantity > stock.quantityOnHand || (!staged && quantity > stock.quantityAvailable)) throw new Error("Consumption quantity exceeds available property inventory");
+  if (stock.quantityAvailable < 0 || stock.quantityCommitted < 0 || stock.quantityAvailable + stock.quantityCommitted > stock.quantityOnHand + 0.000001) throw new Error("Inventory quantity reconciliation required before consumption");
+  if ((stock.serialNumber || stock.part.isSerialized) && (quantity !== 1 || stock.quantityOnHand !== 1)) throw new Error("Serialized property requires one whole physical unit");
+}
 
-  if (params.workOrderId) {
-    const wo = await prisma.workOrder.findUnique({
-      where: { id: params.workOrderId },
-    });
-    if (!wo) throw new Error("Work order not found");
-  }
-
-  const rec = await prisma.gfpConsumption.create({
-    data: {
-      propertyId: prop.id,
-      workOrderId: params.workOrderId || null,
-      quantity: params.quantity ?? 1,
-      reason: params.reason,
-      requestedById: params.requestedById,
-      status: "PENDING_APPROVAL",
-    },
+export async function requestGfpConsumption(params: { propertyId: string; workOrderId?: string; quantity?: number; reason?: string; requestedById?: string }) {
+  const quantity = params.quantity ?? 1;
+  const rec = await prisma.$transaction(async db => {
+    const prop = await lockGfpProperty(db, params.propertyId);
+    assertGfpConsumptionQuantity(prop, quantity, params.workOrderId);
+    if (params.workOrderId && !await db.workOrder.findUnique({ where: { id: params.workOrderId } })) throw new Error("Work order not found");
+    return db.gfpConsumption.create({ data: { propertyId: prop.id, workOrderId: params.workOrderId || null, quantity, reason: params.reason, requestedById: params.requestedById, status: "PENDING_APPROVAL" } });
   });
-
-  await logAudit({
-    entityType: "GfpConsumption",
-    entityId: rec.id,
-    action: "REQUESTED",
-    userId: params.requestedById,
-    metadata: {
-      propertyId: prop.id,
-      workOrderId: params.workOrderId,
-    },
-  });
+  await logAudit({ entityType: "GfpConsumption", entityId: rec.id, action: "REQUESTED", userId: params.requestedById, metadata: { propertyId: params.propertyId, workOrderId: params.workOrderId } });
   return rec;
 }
 
-export async function decideGfpConsumption(params: {
-  consumptionId: string;
-  approve: boolean;
-  approvedById: string;
-  approvalNotes?: string;
-  pinCode?: string;
-}) {
-  if (!(await userHasPermission(params.approvedById, "gfp.manage"))) {
-    throw new Error("GFP management permission required for consumption decision");
-  }
+export async function decideGfpConsumption(params: { consumptionId: string; approve: boolean; approvedById: string; approvalNotes?: string; pinCode?: string }) {
+  if (!(await userHasPermission(params.approvedById, "gfp.manage"))) throw new Error("GFP management permission required for consumption decision");
   await verifySignaturePin(params.approvedById, params.pinCode);
-
-  const rec = await prisma.gfpConsumption.findUnique({
-    where: { id: params.consumptionId },
-    include: { property: true },
+  const updated = await prisma.$transaction(async db => {
+    const initial = await db.gfpConsumption.findUniqueOrThrow({ where: { id: params.consumptionId } });
+    const prop = await lockGfpProperty(db, initial.propertyId);
+    const rec = await db.gfpConsumption.findUniqueOrThrow({ where: { id: initial.id } });
+    if (rec.status !== "PENDING_APPROVAL") throw new Error("Request is not pending approval");
+    const now = new Date();
+    const claim = await db.gfpConsumption.updateMany({ where: { id: rec.id, status: "PENDING_APPROVAL" }, data: {
+      status: params.approve ? "CONSUMED" : "REJECTED", approvedById: params.approvedById, approvedAt: now,
+      approvalNotes: params.approvalNotes, consumedAt: params.approve ? now : null,
+    } });
+    if (!claim.count) throw new Error("Consumption decision changed concurrently");
+    if (!params.approve) return db.gfpConsumption.findUniqueOrThrow({ where: { id: rec.id } });
+    assertGfpConsumptionQuantity(prop, rec.quantity, rec.workOrderId);
+    const stock = prop.inventoryItem;
+    let remaining = 0;
+    if (stock) {
+      const fromAvailable = Math.min(stock.quantityAvailable, rec.quantity), fromCommitted = Math.min(stock.quantityCommitted, rec.quantity - fromAvailable);
+      const changed = await db.inventoryItem.updateMany({ where: { id: stock.id, updatedAt: stock.updatedAt, ownership: "GOVERNMENT", mrbCaseId: null, quantityQuarantine: 0 }, data: {
+        quantityOnHand: { decrement: rec.quantity }, quantityAvailable: { decrement: fromAvailable }, quantityCommitted: { decrement: fromCommitted },
+      } });
+      if (!changed.count) throw new Error("Property stock changed concurrently; refresh and retry");
+      remaining = stock.quantityOnHand - rec.quantity;
+      await db.materialTransaction.create({ data: { type: "ISSUE", partId: stock.partId, inventoryItemId: stock.id, workOrderId: rec.workOrderId,
+        quantity: rec.quantity, unitCost: stock.unitCost, fromLocation: stock.location.code, lotNumber: stock.lotNumber, serialNumber: stock.serialNumber,
+        reference: rec.id, notes: `Government property consumption: ${prop.assetTag}`, userId: params.approvedById } });
+      await db.traceEvent.create({ data: { eventType: "GFP_CONSUMED", partId: stock.partId, workOrderId: rec.workOrderId, quantity: rec.quantity,
+        lotNumber: stock.lotNumber, serialNumber: stock.serialNumber, notes: `Consumed ${prop.assetTag}; request ${rec.id}`, userId: params.approvedById } });
+      if (remaining === 0 && stock.serialNumber) await db.serialNumber.updateMany({ where: { serial: stock.serialNumber, partId: stock.partId }, data: { status: "CONSUMED" } });
+    }
+    const full = remaining <= 0;
+    await db.governmentProperty.update({ where: { id: prop.id }, data: {
+      status: full ? "CONSUMED" : prop.status, checkedOutToId: full ? null : prop.checkedOutToId, checkedOutAt: full ? null : prop.checkedOutAt,
+      notes: [prop.notes, `Consumed ${rec.quantity} against WO ${rec.workOrderId || "—"}`].filter(Boolean).join("\n"),
+    } });
+    if (full) await db.gfpCheckout.updateMany({ where: { propertyId: prop.id, status: "OPEN" }, data: { status: "RETURNED", checkedInAt: now, checkedInById: params.approvedById, checkedInNotes: "Closed due to full consumption" } });
+    return db.gfpConsumption.findUniqueOrThrow({ where: { id: rec.id } });
   });
-  if (!rec) throw new Error("Consumption request not found");
-  if (rec.status !== "PENDING_APPROVAL") {
-    throw new Error("Request is not pending approval");
-  }
-
-  const now = new Date();
-  if (!params.approve) {
-    return prisma.gfpConsumption.update({
-      where: { id: rec.id },
-      data: {
-        status: "REJECTED",
-        approvedById: params.approvedById,
-        approvedAt: now,
-        approvalNotes: params.approvalNotes,
-      },
-    });
-  }
-
-  const updated = await prisma.gfpConsumption.update({
-    where: { id: rec.id },
-    data: {
-      status: "CONSUMED",
-      approvedById: params.approvedById,
-      approvedAt: now,
-      approvalNotes: params.approvalNotes,
-      consumedAt: now,
-    },
-  });
-
-  await prisma.governmentProperty.update({
-    where: { id: rec.propertyId },
-    data: {
-      status: "CONSUMED",
-      checkedOutToId: null,
-      checkedOutAt: null,
-      notes: [rec.property.notes, `Consumed against WO ${rec.workOrderId || "—"}`]
-        .filter(Boolean)
-        .join("\n"),
-    },
-  });
-
-  // Close any open checkout
-  await prisma.gfpCheckout.updateMany({
-    where: { propertyId: rec.propertyId, status: "OPEN" },
-    data: {
-      status: "RETURNED",
-      checkedInAt: now,
-      checkedInById: params.approvedById,
-      checkedInNotes: "Closed due to consumption",
-    },
-  });
-
-  await logAudit({
-    entityType: "GfpConsumption",
-    entityId: rec.id,
-    action: "APPROVED_CONSUMED",
-    userId: params.approvedById,
-  });
+  await logAudit({ entityType: "GfpConsumption", entityId: updated.id, action: params.approve ? "APPROVED_CONSUMED" : "REJECTED", userId: params.approvedById });
   return updated;
 }
 
