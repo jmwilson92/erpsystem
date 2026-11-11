@@ -15,8 +15,12 @@ const BEARER = /\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi;
 const ASSIGNED_SECRET =
   /\b(api[_-]?key|client[_-]?secret|secret|password|token|authorization)\b(\s*[:=]\s*)(\S+)/gi;
 
+// URI userinfo can embed credentials even when no password= assignment exists.
+const URI_USERINFO = /\b([a-z][a-z0-9+.-]*:\/\/)[^\s\/?#<>"']*@/gi;
+
 export function redactSecrets(input: string): string {
   return input
+    .replace(URI_USERINFO, "$1[redacted]@")
     .replace(BEARER, "Bearer [redacted]")
     .replace(SECRET_PATH, (match) => {
       const slash = match.lastIndexOf("/");

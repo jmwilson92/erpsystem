@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
-import { getCurrentUser } from "@/lib/auth";
-import { isPlatformContext } from "@/lib/platform";
+import { getPlatformSessionAdmin } from "@/lib/platform";
 
 /**
  * Platform (dogfood) ADMIN only.
@@ -12,7 +11,5 @@ import { isPlatformContext } from "@/lib/platform";
  * so the list and the detail route cannot drift apart.
  */
 export async function requireTenantRegistryAccess(): Promise<void> {
-  const user = await getCurrentUser();
-  if (!user || user.role !== "ADMIN") redirect("/");
-  if (!(await isPlatformContext())) redirect("/");
+  if (!(await getPlatformSessionAdmin())) redirect("/");
 }
