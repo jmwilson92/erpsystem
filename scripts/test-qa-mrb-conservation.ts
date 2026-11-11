@@ -78,11 +78,25 @@ async function main() {
         const before = JSON.stringify({ totals: await totals(x.part.id), shipments: await db.shipment.count(), decisions: await db.mrbDisposition.count(), workOrders: await db.workOrder.count() });
         for (const quantity of [500, -1, 0, Infinity, NaN]) await assert.rejects(decide(x.mrb.id, disposition, quantity), /exceeds|positive/);
         assert.equal(JSON.stringify({ totals: await totals(x.part.id), shipments: await db.shipment.count(), decisions: await db.mrbDisposition.count(), workOrders: await db.workOrder.count() }), before);
-        await decide(x.mrb.id, disposition, 2);
+        const authorized = await decide(x.mrb.id, disposition, 2);
         const after = await totals(x.part.id); assert.equal(after.quantityOnHand, disposition === "USE_AS_IS" ? 5 : 3); assert.equal(after.quantityQuarantine, 3);
         assert.equal(after.quantityAvailable, disposition === "USE_AS_IS" ? 2 : 0);
         assert.equal((await db.mrbCase.findUniqueOrThrow({ where: { id: x.mrb.id } })).status, "OPEN");
         assert.equal((await db.materialTransaction.aggregate({ where: { reference: x.mrb.number, type: disposition === "USE_AS_IS" ? "RELEASE" : "TRANSFER" }, _sum: { quantity: true } }))._sum.quantity, 2);
+        if (disposition === "RETURN_TO_SUPPLIER") {
+          const fresh = await db.inventoryItem.create({ data: { partId: x.part.id, locationId: loc.id, quantityOnHand: 7, quantityAvailable: 7 } });
+          const beforePack = JSON.stringify(await totals(x.part.id));
+          const shipmentId = authorized.returnShipmentId!;
+          await run(() => f.verifyShipmentPackingList({ shipmentId, userId: admin.id }));
+          for(let retry=0;retry<2;retry++) await run(() => f.packShipment({ shipmentId, packPhotos: [{ url: "data:image/png;base64,UUE=" }], userId: admin.id }));
+          assert.equal(JSON.stringify(await totals(x.part.id)),beforePack,"MRB return packing must not issue unrelated fresh stock again");
+          const forged = await db.shipment.create({ data: { number: `FORGED-${x.mrb.id}`, mrbCaseId: x.mrb.id, status: "PICKING", lines: { create: { partId: x.part.id, description: "Unapproved return", quantity: 2 } } } });
+          await run(() => f.verifyShipmentPackingList({ shipmentId: forged.id, userId: admin.id }));
+          await assert.rejects(run(() => f.packShipment({ shipmentId: forged.id, packPhotos: [{ url: "data:image/png;base64,UUE=" }] })), /committed authorized/);
+          assert.equal(JSON.stringify(await totals(x.part.id)),beforePack);
+          assert.notEqual((await db.shipment.findUniqueOrThrow({ where: { id: forged.id } })).status,"PACKED");
+          await db.inventoryItem.delete({ where: { id: fresh.id } });
+        }
         await decide(x.mrb.id, disposition, 3); assert.equal((await totals(x.part.id)).quantityQuarantine, 0);
         assert.equal((await totals(x.part.id)).quantityOnHand, disposition === "USE_AS_IS" ? 5 : 0);
       }

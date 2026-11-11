@@ -1335,7 +1335,7 @@ export async function dispositionMrb(params: {
   const heldQuantity = mrb.inventoryHolds.length
     ? mrb.inventoryHolds.reduce((sum, item) => sum + item.quantityOnHand, 0)
     : mrb.serialId ? 1 : mrb.ncr.quantity;
-  if (params.quantity > heldQuantity + 0.0001) throw new Error("Disposition quantity exceeds held inventory");
+  if (params.quantity > heldQuantity + 0.000001) throw new Error("Disposition quantity exceeds held inventory");
 
   if (["REWORK", "REPAIR"].includes(params.disposition) && !mrb.ncr.partId) throw new Error("Recovery requires the nonconforming part identity");
   const carNumber = params.createCar
@@ -1407,7 +1407,7 @@ export async function dispositionMrb(params: {
     const heldQuantity = holds.length
       ? holds.reduce((sum, item) => sum + item.quantityOnHand, 0)
       : mrb.serialId ? 1 : mrb.ncr.quantity;
-    if (params.quantity > heldQuantity + 0.0001) throw new Error("Disposition quantity exceeds held inventory");
+    if (params.quantity > heldQuantity + 0.000001) throw new Error("Disposition quantity exceeds held inventory");
     // SCRAP: mark serial dead so replacements are issued on the RMA WO
     if (params.disposition === "SCRAP" && mrb.serialId) {
       await db.serialNumber.update({
@@ -1415,7 +1415,7 @@ export async function dispositionMrb(params: {
         data: { status: "SCRAPPED", parentSerialId: null },
       });
     }
-  
+
     if (params.disposition === "RETURN_TO_SUPPLIER") {
       const count = await db.shipment.count();
       const shipment = await db.shipment.create({
@@ -1441,7 +1441,7 @@ export async function dispositionMrb(params: {
       });
       returnShipmentId = shipment.id;
     }
-  
+
     if (params.disposition === "SCRAP" && params.createReplacementPr) {
       const prCount = await db.purchaseRequest.count();
       const estUnit =
@@ -1471,7 +1471,7 @@ export async function dispositionMrb(params: {
       });
       replacementPrId = pr.id;
     }
-  
+
     const disposition = await db.mrbDisposition.create({
       data: {
         mrbCaseId: mrb.id,
@@ -1537,7 +1537,7 @@ export async function dispositionMrb(params: {
         kind: params.disposition === "USE_AS_IS" ? "RELEASE" : "RETURN", reference: mrb.number,
         notes: params.justification, userId: params.decidedById });
     }
-    const partialScrap = ["SCRAP", "USE_AS_IS", "RETURN_TO_SUPPLIER"].includes(params.disposition) && params.quantity < heldQuantity - 0.0001;
+    const partialScrap = ["SCRAP", "USE_AS_IS", "RETURN_TO_SUPPLIER"].includes(params.disposition) && params.quantity < heldQuantity - 0.000001;
     await db.mrbCase.update({
       where: { id: mrb.id },
       data: { status: partialScrap ? "OPEN" : "DISPOSITIONED", closedAt: partialScrap || ["REWORK", "REPAIR"].includes(params.disposition) ? null : new Date() },
