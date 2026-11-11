@@ -1461,7 +1461,7 @@ export function VoiceAssistant({
       {error && <p className="text-xs text-amber-300">{error}</p>}
 
       <p className="text-[11px] text-slate-600">
-        Read-only product help — no live ERP data access or record changes.
+        Read-only help — no record changes. I can answer permitted counts like open work orders.
         Examples: “{name}, show me how to create a work order” · “{name},
         walk me through MRB” · “{name}, explain work order completion”.
         If “Hearing:” never updates, use

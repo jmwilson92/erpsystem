@@ -1,4 +1,4 @@
-/** Existing Carina chat/voice entry points: grounded read-only help, no live data. */
+/** Existing Carina chat/voice entry points: grounded read-only help, plus permission-checked account counts. */
 import { answerHelp } from '../ai-help/answer';
 import type { HelpCitation } from '../ai-help/knowledge';
 import { getTour, matchTourFromQuery, type TourStep } from '../guides';
