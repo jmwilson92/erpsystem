@@ -1308,6 +1308,7 @@ export async function actionRemoveForecastLine(
   const { removeForecastLine } = await import("@/lib/services/planning");
   try {
     await removeForecastLine({
+      forecastId,
       lineId: formData.get("lineId") as string,
       userId: user?.id,
     });
