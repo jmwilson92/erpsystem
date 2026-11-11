@@ -1,6 +1,6 @@
 # Protessera Bug List (live)
 
-Updated: **2026-11-10 05:25 PM PST**. Owner: Jeramey Wilson.
+Updated: **2026-11-10 05:28 PM PST**. Owner: Jeramey Wilson.
 Live Google Doc: https://docs.google.com/document/d/1DfNkpBAHioliXV4_RVWPRfjkF5XkfyoCuf3LS7xZHJI/edit
 GitHub copy: https://github.com/jmwilson92/erpsystem/blob/bugs/live-list/docs/BUG-LIST.md
 
@@ -170,7 +170,7 @@ All30 acceptance suites ran serially on one fresh main155 fixture. Independent r
 ### New findings (main523f939)
 
 #### MRB-008 — Arbitrary calibration-tool disposition persists
-- Module: MRB / calibration disposition | Severity: **med** | Status: **Fixed** — [PR #158](https://github.com/jmwilson92/erpsystem/pull/158); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: MRB / calibration disposition | Severity: **med** | Status: **Fixed** — [PR #158](https://github.com/jmwilson92/erpsystem/pull/158); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Genuine ADMIN invokes native actionSetCalToolDisposition on a linked synthetic calibration-tool MRB with disposition BANANA.
 - Expected: Accept only PULL_FOR_RECAL or NO_ACTION; reject before audit/state writes.
 - Actual: calToolDisposition becomes BANANA instead of retaining the prior valid decision.
@@ -178,7 +178,7 @@ All30 acceptance suites ran serially on one fresh main155 fixture. Independent r
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-critical-integrity.ts`. Original reproduction is retained as history.
 
 #### SERIAL-003 — A second work order steals an already assigned top-unit serial
-- Module: Serialized assembly / WO nameplates | Severity: **high** | Status: **Fixed** — [PR #158](https://github.com/jmwilson92/erpsystem/pull/158); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Serialized assembly / WO nameplates | Severity: **high** | Status: **Fixed** — [PR #158](https://github.com/jmwilson92/erpsystem/pull/158); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Issue same-part top serial on WO A via native actionIssueTopUnitSerial; invoke it on distinct WO B using the same serial.
 - Expected: Serial identity must belong to one active WO/unit, or require an explicit controlled transfer.
 - Actual: Serial.workOrderId changes to B while A unit still references the same serial; both units claim the nameplate.
@@ -186,7 +186,7 @@ All30 acceptance suites ran serially on one fresh main155 fixture. Independent r
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-critical-integrity.ts`. Original reproduction is retained as history.
 
 #### TPS-001 — Valid-PIN signature accepts a step from another procedure
-- Module: Test procedure signatures / identity | Severity: **high** | Status: **Fixed** — [PR #158](https://github.com/jmwilson92/erpsystem/pull/158); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Test procedure signatures / identity | Severity: **high** | Status: **Fixed** — [PR #158](https://github.com/jmwilson92/erpsystem/pull/158); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Release procedure A; create B with a different step. Native actionRecordTestSignOff passes testProcedureId=A,stepId=Bstep and authenticated signer own valid PIN.
 - Expected: Validate step.testProcedureId equals submitted procedure before signing.
 - Actual: One pinVerified=true signature links procedure A with B step.
@@ -194,7 +194,7 @@ All30 acceptance suites ran serially on one fresh main155 fixture. Independent r
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-critical-integrity.ts`. Original reproduction is retained as history.
 
 #### TPS-002 — Explicit PASS overrides numeric acceptance limits
-- Module: Test procedure signatures / measurement | Severity: **high** | Status: **Fixed** — [PR #158](https://github.com/jmwilson92/erpsystem/pull/158); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Test procedure signatures / measurement | Severity: **high** | Status: **Fixed** — [PR #158](https://github.com/jmwilson92/erpsystem/pull/158); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Released voltage step min4,max6. Native own-PIN signoff measuredValue99,resultPASS.
 - Expected: Out-of-range measurement grades FAIL or goes through a separately controlled deviation/override, never unqualified PASS.
 - Actual: 99V persists as PASS with valid-PIN signature. UI promises automatic min/max grading.
@@ -202,7 +202,7 @@ All30 acceptance suites ran serially on one fresh main155 fixture. Independent r
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-critical-integrity.ts`. Original reproduction is retained as history.
 
 #### TPS-003 — Nonnumeric quantitative measurement silently defaults to PASS
-- Module: Test procedure signatures / measurement | Severity: **high** | Status: **Fixed** — [PR #158](https://github.com/jmwilson92/erpsystem/pull/158); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Test procedure signatures / measurement | Severity: **high** | Status: **Fixed** — [PR #158](https://github.com/jmwilson92/erpsystem/pull/158); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Released quantitative step min4,max6; native own-PIN signoff measuredValue="not a number" with result omitted.
 - Expected: Reject a nonfinite/nonnumeric reading for a quantitative test before creating an acceptance signature.
 - Actual: Signed result defaults to PASS for the nonnumeric measurement.
@@ -210,7 +210,7 @@ All30 acceptance suites ran serially on one fresh main155 fixture. Independent r
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-critical-integrity.ts`. Original reproduction is retained as history.
 
 #### TPS-004 — Draft unreleased procedure accepts signed test results
-- Module: Test procedure signatures / release gate | Severity: **high** | Status: **Fixed** — [PR #158](https://github.com/jmwilson92/erpsystem/pull/158); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Test procedure signatures / release gate | Severity: **high** | Status: **Fixed** — [PR #158](https://github.com/jmwilson92/erpsystem/pull/158); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Create unreleased DRAFT procedure and step; native actionRecordTestSignOff with authenticated own valid PIN and a valid measurement.
 - Expected: Enforce server-side RELEASED/locked state, matching the UI execution form gate.
 - Actual: A pinVerified=true result is created while procedure remains DRAFT.
@@ -218,7 +218,7 @@ All30 acceptance suites ran serially on one fresh main155 fixture. Independent r
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-critical-integrity.ts`. Original reproduction is retained as history.
 
 #### PAY-001 — First policy save ignores submitted pay-period and accrual settings
-- Module: Payroll policy initialization | Severity: **med** | Status: **Fixed** — [PR #158](https://github.com/jmwilson92/erpsystem/pull/158); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Payroll policy initialization | Severity: **med** | Status: **Fixed** — [PR #158](https://github.com/jmwilson92/erpsystem/pull/158); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: In disposable fixture with no default PayrollPolicy, invoke authorized native save with BIWEEKLY,weekStartsOn2,PTO6. Restore prior synthetic policy in finally.
 - Expected: First save persists the same submitted settings as later edits.
 - Actual: Stored values are schema defaults WEEKLY,1,PTO4. Subsequent save works.
@@ -226,7 +226,7 @@ All30 acceptance suites ran serially on one fresh main155 fixture. Independent r
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-critical-integrity.ts`. Original reproduction is retained as history.
 
 #### STOCK-001 — Direct putaway makes pending-inspection stock available
-- Module: Receiving / required inspection release | Severity: **high** | Status: **Fixed** — [PR #158](https://github.com/jmwilson92/erpsystem/pull/158); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Receiving / required inspection release | Severity: **high** | Status: **Fixed** — [PR #158](https://github.com/jmwilson92/erpsystem/pull/158); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Synthetic receipt bin has onHand3,available0,quarantine0 and required GDT inspection PENDING. Native actionPutAwayItemWithLocation targets STORAGE.
 - Expected: Do not release availability or move to final stock until required receiving QA/test inspections clear.
 - Actual: Item moves to STORAGE and available3 while GDT inspection remains PENDING.
@@ -234,7 +234,7 @@ All30 acceptance suites ran serially on one fresh main155 fixture. Independent r
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-critical-integrity.ts`. Original reproduction is retained as history.
 
 #### AUTH-021 — OPERATOR waives required deposit and releases credit hold
-- Module: Sales credit / deposit authority | Severity: **high** | Status: **Fixed** — [PR #158](https://github.com/jmwilson92/erpsystem/pull/158); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Sales credit / deposit authority | Severity: **high** | Status: **Fixed** — [PR #158](https://github.com/jmwilson92/erpsystem/pull/158); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Genuine OPERATOR calls native actionUpdateDepositStatus on synthetic held order depositRequired=true,amount500,statusPENDING, passing WAIVED.
 - Expected: Require financial/credit-release authority before clearing a mandatory deposit hold.
 - Actual: Deposit becomes WAIVED and creditHold=false without approval or collection.
@@ -263,7 +263,7 @@ All30 acceptance suites ran serially on one fresh main155 fixture. Independent r
 - Source: `src/app/actions.ts actionSendQuote`
 
 #### AUTH-022 — OPERATOR can obsolete a controlled master-number entry
-- Module: CM registry lifecycle authority | Severity: **high** | Status: **Fixed** — [PR #158](https://github.com/jmwilson92/erpsystem/pull/158); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: CM registry lifecycle authority | Severity: **high** | Status: **Fixed** — [PR #158](https://github.com/jmwilson92/erpsystem/pull/158); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Genuine OPERATOR without cm.ecr.manage invokes native actionUpdateRegistryStatus on protected ACTIVE drawing registry entry with OBSOLETE.
 - Expected: Require controlled-number/CM management authority before changing lifecycle.
 - Actual: Registry entry becomes OBSOLETE. Separate handler from the #154-fixed assignment bug AUTH-016.
@@ -271,7 +271,7 @@ All30 acceptance suites ran serially on one fresh main155 fixture. Independent r
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-critical-integrity.ts`. Original reproduction is retained as history.
 
 #### AUTH-023 — Raw audit server action lets OPERATOR forge ADMIN attribution
-- Module: Audit integrity / caller attribution | Severity: **high** | Status: **Fixed** — [PR #158](https://github.com/jmwilson92/erpsystem/pull/158); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Audit integrity / caller attribution | Severity: **high** | Status: **Fixed** — [PR #158](https://github.com/jmwilson92/erpsystem/pull/158); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Genuine OPERATOR invokes actual compiled logAudit RPC from src/lib/audit.ts, passing userId=syntheticADMIN and action=FORGED_ADMIN_APPROVAL.
 - Expected: Keep logging internal or bind actor to authenticated caller; reject caller-selected attribution.
 - Actual: An audit row attributed to ADMIN is written. This forges audit attribution, not an actual signature-table record.
@@ -348,7 +348,7 @@ All25 acceptance suites executed **serially** after fresh main153 build/typechec
 ### New findings (current main29bdc85)
 
 #### AUTH-019 — OPERATOR rewrites budget owner/ceiling and posts booked expense
-- Module: Budget administration / posting | Severity: **high** | Status: **Fixed** — [PR #155](https://github.com/jmwilson92/erpsystem/pull/155); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Budget administration / posting | Severity: **high** | Status: **Fixed** — [PR #155](https://github.com/jmwilson92/erpsystem/pull/155); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Genuine OPERATOR with budgets.manage=false invokes actionUpdateBudget(total999999,owner=self) and actionPostBudgetCharge(amount99) on synthetic enacted budget.
 - Expected: Both mutations require budgeting/posting authority before writes.
 - Actual: Ceiling and owner change; unauthorized BudgetCharge and associated expense journal persist.
@@ -356,7 +356,7 @@ All25 acceptance suites executed **serially** after fresh main153 build/typechec
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-budget-approvals.ts`. Original reproduction is retained as history.
 
 #### AUTH-020 — OPERATOR changes own payroll compensation
-- Module: HR compensation / payroll | Severity: **high** | Status: **Fixed** — [PR #155](https://github.com/jmwilson92/erpsystem/pull/155); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: HR compensation / payroll | Severity: **high** | Status: **Fixed** — [PR #155](https://github.com/jmwilson92/erpsystem/pull/155); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Genuine OPERATOR lacking admin.users.manage invokes actionSetUserCompensation on own user with hourlyRate9999,annualSalary999999.
 - Expected: Restrict compensation to authorized HR/admin, independently of profile self-service.
 - Actual: Hourly and annual payroll rates both change with only a signed-in user.
@@ -399,7 +399,7 @@ All25 acceptance suites executed **serially** after fresh main153 build/typechec
 - Source: `src/lib/services/engineering-work.ts updateProductionEngIssue`
 
 #### BUDGET-001 — Failed required GL posting still commits budget expense and actuals
-- Module: Budget/GL atomicity | Severity: **high** | Status: **Fixed** — [PR #155](https://github.com/jmwilson92/erpsystem/pull/155); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Budget/GL atomicity | Severity: **high** | Status: **Fixed** — [PR #155](https://github.com/jmwilson92/erpsystem/pull/155); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Targeted temporary local-only trigger rejects journal insert for one synthetic budget; native actionPostBudgetCharge37; remove trigger in finally.
 - Expected: Posting error must reject charge or explicitly retain pending unbooked state, with atomic actuals.
 - Actual: Journal exception is swallowed; BudgetCharge and actuals commit with no journal link.
@@ -428,7 +428,7 @@ All25 acceptance suites executed **serially** after fresh main153 build/typechec
 - Source: `src/lib/services/capacity.ts assignWorkCenterStaff`
 
 #### SHIP-002 — Repeated packing reissues stock and can reopen shipped shipments
-- Module: Packing lifecycle / stock retry | Severity: **high** | Status: **Fixed** — [PR #156](https://github.com/jmwilson92/erpsystem/pull/156); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Packing lifecycle / stock retry | Severity: **high** | Status: **Fixed** — [PR #156](https://github.com/jmwilson92/erpsystem/pull/156); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Manual shipment2of10: verify and pack then pack again. Separately repack an actually SHIPPED SO shipment.
 - Expected: Packing retries are stock-idempotent; shipped state is terminal to packing.
 - Actual: Manual stock falls10→8→6 for same two-unit shipment; shipped SO shipment reverts toPACKED.
@@ -436,7 +436,7 @@ All25 acceptance suites executed **serially** after fresh main153 build/typechec
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-shipment-stock.ts`. Original reproduction is retained as history.
 
 #### SHIP-003 — Duplicate shipment lines overpack one shared inventory snapshot
-- Module: Packing duplicate-part availability | Severity: **high** | Status: **Fixed** — [PR #156](https://github.com/jmwilson92/erpsystem/pull/156); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Packing duplicate-part availability | Severity: **high** | Status: **Fixed** — [PR #156](https://github.com/jmwilson92/erpsystem/pull/156); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Five units available; native manual shipment has two lines of same part,qty4each; verify and pack.
 - Expected: Aggregate shared part/bin demand before deduction; reject8from5 without writes.
 - Actual: Shipment becomesPACKED for8, SHIP records total8 while repeated absolute snapshot writes leave bin1.
@@ -465,7 +465,7 @@ All25 acceptance suites executed **serially** after fresh main153 build/typechec
 - Source: `src/lib/services/assets.ts checkinAsset`
 
 #### ACCT-011 — Failed recurring posting skips due occurrence permanently
-- Module: Recurring journal retry | Severity: **high** | Status: **Fixed** — [PR #155](https://github.com/jmwilson92/erpsystem/pull/155); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Recurring journal retry | Severity: **high** | Status: **Fixed** — [PR #155](https://github.com/jmwilson92/erpsystem/pull/155); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Due balanced recurring template; targeted temporary local-only trigger rejects its journal; native runRecurringJournals, then remove trigger.
 - Expected: Failed occurrence must remain due/retryable with no success bookkeeping.
 - Actual: No journal, but nextRunAt advances to next month and lastRunAt is recorded.
@@ -473,7 +473,7 @@ All25 acceptance suites executed **serially** after fresh main153 build/typechec
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-budget-approvals.ts`. Original reproduction is retained as history.
 
 #### PR-001 — Failed policy edit destroys approval steps/default and auto-approves next PR
-- Module: Purchasing policy atomicity / approval control | Severity: **high** | Status: **Fixed** — [PR #155](https://github.com/jmwilson92/erpsystem/pull/155); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Purchasing policy atomicity / approval control | Severity: **high** | Status: **Fixed** — [PR #155](https://github.com/jmwilson92/erpsystem/pull/155); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Schema-qualified public.ApprovalPolicy local-only trigger rejects final update of one synthetic policy. Native save as new default first clears defaults/deletes steps. Submit a fresh synthetic PR explicitly with that policy.
 - Expected: Rejected edit leaves prior policy/steps/defaults and requires normal approval.
 - Actual: Steps and defaults disappear; subsequent PR status becomes APPROVED with AUTO_APPROVED audit instead of requiring approval. Trigger/defaults cleaned up after probe.
@@ -544,7 +544,7 @@ Other positive acceptance: location/cycle-count variance and retry, UOM reciproc
 ### New findings (current main c575830)
 
 #### AUTH-018 — OPERATOR can create administrative stations without workcenters.manage
-- Module: Workcenter administration | Severity: **high** | Status: **Fixed** — [PR #154](https://github.com/jmwilson92/erpsystem/pull/154); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Workcenter administration | Severity: **high** | Status: **Fixed** — [PR #154](https://github.com/jmwilson92/erpsystem/pull/154); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Password-login as fresh OPERATOR; independently confirm workcenters.manage=false; call native actionSaveWorkCenter with new MANUFACTURING code/name.
 - Expected: Deny before any workcenter write unless caller has administrative authority.
 - Actual: New station is persisted for unauthorized OPERATOR.
@@ -682,7 +682,7 @@ Passing positive workflows: offline invite→accept and ordinary password change
 ### New findings (latest main151)
 
 #### AUTH-011 — Setup wizard: OPERATOR can promote own account to ADMIN
-- Module: Setup wizard | Severity: **critical** | Status: **Fixed** — [PR #152](https://github.com/jmwilson92/erpsystem/pull/152); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Setup wizard | Severity: **critical** | Status: **Fixed** — [PR #152](https://github.com/jmwilson92/erpsystem/pull/152); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Password-login as fresh OPERATOR. Invoke actionWizardAddPerson using own email and role=ADMIN from /account. Read the persisted user role; reset synthetic actor to OPERATOR afterward.
 - Expected: Setup actions must require authorized administrator before any user/role write.
 - Actual: Own user role becomes ADMIN. This is distinct from the permission/group routes fixed by #150.
@@ -690,7 +690,7 @@ Passing positive workflows: offline invite→accept and ordinary password change
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-permissions.ts`. Original reproduction is retained as history.
 
 #### AUTH-012 — Password reset: outstanding reset restores revoked ADMIN role
-- Module: Password reset | Severity: **high** | Status: **Fixed** — [PR #153](https://github.com/jmwilson92/erpsystem/pull/153); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Password reset | Severity: **high** | Status: **Fixed** — [PR #153](https://github.com/jmwilson92/erpsystem/pull/153); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Create synthetic ADMIN and request reset. Downgrade account to OPERATOR, then redeem the prior RESET token.
 - Expected: RESET changes credentials only and preserves the account current role.
 - Actual: Account becomes ADMIN again because acceptInvite applies the role snapshotted in RESET invite.
@@ -698,7 +698,7 @@ Passing positive workflows: offline invite→accept and ordinary password change
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-auth-recovery.ts`. Original reproduction is retained as history.
 
 #### AUTH-013 — Password reset: existing signed-in sessions remain valid
-- Module: Password reset | Severity: **high** | Status: **Fixed** — [PR #153](https://github.com/jmwilson92/erpsystem/pull/153); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Password reset | Severity: **high** | Status: **Fixed** — [PR #153](https://github.com/jmwilson92/erpsystem/pull/153); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Invite synthetic account and accept/login. Request and redeem RESET from another cookie jar. Reuse original session against /account.
 - Expected: Reset revokes old sessions; only the recovery flow may issue a new session.
 - Actual: Old session still receives HTTP 200 on authenticated account page after password changes. Ordinary signed-in changePassword does revoke sessions.
@@ -706,7 +706,7 @@ Passing positive workflows: offline invite→accept and ordinary password change
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-auth-recovery.ts`. Original reproduction is retained as history.
 
 #### AUTH-014 — Password reset: MFA-enabled account gets a session without second factor
-- Module: Password reset | Severity: **high** | Status: **Fixed** — [PR #153](https://github.com/jmwilson92/erpsystem/pull/153); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Password reset | Severity: **high** | Status: **Fixed** — [PR #153](https://github.com/jmwilson92/erpsystem/pull/153); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Enroll synthetic user in MFA. Confirm ordinary password login produces challenge and no session. Request and redeem RESET for that user from fresh cookie jar.
 - Expected: Credential reset must still require enrolled factor before issuing authenticated session, unless explicitly completing verified MFA recovery.
 - Actual: MFA remains enabled but RESET acceptance immediately issues forge-session without any TOTP/recovery factor.
@@ -714,7 +714,7 @@ Passing positive workflows: offline invite→accept and ordinary password change
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-auth-recovery.ts`. Original reproduction is retained as history.
 
 #### AUTH-015 — GFP authority: OPERATOR can transfer ownership and approve consumption
-- Module: GFP authority | Severity: **high** | Status: **Fixed** — [PR #154](https://github.com/jmwilson92/erpsystem/pull/154); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: GFP authority | Severity: **high** | Status: **Fixed** — [PR #154](https://github.com/jmwilson92/erpsystem/pull/154); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Confirm real OPERATOR lacks gfp.manage. Invoke actionCheckinGfp with TRANSFER_COMPANY on government stock. Independently invoke actionDecideGfpConsumption approve=true with the operator own valid synthetic PIN.
 - Expected: Require GFP decision/management authority at each server boundary.
 - Actual: Government inventory ownership becomes COMPANY; separate pending consumption becomes CONSUMED. PIN checks identity but not authorization.
@@ -722,7 +722,7 @@ Passing positive workflows: offline invite→accept and ordinary password change
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-cm-gfp-authority.ts`. Original reproduction is retained as history.
 
 #### AUTH-016 — CM number authority: OPERATOR can assign controlled master number
-- Module: CM number authority | Severity: **high** | Status: **Fixed** — [PR #154](https://github.com/jmwilson92/erpsystem/pull/154); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: CM number authority | Severity: **high** | Status: **Fixed** — [PR #154](https://github.com/jmwilson92/erpsystem/pull/154); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Create pending controlled-number request as administrator. Invoke actionAssignCmNumber from genuine OPERATOR session with a unique overrideNumber.
 - Expected: Only CM number managers may assign/register controlled numbers.
 - Actual: Request becomes ASSIGNED and master registry entry is created without CM authority.
@@ -730,7 +730,7 @@ Passing positive workflows: offline invite→accept and ordinary password change
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-cm-gfp-authority.ts`. Original reproduction is retained as history.
 
 #### AUTH-017 — CM approval: board drag bypasses authority, votes and formal document release
-- Module: CM approval | Severity: **high** | Status: **Fixed** — [PR #154](https://github.com/jmwilson92/erpsystem/pull/154); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: CM approval | Severity: **high** | Status: **Fixed** — [PR #154](https://github.com/jmwilson92/erpsystem/pull/154); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Create submitted document ECR without board votes. OPERATOR calls actionMoveCmBoardCard with APPROVED. On a separate document ECR pass column=RELEASED, isDocumentEcr=false.
 - Expected: Server resolves actual document type, validates authority and completed approvals; formal release is mandatory.
 - Actual: First ECR becomes APPROVED without two votes. Second becomes IMPLEMENTED via caller-controlled type flag with no released library document.
@@ -738,7 +738,7 @@ Passing positive workflows: offline invite→accept and ordinary password change
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-cm-gfp-authority.ts`. Original reproduction is retained as history.
 
 #### CM-001 — CM request ownership: OPERATOR cancels another person pending number request
-- Module: CM request ownership | Severity: **med** | Status: **Fixed** — [PR #154](https://github.com/jmwilson92/erpsystem/pull/154); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: CM request ownership | Severity: **med** | Status: **Fixed** — [PR #154](https://github.com/jmwilson92/erpsystem/pull/154); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Create a pending number request owned by ADMIN. OPERATOR calls actionCancelCmNumberRequest with that requestId.
 - Expected: Only request owner or CM manager can cancel.
 - Actual: Foreign request becomes CANCELLED.
@@ -746,7 +746,7 @@ Passing positive workflows: offline invite→accept and ordinary password change
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-cm-gfp-authority.ts`. Original reproduction is retained as history.
 
 #### MFA-001 — MFA factor replay: concurrent requests accept same factor twice
-- Module: MFA factor replay | Severity: **high** | Status: **Fixed** — [PR #153](https://github.com/jmwilson92/erpsystem/pull/153); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: MFA factor replay | Severity: **high** | Status: **Fixed** — [PR #153](https://github.com/jmwilson92/erpsystem/pull/153); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Enroll synthetic account. Create two pending login challenges. Verify both concurrently with the same unused recovery code; repeat with same next-step TOTP code on fresh challenges.
 - Expected: Each recovery code/TOTP step must be atomically consumed once across challenges.
 - Actual: Both concurrent verifications succeed for recovery and for TOTP. Sequential replay and ordinary five-attempt lockout do pass. Direct service concurrency test, not production exploitation.
@@ -754,7 +754,7 @@ Passing positive workflows: offline invite→accept and ordinary password change
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-auth-recovery.ts`. Original reproduction is retained as history.
 
 #### MFA-002 — MFA challenge replay: one challenge succeeds twice concurrently
-- Module: MFA challenge replay | Severity: **high** | Status: **Fixed** — [PR #153](https://github.com/jmwilson92/erpsystem/pull/153); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: MFA challenge replay | Severity: **high** | Status: **Fixed** — [PR #153](https://github.com/jmwilson92/erpsystem/pull/153); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Create one challenge for enabled account. Concurrently verify same token using two distinct unused valid recovery codes.
 - Expected: A challenge can be claimed/consumed once before a session is issued.
 - Actual: Both calls return ok=true for the same challenge.
@@ -762,39 +762,44 @@ Passing positive workflows: offline invite→accept and ordinary password change
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-auth-recovery.ts`. Original reproduction is retained as history.
 
 #### GFP-001 — GFP audit recurrence: repeated completion duplicates next audit
-- Module: GFP audit recurrence | Severity: **med** | Status: REPRODUCED on main fe46901 (#148/#150/#151), fresh isolated synthetic fixture only; also reproduced on a973137
+- Module: GFP audit recurrence | Severity: **med** | Status: **Fixed** — [PR #159](https://github.com/jmwilson92/erpsystem/pull/159); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Schedule property audit, complete once, then repeat actionCompleteGfpAudit with same auditId.
 - Expected: Repeat is rejected or idempotent with one next scheduled audit.
 - Actual: Two SCHEDULED follow-up audits exist.
 - Source: `src/lib/services/gfp.ts completeGfpAudit`
+- Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-gfp-conservation.ts`. Original reproduction is retained as history.
 
 #### GFP-002 — GFP consumption: partial quantity retires whole property but leaves stock unchanged
-- Module: GFP consumption | Severity: **high** | Status: REPRODUCED on main fe46901 (#148/#150/#151), fresh isolated synthetic fixture only; also reproduced on a973137
+- Module: GFP consumption | Severity: **high** | Status: **Fixed** — [PR #159](https://github.com/jmwilson92/erpsystem/pull/159); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Create government material property linked to ten-unit inventory. Request quantity=2 and approve with authorized administrator own valid synthetic PIN.
 - Expected: Consume exactly two units, preserve eight units and appropriate remaining property state.
 - Actual: Request becomes CONSUMED, linked inventory remains ten on hand, and property is marked wholly CONSUMED.
 - Source: `src/lib/services/gfp.ts requestGfpConsumption, decideGfpConsumption`
+- Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-gfp-conservation.ts`. Original reproduction is retained as history.
 
 #### GFP-003 — GFP consumption validation: negative quantity creates pending request
-- Module: GFP consumption validation | Severity: **med** | Status: REPRODUCED on main fe46901 (#148/#150/#151), fresh isolated synthetic fixture only; also reproduced on a973137
+- Module: GFP consumption validation | Severity: **med** | Status: **Fixed** — [PR #159](https://github.com/jmwilson92/erpsystem/pull/159); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: On fresh active GFP material call actionRequestGfpConsumption quantity=-2.
 - Expected: Reject nonpositive/nonfinite/unsupported quantity before request writes.
 - Actual: Negative quantity persists in a pending consumption request.
 - Source: `src/lib/services/gfp.ts requestGfpConsumption`
+- Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-gfp-conservation.ts`. Original reproduction is retained as history.
 
 #### GFP-004 — GFP custody race: concurrent checkout records two holders
-- Module: GFP custody race | Severity: **med** | Status: REPRODUCED on main fe46901 (#148/#150/#151), fresh isolated synthetic fixture only; also reproduced on a973137
+- Module: GFP custody race | Severity: **med** | Status: **Fixed** — [PR #159](https://github.com/jmwilson92/erpsystem/pull/159); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: On available property concurrently call checkoutGfp for two different synthetic employees.
 - Expected: At most one OPEN checkout/holder per property.
 - Actual: Two OPEN custody history records exist while current property stores only one holder.
 - Source: `src/lib/services/gfp.ts checkoutGfp`
+- Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-gfp-conservation.ts`. Original reproduction is retained as history.
 
 #### GFP-005 — GFP audit identity: unrelated property can complete another property audit
-- Module: GFP audit identity | Severity: **high** | Status: REPRODUCED on main fe46901 (#148/#150/#151), fresh isolated synthetic fixture only; also reproduced on a973137
+- Module: GFP audit identity | Severity: **high** | Status: **Fixed** — [PR #159](https://github.com/jmwilson92/erpsystem/pull/159); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Create audit for property B. Call completeGfpAudit with auditId from B but propertyId from A.
 - Expected: Reject mismatched audit/property identity before evidence or scheduling changes.
 - Actual: B audit changes to COMPLETED while compliance evidence and next schedule are written under A.
 - Source: `src/lib/services/gfp.ts completeGfpAudit`
+- Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-gfp-conservation.ts`. Original reproduction is retained as history.
 
 #### IMPORT-001 — Import numeric validation: malformed part cost silently becomes zero
 - Module: Import numeric validation | Severity: **med** | Status: REPRODUCED on main fe46901 (#148/#150/#151), fresh isolated synthetic fixture only; also reproduced on a973137
@@ -818,7 +823,7 @@ Passing positive workflows: offline invite→accept and ordinary password change
 - Source: `src/lib/services/data-import.ts runImport manager-link second pass`
 
 #### MRB-004 — Partial supplier return: returning two removes all five held units
-- Module: Partial supplier return | Severity: **high** | Status: **Fixed** — [PR #157](https://github.com/jmwilson92/erpsystem/pull/157); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test. This sweep independently reconfirmed the original failing scenarios on fixture main bd44f68: quality-deep and physical-rework now PASS, and disposable public/tenant conservation tests are 6/6 PASS.
+- Module: Partial supplier return | Severity: **high** | Status: **Fixed** — [PR #157](https://github.com/jmwilson92/erpsystem/pull/157); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Fail a five-unit receipt, retaining original quarantine hold. Disposition RETURN_TO_SUPPLIER quantity=2. Set known supplier in fixture explicitly to bypass already-tracked QA-002 supplier loss.
 - Expected: Return two, leave three held/quarantined and unresolved remainder tracked.
 - Actual: Shipment is for two but inventory on hand and quarantine become zero.
@@ -826,7 +831,7 @@ Passing positive workflows: offline invite→accept and ordinary password change
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-mrb-conservation.ts`. Original reproduction is retained as history.
 
 #### MRB-005 — Rework completion: original quarantine remains and duplicate stock is manufactured
-- Module: Rework completion | Severity: **high** | Status: **Fixed** — [PR #157](https://github.com/jmwilson92/erpsystem/pull/157); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test. This sweep independently reconfirmed the original failing scenarios on fixture main bd44f68: quality-deep and physical-rework now PASS, and disposable public/tenant conservation tests are 6/6 PASS.
+- Module: Rework completion | Severity: **high** | Status: **Fixed** — [PR #157](https://github.com/jmwilson92/erpsystem/pull/157); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Fail five-unit receipt. REWORK disposition creates linked five-unit WO. In fixture simulate completed physical traveler steps and valid Receiving-putaway state, then completeWorkOrderToStock.
 - Expected: Conforming output replaces/consumes original material; total remains five and original MRB hold is resolved.
 - Actual: Total inventory becomes ten: original five remain quarantined plus five new available units. This is a completion-service conservation probe, not a full real-world rework traveler acceptance.
@@ -836,7 +841,7 @@ Passing positive workflows: offline invite→accept and ordinary password change
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-mrb-conservation.ts`. Original reproduction is retained as history.
 
 #### MRB-006 — Partial use-as-is: two-unit disposition releases all five held units
-- Module: Partial use-as-is | Severity: **high** | Status: **Fixed** — [PR #157](https://github.com/jmwilson92/erpsystem/pull/157); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test. This sweep independently reconfirmed the original failing scenarios on fixture main bd44f68: quality-deep and physical-rework now PASS, and disposable public/tenant conservation tests are 6/6 PASS.
+- Module: Partial use-as-is | Severity: **high** | Status: **Fixed** — [PR #157](https://github.com/jmwilson92/erpsystem/pull/157); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Fail five-unit receipt and disposition USE_AS_IS quantity=2.
 - Expected: Make two available, retain three quarantined and unresolved remainder.
 - Actual: All five become available and hold is cleared.
@@ -844,7 +849,7 @@ Passing positive workflows: offline invite→accept and ordinary password change
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-mrb-conservation.ts`. Original reproduction is retained as history.
 
 #### MRB-007 — MRB quantity validation: nonscrap decision exceeds held inventory
-- Module: MRB quantity validation | Severity: **high** | Status: **Fixed** — [PR #157](https://github.com/jmwilson92/erpsystem/pull/157); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test. This sweep independently reconfirmed the original failing scenarios on fixture main bd44f68: quality-deep and physical-rework now PASS, and disposable public/tenant conservation tests are 6/6 PASS.
+- Module: MRB quantity validation | Severity: **high** | Status: **Fixed** — [PR #157](https://github.com/jmwilson92/erpsystem/pull/157); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Create five-unit held case. Disposition RETURN_TO_SUPPLIER quantity=500.
 - Expected: Reject amount greater than physically held material before creating shipment/disposition.
 - Actual: 500-unit disposition and return shipment are accepted against five held units; current upper-bound check applies only to SCRAP.
@@ -874,11 +879,11 @@ Passing positive workflows: offline invite→accept and ordinary password change
 
 ---
 
-## Release verification — 2026-11-10 05:15 PM PST
+## Release verification — 2026-11-10 05:28 PM PST
 
-Current fixes are marked **Fixed** per finding below, with the shipping PR. Retested on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` using newly initialized loopback-only synthetic fixtures. Application fix PRs contain no schema changes. The separately approved legacy production backfill on November 10 added 7 tables and 31 columns to public; all 11 application schemas subsequently passed 2,464 zero-row model-column probes and Prisma Account reads. No production business-data mutation tests. Original coverage counts and repro evidence are retained as historical sweep snapshots; the parallel sweep owns newly tested inventory counts.
+Current fixes are marked **Fixed** per finding below, with the shipping PR. Retested on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` using newly initialized loopback-only synthetic fixtures. Application fix PRs contain no schema changes. The separately approved legacy production backfill on November 10 added 7 tables and 31 columns to public; all 11 application schemas subsequently passed 2,464 zero-row model-column probes and Prisma Account reads. No production business-data mutation tests. Original coverage counts and repro evidence are retained as historical sweep snapshots; the parallel sweep owns newly tested inventory counts.
 
-Verified: certified-BOM production gates; customer/item/forecast/finance permission denial; atomic AR/AP rollback, historical payment dates and overpayment rejection; journal SoD and concurrent approval rollback; kit retry conservation; distinct PR signers; task-only completion; CRM conversion retry; serial receipt identities, QA gating, MRB partial/multi-hold scrap and serial-only RMA; demo capacity reservation. Follow-up verifies promised WO due dates, NCR supplier trace, CRM percentages/states and service reopen timestamps. Critical permission administration, company/bank/GL action gates and permission request/expiry regressions pass. Bank categorization atomicity/retry, numeric import validation, HR paid-transition denial, and duplicate/closed PO receipt guards pass. ACCT-009 policy remains open. Setup wizard role changes and completion require administrator authority; operator self-promotion/create-admin attempts leave all rows unchanged; legitimate admin setup still succeeds. Recovery preserves current authority/profile/disabled state and revokes old sessions; reset/invite MFA, tenant audit isolation, rollback, factor/challenge/token concurrency and lockout pass. Real-session GFP/CM/station authority, owned cancellation, distinct approval evidence and formal document release pass; GFP services remain internal (not actor-id RPCs). Payroll/budget authority, transactional expense GL/balance rollback, active nonempty approval policies and once-only recurring occurrence posting pass. Manual packing duplicate-line aggregation, quarantine exclusion, finite-stock concurrency, trace rollback, repeated packing and terminal SO repack denial pass. Exact partial MRB return/use-as-is, disposition bounds and atomic linked-return packing pass; genuine released-WI/receiving/failed-QA/rework/three-signature/Receiving/putaway restores original five units rather than ten, including public/tenant concurrency, serial/ownership/cost preservation and trace rollback. Audit helpers remain internal; deposit/registry authority, own-PIN matching released/locked test signatures and objective limits, exclusive serial ownership, QA-before-putaway, calibration disposition validation and first-save payroll policy pass, including races and rollback.
+Verified: certified-BOM production gates; customer/item/forecast/finance permission denial; atomic AR/AP rollback, historical payment dates and overpayment rejection; journal SoD and concurrent approval rollback; kit retry conservation; distinct PR signers; task-only completion; CRM conversion retry; serial receipt identities, QA gating, MRB partial/multi-hold scrap and serial-only RMA; demo capacity reservation. Follow-up verifies promised WO due dates, NCR supplier trace, CRM percentages/states and service reopen timestamps. Critical permission administration, company/bank/GL action gates and permission request/expiry regressions pass. Bank categorization atomicity/retry, numeric import validation, HR paid-transition denial, and duplicate/closed PO receipt guards pass. ACCT-009 policy remains open. Setup wizard role changes and completion require administrator authority; operator self-promotion/create-admin attempts leave all rows unchanged; legitimate admin setup still succeeds. Recovery preserves current authority/profile/disabled state and revokes old sessions; reset/invite MFA, tenant audit isolation, rollback, factor/challenge/token concurrency and lockout pass. Real-session GFP/CM/station authority, owned cancellation, distinct approval evidence and formal document release pass; GFP services remain internal (not actor-id RPCs). Payroll/budget authority, transactional expense GL/balance rollback, active nonempty approval policies and once-only recurring occurrence posting pass. Manual packing duplicate-line aggregation, quarantine exclusion, finite-stock concurrency, trace rollback, repeated packing and terminal SO repack denial pass. Exact partial MRB return/use-as-is, disposition bounds and atomic linked-return packing pass; genuine released-WI/receiving/failed-QA/rework/three-signature/Receiving/putaway restores original five units rather than ten, including public/tenant concurrency, serial/ownership/cost preservation and trace rollback. Audit helpers remain internal; deposit/registry authority, own-PIN matching released/locked test signatures and objective limits, exclusive serial ownership, QA-before-putaway, calibration disposition validation and first-save payroll policy pass, including races and rollback. Government-property partial/full physical consumption, serial identity, custody exclusivity, audit identity/recurrence, invalid/legacy quantity and atomic evidence/trace/audit rollback regressions pass.
 
 ## Honest coverage and safety
 
@@ -960,7 +965,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 **101 tracked entries (including fixed and historical; 24 added in latest pass):** 22 historical observations/UX gaps + 4 first-pass defects + 9 first-continuation defects + 16 second-continuation findings (15 defects + 1 policy gap). Historical/UI-only reports remain explicitly labeled. No product fixes or merges.
 
 ### ACCT-006 — Concurrent approval double-applies one journal to account balances
-- Module: Accounting / concurrent approval | Severity: **high** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Accounting / concurrent approval | Severity: **high** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Create pending balanced JE of 10 against isolated fresh accounts; invoke approveJournal concurrently twice. Also repeat via two genuine ACCOUNTING-session HTTP actionApproveJournal requests.
 - Expected: One posted entry and one balance application: debit account=10.
 - Actual: One journal and its lines total 10, but the debit account balance becomes 20. Reproduced in both service calls and authenticated HTTP requests, so cached account balances no longer reconcile to posted lines.
@@ -968,7 +973,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts`. Original reproduction is retained as history.
 
 ### AUTH-005 — Operator without qa.inspect can accept a receiving inspection over HTTP
-- Module: Accounts / QA acceptance | Severity: **high** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Accounts / QA acceptance | Severity: **high** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Password-login as synthetic OPERATOR; verify qa.inspect=false; submit actual actionCompleteReceivingInspection RPC with a pending fixture inspection, PASS and a local evidence URL.
 - Expected: Reject before inspection/results/status mutation.
 - Actual: Inspection changes PENDING→PASSED under the unauthorized real session. Anonymous customer writes are blocked; logged-in privilege checks are the defect.
@@ -976,7 +981,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts`. Original reproduction is retained as history.
 
 ### MRB-001 — Partial scrap disposition removes all quarantined stock
-- Module: MRB / inventory reconciliation | Severity: **high** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: MRB / inventory reconciliation | Severity: **high** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Receive and fail five units at unit cost 10; dispositionMrb SCRAP quantity 2; sum remaining on-hand for that new part.
 - Expected: Remove two and retain three units with an appropriate remaining hold/disposition state.
 - Actual: All five units are removed: on-hand=0 rather than 3. Code zeros the entire held item while the disposition/material transaction quantity is only 2.
@@ -984,7 +989,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts`. Original reproduction is retained as history.
 
 ### SERIAL-001 — Serialized receiving accepts missing, mismatched and duplicate serial lists
-- Module: Receiving / serialized material | Severity: **high** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Receiving / serialized material | Severity: **high** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Create separate serialized parts and two-unit POs. Receive with no serial list, a one-serial list, or the same serial repeated twice; count receipts and PO quantities.
 - Expected: Require one unique valid serial per unit before receipt/inventory/PO writes.
 - Actual: All three invalid cases create receipts and accept quantity 2. isSerialized/serial-count/uniqueness are not validated in this service path.
@@ -992,7 +997,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts`. Original reproduction is retained as history.
 
 ### SERIAL-002 — Valid received serials never become selectable stock serial identities
-- Module: Receiving / serial trace and kitting | Severity: **high** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Receiving / serial trace and kitting | Severity: **high** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Receive a new serialized two-unit part with two distinct serial strings; query listStockSerialsForParts for that part.
 - Expected: Create/associate two IN_STOCK serial identities usable by serial trace, kit allocation and installation.
 - Actual: Stock quantity is received but selectable serial identities=0 instead of 2. Strings are stored only in receipt-line JSON; no SerialNumber records are created.
@@ -1000,7 +1005,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts`. Original reproduction is retained as history.
 
 ### ACCT-004 — Overpayment has no explicit applied/unapplied breakdown (policy review)
-- Module: Accounting / AR/AP reconciliation | Severity: **med** | Status: **Fixed** — [PR #144](https://github.com/jmwilson92/erpsystem/pull/144); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Accounting / AR/AP reconciliation | Severity: **med** | Status: **Fixed** — [PR #144](https://github.com/jmwilson92/erpsystem/pull/144); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: For separate unpaid AR/AP invoices totaling 100, record a payment of 120 and compare payment, posted journal and invoice amountPaid.
 - Expected: If excess is allowed, clearly expose and reconcile 100 applied plus 20 unapplied credit; otherwise reject it.
 - Actual: Payment and GL record 120 while invoice.amountPaid is capped at 100. Payment records preserve the 120, so this is NOT proven money loss. No explicit unapplied-credit workflow was found/tested; requires product/UI confirmation before a fix.
@@ -1008,7 +1013,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts`. Original reproduction is retained as history.
 
 ### ACCT-005 — AR/AP journal date ignores the supplied historical payment date
-- Module: Accounting / payment periods | Severity: **high** | Status: **Fixed** — [PR #144](https://github.com/jmwilson92/erpsystem/pull/144); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Accounting / payment periods | Severity: **high** | Status: **Fixed** — [PR #144](https://github.com/jmwilson92/erpsystem/pull/144); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Record an AR/AP payment with an explicit historical paymentDate in an open period; compare its payment row date with linked JE.date.
 - Expected: Payment and settlement journal use the supplied payment date consistently and honor that period lock.
 - Actual: Payment row keeps requested date but GL journal uses current date. The known paymentDate is not passed to postJournal, so historical-period reconciliation is wrong.
@@ -1016,7 +1021,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts`. Original reproduction is retained as history.
 
 ### ACCT-007 — Journal approval checks posting permission instead of approval permission
-- Module: Accounting / individual approval permissions | Severity: **high** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Accounting / individual approval permissions | Severity: **high** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Password-login as synthetic EXECUTIVE; assert accounting.journal.approve=true and accounting.journal.post=false; submit actionApproveJournal for another person’s pending JE.
 - Expected: Dedicated journal approval grant authorizes approval, without needing posting permission.
 - Actual: Request is denied and JE stays PENDING_APPROVAL because the action checks accounting.journal.post. The distinct approval grant/default is ignored.
@@ -1024,7 +1029,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts`. Original reproduction is retained as history.
 
 ### DEMO-001 — Concurrent demo pool refills exceed configured spare target
-- Module: Demo / pool concurrency | Severity: **high** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Demo / pool concurrency | Severity: **high** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: With no READY spares and DEMO_POOL_SIZE=2, run three ensureDemoPool calls concurrently against the disposable fixture; count READY rows after all settle.
 - Expected: Refill coordination respects configured total spare target and in-flight limit.
 - Actual: Each call returns 2; six READY schemas remain while target=2. Sequential refill is idempotent, concurrent refill is not. Reproduced twice.
@@ -1032,7 +1037,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts`. Original reproduction is retained as history.
 
 ### QA-002 — Failed-inspection NCR loses the known purchase-order supplier
-- Module: Receiving / NCR supplier trace | Severity: **med** | Status: **Fixed** — [PR #149](https://github.com/jmwilson92/erpsystem/pull/149); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Receiving / NCR supplier trace | Severity: **med** | Status: **Fixed** — [PR #149](https://github.com/jmwilson92/erpsystem/pull/149); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Receive PO material requiring QA; complete receiving inspection FAIL with evidence; read new NCR and original PO supplier.
 - Expected: Carry source supplier ID into NCR so source attribution and supplier quality metrics remain linked.
 - Actual: NCR.supplierId is null even though the PO supplier is known. Quarantine and NCR/MRB creation otherwise succeed.
@@ -1040,7 +1045,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-workflows.ts`. Original reproduction is retained as history.
 
 ### MRB-002 — Negative MRB disposition quantity persists
-- Module: MRB / input validation | Severity: **med** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: MRB / input validation | Severity: **med** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Create synthetic open MRB holding material; call dispositionMrb USE_AS_IS quantity -1; compare disposition rows.
 - Expected: Reject nonpositive quantity before any disposition, stock release or case-state change.
 - Actual: A disposition row with negative quantity is created; the operation also follows its normal release path.
@@ -1048,7 +1053,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts`. Original reproduction is retained as history.
 
 ### MRB-003 — Already-dispositioned MRB accepts a second decision
-- Module: MRB / repeat mutations | Severity: **high** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: MRB / repeat mutations | Severity: **high** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Create MRB; complete USE_AS_IS for its held quantity; repeat dispositionMrb on the same case; count decisions.
 - Expected: Reject or return existing disposition without another decision or downstream mutation.
 - Actual: A second disposition record is created on the already DISPOSITIONED case. No case-status/idempotency guard runs.
@@ -1056,7 +1061,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts`. Original reproduction is retained as history.
 
 ### CRM-002 — Lead status mutation accepts arbitrary unknown state
-- Module: CRM / lead state validation | Severity: **med** | Status: **Fixed** — [PR #149](https://github.com/jmwilson92/erpsystem/pull/149); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: CRM / lead state validation | Severity: **med** | Status: **Fixed** — [PR #149](https://github.com/jmwilson92/erpsystem/pull/149); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Create lead; invoke actionUpdateLeadStatus with QA_UNKNOWN_STATE.
 - Expected: Reject state outside LEAD_STATUSES without changing the record.
 - Actual: Unknown state string persists; lead disappears from normal state-driven workflows/filters.
@@ -1064,7 +1069,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-workflows.ts`. Original reproduction is retained as history.
 
 ### CRM-003 — Opportunity update accepts a 250 percent win probability
-- Module: CRM / pipeline validation | Severity: **med** | Status: **Fixed** — [PR #149](https://github.com/jmwilson92/erpsystem/pull/149); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: CRM / pipeline validation | Severity: **med** | Status: **Fixed** — [PR #149](https://github.com/jmwilson92/erpsystem/pull/149); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Create valid opportunity; invoke actionUpdateOpportunity with probability=250.
 - Expected: Reject or constrain probability to 0–100.
 - Actual: 250 persists and can inflate weighted pipeline values.
@@ -1072,7 +1077,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-workflows.ts`. Original reproduction is retained as history.
 
 ### SVC-001 — Service status mutation accepts arbitrary unknown state
-- Module: Field service / state validation | Severity: **med** | Status: **Fixed** — [PR #149](https://github.com/jmwilson92/erpsystem/pull/149); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Field service / state validation | Severity: **med** | Status: **Fixed** — [PR #149](https://github.com/jmwilson92/erpsystem/pull/149); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Create service ticket; invoke actionUpdateTicketStatus with QA_UNKNOWN_STATE.
 - Expected: Reject state outside TICKET_STATUSES.
 - Actual: Unknown state persists; status-based queues and lifecycle queries no longer recognize the ticket.
@@ -1080,7 +1085,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-workflows.ts`. Original reproduction is retained as history.
 
 ### SVC-002 — Reopened service ticket retains its closed timestamp
-- Module: Field service / reopen lifecycle | Severity: **med** | Status: **Fixed** — [PR #149](https://github.com/jmwilson92/erpsystem/pull/149); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Field service / reopen lifecycle | Severity: **med** | Status: **Fixed** — [PR #149](https://github.com/jmwilson92/erpsystem/pull/149); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Complete the last service visit so ticket is COMPLETED; actionUpdateTicketStatus to IN_PROGRESS; read closedAt.
 - Expected: Reopening clears closedAt while moving the ticket back into open work.
 - Actual: Ticket is IN_PROGRESS but closedAt still has its previous completion timestamp.
@@ -1088,7 +1093,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-workflows.ts`. Original reproduction is retained as history.
 
 ### WORK-001 — WO list and detail disagree on due date
-- Module: Work orders | Severity: **high** | Status: **Fixed** — [PR #149](https://github.com/jmwilson92/erpsystem/pull/149); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Work orders | Severity: **high** | Status: **Fixed** — [PR #149](https://github.com/jmwilson92/erpsystem/pull/149); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Save WO-00008 due Nov 15; open detail and filtered IN_PROGRESS list.
 - Expected: Both show Nov 15.
 - Actual: Detail Nov 15; list Due Nov 10.
@@ -1138,7 +1143,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Suspect: `src/lib/services/signature-pin.ts:11`
 
 ### PUR-001 — One person can complete demand and buyer approvals
-- Module: Purchasing / permissions | Severity: **high** | Status: **Fixed** — [PR #145](https://github.com/jmwilson92/erpsystem/pull/145); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Purchasing / permissions | Severity: **high** | Status: **Fixed** — [PR #145](https://github.com/jmwilson92/erpsystem/pull/145); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Create and submit synthetic standalone PR; decidePrApproval demand as admin; set valid buyer package fields; confirmBuyerPackageStep as the SAME admin user ID.
 - Expected: Distinct actual people per approval step; explicit audited reason for any permitted admin override.
 - Actual: Demand and buyer stages both become APPROVED with the same approverId. No separate signer or override reason was required.
@@ -1146,7 +1151,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts`. Original reproduction is retained as history.
 
 ### WORK-002 — Task-only work order cannot complete putaway
-- Module: Work orders / receiving | Severity: **high** | Status: **Fixed** — [PR #145](https://github.com/jmwilson92/erpsystem/pull/145); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Work orders / receiving | Severity: **high** | Status: **Fixed** — [PR #145](https://github.com/jmwilson92/erpsystem/pull/145); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Create synthetic TASK_ONLY via actionCreateTaskWo; sign every attached traveler step with the synthetic admin own PIN; actionSendWoToReceivingPutaway then actionCompleteWoToStock; read final WO status.
 - Expected: Non-inventory WO has a completion path without stocking.
 - Actual: READY FOR PUTAWAY 0/1; Cannot complete — missing storage or part.
@@ -1245,7 +1250,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Suspect: `src/app/sales/[id]/page.tsx`
 
 ### BOM-001 — Production WO can be created with no BOM at all
-- Module: Manufacturing / BOM | Severity: **high** | Status: **Fixed** — [PR #143](https://github.com/jmwilson92/erpsystem/pull/143); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Manufacturing / BOM | Severity: **high** | Status: **Fixed** — [PR #143](https://github.com/jmwilson92/erpsystem/pull/143); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Call createWorkOrder with type PRODUCTION, a valid partId and quantity 1, but no bomHeaderId.
 - Expected: Reject unless a certified BOM exists and is explicitly linked.
 - Actual: Order is created; the certified-BOM check only executes when bomHeaderId is supplied. Draft-BOM rejection does work.
@@ -1253,7 +1258,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts`. Original reproduction is retained as history.
 
 ### BOM-002 — BOM line update accepts negative component quantity
-- Module: PLM / BOM | Severity: **med** | Status: **Fixed** — [PR #144](https://github.com/jmwilson92/erpsystem/pull/144); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: PLM / BOM | Severity: **med** | Status: **Fixed** — [PR #144](https://github.com/jmwilson92/erpsystem/pull/144); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Create draft BOM and a line quantity 1; call updateBomLine with quantity -5.
 - Expected: Reject nonpositive quantity, consistent with addBomLine.
 - Actual: Negative quantity persists. Current add-line gate correctly rejects zero.
@@ -1261,7 +1266,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts`. Original reproduction is retained as history.
 
 ### CRM-001 — Converting the same lead twice creates duplicate deals
-- Module: CRM | Severity: **med** | Status: **Fixed** — [PR #144](https://github.com/jmwilson92/erpsystem/pull/144); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: CRM | Severity: **med** | Status: **Fixed** — [PR #144](https://github.com/jmwilson92/erpsystem/pull/144); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Create lead, convertLead once, then repeat convertLead using the same leadId.
 - Expected: Return existing opportunity or reject already-converted lead.
 - Actual: Two distinct opportunity IDs created; lead points to the newer one.
@@ -1269,7 +1274,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts`. Original reproduction is retained as history.
 
 ### PLAN-001 — Forecast service accepts negative demand
-- Module: Planning | Severity: **med** | Status: **Fixed** — [PR #144](https://github.com/jmwilson92/erpsystem/pull/144); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Planning | Severity: **med** | Status: **Fixed** — [PR #144](https://github.com/jmwilson92/erpsystem/pull/144); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Call createForecast with valid name, partId and quantity -5.
 - Expected: Reject nonpositive demand at the service boundary.
 - Actual: Forecast line -5 persists. The current actionCreateForecast UI wrapper filters nonpositive lines, so this is a service-validation gap, not a confirmed UI exploit.
@@ -1277,7 +1282,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts`. Original reproduction is retained as history.
 
 ### AUTH-002 — Customer creation handler does not enforce customers.manage
-- Module: Accounts / customer permissions | Severity: **high** | Status: **Fixed** — [PR #144](https://github.com/jmwilson92/erpsystem/pull/144); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Accounts / customer permissions | Severity: **high** | Status: **Fixed** — [PR #144](https://github.com/jmwilson92/erpsystem/pull/144); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Use legitimate synthetic OPERATOR demo identity; verify userHasPermission(operatorId, customers.manage) is false; directly invoke actionCreateCustomer with valid form data; read customer table. Follow-up: password-login as the synthetic role on strict-auth server; use the actual issued session cookie and ordinary native action form (or canonical React RPC for client-wrapped forecast); assert the persisted mutation.
 - Expected: Reject before any customer write when permission is absent.
 - Actual: New customer persists despite missing permission. The same handler passes the admin native HTTP form test. Reconfirmed over authenticated local HTTP, not just a direct handler call.
@@ -1285,7 +1290,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts`. Original reproduction is retained as history.
 
 ### AUTH-003 — Catalog creation handler does not enforce items.manage
-- Module: Accounts / catalog permissions | Severity: **high** | Status: **Fixed** — [PR #144](https://github.com/jmwilson92/erpsystem/pull/144); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Accounts / catalog permissions | Severity: **high** | Status: **Fixed** — [PR #144](https://github.com/jmwilson92/erpsystem/pull/144); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: As synthetic OPERATOR with userHasPermission(items.manage)=false, directly call actionCreateItem with a unique valid catalog item; read part table. Follow-up: password-login as the synthetic role on strict-auth server; use the actual issued session cookie and ordinary native action form (or canonical React RPC for client-wrapped forecast); assert the persisted mutation.
 - Expected: Deny without creating a part.
 - Actual: Part is created without the required permission. Reconfirmed over authenticated local HTTP, not just a direct handler call.
@@ -1293,7 +1298,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts`. Original reproduction is retained as history.
 
 ### AUTH-004 — Forecast creation handler does not enforce planning.forecast.create
-- Module: Accounts / planning permissions | Severity: **high** | Status: **Fixed** — [PR #144](https://github.com/jmwilson92/erpsystem/pull/144); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Accounts / planning permissions | Severity: **high** | Status: **Fixed** — [PR #144](https://github.com/jmwilson92/erpsystem/pull/144); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: As synthetic OPERATOR with planning.forecast.create denied, directly invoke actionCreateForecast with a valid name and part/quantity line. Follow-up: password-login as the synthetic role on strict-auth server; use the actual issued session cookie and ordinary native action form (or canonical React RPC for client-wrapped forecast); assert the persisted mutation.
 - Expected: Deny before forecast/header/line creation.
 - Actual: A forecast is created despite the denied permission. Reconfirmed over authenticated local HTTP, not just a direct handler call.
@@ -1301,7 +1306,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts`. Original reproduction is retained as history.
 
 ### ACCT-001 — Operator can invoke handler to post a general-ledger journal
-- Module: Accounting / authorization | Severity: **high** | Status: **Fixed** — [PR #144](https://github.com/jmwilson92/erpsystem/pull/144); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Accounting / authorization | Severity: **high** | Status: **Fixed** — [PR #144](https://github.com/jmwilson92/erpsystem/pull/144); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Select two active accounts in safe fixture; set legitimate synthetic OPERATOR context; directly invoke actionPostJournal with valid debit, credit, amount and postNow=true; query journal. Follow-up: password-login as the synthetic role on strict-auth server; use the actual issued session cookie and ordinary native action form (or canonical React RPC for client-wrapped forecast); assert the persisted mutation.
 - Expected: Require appropriate accounting permission before creating or posting any journal.
 - Actual: A POSTED journal is created by OPERATOR. No accounting permission gate executes in the handler. Reconfirmed over authenticated local HTTP, not just a direct handler call.
@@ -1309,7 +1314,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts`. Original reproduction is retained as history.
 
 ### ACCT-002 — Failed AR/AP GL posting leaves payment and invoice balance committed
-- Module: Accounting / rollback | Severity: **high** | Status: **Fixed** — [PR #144](https://github.com/jmwilson92/erpsystem/pull/144); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Accounting / rollback | Severity: **high** | Status: **Fixed** — [PR #144](https://github.com/jmwilson92/erpsystem/pull/144); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Create synthetic unpaid AR or AP invoice total 100; close the posting period in the disposable fixture; call recordArPayment or recordApPayment for 40; catch the expected period-closed error; query payment and invoice.
 - Expected: Entire operation rolls back: zero payment rows, amountPaid=0 and original invoice status if GL posting fails.
 - Actual: Both AR and AP throw the period-closed error BUT retain one payment row, amountPaid=40, status PARTIAL. Subledger is changed without the corresponding successful GL posting.
@@ -1317,7 +1322,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts`. Original reproduction is retained as history.
 
 ### ACCT-003 — postNow bypasses required journal approval for ordinary accountant
-- Module: Accounting / separation of duties | Severity: **high** | Status: **Fixed** — [PR #144](https://github.com/jmwilson92/erpsystem/pull/144); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Accounting / separation of duties | Severity: **high** | Status: **Fixed** — [PR #144](https://github.com/jmwilson92/erpsystem/pull/144); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Enable requireJournalSoD; select legitimate synthetic ACCOUNTING user (not admin/controller); directly call actionPostJournal with postNow=true; inspect journal status. Follow-up: password-login as the synthetic role on strict-auth server; use the actual issued session cookie and ordinary native action form (or canonical React RPC for client-wrapped forecast); assert the persisted mutation.
 - Expected: Create pending journal requiring a separate authorized approver, or reject the immediate-post request.
 - Actual: The self-created entry is immediately POSTED by ACCOUNTING while separation-of-duties is enabled. The separate approveJournal self-approval gate works, but this path bypasses it. Reconfirmed over authenticated local HTTP, not just a direct handler call.
@@ -1325,7 +1330,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts`. Original reproduction is retained as history.
 
 ### GOVCON-001 — Journal reversal loses line-level unallowable classification
-- Module: Accounting / GovCon allowability | Severity: **high** | Status: **Fixed** — [PR #144](https://github.com/jmwilson92/erpsystem/pull/144); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Accounting / GovCon allowability | Severity: **high** | Status: **Fixed** — [PR #144](https://github.com/jmwilson92/erpsystem/pull/144); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Post balanced journal with an explicitly unallowable debit line and FAR citation on an otherwise allowable account; reverseJournalEntry; compare original/reversal lines.
 - Expected: Reversal swaps debit/credit while retaining unallowable/FAR and cost attribution fields so allowability reporting nets correctly.
 - Actual: Reversal line unallowable=false versus original true. The reversal mapping omits line classification fields; balanced amounts and duplicate-reversal guard do pass.
@@ -1333,7 +1338,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts`. Original reproduction is retained as history.
 
 ### SALES-003 — Repeated customer PO conversion regresses converted quote to ACCEPTED
-- Module: Sales / quote rollback | Severity: **med** | Status: **Fixed** — [PR #145](https://github.com/jmwilson92/erpsystem/pull/145); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Sales / quote rollback | Severity: **med** | Status: **Fixed** — [PR #145](https://github.com/jmwilson92/erpsystem/pull/145); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Create valid quote; actionRecordCustomerPo successfully converts to one SO; repeat actionRecordCustomerPo on the same quote; read SO count and quote status.
 - Expected: Return/reject safely without changing the CONVERTED quote or creating another SO.
 - Actual: No duplicate SO is created, but quote status regresses to ACCEPTED before conversion rejects. The failed repeated mutation is not atomic.
@@ -1341,7 +1346,7 @@ Evidence: `results/round2-{auth,quality,finance,demo,modules}-results.json`; fin
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts`. Original reproduction is retained as history.
 
 ### KIT-001 — Resuming a short kit duplicates already staged component inventory
-- Module: Inventory / manufacturing kitting | Severity: **high** | Status: **Fixed** — [PR #145](https://github.com/jmwilson92/erpsystem/pull/145); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Inventory / manufacturing kitting | Severity: **high** | Status: **Fixed** — [PR #145](https://github.com/jmwilson92/erpsystem/pull/145); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Create standalone production WO against existing certified multi-line BOM and its kit; simulate last component becoming unavailable; completeKitOrder picks/stages first line then returns short; restore missing stock; retry completeKitOrder; sum first-line WIP inventory.
 - Expected: Retry only picks/stages outstanding quantity; already PICKED lines retain exactly the required WIP quantity.
 - Actual: First component required 1 and had WIP=1 after first attempt; retry completes kit but WIP becomes 2. Already picked line is staged again despite remaining=0, creating phantom inventory.
@@ -1400,7 +1405,7 @@ Evidence: `/workspace/protessera-dryrun/current-results/`; scripts in `/workspac
 ### New findings
 
 #### AUTH-006 — Operator can self-grant permission administration
-- Module: Accounts / privilege escalation | Severity: **critical** | Status: **Fixed** — [PR #150](https://github.com/jmwilson92/erpsystem/pull/150); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Accounts / privilege escalation | Severity: **critical** | Status: **Fixed** — [PR #150](https://github.com/jmwilson92/erpsystem/pull/150); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Password-login as a fresh OPERATOR with admin.permissions=false; invoke actionGrantUserPermission for own userId, admin.permissions, allowed=true; query effective permission.
 - Expected: Reject before any permission mutation.
 - Actual: Effective admin.permissions becomes true. Handler calls grant service without authenticating/authorizing a permission administrator. Genuine server-issued session; no forged session.
@@ -1408,7 +1413,7 @@ Evidence: `/workspace/protessera-dryrun/current-results/`; scripts in `/workspac
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-permissions.ts`. Original reproduction is retained as history.
 
 #### AUTH-007 — Operator can join a privileged permission group
-- Module: Accounts / privileged group membership | Severity: **critical** | Status: **Fixed** — [PR #150](https://github.com/jmwilson92/erpsystem/pull/150); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Accounts / privileged group membership | Severity: **critical** | Status: **Fixed** — [PR #150](https://github.com/jmwilson92/erpsystem/pull/150); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Create isolated group containing admin.permissions as ADMIN; login fresh OPERATOR and invoke actionAssignUserGroup with that group and own userId.
 - Expected: Only authorized permission administrators may assign/remove memberships.
 - Actual: OPERATOR gains admin.permissions by joining the privileged group. Self-grant cleanup between probes kept tests independent.
@@ -1416,7 +1421,7 @@ Evidence: `/workspace/protessera-dryrun/current-results/`; scripts in `/workspac
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-permissions.ts`. Original reproduction is retained as history.
 
 #### AUTH-008 — Operator can rename the company and replace its profile
-- Module: Admin / company profile | Severity: **high** | Status: **Fixed** — [PR #150](https://github.com/jmwilson92/erpsystem/pull/150); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Admin / company profile | Severity: **high** | Status: **Fixed** — [PR #150](https://github.com/jmwilson92/erpsystem/pull/150); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Login OPERATOR; submit actionSaveCompanyProfile with synthetic name, tagline/departments; compare CompanySettings then restore fixture profile.
 - Expected: Company profile mutation requires administrator authority.
 - Actual: Unauthorized company name persists. actionSaveCompanyOps is correctly denied, but the neighboring profile handler has no privilege gate.
@@ -1424,7 +1429,7 @@ Evidence: `/workspace/protessera-dryrun/current-results/`; scripts in `/workspac
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-permissions.ts`. Original reproduction is retained as history.
 
 #### AUTH-009 — Operator can post bank journals and mark transactions reconciled
-- Module: Accounting / bank permissions | Severity: **high** | Status: **Fixed** — [PR #150](https://github.com/jmwilson92/erpsystem/pull/150); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Accounting / bank permissions | Severity: **high** | Status: **Fixed** — [PR #150](https://github.com/jmwilson92/erpsystem/pull/150); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Login OPERATOR with accounting.journal.post=false; actionCategorizeBankTxn on unmatched synthetic withdrawal; separately actionReconcileBankTxn on a matched transaction.
 - Expected: Require accounting authority before categorization/posting or reconciliation.
 - Actual: Categorization creates POSTED BANK journal and MATCHED transaction; reconciliation changes MATCHED→RECONCILED under the operator session.
@@ -1432,7 +1437,7 @@ Evidence: `/workspace/protessera-dryrun/current-results/`; scripts in `/workspac
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-permissions.ts`. Original reproduction is retained as history.
 
 #### AUTH-010 — Operator can create arbitrary opening GL balances and edit accounts
-- Module: Accounting / chart of accounts | Severity: **high** | Status: **Fixed** — [PR #150](https://github.com/jmwilson92/erpsystem/pull/150); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Accounting / chart of accounts | Severity: **high** | Status: **Fixed** — [PR #150](https://github.com/jmwilson92/erpsystem/pull/150); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Login fresh OPERATOR; actionCreateAccount with unique code and balance=12345; independently actionUpdateAccount to rename/deactivate isolated expense account.
 - Expected: Both chart mutations require accounting/admin authority.
 - Actual: Account with arbitrary opening balance is created; separate edit deactivates existing account. Both operations persist over genuine authenticated HTTP.
@@ -1440,7 +1445,7 @@ Evidence: `/workspace/protessera-dryrun/current-results/`; scripts in `/workspac
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-permissions.ts`. Original reproduction is retained as history.
 
 #### PERM-001 — Permanent permission regrant retains expired temporary expiry
-- Module: Accounts / grant expiry | Severity: **med** | Status: **Fixed** — [PR #150](https://github.com/jmwilson92/erpsystem/pull/150); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Accounts / grant expiry | Severity: **med** | Status: **Fixed** — [PR #150](https://github.com/jmwilson92/erpsystem/pull/150); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Give OPERATOR temporary budgets.manage, expire it, then invoke administrator actionGrantUserPermission allowed=true.
 - Expected: Permanent regrant clears expiresAt and makes permission effective.
 - Actual: Grant remains ineffective because upsert changes allowed but retains the expired expiresAt. Active temporary grant and expiration themselves pass.
@@ -1448,7 +1453,7 @@ Evidence: `/workspace/protessera-dryrun/current-results/`; scripts in `/workspac
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-permissions.ts`. Original reproduction is retained as history.
 
 #### PERM-002 — Unknown permission-request decision silently grants permanently
-- Module: Accounts / decision validation | Severity: **high** | Status: **Fixed** — [PR #150](https://github.com/jmwilson92/erpsystem/pull/150); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Accounts / decision validation | Severity: **high** | Status: **Fixed** — [PR #150](https://github.com/jmwilson92/erpsystem/pull/150); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Create pending synthetic request for accounting.controller; ADMIN submits actionDecidePermissionRequest decision=QA_INVALID.
 - Expected: Reject unsupported decision without granting or deciding request.
 - Actual: Any non-DENY/non-GRANT_ONCE string takes permanent-GRANT path; requested controller permission becomes effective. Admin authorization exists, but enum validation does not.
@@ -1533,7 +1538,7 @@ Evidence: `/workspace/protessera-dryrun/current-results/`; scripts in `/workspac
 - Source: `src/lib/services/maintenance.ts:180-224`
 
 #### BANK-001 — Recategorizing matched bank transaction posts cash movement twice
-- Module: Accounting / bank reconciliation | Severity: **high** | Status: **Fixed** — [PR #151](https://github.com/jmwilson92/erpsystem/pull/151); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Accounting / bank reconciliation | Severity: **high** | Status: **Fixed** — [PR #151](https://github.com/jmwilson92/erpsystem/pull/151); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Connect isolated offline bank GL; import -25 withdrawal; categorize to expense; repeat actionCategorizeBankTxn before reconciliation.
 - Expected: Reject/reuse prior journal or explicitly reverse/reclassify without another cash movement.
 - Actual: Two POSTED BANK journals reference same bank transaction; cash moves -50 for -25 withdrawal while bank transaction points only to latest journal.
@@ -1541,7 +1546,7 @@ Evidence: `/workspace/protessera-dryrun/current-results/`; scripts in `/workspac
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-finance.ts`. Original reproduction is retained as history.
 
 #### BANK-002 — Malformed bank amount imports silently as zero
-- Module: Accounting / bank import validation | Severity: **med** | Status: **Fixed** — [PR #151](https://github.com/jmwilson92/erpsystem/pull/151); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Accounting / bank import validation | Severity: **med** | Status: **Fixed** — [PR #151](https://github.com/jmwilson92/erpsystem/pull/151); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Import CSV date,description,amount with numeric field not-a-number.
 - Expected: Return row validation error and do not import.
 - Actual: Row imports with amount=0, imported=1 and no numeric error. OFX FITID and ordinary repeated CSV dedupe pass.
@@ -1549,7 +1554,7 @@ Evidence: `/workspace/protessera-dryrun/current-results/`; scripts in `/workspac
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-finance.ts`. Original reproduction is retained as history.
 
 #### ACCT-008 — Rejected manual vendor invoice posting leaves an OPEN payable
-- Module: Accounting / AP invoice rollback | Severity: **high** | Status: **Fixed** — [PR #151](https://github.com/jmwilson92/erpsystem/pull/151); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Accounting / AP invoice rollback | Severity: **high** | Status: **Fixed** — [PR #151](https://github.com/jmwilson92/erpsystem/pull/151); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Close books through2099 in synthetic fixture; administrator actionCreateVendorApInvoice amount10; compare AP invoice rows and posting result; reopen fixture books.
 - Expected: Failure rolls back invoice and journal together.
 - Actual: Ledger rejects closed period but OPEN AP voucher remains. This is distinct from AR/AP payment rollback fixed in #144.
@@ -1564,7 +1569,7 @@ Evidence: `/workspace/protessera-dryrun/current-results/`; scripts in `/workspac
 - Source: `src/lib/services/hr.ts:472-505; src/lib/services/gaap.ts:535-543`
 
 #### ACCT-010 — Generic HR expense transition marks PAID without a reimbursement journal
-- Module: Accounting / expense payment bypass | Severity: **high** | Status: **Fixed** — [PR #151](https://github.com/jmwilson92/erpsystem/pull/151); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Accounting / expense payment bypass | Severity: **high** | Status: **Fixed** — [PR #151](https://github.com/jmwilson92/erpsystem/pull/151); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Create APPROVED employee expense20; login HR (not accounting authority); actionAdvanceExpense status=PAID.
 - Expected: Payment requires accounting reimbursement path and balanced journal, or reject HR-only request.
 - Actual: Report becomes PAID with zero EXPENSE journals, bypassing actionReimburseExpense/accounting gate.
@@ -1572,7 +1577,7 @@ Evidence: `/workspace/protessera-dryrun/current-results/`; scripts in `/workspac
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-finance.ts`. Original reproduction is retained as history.
 
 #### RCV-001 — Duplicate PO-line entries in one request overreceive inventory
-- Module: Receiving / overreceipt validation | Severity: **high** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Receiving / overreceipt validation | Severity: **high** | Status: **Fixed** — [PR #148](https://github.com/jmwilson92/erpsystem/pull/148); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Create two-unit PO; receivePurchaseOrder lines includes the same poLineId twice with quantityReceived2 each.
 - Expected: Aggregate/reject duplicate submitted line IDs before writes; at most2 units received.
 - Actual: Receipt/inventory creates4 units against a two-unit PO. Per-entry validation compares each against original open quantity independently.
@@ -1580,7 +1585,7 @@ Evidence: `/workspace/protessera-dryrun/current-results/`; scripts in `/workspac
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts`. Original reproduction is retained as history.
 
 #### RCV-002 — Closed-short purchase order still accepts new material
-- Module: Receiving / closed order lifecycle | Severity: **high** | Status: **Fixed** — [PR #151](https://github.com/jmwilson92/erpsystem/pull/151); synthetic local-fixture retest on released main `c7988858e1e19d4f18a3f815bf746fbedbe48a75` (2026-11-10 05:15 PM PST). Production smoke is read-only, not a customer-data mutation test.
+- Module: Receiving / closed order lifecycle | Severity: **high** | Status: **Fixed** — [PR #151](https://github.com/jmwilson92/erpsystem/pull/151); synthetic local-fixture retest on released main `ff8d7852686c7f3345a8035613ec91dffc4b767a` (2026-11-10 05:28 PM PST). Production smoke is read-only, not a customer-data mutation test.
 - Steps: Create two-unit PO; closePurchaseOrderFromReceiving short=true with reason; then receivePurchaseOrder quantity2.
 - Expected: CLOSED/CANCELLED purchase order rejects receipt before stock/AP writes.
 - Actual: Closed-short PO accepts receipt and stocks material. Only PENDING_REAPPROVAL is gated at entry.
