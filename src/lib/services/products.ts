@@ -1,3 +1,4 @@
+import { withMutationLock } from "@/lib/mutation-lock";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 
@@ -629,22 +630,25 @@ export async function addProductVariant(params: {
   const name = params.name.trim();
   if (!code || !name) throw new Error("Variant code and name required");
 
-  if (params.isDefault) {
-    await prisma.productVariant.updateMany({
-      where: { productId: params.productId },
-      data: { isDefault: false },
-    });
-  }
+  return withMutationLock("Product", params.productId, async db => {
+    await db.product.findUniqueOrThrow({ where: { id: params.productId } });
+    if (params.isDefault) {
+      await db.productVariant.updateMany({
+        where: { productId: params.productId },
+        data: { isDefault: false },
+      });
+    }
 
-  return prisma.productVariant.create({
-    data: {
-      productId: params.productId,
-      code,
-      name,
-      description: params.description?.trim() || null,
-      isDefault: !!params.isDefault,
-      topLevelPartId: params.topLevelPartId || null,
-    },
+    return db.productVariant.create({
+      data: {
+        productId: params.productId,
+        code,
+        name,
+        description: params.description?.trim() || null,
+        isDefault: !!params.isDefault,
+        topLevelPartId: params.topLevelPartId || null,
+      },
+    });
   });
 }
 

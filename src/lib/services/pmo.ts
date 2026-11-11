@@ -704,6 +704,7 @@ export async function updateProjectTask(params: {
   sprintLabel?: string | null;
   storyPoints?: number | null;
 }) {
+  if (params.percentComplete !== undefined && (!Number.isFinite(params.percentComplete) || params.percentComplete < 0 || params.percentComplete > 100)) throw new Error("Project task progress must be finite and between 0 and 100");
   return prisma.projectTask.update({
     where: { id: params.id },
     data: {

@@ -5884,7 +5884,7 @@ export async function actionUpdatePmoTask(formData: FormData): Promise<void> {
   await updateProjectTask({
     id: formData.get("id") as string,
     status: ((formData.get("status") as string) || "").trim() || undefined,
-    percentComplete: optNum(formData, "percentComplete"),
+    percentComplete: String(formData.get("percentComplete") || "").trim() ? Number(formData.get("percentComplete")) : undefined,
   });
   revalidatePath(`/pmo/projects/${projectId}`);
   redirect(`/pmo/projects/${projectId}?tab=schedule`);

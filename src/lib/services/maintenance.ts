@@ -1,3 +1,5 @@
+import { withMutationLock } from "@/lib/mutation-lock";
+import type { Prisma } from "@prisma/client";
 /**
  * CMMS — keeping production equipment running.
  *
@@ -119,34 +121,24 @@ export async function updateEquipment(
  * Record a meter reading. Forward-only: a machine's run hours never decrease,
  * so a lower number is a typo or a replaced counter, not a real reading.
  */
+class StaleMeterReading extends Error {}
 export async function recordMeter(params: {
   equipmentId: string;
   value: number;
   userId?: string;
   notes?: string | null;
-}) {
-  const current = await prisma.equipment.findUnique({
-    where: { id: params.equipmentId },
-    select: { meter: true, meterUnit: true },
-  });
-  if (!current) throw new Error("Equipment not found");
-  if (params.value < current.meter) {
-    throw new Error(
-      `Reading ${params.value} is below the current ${current.meter} ${current.meterUnit} — meters only go up`
-    );
-  }
-  await prisma.meterReading.create({
-    data: {
-      equipmentId: params.equipmentId,
-      value: params.value,
-      userId: params.userId || null,
-      notes: params.notes?.trim() || null,
-    },
-  });
-  return prisma.equipment.update({
-    where: { id: params.equipmentId },
-    data: { meter: params.value },
-  });
+}, db?: Prisma.TransactionClient) {
+  if (!Number.isFinite(params.value) || params.value < 0) throw new Error("Meter reading must be finite and nonnegative");
+  const record = async (tx: Prisma.TransactionClient) => {
+    const advanced = await tx.equipment.updateMany({ where: { id: params.equipmentId, meter: { lte: params.value } }, data: { meter: params.value } });
+    if (!advanced.count) {
+      const current = await tx.equipment.findUniqueOrThrow({ where: { id: params.equipmentId } });
+      throw new StaleMeterReading(`Reading ${params.value} is below current meter ${current.meter}`);
+    }
+    await tx.meterReading.create({ data: { equipmentId: params.equipmentId, value: params.value, userId: params.userId || null, notes: params.notes?.trim() || null } });
+    return tx.equipment.findUniqueOrThrow({ where: { id: params.equipmentId } });
+  };
+  return db ? record(db) : prisma.$transaction(record);
 }
 
 export async function addMaintenance(params: {
@@ -185,53 +177,60 @@ export async function completeMaintenance(params: {
   downtimeMinutes?: number | null;
   userId?: string;
 }) {
-  const job = await prisma.equipmentMaintenance.update({
-    where: { id: params.id },
-    data: {
-      status: "COMPLETED",
-      completedAt: new Date(),
-      completedMeter: params.completedMeter ?? undefined,
-      cost: params.cost ?? undefined,
-      vendor: params.vendor?.trim() || null,
-      downtimeMinutes: params.downtimeMinutes ?? undefined,
-      completedById: params.userId || null,
-    },
-  });
-
-  if (params.completedMeter != null) {
-    await recordMeter({
-      equipmentId: job.equipmentId,
-      value: params.completedMeter,
-      userId: params.userId,
-      notes: `${job.type} completed`,
-    }).catch(() => undefined); // a stale meter shouldn't block closing the job
-  }
-
-  if (job.intervalDays || job.intervalMeter) {
-    const base = params.completedMeter ?? undefined;
-    await prisma.equipmentMaintenance.create({
+  return withMutationLock("EquipmentMaintenance", params.id, async db => {
+    const existing = await db.equipmentMaintenance.findUniqueOrThrow({ where: { id: params.id } });
+    if (existing.status === "COMPLETED") return existing;
+    if (existing.status !== "SCHEDULED") throw new Error("Only scheduled equipment maintenance can be completed");
+    for (const value of [params.completedMeter, params.cost, params.downtimeMinutes]) if (value != null && (!Number.isFinite(value) || value < 0)) throw new Error("Maintenance values must be finite and nonnegative");
+    for (const interval of [existing.intervalDays, existing.intervalMeter]) if (interval && (!Number.isFinite(interval) || interval < 0)) throw new Error("Invalid maintenance interval");
+    const job = await db.equipmentMaintenance.update({
+      where: { id: params.id, status: "SCHEDULED" },
       data: {
-        equipmentId: job.equipmentId,
-        type: job.type,
-        description: job.description,
-        intervalDays: job.intervalDays,
-        intervalMeter: job.intervalMeter,
-        dueAt: job.intervalDays
-          ? new Date(Date.now() + job.intervalDays * 86_400_000)
-          : null,
-        dueMeter:
-          job.intervalMeter && base != null ? base + job.intervalMeter : null,
+        status: "COMPLETED",
+        completedAt: new Date(),
+        completedMeter: params.completedMeter ?? undefined,
+        cost: params.cost ?? undefined,
+        vendor: params.vendor?.trim() || null,
+        downtimeMinutes: params.downtimeMinutes ?? undefined,
+        completedById: params.userId || null,
       },
     });
-  }
 
-  await logAudit({
-    entityType: "EquipmentMaintenance",
-    entityId: params.id,
-    action: "COMPLETED",
-    userId: params.userId,
+    if (params.completedMeter != null) {
+      await recordMeter({
+        equipmentId: job.equipmentId,
+        value: params.completedMeter,
+        userId: params.userId,
+        notes: `${job.type} completed`,
+      }, db).catch(error => { if (!(error instanceof StaleMeterReading)) throw error; }); // Only a stale reading is deliberately ignored.
+    }
+
+    if (job.intervalDays || job.intervalMeter) {
+      const base = params.completedMeter ?? undefined;
+      await db.equipmentMaintenance.create({
+        data: {
+          equipmentId: job.equipmentId,
+          type: job.type,
+          description: job.description,
+          intervalDays: job.intervalDays,
+          intervalMeter: job.intervalMeter,
+          dueAt: job.intervalDays
+            ? new Date(Date.now() + job.intervalDays * 86_400_000)
+            : null,
+          dueMeter:
+            job.intervalMeter && base != null ? base + job.intervalMeter : null,
+        },
+      });
+    }
+
+    await logAudit({
+      entityType: "EquipmentMaintenance",
+      entityId: params.id,
+      action: "COMPLETED",
+      userId: params.userId,
+    }, db);
+    return job;
   });
-  return job;
 }
 
 export type MaintenanceDue = {
