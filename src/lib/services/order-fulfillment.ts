@@ -1811,6 +1811,12 @@ export async function completeWorkOrderToStock(params: {
     (await prisma.location.findFirst());
   if (!storageLoc || !wo.partId) throw new Error("Cannot complete — missing storage or part");
 
+  if (wo.mrbCaseId && ["REWORK", "REPAIR"].includes(wo.type)) {
+    const { completeMrbStockRecovery } = await import("./mrb-stock");
+    const recovered = await completeMrbStockRecovery({ ...params, mrbCaseId: wo.mrbCaseId, storageLocationId: storageLoc.id });
+    if (recovered) return recovered;
+  }
+
   const lotNumber =
     params.lotNumber || `LOT-WO-${wo.number.replace(/\W/g, "")}`;
   // Serialized parts get one serial PER UNIT (with as-built genealogy),
@@ -2298,6 +2304,22 @@ async function issueManualShipmentInventory(params: { shipmentId: string; userId
   for (const line of s.lines) {
     if (!Number.isFinite(line.quantity) || line.quantity <= 0) throw new Error("Shipment quantities must be positive and finite");
     if (line.partId) needs.set(line.partId, (needs.get(line.partId) || 0) + line.quantity);
+  }
+  if (s.mrbCaseId) {
+    // An authorized MRB return already removed these held units in the same
+    // transaction that created its disposition/shipment. Never issue fresh stock
+    // again, and never exempt a shipment merely because it names an MRB case.
+    const decision = await db.mrbDisposition.findFirst({
+      where: { mrbCaseId: s.mrbCaseId, returnShipmentId: s.id, disposition: "RETURN_TO_SUPPLIER" },
+      include: { mrbCase: { include: { ncr: true } } },
+    });
+    const partId = decision?.mrbCase.ncr.partId;
+    if (!decision || !partId || !Number.isFinite(decision.quantity) || decision.quantity <= 0 ||
+        s.lines.some(line => line.partId !== partId) || needs.size !== 1 ||
+        Math.abs((needs.get(partId) || 0) - decision.quantity) > 0.000001) {
+      throw new Error("MRB return packing must match its committed authorized disposition part and quantity");
+    }
+    return;
   }
   const plan: { partId: string; id: string; take: number; onHand: number; available: number; committed: number; locationCode: string; locationId: string; ownership: string }[] = [];
   // Aggregate duplicate lines before reading stock. Deterministic lock order also
