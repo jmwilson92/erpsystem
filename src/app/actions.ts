@@ -4202,9 +4202,11 @@ export async function actionDeleteSupplierCert(formData: FormData): Promise<void
 }
 
 export async function actionUpdateDepositStatus(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("accounting.journal.post");
   const salesOrderId = formStr(formData, "salesOrderId");
   const depositStatus = formStr(formData, "depositStatus") || "PENDING";
-  const user = await getCurrentUser();
+  if (!["PENDING", "RECEIVED", "WAIVED"].includes(depositStatus)) throw new Error("Invalid deposit status");
 
   const so = await prisma.salesOrder.update({
     where: { id: salesOrderId },
@@ -5243,7 +5245,8 @@ export async function actionUpdateCmNumberScheme(
 export async function actionUpdateRegistryStatus(
   formData: FormData
 ): Promise<void> {
-  const user = await getCurrentUser();
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("cm.ecr.manage");
   const { updateRegistryStatus } = await import("@/lib/services/cm-numbers");
   await updateRegistryStatus({
     id: formData.get("id") as string,
@@ -8538,10 +8541,8 @@ export async function actionSavePayrollPolicy(
     .filter(Boolean);
 
   const freq = ((formData.get("timesheetFrequency") as string) || "WEEKLY").toUpperCase();
-  await prisma.payrollPolicy.upsert({
-    where: { id: "default" },
-    create: { id: "default" },
-    update: {
+  if (!["WEEKLY", "BIWEEKLY", "SEMIMONTHLY"].includes(freq)) throw new Error("Invalid payroll frequency");
+  const data = {
       timesheetFrequency: ["WEEKLY", "BIWEEKLY", "SEMIMONTHLY"].includes(freq)
         ? freq
         : "WEEKLY",
@@ -8556,8 +8557,9 @@ export async function actionSavePayrollPolicy(
       dtMultiplier: Math.max(1, Number(formData.get("dtMultiplier") || 2)),
       holidays: JSON.stringify(holidays),
       updatedById: user?.id,
-    },
-  });
+  };
+  if (Object.values(data).some(value => typeof value === "number" && !Number.isFinite(value)) || !Number.isInteger(data.weekStartsOn)) throw new Error("Payroll settings require finite numbers and an integer week start");
+  await prisma.payrollPolicy.upsert({ where: { id: "default" }, create: { id: "default", ...data }, update: data });
   await logAudit({
     entityType: "PayrollPolicy",
     entityId: "default",

@@ -317,46 +317,29 @@ export async function recordTestStepSignOff(params: {
 }) {
   await verifySignaturePin(params.userId, params.pinCode);
 
-  const step = await prisma.testProcedureStep.findUniqueOrThrow({
-    where: { id: params.stepId },
+  return prisma.$transaction(async db => {
+    const procedure = await db.testProcedure.update({ where: { id: params.testProcedureId }, data: { updatedAt: new Date() } });
+    if (procedure.status !== "RELEASED" || !procedure.isLocked) throw new Error("Only a released locked test procedure may be executed");
+    const step = await db.testProcedureStep.findUniqueOrThrow({ where: { id: params.stepId } });
+    if (step.testProcedureId !== procedure.id) throw new Error("Test step does not belong to this procedure");
+    let result = (params.result || "").trim().toUpperCase();
+    if (result && !["PASS", "FAIL", "NA"].includes(result)) throw new Error("Invalid test result");
+    if (step.minValue != null || step.maxValue != null) {
+      const raw = params.measuredValue?.trim() || "", num = Number(raw);
+      if (!raw || !Number.isFinite(num)) throw new Error("A finite numeric measurement is required for this quantitative test");
+      if ((step.minValue != null && !Number.isFinite(step.minValue)) || (step.maxValue != null && !Number.isFinite(step.maxValue)) || (step.minValue != null && step.maxValue != null && step.minValue > step.maxValue)) throw new Error("Invalid test acceptance limits");
+      const passed = (step.minValue == null || num >= step.minValue) && (step.maxValue == null || num <= step.maxValue);
+      // PASS/NA cannot bypass objective limits; an explicit human FAIL is retained.
+      result = passed && result !== "FAIL" ? "PASS" : "FAIL";
+    } else if (!result) result = "PASS";
+    const signOff = await db.testProcedureSignOff.create({ data: {
+      testProcedureId: procedure.id, stepId: step.id, workOrderId: params.workOrderId || null,
+      unitSerial: params.unitSerial?.trim() || null, userId: params.userId, result,
+      measuredValue: params.measuredValue?.trim() || null, units: step.units || null,
+      notes: params.notes?.trim() || null, photoUrl: params.photoUrl?.trim() || null, pinVerified: true,
+    } });
+    await logAudit({ entityType: "TestProcedure", entityId: procedure.id, action: `TEST_STEP_${result}`, userId: params.userId,
+      metadata: { stepId: step.id, parameter: step.parameter, measuredValue: params.measuredValue, unitSerial: params.unitSerial } }, db);
+    return signOff;
   });
-
-  // Auto-grade against min/max when a numeric measurement is given.
-  let result = (params.result || "").toUpperCase();
-  const num = params.measuredValue != null ? Number(params.measuredValue) : NaN;
-  if (!result && !Number.isNaN(num) && (step.minValue != null || step.maxValue != null)) {
-    const okMin = step.minValue == null || num >= step.minValue;
-    const okMax = step.maxValue == null || num <= step.maxValue;
-    result = okMin && okMax ? "PASS" : "FAIL";
-  }
-  if (!result) result = "PASS";
-
-  const signOff = await prisma.testProcedureSignOff.create({
-    data: {
-      testProcedureId: params.testProcedureId,
-      stepId: params.stepId,
-      workOrderId: params.workOrderId || null,
-      unitSerial: params.unitSerial?.trim() || null,
-      userId: params.userId,
-      result,
-      measuredValue: params.measuredValue?.toString().trim() || null,
-      units: step.units || null,
-      notes: params.notes?.trim() || null,
-      photoUrl: params.photoUrl?.trim() || null,
-      pinVerified: true,
-    },
-  });
-  await logAudit({
-    entityType: "TestProcedure",
-    entityId: params.testProcedureId,
-    action: `TEST_STEP_${result}`,
-    userId: params.userId,
-    metadata: {
-      stepId: params.stepId,
-      parameter: step.parameter,
-      measuredValue: params.measuredValue,
-      unitSerial: params.unitSerial,
-    },
-  });
-  return signOff;
 }

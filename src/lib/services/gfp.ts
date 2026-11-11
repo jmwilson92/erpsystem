@@ -172,12 +172,12 @@ export async function completeGfpAudit(params: {
   findings?: string; notes?: string; auditedById?: string;
 }) {
   if (!["PASS", "FAIL", "N_A"].includes(params.result)) throw new Error("Invalid GFP audit result");
-  const outcome = await prisma.$transaction(async db => {
+  return prisma.$transaction(async db => {
     const prop = await lockGfpProperty(db, params.propertyId);
     const existing = params.auditId ? await db.gfpAuditRecord.findUnique({ where: { id: params.auditId } }) :
       await db.gfpAuditRecord.findFirst({ where: { propertyId: prop.id, status: { in: ["SCHEDULED", "OVERDUE"] } }, orderBy: { scheduledFor: "asc" } });
     if (params.auditId && (!existing || existing.propertyId !== prop.id)) throw new Error("Audit does not belong to this property");
-    if (existing?.status === "COMPLETED") return { audit: existing, completed: false };
+    if (existing?.status === "COMPLETED") return existing;
     if (existing && !["SCHEDULED", "OVERDUE"].includes(existing.status)) throw new Error("Audit is not pending completion");
     const now = new Date(), nextAuditDue = new Date(now);
     nextAuditDue.setDate(nextAuditDue.getDate() + (prop.auditIntervalDays || 90));
@@ -189,10 +189,9 @@ export async function completeGfpAudit(params: {
     if (next) await db.gfpAuditRecord.update({ where: { id: next.id }, data: { scheduledFor: nextAuditDue, status: "SCHEDULED" } });
     else await db.gfpAuditRecord.create({ data: { propertyId: prop.id, scheduledFor: nextAuditDue, status: "SCHEDULED" } });
     await db.complianceCheck.create({ data: { propertyId: prop.id, checkType: "PHYSICAL_INVENTORY", status: params.result, checkedById: params.auditedById, checkedAt: now, notes: params.notes, findings: params.findings } });
-    return { audit, completed: true };
+    await logAudit({ entityType: "GfpAuditRecord", entityId: audit.id, action: "COMPLETED", userId: params.auditedById, metadata: { propertyId: params.propertyId, result: params.result } }, db);
+    return audit;
   });
-  if (outcome.completed) await logAudit({ entityType: "GfpAuditRecord", entityId: outcome.audit.id, action: "COMPLETED", userId: params.auditedById, metadata: { propertyId: params.propertyId, result: params.result } });
-  return outcome.audit;
 }
 
 export async function checkoutGfp(params: { propertyId: string; checkedOutById: string; purpose?: string; expectedReturn?: Date | null }) {
@@ -203,9 +202,9 @@ export async function checkoutGfp(params: { propertyId: string; checkedOutById: 
     const now = new Date();
     const row = await db.gfpCheckout.create({ data: { propertyId: prop.id, checkedOutById: params.checkedOutById, checkedOutAt: now, purpose: params.purpose, expectedReturn: params.expectedReturn || undefined, status: "OPEN" } });
     await db.governmentProperty.update({ where: { id: prop.id }, data: { status: "CHECKED_OUT", checkedOutToId: params.checkedOutById, checkedOutAt: now } });
+    await logAudit({ entityType: "GovernmentProperty", entityId: params.propertyId, action: "CHECKOUT", userId: params.checkedOutById, metadata: { checkoutId: row.id, purpose: params.purpose } }, db);
     return row;
   });
-  await logAudit({ entityType: "GovernmentProperty", entityId: params.propertyId, action: "CHECKOUT", userId: params.checkedOutById, metadata: { checkoutId: checkout.id, purpose: params.purpose } });
   return checkout;
 }
 
@@ -426,9 +425,10 @@ export async function requestGfpConsumption(params: { propertyId: string; workOr
     const prop = await lockGfpProperty(db, params.propertyId);
     assertGfpConsumptionQuantity(prop, quantity, params.workOrderId);
     if (params.workOrderId && !await db.workOrder.findUnique({ where: { id: params.workOrderId } })) throw new Error("Work order not found");
-    return db.gfpConsumption.create({ data: { propertyId: prop.id, workOrderId: params.workOrderId || null, quantity, reason: params.reason, requestedById: params.requestedById, status: "PENDING_APPROVAL" } });
+    const row = await db.gfpConsumption.create({ data: { propertyId: prop.id, workOrderId: params.workOrderId || null, quantity, reason: params.reason, requestedById: params.requestedById, status: "PENDING_APPROVAL" } });
+    await logAudit({ entityType: "GfpConsumption", entityId: row.id, action: "REQUESTED", userId: params.requestedById, metadata: { propertyId: params.propertyId, workOrderId: params.workOrderId } }, db);
+    return row;
   });
-  await logAudit({ entityType: "GfpConsumption", entityId: rec.id, action: "REQUESTED", userId: params.requestedById, metadata: { propertyId: params.propertyId, workOrderId: params.workOrderId } });
   return rec;
 }
 
@@ -446,7 +446,10 @@ export async function decideGfpConsumption(params: { consumptionId: string; appr
       approvalNotes: params.approvalNotes, consumedAt: params.approve ? now : null,
     } });
     if (!claim.count) throw new Error("Consumption decision changed concurrently");
-    if (!params.approve) return db.gfpConsumption.findUniqueOrThrow({ where: { id: rec.id } });
+    if (!params.approve) {
+      await logAudit({ entityType: "GfpConsumption", entityId: rec.id, action: "REJECTED", userId: params.approvedById }, db);
+      return db.gfpConsumption.findUniqueOrThrow({ where: { id: rec.id } });
+    }
     assertGfpConsumptionQuantity(prop, rec.quantity, rec.workOrderId);
     const stock = prop.inventoryItem;
     let remaining = 0;
@@ -470,9 +473,9 @@ export async function decideGfpConsumption(params: { consumptionId: string; appr
       notes: [prop.notes, `Consumed ${rec.quantity} against WO ${rec.workOrderId || "—"}`].filter(Boolean).join("\n"),
     } });
     if (full) await db.gfpCheckout.updateMany({ where: { propertyId: prop.id, status: "OPEN" }, data: { status: "RETURNED", checkedInAt: now, checkedInById: params.approvedById, checkedInNotes: "Closed due to full consumption" } });
+    await logAudit({ entityType: "GfpConsumption", entityId: rec.id, action: "APPROVED_CONSUMED", userId: params.approvedById }, db);
     return db.gfpConsumption.findUniqueOrThrow({ where: { id: rec.id } });
   });
-  await logAudit({ entityType: "GfpConsumption", entityId: updated.id, action: params.approve ? "APPROVED_CONSUMED" : "REJECTED", userId: params.approvedById });
   return updated;
 }
 
