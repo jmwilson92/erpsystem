@@ -1635,7 +1635,7 @@ Evidence: `/workspace/protessera-dryrun/current-results/`; scripts in `/workspac
 - Source: `src/components/ai/voice-assistant.tsx:1352-1354; src/app/ai/page.tsx`
 - Fix verification: `scripts/test-bom-lifecycle.ts`, `scripts/test-integrity.ts`, `scripts/test-qa-high-severity.ts` and `scripts/test-qa-management-integrity.ts` plus `scripts/test-ai-help.ts`. Original reproduction is retained as history.
 
-##### AUTH-026 — Unauthenticated/OPERATOR staffing moves bypass station-management authority
+#### AUTH-026 — Unauthenticated/OPERATOR staffing moves bypass station-management authority
 - Module: Station staffing authorization | Severity: **high** | Status: REPRODUCED on released main `e9b6bc00110a171d90ef49cf74b187a697b99748` (#168), synthetic loopback fixture only; fix candidate not shipped yet
 - Steps: Create two valid stations and assign a synthetic employee to A. Invoke native `actionAssignWorkCenterStaff` as a real OPERATOR to move that employee to B, then native `actionRemoveWorkCenterStaff`. Repeat both native operations without a session in public scope.
 - Expected: Require authenticated `workcenters.manage` authority before any staffing mutation; ordinary OPERATOR and no-session calls must leave assignments unchanged.
@@ -1643,7 +1643,7 @@ Evidence: `/workspace/protessera-dryrun/current-results/`; scripts in `/workspac
 - Evidence: `/workspace/qa-calendar-auth026-original-proof.log` and old-main negative control `/workspace/qa-calendar-negative-AUTH-026.log`. Candidate regression `scripts/test-qa-calendar-integrity.ts` checks both denials, genuine PRODUCTION/admin success, and actor-bound audit identity.
 - Source: `src/app/actions.ts actionAssignWorkCenterStaff/actionRemoveWorkCenterStaff`; `src/lib/services/capacity.ts`
 
-## Next coverage and blockers
+### Next coverage and blockers
 
 - Continue valid create/edit/approval acceptance for permission-guard-only functions; MFA/account recovery/invite (mail intercepted only), admin setup/import, GFP custody/consumption/audits, budgets/ECR/CM, complex MRB rework/reinspection/RTV and supplier amendments.
 - Financial follow-up: fully reconcile shipping→AR invoice→cash and receiving→AP including credits/tax, repeat/concurrent invoice posting and expense controls; retest new high-severity findings after dedicated fixes.
