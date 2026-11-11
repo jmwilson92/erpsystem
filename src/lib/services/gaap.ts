@@ -559,7 +559,7 @@ export async function postApprovedExpenseReimbursement(params: { reportId: strin
   const expense = await db.account.findFirst({ where: { code: "6200", isActive: true } });
   const cash = await db.account.findFirst({ where: { code: "1000", isActive: true } });
   if (!expense || !cash || expense.type !== "EXPENSE" || cash.type !== "ASSET") throw new Error("Active expense6200 and cash1000 GL accounts are required for reimbursement");
-  if (await db.journalEntry.findFirst({ where: { source: "EXPENSE", sourceId: report.id, status: { not: "VOID" } } })) {
+  if (await db.journalEntry.findFirst({ where: { OR: [{ source: "EXPENSE", sourceId: report.id, status: { not: "VOID" } }, { idempotencyKey: `expense-reimbursement:${report.id}` }] } })) {
     throw new Error("A reimbursement journal already exists; reconcile before retrying");
   }
   const journal = await postJournalInTransaction({
@@ -567,6 +567,7 @@ export async function postApprovedExpenseReimbursement(params: { reportId: strin
     createdById: params.processorId, idempotencyKey: `expense-reimbursement:${report.id}`, status: "POSTED",
     lines: [{ accountId: expense.id, debit: amount, memo: "Independently approved employee expense" }, { accountId: cash.id, credit: amount, memo: "Reimbursement paid" }],
   }, db);
+  if (journal.status !== "POSTED" || journal.source !== "EXPENSE" || journal.sourceId !== report.id) throw new Error("Reimbursement requires its own posted journal; reconcile the existing key before retrying");
   return db.journalEntry.update({ where: { id: journal.id }, data: { approvedById: approval.userId }, include: { lines: true } });
 }
 

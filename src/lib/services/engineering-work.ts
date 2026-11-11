@@ -1,5 +1,18 @@
-import { prisma } from "@/lib/db";
+import { Prisma } from "@prisma/client";
+import { prisma, currentRequestSchema, isValidSchemaName } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
+
+type EngDb = Prisma.TransactionClient;
+async function engineeringTables() {
+  const schema = await currentRequestSchema();
+  if (!isValidSchemaName(schema)) throw new Error("Invalid engineering schema");
+  const table = (name: "EngTask" | "EngDependency" | "ProductionEngIssue" | "WorkOrder") => Prisma.raw(`"${schema}"."${name}"`);
+  return { task: table("EngTask"), dependency: table("EngDependency"), issue: table("ProductionEngIssue"), wo: table("WorkOrder") };
+}
+async function lockEngineeringGraph(db: EngDb, tables: Awaited<ReturnType<typeof engineeringTables>>) {
+  // Per-schema write serialization also covers empty graphs and competing inverse edges.
+  await db.$executeRaw(Prisma.sql`LOCK TABLE ${tables.task}, ${tables.dependency} IN SHARE ROW EXCLUSIVE MODE`);
+}
 
 /** Default system swim lanes (seeded; users can add more). */
 export const DEFAULT_ENG_LANES = [
@@ -292,97 +305,105 @@ export async function createEngTask(params: {
   dependsOnSagaIds?: string[];
   userId?: string | null;
 }) {
-  const name = params.name.trim();
-  if (!name) throw new Error("Task name required");
+  const tables = await engineeringTables();
+  return prisma.$transaction(async db => {
+    await lockEngineeringGraph(db, tables);
+    const name = params.name.trim();
+    if (!name) throw new Error("Task name required");
 
-  let campaignId = params.campaignId || null;
-  const sagaId = params.sagaId || null;
-  let projectId = params.projectId || null;
-  let productId = params.productId || null;
-  let discipline = params.discipline?.toUpperCase() || null;
+    let campaignId = params.campaignId || null;
+    let sagaId = params.sagaId || null;
+    let projectId = params.projectId || null;
+    let productId = params.productId || null;
+    let discipline = params.discipline?.toUpperCase() || null;
 
-  if (sagaId) {
-    const saga = await prisma.saga.findUnique({ where: { id: sagaId } });
-    if (!saga) throw new Error("Saga not found");
-    campaignId = saga.campaignId;
-    projectId = projectId || saga.projectId;
-    if (!discipline) discipline = saga.discipline;
-  }
+    const parent = params.parentId ? await db.engTask.findUniqueOrThrow({ where: { id: params.parentId } }) : null;
+    if (parent) {
+      for (const [label, provided, inherited] of [["project", projectId, parent.projectId], ["product", productId, parent.productId], ["saga", sagaId, parent.sagaId], ["campaign", campaignId, parent.campaignId]]) {
+        if (provided && provided !== inherited) throw new Error(`Task ${label} contradicts parent ancestry`);
+      }
+      projectId ||= parent.projectId; productId ||= parent.productId; campaignId ||= parent.campaignId; sagaId ||= parent.sagaId;
+    }
+    if (sagaId) {
+      const saga = await db.saga.findUniqueOrThrow({ where: { id: sagaId } });
+      if ((projectId && projectId !== saga.projectId) || (campaignId && campaignId !== saga.campaignId)) throw new Error("Task project/campaign contradicts saga ancestry");
+      campaignId = saga.campaignId; projectId = saga.projectId;
+      if (!discipline) discipline = saga.discipline;
+    }
+    if (campaignId) {
+      const campaign = await db.campaign.findUniqueOrThrow({ where: { id: campaignId } });
+      if (projectId && projectId !== campaign.projectId) throw new Error("Task project contradicts campaign ancestry");
+      projectId = campaign.projectId;
+    }
+    if (!projectId && !productId) throw new Error("Task needs a project, product, or saga");
+    if (projectId) {
+      const project = await db.project.findUniqueOrThrow({ where: { id: projectId }, select: { productId: true } });
+      if (productId && project.productId && productId !== project.productId) throw new Error("Task product contradicts project ancestry");
+      productId ||= project.productId;
+    }
+    const numbers = await db.engTask.findMany({ select: { number: true } });
+    const count = numbers.reduce((max, task) => Math.max(max, /^TSK-\d+$/.test(task.number) ? Number(task.number.slice(4)) : 0), 0);
+    const number = `TSK-${String(count + 1).padStart(4, "0")}`;
+    const kind = (
+      params.kind ||
+      (params.parentId
+        ? "SUBTASK"
+        : productId && !projectId
+          ? "SUSTAINMENT"
+          : "TASK")
+    ).toUpperCase();
 
-  if (!projectId && !productId && !sagaId) {
-    throw new Error("Task needs a project, product, or saga");
-  }
-
-  // Inherit product from project when not set
-  if (projectId && !productId) {
-    const proj = await prisma.project.findUnique({
-      where: { id: projectId },
-      select: { productId: true },
+    const task = await db.engTask.create({
+      data: {
+        projectId,
+        productId,
+        campaignId,
+        sagaId,
+        parentId: params.parentId || null,
+        productionIssueId: params.productionIssueId || null,
+        number,
+        name,
+        description: params.description?.trim() || null,
+        kind,
+        discipline,
+        status: "TODO",
+        priority: (params.priority || "NORMAL").toUpperCase(),
+        assigneeId: params.assigneeId || null,
+        startDate: params.startDate || null,
+        endDate: params.endDate || null,
+        dueDate: params.dueDate || null,
+        estimatedHours: params.estimatedHours ?? 0,
+        storyPoints: params.storyPoints ?? null,
+      },
     });
-    productId = proj?.productId || null;
-  }
 
-  const count = await prisma.engTask.count();
-  const number = `TSK-${String(count + 1).padStart(4, "0")}`;
-  const kind = (
-    params.kind ||
-    (params.parentId
-      ? "SUBTASK"
-      : productId && !projectId
-        ? "SUSTAINMENT"
-        : "TASK")
-  ).toUpperCase();
+    // Dependencies at create time
+    for (const src of params.dependsOnTaskIds || []) {
+      if (src)
+        await addEngDependencyInTransaction({
+          sourceTaskId: src,
+          targetTaskId: task.id,
+          type: "FINISH_TO_START",
+        }, db);
+    }
+    for (const src of params.dependsOnSagaIds || []) {
+      if (src)
+        await addEngDependencyInTransaction({
+          sourceSagaId: src,
+          targetTaskId: task.id,
+          type: "FINISH_TO_START",
+        }, db);
+    }
 
-  const task = await prisma.engTask.create({
-    data: {
-      projectId,
-      productId,
-      campaignId,
-      sagaId,
-      parentId: params.parentId || null,
-      productionIssueId: params.productionIssueId || null,
-      number,
-      name,
-      description: params.description?.trim() || null,
-      kind,
-      discipline,
-      status: "TODO",
-      priority: (params.priority || "NORMAL").toUpperCase(),
-      assigneeId: params.assigneeId || null,
-      startDate: params.startDate || null,
-      endDate: params.endDate || null,
-      dueDate: params.dueDate || null,
-      estimatedHours: params.estimatedHours ?? 0,
-      storyPoints: params.storyPoints ?? null,
-    },
+    await logAudit({
+      entityType: "EngTask",
+      entityId: task.id,
+      action: "CREATE",
+      userId: params.userId,
+      metadata: { number, name, sagaId, campaignId, productId, projectId },
+    }, db);
+    return task;
   });
-
-  // Dependencies at create time
-  for (const src of params.dependsOnTaskIds || []) {
-    if (src)
-      await addEngDependency({
-        sourceTaskId: src,
-        targetTaskId: task.id,
-        type: "FINISH_TO_START",
-      });
-  }
-  for (const src of params.dependsOnSagaIds || []) {
-    if (src)
-      await addEngDependency({
-        sourceSagaId: src,
-        targetTaskId: task.id,
-        type: "FINISH_TO_START",
-      });
-  }
-
-  await logAudit({
-    entityType: "EngTask",
-    entityId: task.id,
-    action: "CREATE",
-    userId: params.userId,
-    metadata: { number, name, sagaId, campaignId, productId, projectId },
-  });
-  return task;
 }
 
 export async function updateEngTask(params: {
@@ -400,45 +421,51 @@ export async function updateEngTask(params: {
   percentComplete?: number;
   engSprintId?: string | null;
 }) {
-  const data: Record<string, unknown> = {};
-  if (params.name !== undefined) data.name = params.name.trim();
-  if (params.description !== undefined) data.description = params.description;
-  if (params.status) {
-    data.status = params.status.toUpperCase();
-    if (params.status.toUpperCase() === "DONE") data.percentComplete = 100;
-  }
-  if (params.priority) data.priority = params.priority.toUpperCase();
-  if (params.assigneeId !== undefined) data.assigneeId = params.assigneeId || null;
-  if (params.startDate !== undefined) data.startDate = params.startDate;
-  if (params.endDate !== undefined) data.endDate = params.endDate;
-  if (params.dueDate !== undefined) data.dueDate = params.dueDate;
-  if (params.estimatedHours !== undefined)
-    data.estimatedHours = params.estimatedHours;
-  if (params.storyPoints !== undefined) data.storyPoints = params.storyPoints;
-  if (params.percentComplete !== undefined)
-    data.percentComplete = params.percentComplete;
-  if (params.engSprintId !== undefined)
-    data.engSprintId = params.engSprintId || null;
-
-  // Block status advance if unfinished predecessors
-  if (params.status && !["BACKLOG", "TODO", "CANCELLED"].includes(params.status.toUpperCase())) {
-    const blocked = await getUnresolvedBlockersForTask(params.id);
-    if (blocked.length > 0 && params.status.toUpperCase() === "IN_PROGRESS") {
-      // Allow start but flag — only hard-block DONE
+  if (params.percentComplete !== undefined && (!Number.isFinite(params.percentComplete) || params.percentComplete < 0 || params.percentComplete > 100)) throw new Error("Task percent complete must be finite and between 0 and 100");
+  if (params.status && !WORK_STATUSES.includes(params.status.toUpperCase() as typeof WORK_STATUSES[number])) throw new Error("Invalid engineering task status");
+  const tables = await engineeringTables();
+  return prisma.$transaction(async db => {
+    await lockEngineeringGraph(db, tables);
+    const data: Record<string, unknown> = {};
+    if (params.name !== undefined) data.name = params.name.trim();
+    if (params.description !== undefined) data.description = params.description;
+    if (params.status) {
+      data.status = params.status.toUpperCase();
+      if (params.status.toUpperCase() === "DONE") data.percentComplete = 100;
     }
-    if (params.status.toUpperCase() === "DONE" && blocked.length > 0) {
-      throw new Error(
-        `Cannot complete: blocked by ${blocked.map((b) => b.label).join(", ")}`
-      );
-    }
-  }
+    if (params.priority) data.priority = params.priority.toUpperCase();
+    if (params.assigneeId !== undefined) data.assigneeId = params.assigneeId || null;
+    if (params.startDate !== undefined) data.startDate = params.startDate;
+    if (params.endDate !== undefined) data.endDate = params.endDate;
+    if (params.dueDate !== undefined) data.dueDate = params.dueDate;
+    if (params.estimatedHours !== undefined)
+      data.estimatedHours = params.estimatedHours;
+    if (params.storyPoints !== undefined) data.storyPoints = params.storyPoints;
+    if (params.percentComplete !== undefined)
+      data.percentComplete = params.status?.toUpperCase() === "DONE" ? 100 : params.percentComplete;
+    if (params.engSprintId !== undefined)
+      data.engSprintId = params.engSprintId || null;
 
-  const task = await prisma.engTask.update({
-    where: { id: params.id },
-    data,
+    // Block status advance if unfinished predecessors
+    if (params.status && !["BACKLOG", "TODO", "CANCELLED"].includes(params.status.toUpperCase())) {
+      const blocked = await getUnresolvedBlockersForTask(params.id, db);
+      if (blocked.length > 0 && params.status.toUpperCase() === "IN_PROGRESS") {
+        // Allow start but flag — only hard-block DONE
+      }
+      if (params.status.toUpperCase() === "DONE" && blocked.length > 0) {
+        throw new Error(
+          `Cannot complete: blocked by ${blocked.map((b) => b.label).join(", ")}`
+        );
+      }
+    }
+
+    const task = await db.engTask.update({
+      where: { id: params.id },
+      data,
+    });
+    await rollupHoursFromTask(task.id, db);
+    return task;
   });
-  await rollupHoursFromTask(task.id);
-  return task;
 }
 
 /** Break a complex task into a child subtask. */
@@ -490,97 +517,101 @@ export async function createProductionEngIssue(params: {
   sourceArea?: string | null;
   workCenter?: string | null;
 }) {
-  const title = params.title.trim();
-  if (!title) throw new Error("Issue title required");
-  const count = await prisma.productionEngIssue.count();
-  const number = `PEI-${String(count + 1).padStart(5, "0")}`;
+  const tables = await engineeringTables();
+  return prisma.$transaction(async db => {
+    await db.$executeRaw(Prisma.sql`LOCK TABLE ${tables.issue} IN SHARE ROW EXCLUSIVE MODE`);
+    if (params.workOrderId) await db.$queryRaw(Prisma.sql`SELECT id FROM ${tables.wo} WHERE id = ${params.workOrderId} FOR UPDATE`);
+    const title = params.title.trim();
+    if (!title) throw new Error("Issue title required");
+    const count = await db.productionEngIssue.count();
+    const number = `PEI-${String(count + 1).padStart(5, "0")}`;
 
-  // Infer product from part / WO when possible
-  let productId = params.productId || null;
-  let partId = params.partId || null;
-  let projectId = params.projectId || null;
-  if (params.workOrderId) {
-    const wo = await prisma.workOrder.findUnique({
-      where: { id: params.workOrderId },
-      select: { partId: true, projectId: true, part: { select: { partNumber: true } } },
-    });
-    if (wo) {
-      partId = partId || wo.partId;
-      projectId = projectId || wo.projectId;
-    }
-  }
-  if (!productId && partId) {
-    const link = await prisma.productPart.findFirst({
-      where: { partId },
-      select: { productId: true },
-    });
-    productId = link?.productId || null;
-    if (!productId) {
-      const asTop = await prisma.product.findFirst({
-        where: { topLevelPartId: partId },
-        select: { id: true },
+    // Infer product from part / WO when possible
+    let productId = params.productId || null;
+    let partId = params.partId || null;
+    let projectId = params.projectId || null;
+    if (params.workOrderId) {
+      const wo = await db.workOrder.findUnique({
+        where: { id: params.workOrderId },
+        select: { partId: true, projectId: true, part: { select: { partNumber: true } } },
       });
-      productId = asTop?.id || null;
+      if (wo) {
+        partId = partId || wo.partId;
+        projectId = projectId || wo.projectId;
+      }
     }
-  }
+    if (!productId && partId) {
+      const link = await db.productPart.findFirst({
+        where: { partId },
+        select: { productId: true },
+      });
+      productId = link?.productId || null;
+      if (!productId) {
+        const asTop = await db.product.findFirst({
+          where: { topLevelPartId: partId },
+          select: { id: true },
+        });
+        productId = asTop?.id || null;
+      }
+    }
 
-  const issue = await prisma.productionEngIssue.create({
-    data: {
-      number,
-      title,
-      description: params.description?.trim() || null,
-      category: (params.category || "PROCESS").toUpperCase(),
-      priority: (params.priority || "NORMAL").toUpperCase(),
-      status: "OPEN",
-      reportedById: params.reportedById || null,
-      reportedByName: params.reportedByName || null,
-      workOrderId: params.workOrderId || null,
-      partId,
-      productId,
-      projectId,
-      sourceArea: params.sourceArea?.trim().toUpperCase() || null,
-      workCenter: params.workCenter?.trim() || null,
-    },
+    const issue = await db.productionEngIssue.create({
+      data: {
+        number,
+        title,
+        description: params.description?.trim() || null,
+        category: (params.category || "PROCESS").toUpperCase(),
+        priority: (params.priority || "NORMAL").toUpperCase(),
+        status: "OPEN",
+        reportedById: params.reportedById || null,
+        reportedByName: params.reportedByName || null,
+        workOrderId: params.workOrderId || null,
+        partId,
+        productId,
+        projectId,
+        sourceArea: params.sourceArea?.trim().toUpperCase() || null,
+        workCenter: params.workCenter?.trim() || null,
+      },
+    });
+
+    await syncEngineeringHold(db, issue, params.reportedById);
+
+    await logAudit({
+      entityType: "ProductionEngIssue",
+      entityId: issue.id,
+      action: "CREATE",
+      userId: params.reportedById || undefined,
+      metadata: { number, title, category: issue.category },
+    }, db);
+    return issue;
   });
+}
 
-  // Auto-hold the linked work order until MFG Eng resolves the request
-  if (params.workOrderId) {
-    const wo = await prisma.workOrder.findUnique({
-      where: { id: params.workOrderId },
-    });
-    if (wo && !["COMPLETED", "CANCELLED", "CLOSED", "ON_HOLD"].includes(wo.status)) {
-      await prisma.workOrder.update({
-        where: { id: wo.id },
-        data: {
-          status: "ON_HOLD",
-          statusHistory: {
-            create: {
-              fromStatus: wo.status,
-              toStatus: "ON_HOLD",
-              userId: params.reportedById || undefined,
-              notes: `Auto-hold: MFG Eng request ${number} opened`,
-            },
-          },
-        },
-      });
-      await logAudit({
-        entityType: "WorkOrder",
-        entityId: wo.id,
-        action: "AUTO_HOLD_MFG_ENG",
-        userId: params.reportedById || undefined,
-        changes: { from: wo.status, to: "ON_HOLD", issueNumber: number },
-      });
+const OPEN_PRODUCTION_ISSUES = ["OPEN", "TRIAGED", "IN_PROGRESS", "WAITING_ECR"];
+const CLOSED_PRODUCTION_ISSUES = ["RESOLVED", "CLOSED", "REJECTED"];
+async function syncEngineeringHold(db: EngDb, issue: { id: string; number: string; workOrderId: string | null }, userId?: string | null) {
+  if (!issue.workOrderId) return;
+  const wo = await db.workOrder.findUniqueOrThrow({ where: { id: issue.workOrderId } });
+  if (["COMPLETED", "CANCELLED", "CLOSED"].includes(wo.status)) return;
+  const open = await db.productionEngIssue.count({ where: { workOrderId: wo.id, status: { in: OPEN_PRODUCTION_ISSUES } } });
+  let toStatus: string | undefined, notes: string | undefined;
+  if (open && wo.status !== "ON_HOLD") {
+    toStatus = "ON_HOLD"; notes = `Auto-hold: MFG Eng request ${issue.number} opened/reopened`;
+  } else if (!open && wo.status === "ON_HOLD") {
+    const prior = await db.workOrderStatusHistory.findFirst({ where: { workOrderId: wo.id, toStatus: "ON_HOLD" }, orderBy: [{ createdAt: "desc" }, { id: "desc" }] });
+    // Never guess IN_PROGRESS or release a preexisting/manual/quality hold.
+    if (!prior?.notes?.startsWith("Auto-hold: MFG Eng request ") || !prior.fromStatus || ["ON_HOLD", "COMPLETED", "CANCELLED", "CLOSED"].includes(prior.fromStatus)) return;
+    if (await db.nonConformance.count({ where: { workOrderId: wo.id, status: { notIn: ["CLOSED", "CANCELLED"] } } })) return;
+    toStatus = prior.fromStatus;
+    if (wo.type === "PRODUCTION" && ["RELEASED", "IN_PROGRESS", "KITTED", "KITTING", "READY_TO_KIT"].includes(toStatus)) {
+      const bom = wo.bomHeaderId ? await db.bomHeader.findUnique({ where: { id: wo.bomHeaderId } }) : null;
+      if (!bom || bom.status !== "CERTIFIED" || bom.partId !== wo.partId) throw new Error("Production work orders require a CERTIFIED BOM revision before hold release");
     }
+    notes = `Hold released: MFG Eng ${issue.number}; no open engineering requests`;
   }
-
-  await logAudit({
-    entityType: "ProductionEngIssue",
-    entityId: issue.id,
-    action: "CREATE",
-    userId: params.reportedById || undefined,
-    metadata: { number, title, category: issue.category },
-  });
-  return issue;
+  if (!toStatus) return;
+  await db.workOrder.update({ where: { id: wo.id, status: wo.status }, data: { status: toStatus, statusHistory: { create: { fromStatus: wo.status, toStatus, userId: userId || undefined, notes } } } });
+  await logAudit({ entityType: "WorkOrder", entityId: wo.id, action: toStatus === "ON_HOLD" ? "AUTO_HOLD_MFG_ENG" : "RELEASE_HOLD_MFG_ENG", userId: userId || undefined, changes: { from: wo.status, to: toStatus, issueNumber: issue.number } }, db);
 }
 
 /** ME accepts production issue → creates MFG_ENG task (optionally product-linked). */
@@ -619,10 +650,7 @@ export async function acceptProductionIssueAsTask(params: {
     userId: params.userId,
   });
 
-  const updated = await prisma.productionEngIssue.update({
-    where: { id: issue.id },
-    data: { status: "IN_PROGRESS" },
-  });
+  const updated = await updateProductionEngIssue({ id: issue.id, status: "IN_PROGRESS", userId: params.userId });
 
   return { issue: updated, task };
 }
@@ -635,80 +663,23 @@ export async function updateProductionEngIssue(params: {
   priority?: string;
   userId?: string | null;
 }) {
-  const existing = await prisma.productionEngIssue.findUnique({
-    where: { id: params.id },
+  const tables = await engineeringTables();
+  return prisma.$transaction(async db => {
+    await db.$executeRaw(Prisma.sql`LOCK TABLE ${tables.issue} IN SHARE ROW EXCLUSIVE MODE`);
+    const existing = await db.productionEngIssue.findUniqueOrThrow({ where: { id: params.id } });
+    if (existing.workOrderId) await db.$queryRaw(Prisma.sql`SELECT id FROM ${tables.wo} WHERE id = ${existing.workOrderId} FOR UPDATE`);
+    const newStatus = params.status?.toUpperCase();
+    if (newStatus && ![...OPEN_PRODUCTION_ISSUES, ...CLOSED_PRODUCTION_ISSUES].includes(newStatus)) throw new Error("Invalid production engineering issue status");
+    const updated = await db.productionEngIssue.update({ where: { id: existing.id }, data: {
+      ...(newStatus ? { status: newStatus, resolvedAt: CLOSED_PRODUCTION_ISSUES.includes(newStatus) ? new Date() : null } : {}),
+      ...(params.resolution !== undefined ? { resolution: params.resolution } : {}),
+      ...(params.changeRequestId !== undefined ? { changeRequestId: params.changeRequestId } : {}),
+      ...(params.priority ? { priority: params.priority.toUpperCase() } : {}),
+    } });
+    await syncEngineeringHold(db, updated, params.userId);
+    await logAudit({ entityType: "ProductionEngIssue", entityId: updated.id, action: "UPDATE", userId: params.userId || undefined, changes: { from: existing.status, to: updated.status } }, db);
+    return updated;
   });
-  if (!existing) throw new Error("Production eng issue not found");
-
-  const data: Record<string, unknown> = {};
-  const newStatus = params.status?.toUpperCase();
-  if (newStatus) {
-    data.status = newStatus;
-    if (["RESOLVED", "CLOSED", "REJECTED"].includes(newStatus)) {
-      data.resolvedAt = new Date();
-    }
-  }
-  if (params.resolution !== undefined) data.resolution = params.resolution;
-  if (params.changeRequestId !== undefined)
-    data.changeRequestId = params.changeRequestId;
-  if (params.priority) data.priority = params.priority.toUpperCase();
-
-  const updated = await prisma.productionEngIssue.update({
-    where: { id: params.id },
-    data,
-  });
-
-  // When MFG Eng request is resolved, release WO hold if no other open issues
-  if (
-    newStatus &&
-    ["RESOLVED", "CLOSED", "REJECTED"].includes(newStatus) &&
-    existing.workOrderId
-  ) {
-    const openOthers = await prisma.productionEngIssue.count({
-      where: {
-        workOrderId: existing.workOrderId,
-        id: { not: existing.id },
-        status: {
-          in: ["OPEN", "TRIAGED", "IN_PROGRESS", "WAITING_ECR"],
-        },
-      },
-    });
-    if (openOthers === 0) {
-      const wo = await prisma.workOrder.findUnique({
-        where: { id: existing.workOrderId },
-      });
-      if (wo && wo.status === "ON_HOLD") {
-        // Prefer last non-hold status from history
-        const prior = await prisma.workOrderStatusHistory.findFirst({
-          where: {
-            workOrderId: wo.id,
-            toStatus: "ON_HOLD",
-          },
-          orderBy: { createdAt: "desc" },
-        });
-        const restoreTo =
-          prior?.fromStatus && prior.fromStatus !== "ON_HOLD"
-            ? prior.fromStatus
-            : "IN_PROGRESS";
-        await prisma.workOrder.update({
-          where: { id: wo.id },
-          data: {
-            status: restoreTo,
-            statusHistory: {
-              create: {
-                fromStatus: "ON_HOLD",
-                toStatus: restoreTo,
-                userId: params.userId || undefined,
-                notes: `Hold released: MFG Eng ${existing.number} ${newStatus}`,
-              },
-            },
-          },
-        });
-      }
-    }
-  }
-
-  return updated;
 }
 
 export async function listProductionEngIssues(params?: {
@@ -755,7 +726,7 @@ export async function listProductEngTasks(productId: string) {
 
 // ── Dependencies (cross-lane must-have) ───────────────────────
 
-export async function addEngDependency(params: {
+type EngDependencyInput = {
   type?: string;
   notes?: string | null;
   sourceTaskId?: string | null;
@@ -763,7 +734,22 @@ export async function addEngDependency(params: {
   targetTaskId?: string | null;
   targetSagaId?: string | null;
   notifyPm?: boolean;
-}) {
+};
+
+export async function addEngDependency(params: EngDependencyInput) {
+  return (await addEngDependencies([params]))[0];
+}
+/** Native multi-select actions commit the whole requested predecessor set or none. */
+export async function addEngDependencies(params: EngDependencyInput[]) {
+  const tables = await engineeringTables();
+  return prisma.$transaction(async db => {
+    await lockEngineeringGraph(db, tables);
+    const dependencies = [];
+    for (const dependency of params) dependencies.push(await addEngDependencyInTransaction(dependency, db));
+    return dependencies;
+  });
+}
+async function addEngDependencyInTransaction(params: EngDependencyInput, db: EngDb) {
   const hasSource = !!(params.sourceTaskId || params.sourceSagaId);
   const hasTarget = !!(params.targetTaskId || params.targetSagaId);
   if (!hasSource || !hasTarget) {
@@ -784,9 +770,31 @@ export async function addEngDependency(params: {
     throw new Error("A saga cannot depend on itself");
   }
 
-  const dep = await prisma.engDependency.create({
+  if (Number(!!params.sourceTaskId) + Number(!!params.sourceSagaId) !== 1 || Number(!!params.targetTaskId) + Number(!!params.targetSagaId) !== 1) throw new Error("Choose exactly one task or saga at each dependency endpoint");
+  const type = (params.type || "FINISH_TO_START").toUpperCase();
+  if (!["FINISH_TO_START", "START_TO_START", "FINISH_TO_FINISH", "BLOCKS"].includes(type)) throw new Error("Invalid dependency type");
+  for (const taskId of [params.sourceTaskId, params.targetTaskId]) if (taskId) await db.engTask.findUniqueOrThrow({ where: { id: taskId } });
+  for (const sagaId of [params.sourceSagaId, params.targetSagaId]) if (sagaId) await db.saga.findUniqueOrThrow({ where: { id: sagaId } });
+  const source = params.sourceTaskId ? `T:${params.sourceTaskId}` : `S:${params.sourceSagaId}`;
+  const target = params.targetTaskId ? `T:${params.targetTaskId}` : `S:${params.targetSagaId}`;
+  const edges = await db.engDependency.findMany();
+  const next = new Map<string, Set<string>>();
+  for (const edge of edges) {
+    for (const from of [edge.sourceTaskId && `T:${edge.sourceTaskId}`, edge.sourceSagaId && `S:${edge.sourceSagaId}`].filter(Boolean) as string[]) {
+      if (!next.has(from)) next.set(from, new Set());
+      for (const to of [edge.targetTaskId && `T:${edge.targetTaskId}`, edge.targetSagaId && `S:${edge.targetSagaId}`].filter(Boolean) as string[]) next.get(from)!.add(to);
+    }
+  }
+  const pending = [target], visited = new Set<string>();
+  while (pending.length) {
+    const node = pending.pop()!;
+    if (node === source) throw new Error("Dependency would create a cycle");
+    if (visited.has(node)) continue;
+    visited.add(node); pending.push(...next.get(node) || []);
+  }
+  const dep = await db.engDependency.create({
     data: {
-      type: (params.type || "FINISH_TO_START").toUpperCase(),
+      type,
       notes: params.notes?.trim() || null,
       sourceTaskId: params.sourceTaskId || null,
       sourceSagaId: params.sourceSagaId || null,
@@ -813,7 +821,7 @@ export async function addEngDependency(params: {
       dep.sourceTask?.number || dep.sourceSaga?.number || "source";
     const tgt =
       dep.targetTask?.number || dep.targetSaga?.number || "target";
-    await prisma.engAlert.create({
+    await db.engAlert.create({
       data: {
         type: "DEPENDENCY_CREATED",
         title: `Dependency: ${src} → ${tgt}`,
@@ -993,8 +1001,8 @@ export async function listDependenciesForDiscipline(discipline: string) {
   });
 }
 
-async function getUnresolvedBlockersForTask(taskId: string) {
-  const deps = await prisma.engDependency.findMany({
+async function getUnresolvedBlockersForTask(taskId: string, db: EngDb = prisma) {
+  const deps = await db.engDependency.findMany({
     where: { targetTaskId: taskId },
     include: {
       sourceTask: { select: { number: true, name: true, status: true } },
@@ -1513,24 +1521,24 @@ export async function scanOutOfTask(params: {
   return scan;
 }
 
-async function rollupHoursFromTask(engTaskId: string) {
-  const task = await prisma.engTask.findUnique({
+async function rollupHoursFromTask(engTaskId: string, db: EngDb = prisma) {
+  const task = await db.engTask.findUnique({
     where: { id: engTaskId },
   });
   if (!task) return;
 
   if (task.sagaId) {
-    const sum = await prisma.engTask.aggregate({
+    const sum = await db.engTask.aggregate({
       where: { sagaId: task.sagaId },
       _sum: { actualHours: true, estimatedHours: true, storyPoints: true },
     });
-    const done = await prisma.engTask.count({
+    const done = await db.engTask.count({
       where: { sagaId: task.sagaId, status: "DONE" },
     });
-    const total = await prisma.engTask.count({
+    const total = await db.engTask.count({
       where: { sagaId: task.sagaId },
     });
-    await prisma.saga.update({
+    await db.saga.update({
       where: { id: task.sagaId },
       data: {
         actualHours: sum._sum.actualHours || 0,
@@ -1540,17 +1548,17 @@ async function rollupHoursFromTask(engTaskId: string) {
   }
 
   if (task.campaignId) {
-    const sum = await prisma.engTask.aggregate({
+    const sum = await db.engTask.aggregate({
       where: { campaignId: task.campaignId },
       _sum: { actualHours: true },
     });
-    const done = await prisma.engTask.count({
+    const done = await db.engTask.count({
       where: { campaignId: task.campaignId, status: "DONE" },
     });
-    const total = await prisma.engTask.count({
+    const total = await db.engTask.count({
       where: { campaignId: task.campaignId },
     });
-    await prisma.campaign.update({
+    await db.campaign.update({
       where: { id: task.campaignId },
       data: {
         actualHours: sum._sum.actualHours || 0,
