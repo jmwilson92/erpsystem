@@ -416,6 +416,7 @@ function assertGfpConsumptionQuantity(prop: Awaited<ReturnType<typeof lockGfpPro
   const staged = !!workOrderId && stock.workOrderId === workOrderId;
   if (!Number.isFinite(stock.quantityOnHand) || quantity > stock.quantityOnHand || (!staged && quantity > stock.quantityAvailable)) throw new Error("Consumption quantity exceeds available property inventory");
   if (stock.quantityAvailable < 0 || stock.quantityCommitted < 0 || stock.quantityAvailable + stock.quantityCommitted > stock.quantityOnHand + 0.000001) throw new Error("Inventory quantity reconciliation required before consumption");
+  if (stock.part.isSerialized && !stock.serialNumber) throw new Error("Serialized property requires a registered physical identity");
   if ((stock.serialNumber || stock.part.isSerialized) && (quantity !== 1 || stock.quantityOnHand !== 1)) throw new Error("Serialized property requires one whole physical unit");
 }
 
@@ -454,6 +455,7 @@ export async function decideGfpConsumption(params: { consumptionId: string; appr
     const stock = prop.inventoryItem;
     let remaining = 0;
     if (stock) {
+      if (stock.serialNumber && !await db.serialNumber.findFirst({ where: { serial: stock.serialNumber, partId: stock.partId } })) throw new Error("Serialized property registry does not match linked inventory");
       const fromAvailable = Math.min(stock.quantityAvailable, rec.quantity), fromCommitted = Math.min(stock.quantityCommitted, rec.quantity - fromAvailable);
       const changed = await db.inventoryItem.updateMany({ where: { id: stock.id, updatedAt: stock.updatedAt, ownership: "GOVERNMENT", mrbCaseId: null, quantityQuarantine: 0 }, data: {
         quantityOnHand: { decrement: rec.quantity }, quantityAvailable: { decrement: fromAvailable }, quantityCommitted: { decrement: fromCommitted },
