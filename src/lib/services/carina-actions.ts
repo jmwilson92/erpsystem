@@ -9,6 +9,7 @@
  *   5. Execute the same service path the UI uses + audit
  */
 
+import { parseCalendarDate } from "@/lib/calendar-date";
 import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { logAudit } from "@/lib/audit";
@@ -1517,8 +1518,7 @@ async function executeCreatePto(
 ): Promise<CarinaActionResult> {
   const user = await getCurrentUser();
   if (!user) return { kind: "error", speak: "Sign in required." };
-  const start = partial.startDate ? new Date(partial.startDate) : null;
-  if (!start) {
+  if (!partial.startDate) {
     return {
       kind: "clarify",
       speak: "Start date?",
@@ -1527,9 +1527,11 @@ async function executeCreatePto(
       partial,
     };
   }
-  const end = partial.endDate ? new Date(partial.endDate) : start;
   try {
+    const start = parseCalendarDate(partial.startDate);
+    const end = partial.endDate ? parseCalendarDate(partial.endDate) : start;
     const pto = await createPtoRequest({
+      actor: user,
       userId: user.id,
       type: partial.type || "PTO",
       startDate: start,

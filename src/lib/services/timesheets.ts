@@ -9,6 +9,7 @@
  * period it lands in, and approved sheets flow to accounting for payroll
  * processing (payroll accrual journal entry).
  */
+import { parseCalendarDate, addCalendarDays } from "@/lib/calendar-date";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { userHasPermission } from "@/lib/auth";
@@ -62,6 +63,7 @@ export function parseHolidays(policy: { holidays: string | null }): Holiday[] {
     const seen = new Set<string>();
     return arr.filter((h) => {
       if (!h || typeof h.date !== "string") return false;
+      try { parseCalendarDate(h.date); } catch { return false; }
       if (seen.has(h.date)) return false;
       seen.add(h.date);
       return true;
@@ -106,31 +108,27 @@ export function periodForDate(
   // Weekly / biweekly: walk back to the week start
   const dow = d.getDay();
   const back = (dow - policy.weekStartsOn + 7) % 7;
-  let start = new Date(d.getTime() - back * DAY);
+  let start = addCalendarDays(d, -back);
 
   if (policy.timesheetFrequency === "BIWEEKLY") {
     // Anchor parity: which 14-day block does this week fall in?
     const anchor = startOfDay(policy.periodAnchor);
     const anchorDow = anchor.getDay();
     const anchorBack = (anchorDow - policy.weekStartsOn + 7) % 7;
-    const anchorStart = new Date(anchor.getTime() - anchorBack * DAY);
-    const weeks = Math.floor((start.getTime() - anchorStart.getTime()) / (7 * DAY));
-    if (((weeks % 2) + 2) % 2 === 1) start = new Date(start.getTime() - 7 * DAY);
-    return { periodStart: start, periodEnd: new Date(start.getTime() + 13 * DAY) };
+    const anchorStart = addCalendarDays(anchor, -anchorBack);
+    const weeks = Math.floor((Date.UTC(start.getFullYear(), start.getMonth(), start.getDate()) - Date.UTC(anchorStart.getFullYear(), anchorStart.getMonth(), anchorStart.getDate())) / (7 * DAY));
+    if (((weeks % 2) + 2) % 2 === 1) start = addCalendarDays(start, -7);
+    return { periodStart: start, periodEnd: addCalendarDays(start, 13) };
   }
 
-  return { periodStart: start, periodEnd: new Date(start.getTime() + 6 * DAY) };
+  return { periodStart: start, periodEnd: addCalendarDays(start, 6) };
 }
 
 /** All calendar days of a period (midnight dates). */
 export function periodDays(periodStart: Date, periodEnd: Date): Date[] {
   const days: Date[] = [];
-  for (
-    let t = startOfDay(periodStart).getTime();
-    t <= startOfDay(periodEnd).getTime();
-    t += DAY
-  ) {
-    days.push(new Date(t));
+  for (let date = startOfDay(periodStart); date <= startOfDay(periodEnd); date = addCalendarDays(date, 1)) {
+    days.push(date);
   }
   return days;
 }
@@ -174,7 +172,7 @@ export async function getOrCreateTimesheet(userId: string, date: Date) {
 
   // Materialize company holidays falling in the period (weekdays)
   const holidays = parseHolidays(policy).filter((h) => {
-    const d = startOfDay(new Date(h.date));
+    const d = parseCalendarDate(h.date);
     return (
       !Number.isNaN(d.getTime()) &&
       d >= periodStart &&
@@ -184,7 +182,7 @@ export async function getOrCreateTimesheet(userId: string, date: Date) {
     );
   });
   for (const h of holidays) {
-    const d = startOfDay(new Date(h.date));
+    const d = parseCalendarDate(h.date);
     const already = await prisma.timeEntry.findFirst({
       where: { timesheetId: sheet.id, type: "HOLIDAY", date: d },
     });
@@ -225,8 +223,7 @@ async function materializePtoEntries(
     Math.min(startOfDay(pto.endDate).getTime(), sheet.periodEnd.getTime())
   );
   const weekdays: Date[] = [];
-  for (let t = from.getTime(); t <= to.getTime(); t += DAY) {
-    const d = new Date(t);
+  for (let d = from; d <= to; d = addCalendarDays(d, 1)) {
     if (d.getDay() !== 0 && d.getDay() !== 6) weekdays.push(d);
   }
   if (weekdays.length === 0) return;
@@ -234,12 +231,7 @@ async function materializePtoEntries(
   // Total request hours spread evenly across ALL its weekdays; this
   // period only gets its share.
   const allDays: Date[] = [];
-  for (
-    let t = startOfDay(pto.startDate).getTime();
-    t <= startOfDay(pto.endDate).getTime();
-    t += DAY
-  ) {
-    const d = new Date(t);
+  for (let d = startOfDay(pto.startDate); d <= startOfDay(pto.endDate); d = addCalendarDays(d, 1)) {
     if (d.getDay() !== 0 && d.getDay() !== 6) allDays.push(d);
   }
   const perDay = allDays.length > 0 ? pto.hours / allDays.length : 8;
@@ -562,7 +554,7 @@ export async function saveTimecardGrid(params: {
     for (const [iso, raw] of Object.entries(row.hours)) {
       const hours = Number(raw);
       if (!hours || hours <= 0) continue;
-      const date = startOfDay(new Date(iso + "T00:00:00"));
+      const date = parseCalendarDate(iso);
       if (Number.isNaN(date.getTime())) continue;
       if (date < sheet.periodStart || date > sheet.periodEnd) {
         throw new Error(`${iso} is outside this pay period`);

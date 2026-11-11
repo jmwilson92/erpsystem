@@ -5,6 +5,7 @@
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { userHasPermission } from "@/lib/auth";
+import { assertReviewRating } from "@/lib/review-rating";
 
 export type HrPersona = {
   /** Full HR administration (sees every employee). */
@@ -321,6 +322,7 @@ export async function decidePtoRequest(params: {
   userId?: string | null;
   approver?: { id: string; role: string } | null;
 }) {
+  if (!params.approver) throw new Error("Sign in required");
   if (params.decision === "REJECTED" && !params.decisionNotes?.trim()) {
     throw new Error("A rejection reason is required");
   }
@@ -364,12 +366,21 @@ export async function decidePtoRequest(params: {
 
 export async function createPtoRequest(params: {
   userId: string;
+  actor: { id: string; role: string };
   type: string;
   startDate: Date;
   endDate: Date;
   hours: number;
   reason?: string;
 }) {
+  if (!params.actor) throw new Error("Sign in required");
+  if (params.userId !== params.actor.id && !await canDecideFor(params.actor, params.userId, "hr.pto.decide")) {
+    throw new Error("Not authorized to request leave for this employee");
+  }
+  if (!Number.isFinite(params.startDate.getTime()) || !Number.isFinite(params.endDate.getTime()) || params.startDate > params.endDate) {
+    throw new Error("PTO start date must be on or before a valid end date");
+  }
+  if (!Number.isFinite(params.hours) || params.hours <= 0) throw new Error("PTO hours must be finite and positive");
   // Balance gate: can't request more PTO / sick than you've earned
   // (pending requests reserve hours too).
   if (["PTO", "SICK"].includes(params.type)) {
@@ -383,25 +394,27 @@ export async function createPtoRequest(params: {
       );
     }
   }
-  const pto = await prisma.ptoRequest.create({
-    data: {
-      userId: params.userId,
-      type: params.type,
-      startDate: params.startDate,
-      endDate: params.endDate,
-      hours: params.hours,
-      reason: params.reason || null,
-      status: "PENDING",
-    },
+  return prisma.$transaction(async tx => {
+    const pto = await tx.ptoRequest.create({
+      data: {
+        userId: params.userId,
+        type: params.type,
+        startDate: params.startDate,
+        endDate: params.endDate,
+        hours: params.hours,
+        reason: params.reason || null,
+        status: "PENDING",
+      },
+    });
+    await logAudit({
+      entityType: "PtoRequest",
+      entityId: pto.id,
+      action: "PTO_REQUESTED",
+      userId: params.actor.id,
+      metadata: { employeeId: params.userId, type: params.type, hours: params.hours },
+    }, tx);
+    return pto;
   });
-  await logAudit({
-    entityType: "PtoRequest",
-    entityId: pto.id,
-    action: "PTO_REQUESTED",
-    userId: params.userId,
-    metadata: { type: params.type, hours: params.hours },
-  });
-  return pto;
 }
 
 export async function decideTimeEntry(params: {
@@ -411,6 +424,7 @@ export async function decideTimeEntry(params: {
   userId?: string | null;
   approver?: { id: string; role: string } | null;
 }) {
+  if (!params.approver) throw new Error("Sign in required");
   if (params.decision === "REJECTED" && !params.decisionNotes?.trim()) {
     throw new Error("A rejection reason is required");
   }
@@ -525,14 +539,16 @@ export async function advanceExpenseReport(params: {
   userId?: string | null;
   approver?: { id: string; role: string } | null;
 }) {
+  if (!params.approver) throw new Error("Sign in required");
+  const actor = params.approver;
   if (params.status === "REJECTED" && !params.decisionNotes?.trim()) {
     throw new Error("A rejection reason is required");
   }
   const existing = await prisma.expenseReport.findUniqueOrThrow({
     where: { id: params.id },
   });
-  // Anyone may submit their own report; decisions need authority.
-  if (params.approver && params.status !== "SUBMITTED") {
+  // Submission is an owner action; a manager/HR may explicitly act on behalf.
+  if (params.status !== "SUBMITTED" || existing.userId !== params.approver.id) {
     const ok = await canDecideFor(
       params.approver,
       existing.userId,
@@ -546,49 +562,59 @@ export async function advanceExpenseReport(params: {
       `Expense ${existing.number}: cannot go ${existing.status} → ${params.status}`
     );
   }
-  const report = await prisma.expenseReport.update({
-    where: { id: params.id },
-    data: {
-      status: params.status,
-      decisionNotes:
-        params.status === "REJECTED"
-          ? params.decisionNotes?.trim() || null
-          : existing.decisionNotes,
-      submittedAt:
-        params.status === "SUBMITTED" ? new Date() : existing.submittedAt,
-    },
+  return prisma.$transaction(async tx => {
+    const report = await tx.expenseReport.update({
+      where: { id: params.id, userId: existing.userId, status: existing.status },
+      data: {
+        status: params.status,
+        decisionNotes:
+          params.status === "REJECTED"
+            ? params.decisionNotes?.trim() || null
+            : existing.decisionNotes,
+        submittedAt:
+          params.status === "SUBMITTED" ? new Date() : existing.submittedAt,
+      },
+    });
+    await logAudit({
+      entityType: "ExpenseReport",
+      entityId: report.id,
+      action: `EXPENSE_${params.status}`,
+      userId: actor.id,
+      changes: { from: existing.status, to: params.status },
+    }, tx);
+    return report;
   });
-  await logAudit({
-    entityType: "ExpenseReport",
-    entityId: report.id,
-    action: `EXPENSE_${params.status}`,
-    userId: params.userId,
-    changes: { from: existing.status, to: params.status },
-  });
-  return report;
 }
 
 export async function updateGoalProgress(params: {
   id: string;
   progress: number;
-  userId?: string | null;
+  actor: { id: string; role: string };
 }) {
+  if (!params.actor) throw new Error("Sign in required");
+  const existing = await prisma.employeeGoal.findUniqueOrThrow({ where: { id: params.id } });
+  if (existing.userId !== params.actor.id && !await canDecideFor(params.actor, existing.userId, "hr.goal.manage")) {
+    throw new Error("Not authorized to update this employee goal");
+  }
+  if (!Number.isFinite(params.progress)) throw new Error("Goal progress must be finite");
   const progress = Math.min(100, Math.max(0, params.progress));
-  const goal = await prisma.employeeGoal.update({
-    where: { id: params.id },
-    data: {
-      progress,
-      status: progress >= 100 ? "COMPLETED" : "ACTIVE",
-    },
+  return prisma.$transaction(async tx => {
+    const goal = await tx.employeeGoal.update({
+      where: { id: params.id, userId: existing.userId },
+      data: {
+        progress,
+        status: progress >= 100 ? "COMPLETED" : "ACTIVE",
+      },
+    });
+    await logAudit({
+      entityType: "EmployeeGoal",
+      entityId: goal.id,
+      action: "GOAL_PROGRESS",
+      userId: params.actor.id,
+      changes: { progress, status: goal.status },
+    }, tx);
+    return goal;
   });
-  await logAudit({
-    entityType: "EmployeeGoal",
-    entityId: goal.id,
-    action: "GOAL_PROGRESS",
-    userId: params.userId,
-    changes: { progress, status: goal.status },
-  });
-  return goal;
 }
 
 /** Certification expiry buckets for the People tab. */
@@ -747,6 +773,7 @@ export async function upsertPerformanceReview(params: {
   improvements?: string | null;
   careerNotes?: string | null;
 }) {
+  assertReviewRating(params.overallRating);
   // A rating without a written justification isn't allowed.
   if (
     params.overallRating != null &&

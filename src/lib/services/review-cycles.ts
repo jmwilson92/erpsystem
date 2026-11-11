@@ -4,6 +4,7 @@
  */
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
+import { assertReviewRating } from "@/lib/review-rating";
 import { canDecideFor, getHrPersona } from "@/lib/services/hr";
 
 export type SelfRating = {
@@ -233,6 +234,7 @@ export async function saveManagerReviewNotes(params: {
     params.ratingRationale === undefined
       ? review.ratingRationale
       : params.ratingRationale?.trim() || null;
+  assertReviewRating(effectiveRating);
   if (effectiveRating != null && !effectiveRationale) {
     throw new Error("Explain the rating — a written rationale is required.");
   }
