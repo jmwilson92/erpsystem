@@ -9,8 +9,10 @@
  *   - While speaking, saying her name interrupts
  *   - ~25s after a reply, follow-ups without the name
  *
- * Critical Chrome quirks we handle:
+ * Critical Chrome / Edge quirks we handle:
  *   - SpeechRecognition often ends mid-session → auto-restart loop
+ *   - Edge continuous mode dies quickly and fires `network` without onend
+ *     → new instance + backoff, never rec.start() on a dead recognizer
  *   - Many utterances only get interim results (no final) → send on silence
  *   - TTS audio kills the recognizer → reboot after every speak
  */
@@ -35,6 +37,7 @@ import {
 } from "@/lib/carina-language";
 import {
   carinaPointEvent,
+  carinaVoiceStatusEvent,
   enableCarinaVoiceEvent,
   persistWantListen,
   readWantListen,
@@ -102,6 +105,19 @@ function getSpeechRecognition(): (new () => SpeechRecognitionLike) | null {
   return w.SpeechRecognition || w.webkitSpeechRecognition || null;
 }
 
+/** Chromium Edge (desktop/Android/iOS). Its Web Speech continuous mode is flaky. */
+function isChromiumEdge(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /\bEdg(e|A|iOS)?\//.test(navigator.userAgent);
+}
+
+function recognitionRestartDelay(networkFails: number, edge: boolean): number {
+  if (networkFails > 0) {
+    return Math.min(5000, 350 * 2 ** Math.min(networkFails - 1, 4));
+  }
+  return edge ? 100 : RESTART_MS;
+}
+
 function escapeRe(s: string) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -125,7 +141,7 @@ function includesWake(text: string, wake: string) {
   if (w === "carina" || w === "karina") {
     // Broad mishears for Carina / Karina
     if (
-      /\b(carina|karina|corina|careena|karrina|karinna|carinna|katrina|carena|karena|serina|sarina|marina|farina|carine|karine|karen|carrie|kari|cara)\b/.test(
+      /\b(carina|karina|corina|corrina|korina|careena|kareena|coreena|karrina|karinna|carinna|katrina|carena|karena|kerina|karrena|serina|sarina|marina|farina|carine|karine|karen|carrie|kari|cara)\b/.test(
         t
       )
     ) {
@@ -153,7 +169,7 @@ function stripWake(text: string, wake: string) {
   const first = w.split(/\s+/)[0] || w;
   if (first.toLowerCase() === "carina" || first.toLowerCase() === "karina") {
     out = out.replace(
-      /\b(hey|hi|ok|okay|yo)?\s*(carina|karina|corina|careena|karrina|karinna|carinna|katrina|carena|karena|serina|sarina|marina|farina|carine|karine|karen|carrie|kari|cara)\b[,.!?]?/gi,
+      /\b(hey|hi|ok|okay|yo)?\s*(carina|karina|corina|corrina|korina|careena|kareena|coreena|karrina|karinna|carinna|katrina|carena|karena|kerina|karrena|serina|sarina|marina|farina|carine|karine|karen|carrie|kari|cara)\b[,.!?]?/gi,
       " "
     );
     out = out.replace(/\b(care|car|kar)\s*(ina|ena|rena)\b[,.!?]?/gi, " ");
@@ -233,6 +249,8 @@ export function VoiceAssistant({
   const pttBufRef = useRef("");
   const pttRef = useRef(false);
   const bootGenRef = useRef(0);
+  const recAliveRef = useRef(false);
+  const networkFailsRef = useRef(0);
   const askingRef = useRef(false);
   /** Business-agent multi-turn state (finish WO, etc.) */
   const pendingActionRef = useRef<{
@@ -348,10 +366,19 @@ export function VoiceAssistant({
   }, []);
 
   const setRecAliveBoth = useCallback((alive: boolean) => {
+    recAliveRef.current = alive;
     setRecAlive(alive);
     try {
       window.dispatchEvent(
         new CustomEvent("forge:carina-rec-alive", { detail: { recAlive: alive } })
+      );
+      window.dispatchEvent(
+        carinaVoiceStatusEvent({
+          listening: wantListenRef.current,
+          recAlive: alive,
+          error: null,
+          supported: !!getSpeechRecognition(),
+        })
       );
     } catch {
       // ignore
@@ -382,13 +409,17 @@ export function VoiceAssistant({
     killRecognition();
 
     const rec = new Ctor();
-    rec.continuous = true;
+    const edge = isChromiumEdge();
+    // Edge's continuous recognizer often ends in a second and then throws
+    // `network`. One-shot + new-instance restart is far more reliable there.
+    rec.continuous = !edge;
     rec.interimResults = true;
     rec.lang = langRef.current.code || "en-US";
     if (typeof rec.maxAlternatives === "number") rec.maxAlternatives = 3;
 
     rec.onstart = () => {
       if (bootGenRef.current !== gen) return;
+      networkFailsRef.current = 0;
       setRecAliveBoth(true);
       setError(null);
       if (modeRef.current === "off" || modeRef.current === "wake") {
@@ -450,7 +481,9 @@ export function VoiceAssistant({
     rec.onerror = (ev) => {
       if (bootGenRef.current !== gen) return;
       if (ev.error === "not-allowed") {
-        setError("Microphone permission denied — allow mic in the address bar.");
+        const msg =
+          "Microphone permission denied — click the lock icon in the address bar and allow the mic, then tap Voice on.";
+        setError(msg);
         wantListenRef.current = false;
         shellEngineActive = false;
         persistWantListen(false);
@@ -458,12 +491,52 @@ export function VoiceAssistant({
         setModeBoth("off");
         setStatus("Off — mic blocked");
         setRecAliveBoth(false);
+        try {
+          window.dispatchEvent(
+            carinaVoiceStatusEvent({
+              listening: false,
+              recAlive: false,
+              error: msg,
+              supported: true,
+            })
+          );
+        } catch {
+          // ignore
+        }
         killRecognition();
         return;
       }
       // no-speech / aborted: normal — onend restarts
-      if (ev.error === "network") {
-        setError("Speech network glitch — retrying…");
+      if (ev.error === "network" || ev.error === "service-not-allowed") {
+        networkFailsRef.current += 1;
+        const msg =
+          ev.error === "network"
+            ? "Speech recognition dropped — retrying…"
+            : "Speech service unavailable — retrying…";
+        setError(msg);
+        setRecAliveBoth(false);
+        try {
+          window.dispatchEvent(
+            carinaVoiceStatusEvent({
+              listening: true,
+              recAlive: false,
+              error: msg,
+              supported: true,
+            })
+          );
+        } catch {
+          // ignore
+        }
+        // Edge often does not fire onend after a network error, so do not
+        // wait — and never rec.start() the same failed instance.
+        const delay = recognitionRestartDelay(networkFailsRef.current, true);
+        if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+        restartTimerRef.current = setTimeout(() => {
+          if (!wantListenRef.current) return;
+          if (carinaIsSpeaking()) return;
+          bootRecognition();
+        }, delay);
+        return;
       }
       setRecAliveBoth(false);
     };
@@ -489,18 +562,19 @@ export function VoiceAssistant({
         return;
       }
 
+      const delay = recognitionRestartDelay(
+        networkFailsRef.current,
+        isChromiumEdge()
+      );
+      if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
       restartTimerRef.current = setTimeout(() => {
         if (!wantListenRef.current) return;
         if (bootGenRef.current !== gen) return;
         if (carinaIsSpeaking()) return;
-        try {
-          rec.start();
-          setRecAliveBoth(true);
-        } catch {
-          // Instance dead — full reboot
-          bootRecognition();
-        }
-      }, RESTART_MS);
+        // Always a new SpeechRecognition instance. Edge's rec.start() after
+        // onend / network is often a no-op or immediately errors again.
+        bootRecognition();
+      }, delay);
     };
 
     recRef.current = rec;
@@ -944,7 +1018,22 @@ export function VoiceAssistant({
 
     const Ctor = getSpeechRecognition();
     if (!Ctor) {
-      setError("Use Chrome or Edge on https://www.protessera.com for voice.");
+      const unsupported =
+        "Voice listening isn’t supported in this browser. Use Microsoft Edge or Google Chrome on https://www.protessera.com, or type your question.";
+      setError(unsupported);
+      persistWantListen(false);
+      try {
+        window.dispatchEvent(
+          carinaVoiceStatusEvent({
+            listening: false,
+            recAlive: false,
+            error: unsupported,
+            supported: false,
+          })
+        );
+      } catch {
+        // ignore
+      }
       return;
     }
     const stored = loadStoredLang();
@@ -964,10 +1053,21 @@ export function VoiceAssistant({
       });
       stream.getTracks().forEach((t) => t.stop());
     } catch (e) {
-      setError(
-        `Mic blocked: ${e instanceof Error ? e.message : String(e)}. Allow mic in the lock icon.`
-      );
+      const msg = `Mic blocked: ${e instanceof Error ? e.message : String(e)}. Click the lock icon in the address bar, allow the microphone, then tap Voice on.`;
+      setError(msg);
       persistWantListen(false);
+      try {
+        window.dispatchEvent(
+          carinaVoiceStatusEvent({
+            listening: false,
+            recAlive: false,
+            error: msg,
+            supported: true,
+          })
+        );
+      } catch {
+        // ignore
+      }
       return;
     }
 
@@ -1096,29 +1196,41 @@ export function VoiceAssistant({
     const onStop = () => {
       stopListening();
     };
+    const onPttDown = () => {
+      void pttDown();
+    };
+    const onPttUp = () => {
+      pttUp();
+    };
     window.addEventListener("forge:carina-enable-voice", onEnable);
     window.addEventListener("forge:carina-stop-voice", onStop);
+    window.addEventListener("forge:carina-ptt-down", onPttDown);
+    window.addEventListener("forge:carina-ptt-up", onPttUp);
     // Resume after refresh / soft remount if user left mic on
     if (readWantListen()) {
       void startListening();
     }
 
-    // Watchdog: if we want to listen but recognition is dead, reboot
+    // Watchdog: Edge can leave a dead recognizer object after `network`
+    // without clearing recRef or firing onend. Reboot if not actually alive.
     const watchdog = window.setInterval(() => {
       if (!wantListenRef.current) return;
       if (carinaIsSpeaking()) return;
       if (modeRef.current === "thinking") return;
-      if (!recRef.current) {
+      if (restartTimerRef.current) return;
+      if (!recRef.current || !recAliveRef.current) {
         bootRecognition();
       }
-    }, 2500);
+    }, 1500);
 
     return () => {
       window.removeEventListener("forge:carina-enable-voice", onEnable);
       window.removeEventListener("forge:carina-stop-voice", onStop);
+      window.removeEventListener("forge:carina-ptt-down", onPttDown);
+      window.removeEventListener("forge:carina-ptt-up", onPttUp);
       window.clearInterval(watchdog);
     };
-  }, [bootRecognition, host, setModeBoth, startListening, stopListening]);
+  }, [bootRecognition, host, pttDown, pttUp, setModeBoth, startListening, stopListening]);
 
   async function saveName() {
     const clean = nameDraft.trim() || DEFAULT_NAME;
@@ -1349,7 +1461,7 @@ export function VoiceAssistant({
       {error && <p className="text-xs text-amber-300">{error}</p>}
 
       <p className="text-[11px] text-slate-600">
-        Read-only product help — no live ERP data access or record changes.
+        Read-only help — no record changes. I can answer permitted counts like open work orders.
         Examples: “{name}, show me how to create a work order” · “{name},
         walk me through MRB” · “{name}, explain work order completion”.
         If “Hearing:” never updates, use
