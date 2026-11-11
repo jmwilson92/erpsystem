@@ -1,4 +1,5 @@
-import { prisma } from "@/lib/db";
+import { Prisma } from "@prisma/client";
+import { prisma, currentRequestSchema, isValidSchemaName } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { createWorkOrder } from "@/lib/services/work-orders";
 import { getAvailableQty } from "@/lib/services/order-fulfillment";
@@ -12,6 +13,16 @@ import {
   buildCalendarContext,
 } from "@/lib/services/schedule";
 import { addDays } from "date-fns";
+
+async function withForecastLock<T>(forecastId: string, work: (db: Prisma.TransactionClient) => Promise<T>) {
+  const schema = await currentRequestSchema();
+  if (!isValidSchemaName(schema)) throw new Error("Invalid planning schema");
+  const table = Prisma.raw(`"${schema}"."Forecast"`);
+  return prisma.$transaction(async db => {
+    await db.$queryRaw(Prisma.sql`SELECT id FROM ${table} WHERE id = ${forecastId} FOR UPDATE`);
+    return work(db);
+  });
+}
 
 async function nextNumber(prefix: string, model: "forecast" | "mrs") {
   if (model === "forecast") {
@@ -395,7 +406,6 @@ export async function releaseMaterialRequisition(params: {
   userId?: string;
   workCenter?: string;
 }) {
-  const settings = await getPlanningSettings();
   const mrs = await prisma.materialRequisition.findUnique({
     where: { id: params.materialRequisitionId },
     include: {
@@ -405,7 +415,9 @@ export async function releaseMaterialRequisition(params: {
     },
   });
   if (!mrs) throw new Error("Material requisition not found");
-  if (mrs.status === "CANCELLED") throw new Error("MRS is cancelled");
+  if (!["DRAFT", "RELEASED", "IN_PROGRESS"].includes(mrs.status)) throw new Error(`MRS is ${mrs.status} — terminal/invalid sheets cannot be released`);
+  // Do not load scheduling/default context for rejected terminal releases.
+  const settings = await getPlanningSettings();
 
   const defaultWc =
     params.workCenter ||
@@ -640,7 +652,7 @@ export async function releaseMaterialRequisition(params: {
   }
 
   await prisma.materialRequisition.update({
-    where: { id: mrs.id },
+    where: { id: mrs.id, status: { in: ["DRAFT", "RELEASED", "IN_PROGRESS"] } },
     data: {
       status:
         created.length || createdPr
@@ -832,38 +844,40 @@ export async function updateForecast(params: {
   status?: string;
   userId?: string;
 }) {
-  const existing = await prisma.forecast.findUnique({
-    where: { id: params.forecastId },
+  return withForecastLock(params.forecastId, async db => {
+    const existing = await db.forecast.findUnique({
+      where: { id: params.forecastId },
+    });
+    if (!existing) throw new Error("Forecast not found");
+    if (existing.status === "CANCELLED" && params.status !== "ACTIVE" && params.status !== "DRAFT") {
+      throw new Error("Forecast is cancelled");
+    }
+    const status =
+      params.status &&
+      ["DRAFT", "ACTIVE", "CLOSED", "CANCELLED"].includes(params.status)
+        ? params.status
+        : undefined;
+    const updated = await db.forecast.update({
+      where: { id: params.forecastId },
+      data: {
+        ...(params.name !== undefined ? { name: params.name.trim() } : {}),
+        ...(params.notes !== undefined ? { notes: params.notes } : {}),
+        ...(params.periodStart !== undefined
+          ? { periodStart: params.periodStart }
+          : {}),
+        ...(params.periodEnd !== undefined ? { periodEnd: params.periodEnd } : {}),
+        ...(status ? { status } : {}),
+      },
+    });
+    await logAudit({
+      entityType: "Forecast",
+      entityId: updated.id,
+      action: "UPDATED",
+      userId: params.userId,
+      metadata: { status: updated.status },
+    }, db);
+    return updated;
   });
-  if (!existing) throw new Error("Forecast not found");
-  if (existing.status === "CANCELLED" && params.status !== "ACTIVE" && params.status !== "DRAFT") {
-    throw new Error("Forecast is cancelled");
-  }
-  const status =
-    params.status &&
-    ["DRAFT", "ACTIVE", "CLOSED", "CANCELLED"].includes(params.status)
-      ? params.status
-      : undefined;
-  const updated = await prisma.forecast.update({
-    where: { id: params.forecastId },
-    data: {
-      ...(params.name !== undefined ? { name: params.name.trim() } : {}),
-      ...(params.notes !== undefined ? { notes: params.notes } : {}),
-      ...(params.periodStart !== undefined
-        ? { periodStart: params.periodStart }
-        : {}),
-      ...(params.periodEnd !== undefined ? { periodEnd: params.periodEnd } : {}),
-      ...(status ? { status } : {}),
-    },
-  });
-  await logAudit({
-    entityType: "Forecast",
-    entityId: updated.id,
-    action: "UPDATED",
-    userId: params.userId,
-    metadata: { status: updated.status },
-  });
-  return updated;
 }
 
 export async function upsertForecastLine(params: {
@@ -875,55 +889,52 @@ export async function upsertForecastLine(params: {
   notes?: string | null;
   userId?: string;
 }) {
-  const forecast = await prisma.forecast.findUnique({
-    where: { id: params.forecastId },
-  });
-  if (!forecast) throw new Error("Forecast not found");
-  if (["CLOSED", "CANCELLED"].includes(forecast.status)) {
-    throw new Error("Forecast is closed/cancelled — reopen to edit lines");
-  }
-  if (!Number.isFinite(params.quantity) || !(params.quantity > 0)) throw new Error("Quantity must be > 0");
-  if (params.lineId) {
-    return prisma.forecastLine.update({
-      where: { id: params.lineId },
+  return withForecastLock(params.forecastId, async db => {
+    const forecast = await db.forecast.findUnique({
+      where: { id: params.forecastId },
+    });
+    if (!forecast) throw new Error("Forecast not found");
+    if (["CLOSED", "CANCELLED"].includes(forecast.status)) {
+      throw new Error("Forecast is closed/cancelled — reopen to edit lines");
+    }
+    if (!Number.isFinite(params.quantity) || !(params.quantity > 0)) throw new Error("Quantity must be > 0");
+    if (params.lineId) {
+      const line = await db.forecastLine.findFirst({ where: { id: params.lineId, forecastId: params.forecastId }, select: { id: true } });
+      if (!line) throw new Error("Forecast line does not belong to the supplied forecast");
+      return db.forecastLine.update({
+        where: { id: params.lineId, forecastId: params.forecastId },
+        data: {
+          partId: params.partId,
+          quantity: params.quantity,
+          dueDate: params.dueDate ?? null,
+          notes: params.notes ?? null,
+        },
+      });
+    }
+    return db.forecastLine.create({
       data: {
+        forecastId: params.forecastId,
         partId: params.partId,
         quantity: params.quantity,
         dueDate: params.dueDate ?? null,
         notes: params.notes ?? null,
       },
     });
-  }
-  return prisma.forecastLine.create({
-    data: {
-      forecastId: params.forecastId,
-      partId: params.partId,
-      quantity: params.quantity,
-      dueDate: params.dueDate ?? null,
-      notes: params.notes ?? null,
-    },
   });
 }
 
 export async function removeForecastLine(params: {
   lineId: string;
+  forecastId?: string;
   userId?: string;
 }) {
-  const line = await prisma.forecastLine.findUnique({
-    where: { id: params.lineId },
-    include: { forecast: true, part: true },
-  });
-  if (!line) throw new Error("Line not found");
-  if (["CLOSED", "CANCELLED"].includes(line.forecast.status)) {
-    throw new Error("Forecast is closed/cancelled");
-  }
-  await prisma.forecastLine.delete({ where: { id: line.id } });
-  await logAudit({
-    entityType: "Forecast",
-    entityId: line.forecastId,
-    action: "LINE_REMOVED",
-    userId: params.userId,
-    metadata: { partNumber: line.part.partNumber },
+  const identity = await prisma.forecastLine.findUniqueOrThrow({ where: { id: params.lineId }, select: { forecastId: true } });
+  if (params.forecastId && params.forecastId !== identity.forecastId) throw new Error("Forecast line does not belong to the supplied forecast");
+  return withForecastLock(identity.forecastId, async db => {
+    const line = await db.forecastLine.findFirstOrThrow({ where: { id: params.lineId, forecastId: identity.forecastId }, include: { forecast: true, part: true } });
+    if (["CLOSED", "CANCELLED"].includes(line.forecast.status)) throw new Error("Forecast is closed/cancelled");
+    await db.forecastLine.delete({ where: { id: line.id, forecastId: identity.forecastId } });
+    await logAudit({ entityType: "Forecast", entityId: line.forecastId, action: "LINE_REMOVED", userId: params.userId, metadata: { partNumber: line.part.partNumber } }, db);
   });
 }
 
