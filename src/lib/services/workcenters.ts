@@ -98,15 +98,16 @@ export async function saveWorkCenter(params: {
   if (!code) throw new Error("Workcenter code required");
   if (!isWorkArea(params.area)) throw new Error("Invalid area");
 
+  return prisma.$transaction(async db => {
   if (params.isDefault) {
-    await prisma.workCenter.updateMany({
+    await db.workCenter.updateMany({
       where: { area: params.area, isDefault: true },
       data: { isDefault: false },
     });
   }
 
   if (params.id) {
-    const wc = await prisma.workCenter.update({
+    const wc = await db.workCenter.update({
       where: { id: params.id },
       data: {
         code,
@@ -125,11 +126,11 @@ export async function saveWorkCenter(params: {
       entityId: wc.id,
       action: "UPDATED",
       userId: params.userId,
-    });
+    }, db);
     return wc;
   }
 
-  const wc = await prisma.workCenter.create({
+  const wc = await db.workCenter.create({
     data: {
       code,
       name: params.name.trim(),
@@ -147,8 +148,9 @@ export async function saveWorkCenter(params: {
     entityId: wc.id,
     action: "CREATED",
     userId: params.userId,
-  });
+  }, db);
   return wc;
+  });
 }
 
 /** Coordinator assigns WO header station (current workcenter). */

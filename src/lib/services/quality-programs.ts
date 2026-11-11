@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
+import { qualityEvidenceContext } from "./quality-evidence";
 
 /**
  * QMS program framework: calibration, tool control, HAZMAT, ESD, FOD, safety,
@@ -148,7 +149,14 @@ export async function recordQualityEvent(params: {
   userId?: string;
 }) {
   const performedAt = params.performedAt || new Date();
-  const event = await prisma.qualityEvent.create({
+  if (!Number.isFinite(performedAt.getTime())) throw new Error("Invalid quality event date");
+  return prisma.$transaction(async db => {
+  const { program, item } = await qualityEvidenceContext(db, params.programId, params.itemId);
+  if (item && ["esd", "fod", "safety", "audits"].includes(program.key) && program.inspectionTemplate && ["PASS", "CLOSED", "NA"].includes(params.result || "")) {
+    const template = JSON.parse(program.inspectionTemplate);
+    if (!Array.isArray(template) || template.length) throw new Error("Use the complete configured inspection workflow for this item");
+  }
+  const event = await db.qualityEvent.create({
     data: {
       programId: params.programId,
       itemId: params.itemId || null,
@@ -164,12 +172,10 @@ export async function recordQualityEvent(params: {
 
   // Advance the item's due date on a successful recurring check.
   if (params.itemId && ["PASS", "CLOSED", "NA"].includes(params.result || "")) {
-    const item = await prisma.qualityItem.findUnique({ where: { id: params.itemId } });
     if (item) {
-      const program = await prisma.qualityProgram.findUnique({ where: { id: item.programId } });
-      const interval = item.intervalDays ?? program?.defaultIntervalDays ?? 0;
+      const interval = item.intervalDays ?? program.defaultIntervalDays ?? 0;
       const nextDue = interval > 0 ? new Date(performedAt.getTime() + interval * DAY) : item.nextDueAt;
-      await prisma.qualityItem.update({
+      await db.qualityItem.update({
         where: { id: item.id },
         data: {
           lastActionAt: performedAt,
@@ -179,14 +185,15 @@ export async function recordQualityEvent(params: {
       });
     }
   } else if (params.itemId && params.result === "FAIL") {
-    await prisma.qualityItem.update({
+    await db.qualityItem.update({
       where: { id: params.itemId },
       data: { status: "OUT_OF_SERVICE", lastActionAt: performedAt },
     });
   }
 
-  await logAudit({ entityType: "QualityEvent", entityId: event.id, action: "RECORDED", userId: params.userId, metadata: { type: event.type, result: event.result } });
+  await logAudit({ entityType: "QualityEvent", entityId: event.id, action: "RECORDED", userId: params.userId, metadata: { type: event.type, result: event.result } }, db);
   return event;
+  });
 }
 
 /** Compliance rollup across all active programs (for the hub + Quality badge). */
