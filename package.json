@@ -22,7 +22,7 @@
     "setup": "prisma generate && prisma db push && tsx prisma/seed.ts",
     "postinstall": "prisma generate",
     "typecheck": "tsc --noEmit",
-    "smoke": "tsx --tsconfig tsconfig.smoke.json scripts/smoke-unit.ts && npm run test:integrity && npm run test:ai-help && npm run test:qa && npm run test:qa-workflows && npm run test:qa-finance && npm run test:qa-permissions && npm run test:qa-auth-recovery && npm run test:qa-cm-gfp-authority && npm run test:qa-budget-approvals && npm run test:qa-shipment-stock && npm run test:qa-mrb-conservation && npm run test:qa-critical-integrity && tsx scripts/test-qa-gfp-conservation.ts && npm run test:qa-quality-evidence && npm run test:qa-onboarding-claims && npm run test:qa-shelf-integrity && npm run test:qa-hr-integrity && npm run test:qa-expense-sod && npm run test:qa-engineering-integrity && npm run test:qa-planning-integrity && npm run test:qa-rma-integrity && npm run test:qa-management-integrity",
+    "smoke": "tsx --tsconfig tsconfig.smoke.json scripts/smoke-unit.ts && npm run test:integrity && npm run test:ai-help && npm run test:qa && npm run test:qa-workflows && npm run test:qa-finance && npm run test:qa-permissions && npm run test:qa-auth-recovery && npm run test:qa-cm-gfp-authority && npm run test:qa-budget-approvals && npm run test:qa-shipment-stock && npm run test:qa-mrb-conservation && npm run test:qa-critical-integrity && tsx scripts/test-qa-gfp-conservation.ts && npm run test:qa-quality-evidence && npm run test:qa-onboarding-claims && npm run test:qa-shelf-integrity && npm run test:qa-hr-integrity && npm run test:qa-expense-sod && npm run test:qa-engineering-integrity && npm run test:qa-planning-integrity && npm run test:qa-rma-integrity && npm run test:qa-management-integrity && npm run test:qa-calendar-integrity",
     "assert:prod-env": "node scripts/assert-production-env.mjs",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
@@ -62,7 +62,8 @@
     "test:qa-engineering-integrity": "tsx scripts/test-qa-engineering-integrity.ts",
     "test:qa-planning-integrity": "tsx scripts/test-qa-planning-integrity.ts",
     "test:qa-rma-integrity": "tsx scripts/test-qa-rma-integrity.ts",
-    "test:qa-management-integrity": "tsx scripts/test-qa-management-integrity.ts"
+    "test:qa-management-integrity": "tsx scripts/test-qa-management-integrity.ts",
+    "test:qa-calendar-integrity": "tsx scripts/test-qa-calendar-integrity.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

@@ -96,6 +96,10 @@ export async function savePlanningSettings(
 ): Promise<PlanningSettings> {
   const current = await getPlanningSettings();
   const next = { ...current, ...patch };
+  if (!["FIXED_SHIFT", "CUSTOM_SHIFT", "WORK_CENTER", "STAFFED"].includes(next.calendarMode)) throw new Error("Invalid calendar mode");
+  for (const hours of [next.fixedShiftHours, next.customShiftHours]) if (!Number.isFinite(hours) || hours <= 0 || hours > 24) throw new Error("Shift hours must be finite, positive and at most 24");
+  for (const minutes of [next.kitBufferMinutes, next.stagingBufferMinutes, next.defaultBuyLeadDays]) if (!Number.isFinite(minutes) || minutes < 0) throw new Error("Planning buffers and lead days must be finite and nonnegative");
+  if (!Number.isFinite(next.defaultStepMinutes) || next.defaultStepMinutes <= 0) throw new Error("Default step minutes must be finite and positive");
   await prisma.companySettings.upsert({
     where: { id: "default" },
     create: {
@@ -315,6 +319,7 @@ export function addWorkingMinutes(
   let firstDayLeft = Math.max(0, mpd - alreadyUsedMin);
   if (firstDayLeft <= 0) {
     d = addDays(d, 1);
+    while (!isWorkingDay(d)) d = addDays(d, 1);
     firstDayLeft = mpd;
   }
   if (remaining <= firstDayLeft) {
