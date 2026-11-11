@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
+import { qualityEvidenceContext, validateQualityEvidence } from "./quality-evidence";
 import { getProgramByKey } from "@/lib/services/quality-programs";
 
 /**
@@ -45,39 +46,22 @@ export async function saveInspection(params: {
   notes?: string;
   userId?: string;
 }) {
-  const passed = params.results.every((r) => r.ok);
-  const insp = await prisma.qualityInspection.create({
-    data: {
-      programId: params.programId,
-      itemId: params.itemId || null,
-      results: JSON.stringify(params.results),
-      passed,
-      notes: params.notes?.trim() || null,
-      performedById: params.userId || null,
-    },
-  });
-
-  // Advance the item's next-due on a passing inspection; fail takes it down.
-  if (params.itemId) {
-    const item = await prisma.qualityItem.findUnique({ where: { id: params.itemId } });
+  return prisma.$transaction(async db => {
+    const { program, item } = await qualityEvidenceContext(db, params.programId, params.itemId);
+    validateQualityEvidence(program.inspectionTemplate, params.results);
+    if (params.results.some(r => typeof r.ok !== "boolean")) throw new Error("Each inspection check requires a boolean result");
+    const passed = params.results.every(r => r.ok);
+    const insp = await db.qualityInspection.create({ data: { programId: program.id, itemId: item?.id || null,
+      results: JSON.stringify(params.results), passed, notes: params.notes?.trim() || null, performedById: params.userId || null } });
     if (item) {
-      const program = await prisma.qualityProgram.findUnique({ where: { id: item.programId } });
-      const interval = item.intervalDays ?? program?.defaultIntervalDays ?? 0;
-      const now = new Date();
-      if (passed) {
-        const nextDue = interval > 0 ? new Date(now.getTime() + interval * 86_400_000) : item.nextDueAt;
-        await prisma.qualityItem.update({
-          where: { id: item.id },
-          data: { lastActionAt: now, nextDueAt: nextDue, status: "ACTIVE" },
-        });
-      } else {
-        await prisma.qualityItem.update({ where: { id: item.id }, data: { lastActionAt: now, status: "OUT_OF_SERVICE" } });
-      }
+      const now = new Date(), interval = item.intervalDays ?? program.defaultIntervalDays;
+      await db.qualityItem.update({ where: { id: item.id }, data: { lastActionAt: now,
+        nextDueAt: passed && interval > 0 ? new Date(now.getTime() + interval * 86400000) : item.nextDueAt,
+        status: passed ? "ACTIVE" : "OUT_OF_SERVICE" } });
     }
-  }
-
-  await logAudit({ entityType: "QualityInspection", entityId: insp.id, action: "RECORDED", userId: params.userId, metadata: { passed } });
-  return insp;
+    await logAudit({ entityType: "QualityInspection", entityId: insp.id, action: "RECORDED", userId: params.userId, metadata: { passed } }, db);
+    return insp;
+  });
 }
 
 export async function listInspections(programId: string, itemId?: string) {
@@ -100,7 +84,8 @@ export async function recordHumidity(params: {
 }) {
   const location = params.location?.trim();
   if (!location) throw new Error("A location / workcenter is required");
-  if (!Number.isFinite(params.relativeHumidity)) throw new Error("A numeric relative humidity is required");
+  if (!Number.isFinite(params.relativeHumidity) || params.relativeHumidity < 0 || params.relativeHumidity > 100) throw new Error("Relative humidity must be between 0 and 100 percent");
+  if (params.temperatureC !== undefined && !Number.isFinite(params.temperatureC)) throw new Error("Temperature must be numeric");
   return prisma.humidityReading.create({
     data: {
       location,
