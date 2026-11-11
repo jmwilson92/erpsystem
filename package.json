@@ -22,7 +22,7 @@
     "setup": "prisma generate && prisma db push && tsx prisma/seed.ts",
     "postinstall": "prisma generate",
     "typecheck": "tsc --noEmit",
-    "smoke": "tsx --tsconfig tsconfig.smoke.json scripts/smoke-unit.ts && npm run test:integrity && npm run test:ai-help && npm run test:qa && npm run test:qa-workflows && npm run test:qa-finance && npm run test:qa-permissions && npm run test:qa-auth-recovery && npm run test:qa-cm-gfp-authority && npm run test:qa-budget-approvals && npm run test:qa-shipment-stock && npm run test:qa-mrb-conservation && npm run test:qa-critical-integrity && tsx scripts/test-qa-gfp-conservation.ts",
+    "smoke": "tsx --tsconfig tsconfig.smoke.json scripts/smoke-unit.ts && npm run test:integrity && npm run test:ai-help && npm run test:qa && npm run test:qa-workflows && npm run test:qa-finance && npm run test:qa-permissions && npm run test:qa-auth-recovery && npm run test:qa-cm-gfp-authority && npm run test:qa-budget-approvals && npm run test:qa-shipment-stock && npm run test:qa-mrb-conservation && npm run test:qa-critical-integrity && tsx scripts/test-qa-gfp-conservation.ts && npm run test:qa-quality-evidence",
     "assert:prod-env": "node scripts/assert-production-env.mjs",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
@@ -53,7 +53,8 @@
     "test:qa-budget-approvals": "tsx scripts/test-qa-budget-approvals.ts",
     "test:qa-shipment-stock": "tsx scripts/test-qa-shipment-stock.ts",
     "test:qa-mrb-conservation": "tsx scripts/test-qa-mrb-conservation.ts",
-    "test:qa-critical-integrity": "tsx scripts/test-qa-critical-integrity.ts"
+    "test:qa-critical-integrity": "tsx scripts/test-qa-critical-integrity.ts",
+    "test:qa-quality-evidence": "tsx scripts/test-qa-quality-evidence.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
