@@ -1,5 +1,3 @@
-"use server";
-
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { isWorkArea, type WorkArea } from "@/lib/work-areas";
