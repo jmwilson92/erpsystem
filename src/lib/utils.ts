@@ -200,7 +200,8 @@ export function computeEvm(pv: number, ev: number, ac: number) {
 export function parseJsonArray<T = string>(value: string | null | undefined): T[] {
   if (!value) return [];
   try {
-    return JSON.parse(value) as T[];
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed as T[] : [];
   } catch {
     return [];
   }

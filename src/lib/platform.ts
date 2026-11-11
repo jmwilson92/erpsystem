@@ -21,3 +21,11 @@ export async function isPlatformContext(): Promise<boolean> {
 export async function isPlatformSupportEnabled(): Promise<boolean> {
   return isPlatformContext();
 }
+
+/** Real, active public-schema session only; demo personas never carry platform authority. */
+export async function getPlatformSessionAdmin() {
+  if (!(await isPlatformContext())) return null;
+  const { getSessionUser } = await import("@/lib/auth-core");
+  const user = await getSessionUser();
+  return user?.isActive && user.role === "ADMIN" ? user : null;
+}

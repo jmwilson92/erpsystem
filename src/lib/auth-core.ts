@@ -25,7 +25,7 @@ import {
   currentRequestSchema,
   TENANT_COOKIE,
 } from "./db";
-import type { PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { cookies } from "next/headers";
 import { logAudit } from "./audit";
 import { logAuthAudit } from "./auth-audit";
@@ -560,37 +560,66 @@ export async function claimTenant(params: {
   name?: string;
   userAgent?: string;
 }) {
-  const { tenantBySetupToken, clearSetupToken } = await import("./services/tenancy");
+  const { tenantBySetupToken } = await import("./services/tenancy");
   const tenant = await tenantBySetupToken(params.token);
-  if (!tenant) throw new Error("This setup link is invalid or has expired");
+  if (!tenant || tenant.isDemo || tenant.status !== "ACTIVE" || !/^tenant_[a-z0-9]{6,40}$/.test(tenant.schemaName)) throw new Error("This setup link is invalid or has expired");
   assertPasswordStrength(params.password);
-
+  const passwordHash = hashPassword(params.password);
   const db = clientForSchema(tenant.schemaName);
+  const token = randomBytes(32).toString("hex");
   const email = (tenant.billingEmail || "").trim().toLowerCase();
-  const existing = email
-    ? await db.user.findFirst({ where: { email } })
-    : await db.user.findFirst({ where: { role: "ADMIN" } });
-  if (!existing) throw new Error("No admin account found for this workspace");
-
-  const user = await db.user.update({
-    where: { id: existing.id },
-    data: {
-      passwordHash: hashPassword(params.password),
-      isActive: true,
-      role: "ADMIN",
-      ...(params.name?.trim() ? { name: params.name.trim() } : {}),
-    },
+  // One Postgres connection/transaction spans the public registry and this
+  // customer's qualified tables. No nested independent client transaction.
+  const outcome = await db.$transaction(async tx => {
+    const claimed = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
+      UPDATE public."Tenant" SET "setupTokenHash" = NULL, "setupTokenExpiresAt" = NULL, "updatedAt" = NOW()
+      WHERE id = ${tenant.id} AND "setupTokenHash" = ${sha256(params.token)}
+        AND "setupTokenExpiresAt" > NOW() AND "schemaName" = ${tenant.schemaName}
+        AND "isDemo" = false AND status = 'ACTIVE' RETURNING id`);
+    if (claimed.length !== 1) throw new Error("This setup link is invalid or has expired");
+    const existing = await tx.user.findFirst({ where: email ? { email } : { role: "ADMIN" } });
+    if (!existing || !existing.isActive || existing.role !== "ADMIN") throw new Error("No active admin account found for this workspace");
+    // FOR UPDATE also blocks a new factor's FK key-share insert until this
+    // credential transition commits; lock existing factor state below as well.
+    const userTable = Prisma.raw('"' + tenant.schemaName + '"."User"');
+    await tx.$queryRaw(Prisma.sql`SELECT id FROM ${userTable} WHERE id = ${existing.id} FOR UPDATE`);
+    const changed = await tx.user.updateMany({ where: { id: existing.id, isActive: true, role: "ADMIN", passwordHash: existing.passwordHash }, data: {
+      passwordHash, ...(!existing.passwordHash && params.name?.trim() ? { name: params.name.trim() } : {}),
+    } });
+    if (changed.count !== 1) throw new Error("Workspace administrator changed; request a fresh setup link");
+    const user = await tx.user.findUniqueOrThrow({ where: { id: existing.id } });
+    await tx.authSession.deleteMany({ where: { userId: user.id } });
+    await tx.$executeRaw(Prisma.sql`DELETE FROM public."MfaChallenge" WHERE "userId" = ${user.id} AND "schemaName" = ${tenant.schemaName}`);
+    const factor = await tx.mfaCredential.findUnique({ where: { userId: user.id }, select: { id: true, confirmedAt: true } });
+    if (factor) {
+      const locked = await tx.mfaCredential.updateMany({ where: { id: factor.id, confirmedAt: factor.confirmedAt }, data: { confirmedAt: factor.confirmedAt } });
+      if (locked.count !== 1) throw new Error("Second-factor state changed; retry your setup link");
+    }
+    const mfa = !!factor?.confirmedAt;
+    if (mfa) {
+      // Challenges live in public, unlike credentials/sessions in the tenant.
+      await tx.$executeRaw(Prisma.sql`INSERT INTO public."MfaChallenge"
+        (id, "tokenHash", "userId", "schemaName", "expiresAt", "userAgent") VALUES
+        (${randomBytes(16).toString("hex")}, ${sha256(token)}, ${user.id}, ${tenant.schemaName},
+         ${new Date(Date.now() + 5 * 60000)}, ${params.userAgent?.slice(0, 200) || null})`);
+    } else {
+      await tx.authSession.create({ data: { tokenHash: sha256(token), userId: user.id,
+        expiresAt: new Date(Date.now() + SESSION_DAYS * 86400000), userAgent: params.userAgent?.slice(0, 200) || null } });
+    }
+    await logAudit({ entityType: "User", entityId: user.id, action: "INSTANCE_CLAIMED", userId: user.id, metadata: { mfaRequired: mfa } }, tx);
+    return { user, mfa };
   });
-
-  await clearSetupToken(tenant.id);
-  await createTenantSession(user.id, tenant.schemaName, params.userAgent);
-  await logAudit({
-    entityType: "User",
-    entityId: user.id,
-    action: "INSTANCE_CLAIMED",
-    userId: user.id,
-  });
-  return user;
+  // Never publish a credential cookie until token, password, session/challenge
+  // and tenant-local audit evidence have committed together.
+  const jar = await cookies();
+  jar.delete(MFA_COOKIE); jar.delete(SESSION_COOKIE); jar.delete(TENANT_COOKIE); jar.delete("forge-demo"); jar.delete("forge-demo-user");
+  const cookieOpts = { path: "/", httpOnly: true, sameSite: "lax" as const, secure: process.env.NODE_ENV === "production" };
+  if (outcome.mfa) jar.set(MFA_COOKIE, token, { ...cookieOpts, maxAge: 5 * 60 });
+  else {
+    jar.set(SESSION_COOKIE, token, { ...cookieOpts, maxAge: SESSION_DAYS * 86400 });
+    jar.set(TENANT_COOKIE, tenant.schemaName, { ...cookieOpts, maxAge: SESSION_DAYS * 86400 });
+  }
+  return outcome.user;
 }
 
 // ─── Invites & resets ───────────────────────────────────────────

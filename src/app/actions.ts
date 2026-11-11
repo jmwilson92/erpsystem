@@ -1658,10 +1658,11 @@ export async function actionClaimTenant(
   } catch (e) {
     return {
       ok: false,
-      message: e instanceof Error ? e.message : "Could not set up your workspace",
+      message: (await import("@/lib/redact-secrets")).redactError(e),
     };
   }
   // Land brand-new workspaces in the guided setup wizard, not a bare dashboard.
+  if (await (await import("@/lib/auth-core")).hasPendingMfa()) redirect("/login/mfa");
   redirect("/setup");
 }
 
@@ -1676,15 +1677,10 @@ export async function actionReissueOnboarding(
   _prev: OnboardLinkState | null,
   formData: FormData
 ): Promise<OnboardLinkState> {
-  const { cookies, headers } = await import("next/headers");
-  const jar = await cookies();
-  if (jar.get("forge-tenant")?.value) {
-    return { ok: false, message: "Not available for tenant accounts." };
-  }
-  const { getCurrentUser } = await import("@/lib/auth");
-  const user = await getCurrentUser();
-  if (!user || user.role !== "ADMIN") {
-    return { ok: false, message: "Admins only." };
+  const { headers } = await import("next/headers");
+  const { getPlatformSessionAdmin } = await import("@/lib/platform");
+  if (!(await getPlatformSessionAdmin())) {
+    return { ok: false, message: "A signed-in platform administrator is required." };
   }
   const tenantId = (formData.get("tenantId") as string) || "";
   if (!tenantId) return { ok: false, message: "Missing tenant." };
@@ -1699,7 +1695,7 @@ export async function actionReissueOnboarding(
   } catch (e) {
     return {
       ok: false,
-      message: e instanceof Error ? e.message : "Could not create link",
+      message: (await import("@/lib/redact-secrets")).redactError(e),
     };
   }
 }

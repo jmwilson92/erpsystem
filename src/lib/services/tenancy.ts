@@ -805,13 +805,14 @@ export async function issueOnboardingLink(
   appUrl?: string
 ): Promise<{ token: string; url: string }> {
   const token = randomBytes(24).toString("hex");
-  await controlPlaneClient().tenant.update({
-    where: { id: tenantId },
+  const issued = await controlPlaneClient().tenant.updateMany({
+    where: { id: tenantId, isDemo: false, status: "ACTIVE" },
     data: {
       setupTokenHash: sha256(token),
       setupTokenExpiresAt: new Date(Date.now() + SETUP_TOKEN_DAYS * 86_400_000),
     },
   });
+  if (issued.count !== 1) throw new Error("Only active customer workspaces can receive setup links");
   const base = appUrl || process.env.APP_URL || "";
   return { token, url: `${base}/onboard/${token}` };
 }
@@ -820,7 +821,7 @@ export async function issueOnboardingLink(
 export async function tenantBySetupToken(token: string) {
   if (!token || !/^[a-f0-9]{48}$/.test(token)) return null;
   const t = await controlPlaneClient().tenant.findFirst({
-    where: { setupTokenHash: sha256(token) },
+    where: { setupTokenHash: sha256(token), isDemo: false, status: "ACTIVE" },
   });
   if (!t || !t.setupTokenExpiresAt || t.setupTokenExpiresAt < new Date()) {
     return null;
@@ -834,8 +835,7 @@ export async function clearSetupToken(tenantId: string) {
     .tenant.update({
       where: { id: tenantId },
       data: { setupTokenHash: null, setupTokenExpiresAt: null },
-    })
-    .catch(() => undefined);
+    });
 }
 
 /** Resolve a tenant by its Stripe subscription or customer id (for webhooks). */
