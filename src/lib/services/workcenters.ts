@@ -97,6 +97,9 @@ export async function saveWorkCenter(params: {
   const code = params.code.trim().toUpperCase();
   if (!code) throw new Error("Workcenter code required");
   if (!isWorkArea(params.area)) throw new Error("Invalid area");
+  const hours = params.capacityHoursPerDay ?? 16, efficiency = params.efficiency ?? 0.85;
+  if (!Number.isFinite(hours) || hours <= 0 || hours > 24) throw new Error("Station capacity must be finite, positive and at most 24 hours per day");
+  if (!Number.isFinite(efficiency) || efficiency <= 0 || efficiency > 1) throw new Error("Station efficiency must be finite and greater than 0 and at most 1");
 
   return prisma.$transaction(async db => {
   if (params.isDefault) {
