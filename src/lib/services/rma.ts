@@ -2,7 +2,8 @@
  * RMA — customer returns with warranty evaluation, chargeable repair quotes,
  * and repair work orders (no sales order step).
  */
-import { prisma } from "@/lib/db";
+import { Prisma } from "@prisma/client";
+import { prisma, currentRequestSchema, isValidSchemaName } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import {
   evaluateWarranty,
@@ -10,6 +11,33 @@ import {
   ensureWorkOrderUnits,
 } from "@/lib/services/serials";
 import { createWorkOrder } from "@/lib/services/work-orders";
+
+const TERMINAL_RMA = ["COMPLETE", "COMPLETED", "CLOSED", "SHIPPED", "CANCELLED"];
+function assertOpenRma(rma: { status: string }) {
+  if (TERMINAL_RMA.includes(rma.status)) throw new Error(`Cannot change repair quote while RMA is ${rma.status}`);
+}
+function repairMoney(value: number) {
+  if (!Number.isFinite(value) || value < 0 || !Number.isSafeInteger(Math.round(value * 100))) throw new Error("Repair quote total must be finite, nonnegative and safely representable in cents");
+  return Math.round(value * 100) / 100;
+}
+function validateRepairLines(lines: { description: string; quantity: number; unitPrice: number }[]) {
+  if (!lines.length || lines.some(l => !l.description?.trim() || !Number.isFinite(l.quantity) || l.quantity <= 0 || !Number.isFinite(l.unitPrice) || !Number.isFinite(l.quantity * l.unitPrice))) throw new Error("Repair quote lines require descriptions, positive finite quantities and finite prices");
+  return repairMoney(lines.reduce((sum, line) => sum + line.quantity * line.unitPrice, 0));
+}
+async function withRepairQuoteLock<T>(rmaId: string, work: (db: Prisma.TransactionClient, quoteTable: Prisma.Sql) => Promise<T>) {
+  const schema = await currentRequestSchema();
+  if (!isValidSchemaName(schema)) throw new Error("Invalid RMA schema");
+  const rmaTable = Prisma.raw(`"${schema}"."Rma"`), quoteTable = Prisma.raw(`"${schema}"."Quote"`), linesTable = Prisma.raw(`"${schema}"."QuoteLine"`);
+  return prisma.$transaction(async db => {
+    await db.$queryRaw(Prisma.sql`SELECT id FROM ${rmaTable} WHERE id = ${rmaId} FOR UPDATE`);
+    const identity = await db.rma.findUniqueOrThrow({ where: { id: rmaId }, select: { quoteId: true } });
+    if (identity.quoteId) {
+      await db.$queryRaw(Prisma.sql`SELECT id FROM ${quoteTable} WHERE id = ${identity.quoteId} FOR UPDATE`);
+      await db.$queryRaw(Prisma.sql`SELECT id FROM ${linesTable} WHERE "quoteId" = ${identity.quoteId} ORDER BY id FOR UPDATE`);
+    }
+    return work(db, quoteTable);
+  });
+}
 
 async function nextRmaNumber(): Promise<string> {
   const rows = await prisma.rma.findMany({
@@ -24,8 +52,8 @@ async function nextRmaNumber(): Promise<string> {
   return `RMA-${String(max + 1).padStart(5, "0")}`;
 }
 
-async function nextQuoteNumber(): Promise<string> {
-  const rows = await prisma.quote.findMany({
+async function nextQuoteNumber(db: Prisma.TransactionClient = prisma): Promise<string> {
+  const rows = await db.quote.findMany({
     where: { number: { startsWith: "QT-" } },
     select: { number: true },
   });
@@ -180,9 +208,8 @@ export async function issueRma(params: {
     include: { topPart: true, topSerial: true, customer: true },
   });
   if (!rma) throw new Error("RMA not found");
-  if (["COMPLETE", "SHIPPED", "CANCELLED"].includes(rma.status)) {
-    throw new Error(`Cannot issue RMA in status ${rma.status}`);
-  }
+  assertOpenRma(rma);
+  if (["QUOTE_ACCEPTED", "IN_WORK", "MRB_HOLD"].includes(rma.status)) throw new Error("RMA is already authorized/in repair; cannot reissue evaluation");
 
   const coverage = params.coverage;
   const warrantyLike = coverage === "WARRANTY" || coverage === "GOODWILL";
@@ -252,58 +279,68 @@ export async function createRepairQuoteForRma(params: {
   lines?: { description: string; quantity: number; unitPrice: number; partId?: string }[];
   userId?: string;
 }) {
-  const rma = await prisma.rma.findUnique({
-    where: { id: params.rmaId },
-    include: { customer: true, topPart: true },
-  });
-  if (!rma) throw new Error("RMA not found");
+  return withRepairQuoteLock(params.rmaId, async (db, quoteTable) => {
+    const rma = await db.rma.findUnique({
+      where: { id: params.rmaId },
+      include: { customer: true, topPart: true, quote: { include: { lines: true } } },
+    });
+    if (!rma) throw new Error("RMA not found");
+    assertOpenRma(rma);
+    if (rma.quote) {
+      if (rma.quote.quoteType !== "REPAIR" || rma.quote.customerId !== rma.customerId) throw new Error("Linked repair quote identity is inconsistent");
+      return rma.quote;
+    }
+    if (!["REQUESTED", "EVALUATING", "QUOTE_PENDING", "QUOTE_SENT"].includes(rma.status)) throw new Error("Cannot create a new quote after repair authorization/work");
 
-  const lines =
-    params.lines?.length
-      ? params.lines
-      : [
-          {
-            description: `Evaluation / repair — ${rma.topPart.partNumber} SN ${rma.customerSn}`,
-            quantity: 1,
-            unitPrice: 0,
-            partId: rma.topPartId,
-          },
-        ];
+    const lines =
+      params.lines?.length
+        ? params.lines
+        : [
+            {
+              description: `Evaluation / repair — ${rma.topPart.partNumber} SN ${rma.customerSn}`,
+              quantity: 1,
+              unitPrice: 0,
+              partId: rma.topPartId,
+            },
+          ];
 
-  const total = lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0);
-  const number = await nextQuoteNumber();
+    const total = validateRepairLines(lines);
+    await db.$executeRaw(Prisma.sql`LOCK TABLE ${quoteTable} IN SHARE ROW EXCLUSIVE MODE`);
+    const number = await nextQuoteNumber(db);
 
-  const quote = await prisma.quote.create({
-    data: {
-      number,
-      customerId: rma.customerId,
-      status: "DRAFT",
-      quoteType: "REPAIR",
-      notes: `Repair quote for ${rma.number}`,
-      totalAmount: total,
-      lines: {
-        create: lines.map((l, i) => ({
-          description: l.description,
-          quantity: l.quantity,
-          unitPrice: l.unitPrice,
-          partId: l.partId || null,
-          lineNumber: i + 1,
-        })),
+    const quote = await db.quote.create({
+      data: {
+        number,
+        customerId: rma.customerId,
+        status: "DRAFT",
+        quoteType: "REPAIR",
+        notes: `Repair quote for ${rma.number}`,
+        totalAmount: total,
+        lines: {
+          create: lines.map((l, i) => ({
+            description: l.description,
+            quantity: l.quantity,
+            unitPrice: l.unitPrice,
+            partId: l.partId || null,
+            lineNumber: i + 1,
+          })),
+        },
       },
-    },
-    include: { lines: true },
-  });
+      include: { lines: true },
+    });
 
-  await prisma.rma.update({
-    where: { id: rma.id },
-    data: {
-      quoteId: quote.id,
-      quotedPrice: total,
-      status: "QUOTE_PENDING",
-    },
-  });
+    await db.rma.update({
+      where: { id: rma.id },
+      data: {
+        quoteId: quote.id,
+        quotedPrice: total,
+        status: "QUOTE_PENDING",
+      },
+    });
 
-  return quote;
+    await logAudit({ entityType: "Rma", entityId: rma.id, action: "REPAIR_QUOTE_CREATED", userId: params.userId, metadata: { quoteId: quote.id, total } }, db);
+    return quote;
+  });
 }
 
 /** Accept repair quote → create repair WO (no sales order). */
@@ -311,37 +348,31 @@ export async function acceptRepairQuote(params: {
   quoteId: string;
   userId?: string;
 }) {
-  const quote = await prisma.quote.findUnique({
-    where: { id: params.quoteId },
-    include: { rma: true, lines: true },
+  const identity = await prisma.quote.findUniqueOrThrow({ where: { id: params.quoteId }, include: { rma: true } });
+  const rmaId = identity.rma?.id;
+  if (identity.quoteType !== "REPAIR" || !rmaId) throw new Error("Not a repair quote — use convert to sales order for standard quotes");
+  const prepared = await withRepairQuoteLock(rmaId, async db => {
+    const quote = await db.quote.findUniqueOrThrow({ where: { id: params.quoteId }, include: { rma: true, lines: true } });
+    if (quote.rma?.id !== rmaId || quote.quoteType !== "REPAIR" || quote.customerId !== quote.rma.customerId) throw new Error("Linked repair quote identity is inconsistent");
+    assertOpenRma(quote.rma);
+    if (!["DRAFT", "SENT", "ACCEPTED"].includes(quote.status)) throw new Error("Repair quote cannot be accepted in its current status");
+    if (validateRepairLines(quote.lines) !== repairMoney(quote.totalAmount)) throw new Error("Repair quote lines do not reconcile to the header total");
+    const existingRepair = await db.workOrder.findFirst({ where: { rmaId, quoteId: quote.id }, orderBy: { createdAt: "desc" } });
+    if (quote.status === "ACCEPTED" && existingRepair) {
+      if (existingRepair.status === "CANCELLED") throw new Error("Repair work was cancelled; controlled reauthorization is required");
+      return { quote, workOrder: existingRepair };
+    }
+    if (["IN_WORK", "MRB_HOLD"].includes(quote.rma.status)) throw new Error("RMA is already in repair; reconcile its existing work before accepting again");
+    await db.quote.update({ where: { id: quote.id }, data: { status: "ACCEPTED" } });
+    await db.rma.update({ where: { id: rmaId }, data: { status: "QUOTE_ACCEPTED", quotedPrice: quote.totalAmount, finalPrice: quote.totalAmount } });
+    await logAudit({ entityType: "Rma", entityId: rmaId, action: "REPAIR_QUOTE_ACCEPTED", userId: params.userId, metadata: { quoteId: quote.id, total: quote.totalAmount } }, db);
+    return { quote, workOrder: null };
   });
-  if (!quote) throw new Error("Quote not found");
-  // FK lives on Rma.quoteId (reverse relation quote.rma)
-  const rmaId = quote.rma?.id;
-  if (quote.quoteType !== "REPAIR" || !rmaId) {
-    throw new Error("Not a repair quote — use convert to sales order for standard quotes");
-  }
-
-  await prisma.quote.update({
-    where: { id: quote.id },
-    data: { status: "ACCEPTED" },
-  });
-  await prisma.rma.update({
-    where: { id: rmaId },
-    data: {
-      status: "QUOTE_ACCEPTED",
-      quotedPrice: quote.totalAmount,
-      finalPrice: quote.totalAmount,
-    },
-  });
-
-  const wo = await createRepairWorkOrderFromRma({
-    rmaId,
-    quoteId: quote.id,
-    userId: params.userId,
-  });
-
-  return { quote, workOrder: wo };
+  if (prepared.workOrder) return prepared;
+  // Scheduler/WO creation is an existing separate workflow; not a distributed transaction.
+  const workOrder = await createRepairWorkOrderFromRma({ rmaId, quoteId: params.quoteId, userId: params.userId });
+  const quote = await prisma.quote.findUniqueOrThrow({ where: { id: params.quoteId }, include: { rma: true, lines: true } });
+  return { quote, workOrder };
 }
 
 /**
@@ -358,6 +389,8 @@ export async function createRepairWorkOrderFromRma(params: {
     include: { topPart: true, workOrders: true },
   });
   if (!rma) throw new Error("RMA not found");
+  assertOpenRma(rma);
+  if (params.quoteId && params.quoteId !== rma.quoteId) throw new Error("Repair quote does not belong to this RMA");
 
   const existing = rma.workOrders.find(
     (w) => !["COMPLETED", "CLOSED", "CANCELLED"].includes(w.status)
@@ -409,7 +442,7 @@ export async function createRepairWorkOrderFromRma(params: {
   }
 
   await prisma.rma.update({
-    where: { id: rma.id },
+    where: { id: rma.id, status: { notIn: TERMINAL_RMA } },
     data: { status: "IN_WORK" },
   });
 
@@ -439,80 +472,71 @@ export async function updateRepairQuote(params: {
   notes?: string | null;
   userId?: string;
 }) {
-  const rma = await prisma.rma.findUnique({
-    where: { id: params.rmaId },
-    include: { quote: true },
-  });
-  if (!rma) throw new Error("RMA not found");
-  if (!rma.quoteId || !rma.quote) throw new Error("No quote on this RMA");
-  if (["SHIPPED", "CANCELLED", "COMPLETE"].includes(rma.status)) {
-    throw new Error(`Cannot edit quote while RMA is ${rma.status}`);
-  }
-  if (rma.quote.status === "CONVERTED") {
-    throw new Error("Quote already converted — cannot edit");
-  }
+  return withRepairQuoteLock(params.rmaId, async db => {
+    const rma = await db.rma.findUnique({
+      where: { id: params.rmaId },
+      include: { quote: true },
+    });
+    if (!rma) throw new Error("RMA not found");
+    if (!rma.quoteId || !rma.quote) throw new Error("No quote on this RMA");
+    assertOpenRma(rma);
+    if (rma.quote.quoteType !== "REPAIR" || rma.quote.customerId !== rma.customerId) throw new Error("Linked repair quote identity is inconsistent");
+    if (rma.quote.status === "CONVERTED") {
+      throw new Error("Quote already converted — cannot edit");
+    }
 
-  const lines = params.lines
-    .map((l) => ({
-      description: (l.description || "").trim(),
-      quantity: Number(l.quantity) || 0,
-      unitPrice: Number(l.unitPrice) || 0,
-      partId: l.partId || null,
-    }))
-    .filter((l) => l.description && l.quantity > 0);
+    const lines = params.lines.map(l => ({ ...l, description: l.description?.trim() || "", partId: l.partId || null }));
+    const total = validateRepairLines(lines);
 
-  if (!lines.length) throw new Error("At least one quote line is required");
-
-  const total = lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0);
-
-  await prisma.quoteLine.deleteMany({ where: { quoteId: rma.quoteId } });
-  await prisma.quote.update({
-    where: { id: rma.quoteId },
-    data: {
-      totalAmount: total,
-      notes:
-        params.notes !== undefined
-          ? params.notes
-          : rma.quote.notes,
-      status: rma.quote.status === "ACCEPTED" ? "ACCEPTED" : "DRAFT",
-      lines: {
-        create: lines.map((l, i) => ({
-          description: l.description,
-          quantity: l.quantity,
-          unitPrice: l.unitPrice,
-          partId: l.partId,
-          lineNumber: i + 1,
-        })),
+    await db.quoteLine.deleteMany({ where: { quoteId: rma.quoteId } });
+    await db.quote.update({
+      where: { id: rma.quoteId },
+      data: {
+        totalAmount: total,
+        notes:
+          params.notes !== undefined
+            ? params.notes
+            : rma.quote.notes,
+        status: rma.quote.status === "ACCEPTED" ? "ACCEPTED" : "DRAFT",
+        lines: {
+          create: lines.map((l, i) => ({
+            description: l.description,
+            quantity: l.quantity,
+            unitPrice: l.unitPrice,
+            partId: l.partId,
+            lineNumber: i + 1,
+          })),
+        },
       },
-    },
-  });
+    });
 
-  const updated = await prisma.rma.update({
-    where: { id: rma.id },
-    data: {
-      quotedPrice: total,
-      finalPrice: total,
-      status:
-        rma.status === "IN_WORK" || rma.status === "QUOTE_ACCEPTED"
-          ? rma.status
-          : "QUOTE_PENDING",
-    },
-    include: {
-      quote: { include: { lines: true } },
-      customer: true,
-      topPart: true,
-    },
-  });
+    const updated = await db.rma.update({
+      where: { id: rma.id },
+      data: {
+        quotedPrice: total,
+        finalPrice: total,
+        status:
+          rma.status === "IN_WORK" || rma.status === "QUOTE_ACCEPTED"
+            ? rma.status
+            : "QUOTE_PENDING",
+      },
+      include: {
+        quote: { include: { lines: true } },
+        customer: true,
+        topPart: true,
+      },
+    });
 
-  await logAudit({
-    entityType: "Quote",
-    entityId: rma.quoteId,
-    action: "REPAIR_QUOTE_UPDATED",
-    userId: params.userId,
-    metadata: { rmaId: rma.id, total, lineCount: lines.length },
-  });
+    await logAudit({
+      entityType: "Quote",
+      entityId: rma.quoteId,
+      action: "REPAIR_QUOTE_UPDATED",
+      userId: params.userId,
+      metadata: { rmaId: rma.id, total, lineCount: lines.length },
+    }, db);
 
-  return updated;
+    return updated;
+  });
 }
 
 export async function adjustRmaQuotePrice(params: {
@@ -521,68 +545,76 @@ export async function adjustRmaQuotePrice(params: {
   reason: string;
   userId?: string;
 }) {
-  const rma = await prisma.rma.findUnique({
-    where: { id: params.rmaId },
-    include: { quote: { include: { lines: true } } },
-  });
-  if (!rma) throw new Error("RMA not found");
-  if (["SHIPPED", "CANCELLED"].includes(rma.status)) {
-    throw new Error("Cannot adjust price after ship/cancel");
-  }
-  if (!rma.quoteId || !rma.quote) throw new Error("No quote on this RMA");
-
-  const newTotal = Math.max(0, params.newTotal);
-  const old = rma.quote.totalAmount;
-
-  // Adjust last line or create adjustment line
-  const lines = rma.quote.lines;
-  if (lines.length) {
-    const last = lines[lines.length - 1];
-    const others = lines
-      .slice(0, -1)
-      .reduce((s, l) => s + l.quantity * l.unitPrice, 0);
-    const adjUnit = newTotal - others;
-    await prisma.quoteLine.update({
-      where: { id: last.id },
-      data: {
-        unitPrice: adjUnit,
-        description:
-          adjUnit === last.unitPrice
-            ? last.description
-            : `${last.description} (adj: ${params.reason})`,
-      },
+  return withRepairQuoteLock(params.rmaId, async db => {
+    const rma = await db.rma.findUnique({
+      where: { id: params.rmaId },
+      include: { quote: { include: { lines: { orderBy: [{ lineNumber: "asc" }, { id: "asc" }] } } } },
     });
-  }
+    if (!rma) throw new Error("RMA not found");
+    assertOpenRma(rma);
+    if (!rma.quoteId || !rma.quote) throw new Error("No quote on this RMA");
 
-  await prisma.quote.update({
-    where: { id: rma.quoteId },
-    data: { totalAmount: newTotal },
+    if (rma.quote.quoteType !== "REPAIR" || rma.quote.customerId !== rma.customerId || rma.quote.status === "CONVERTED") throw new Error("Linked repair quote identity/state is inconsistent");
+    if (!params.reason?.trim()) throw new Error("Price adjustment reason is required");
+    const newTotal = repairMoney(params.newTotal);
+    const old = rma.quote.totalAmount;
+
+    // Adjust last line or create adjustment line
+    const lines = rma.quote.lines;
+    if (lines.length) validateRepairLines(lines);
+    if (lines.length) {
+      const last = lines[lines.length - 1];
+      const others = lines
+        .slice(0, -1)
+        .reduce((s, l) => s + l.quantity * l.unitPrice, 0);
+      const adjUnit = (newTotal - others) / last.quantity;
+      if (!Number.isFinite(adjUnit)) throw new Error("Adjusted unit price is not finite");
+      await db.quoteLine.update({
+        where: { id: last.id },
+        data: {
+          unitPrice: adjUnit,
+          description:
+            adjUnit === last.unitPrice
+              ? last.description
+              : `${last.description} (adj: ${params.reason})`,
+        },
+      });
+    } else {
+      await db.quoteLine.create({ data: { quoteId: rma.quoteId, description: `Repair price adjustment — ${params.reason.trim()}`, quantity: 1, unitPrice: newTotal, lineNumber: 1 } });
+    }
+    const actualLines = await db.quoteLine.findMany({ where: { quoteId: rma.quoteId } });
+    if (validateRepairLines(actualLines) !== newTotal) throw new Error("Adjusted quote lines do not reconcile to the requested total");
+
+    await db.quote.update({
+      where: { id: rma.quoteId },
+      data: { totalAmount: newTotal },
+    });
+
+    const updated = await db.rma.update({
+      where: { id: rma.id },
+      data: {
+        quotedPrice: newTotal,
+        finalPrice: newTotal,
+        priceAdjustmentNotes: [
+          rma.priceAdjustmentNotes,
+          `${new Date().toISOString().slice(0, 10)}: ${old} → ${newTotal} — ${params.reason}`,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      },
+      include: { quote: { include: { lines: true } } },
+    });
+
+    await logAudit({
+      entityType: "Rma",
+      entityId: rma.id,
+      action: "PRICE_ADJUST",
+      userId: params.userId,
+      metadata: { old, newTotal, reason: params.reason.trim() },
+    }, db);
+
+    return updated;
   });
-
-  const updated = await prisma.rma.update({
-    where: { id: rma.id },
-    data: {
-      quotedPrice: newTotal,
-      finalPrice: newTotal,
-      priceAdjustmentNotes: [
-        rma.priceAdjustmentNotes,
-        `${new Date().toISOString().slice(0, 10)}: ${old} → ${newTotal} — ${params.reason}`,
-      ]
-        .filter(Boolean)
-        .join("\n"),
-    },
-    include: { quote: { include: { lines: true } } },
-  });
-
-  await logAudit({
-    entityType: "Rma",
-    entityId: rma.id,
-    action: "PRICE_ADJUST",
-    userId: params.userId,
-    metadata: { old, newTotal, reason: params.reason },
-  });
-
-  return updated;
 }
 
 export async function listRmas(params?: { status?: string; take?: number }) {
