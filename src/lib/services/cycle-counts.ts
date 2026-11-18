@@ -9,13 +9,27 @@ export async function createCycleCount(params: {
   scope?: string;
   notes?: string;
   userId?: string;
+  partId?: string;
+  locationCode?: string;
 }) {
   const scope = params.scope?.trim() || "";
+  const locationCode = params.locationCode?.trim() || "";
 
+  const scopedBin = !!(params.partId && locationCode);
   const items = await prisma.inventoryItem.findMany({
     where: {
-      quantityOnHand: { gt: 0 },
-      ...(scope
+      // A named part+bin count may start from zero (found inventory).
+      ...(scopedBin ? {} : { quantityOnHand: { gt: 0 } }),
+      ...(params.partId ? { partId: params.partId } : {}),
+      ...(locationCode
+        ? {
+            OR: [
+              { location: { code: { equals: locationCode, mode: "insensitive" } } },
+              { location: { code: { contains: locationCode, mode: "insensitive" } } },
+            ],
+          }
+        : {}),
+      ...(scope && !params.partId && !locationCode
         ? {
             OR: [
               { location: { code: { contains: scope } } },
@@ -30,7 +44,9 @@ export async function createCycleCount(params: {
   });
   if (items.length === 0) {
     throw new Error(
-      scope
+      scopedBin
+        ? "No inventory item matches that part and location"
+        : scope
         ? `No on-hand inventory matches scope "${scope}"`
         : "No on-hand inventory to count"
     );

@@ -8942,6 +8942,38 @@ export async function actionSaveCompanyOps(formData: FormData): Promise<void> {
   redirect("/admin/settings");
 }
 
+export async function actionSetCarinaVoiceActions(formData: FormData): Promise<void> {
+  const { userHasPermission } = await import("@/lib/auth");
+  const user = await getCurrentUser();
+  if (!(await userHasPermission(user?.id, "admin.permissions"))) {
+    throw new Error("Only an administrator can change Carina voice actions");
+  }
+  const enabled =
+    formData.get("carinaVoiceActions") === "on" ||
+    formData.get("carinaVoiceActions") === "true";
+  await prisma.companySettings.upsert({
+    where: { id: "default" },
+    create: { id: "default", carinaVoiceActions: enabled },
+    update: { carinaVoiceActions: enabled, updatedById: user?.id },
+  });
+  const { logAudit } = await import("@/lib/audit");
+  await logAudit({
+    entityType: "CompanySettings",
+    entityId: "default",
+    action: enabled ? "CARINA_VOICE_ACTIONS_ENABLED" : "CARINA_VOICE_ACTIONS_DISABLED",
+    userId: user?.id,
+    metadata: { via: "admin-settings" },
+  });
+  await flashToast(
+    enabled
+      ? "Carina voice actions are on. Changes still require a confirm and the user’s own permissions."
+      : "Carina voice actions are off."
+  );
+  revalidatePath("/", "layout");
+  redirect("/admin/settings");
+}
+
+
 export async function actionActivatePlan(formData: FormData): Promise<void> {
   const { requirePermission } = await import("@/lib/auth");
   const user = await requirePermission("admin.permissions");

@@ -44,7 +44,9 @@ import {
   persistWantListen,
   readWantListen,
   stopCarinaVoiceEvent,
+  carinaPendingEvent,
 } from "@/lib/carina-voice-bus";
+import type { AiPendingAction } from "@/lib/services/ai";
 import {
   carinaIsAudioCurrent,
   carinaPlaySpeech,
@@ -256,11 +258,15 @@ export function VoiceAssistant({
   const networkFailsRef = useRef(0);
   const askingRef = useRef(false);
   /** Business-agent multi-turn state (finish WO, etc.) */
-  const pendingActionRef = useRef<{
-    action: string;
-    partial: Record<string, string>;
-    phase?: "clarify" | "confirm";
-  } | null>(null);
+  const pendingActionRef = useRef<AiPendingAction | null>(null);
+  useEffect(() => {
+    const onPending = (e: Event) => {
+      const pending = (e as CustomEvent).detail as AiPendingAction | null;
+      pendingActionRef.current = pending ?? null;
+    };
+    window.addEventListener("forge:carina-pending", onPending);
+    return () => window.removeEventListener("forge:carina-pending", onPending);
+  }, []);
   const langRef = useRef<CarinaLang>(DEFAULT_LANG);
   const [langLabel, setLangLabel] = useState(DEFAULT_LANG.name);
 
@@ -803,6 +809,7 @@ export function VoiceAssistant({
 
           // Multi-turn agent (confirm / clarify)
           pendingActionRef.current = result.pendingAction ?? null;
+          window.dispatchEvent(carinaPendingEvent(pendingActionRef.current));
           if (result.pendingAction?.phase === "confirm") {
             setStatus("Waiting for yes/no…");
           } else if (result.pendingAction?.phase === "clarify") {

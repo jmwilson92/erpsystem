@@ -67,10 +67,16 @@ export async function actionAiConversation(
     // Client source/guestKey never grant identity, remove a budget, or select a tenant.
     const answerId = await reserveHelpTurn(user.id, demo);
     const page = helpPageContext(opts?.page);
-    const result = await cachedHelp(`${await currentRequestSchema()}:${user.id}`, {clean,page,language:opts?.language,model:grokModel()}, ()=>processAiConversation(clean, {
+    const pendingAction = opts?.pendingAction ?? null;
+    const run = () => processAiConversation(clean, {
       page,
       language: opts?.language,
-    }));
+      pendingAction,
+      userId: user.id,
+    });
+    const result = pendingAction
+      ? await run()
+      : await cachedHelp(`${await currentRequestSchema()}:${user.id}`, {clean,page,language:opts?.language,model:grokModel()}, run);
     if (!result?.text?.trim()) {
       return { ok: false, error: "Empty reply from the model" };
     }
@@ -96,6 +102,37 @@ export async function actionAiConversation(
 }
 
 /** Local/dev: which Carina capabilities this tenant has. */
+
+export async function actionCarinaConfirm(params: {
+  pendingAction: import("@/lib/services/ai").AiPendingAction;
+  pinCode?: string | null;
+  voiceApproved?: boolean;
+}): Promise<AiConversationResult> {
+  try {
+    const identity = await helpIdentity();
+    if (!identity?.user) return { ok: false, error: "Sign in to confirm a Carina action." };
+    const draft = params.pendingAction?.draft;
+    const key = params.pendingAction?.idempotencyKey || params.pendingAction?.partial?.idempotencyKey;
+    if (!key) return { ok: false, error: "There is no draft to confirm." };
+    const { executeCarinaDraft } = await import("@/lib/services/carina-voice-actions");
+    const { getCarinaFeatures } = await import("@/lib/services/carina-features");
+    const features = await getCarinaFeatures();
+    if (!features.voiceActions) {
+      return { ok: false, error: "Carina voice actions are turned off for this workspace." };
+    }
+    const out = await executeCarinaDraft({
+      userId: identity.user.id,
+      draft,
+      idempotencyKey: key,
+      pinCode: params.pinCode,
+      voiceApproved: params.voiceApproved,
+    });
+    return { ok: true, text: out.text, source: "local", href: out.href, pendingAction: null };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "The change could not be applied." };
+  }
+}
+
 export async function actionCarinaFeatures() {
   return getCarinaFeatures();
 }

@@ -86,3 +86,8 @@ export function carinaPointEvent(detail: {
 }) {
   return new CustomEvent("forge:carina-point", { detail });
 }
+
+/** Sync a confirm-gated draft card between the voice engine and the help bubble. */
+export function carinaPendingEvent(pending: unknown) {
+  return new CustomEvent("forge:carina-pending", { detail: pending });
+}
