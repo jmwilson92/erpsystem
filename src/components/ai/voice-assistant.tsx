@@ -19,13 +19,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Bot, Mic, MicOff, Volume2, Radio } from "lucide-react";
 import {
-  actionAiConversation,
   actionGetAssistantName,
   actionGrokStatus,
   actionSetAssistantName,
   actionVoiceSmokeTest,
   actionProbeGrok,
 } from "@/app/ai/actions";
+import { helpMetaReply } from "@/lib/ai-help/meta";
+import { composeUtterance, promoteInterim } from "@/lib/ai-help/utterance";
+import { streamCarinaConversation } from "@/lib/ai-help/conversation-client";
 import { startCarinaGuideEvent } from "@/components/guides/guided-tour";
 import {
   DEFAULT_LANG,
@@ -66,8 +68,9 @@ const NAME_KEY = "forge-assistant-name";
 const DEFAULT_NAME = "Carina";
 const DEFAULT_VOICE_ID = "carina";
 const CONVO_MS = 30_000;
-/** How long after last speech activity before we send the buffered question */
-const SILENCE_MS = 900;
+/** Wait for a real pause. Edge one-shot sessions end mid-sentence; do not flush on onend. */
+const SILENCE_AFTER_FINAL_MS = 1100;
+const SILENCE_INTERIM_ONLY_MS = 1500;
 const SPEAK_GUARD_MS = 800;
 const RESTART_MS = 180;
 
@@ -265,6 +268,7 @@ export function VoiceAssistant({
     (finalChunk: string, interim: string) => void
   >(() => {});
   const flushAskRef = useRef<() => void>(() => {});
+  const armSilenceRef = useRef<() => void>(() => {});
   const askRef = useRef<(raw: string) => void>(() => {});
 
   const setModeBoth = useCallback((m: Mode) => {
@@ -307,7 +311,7 @@ export function VoiceAssistant({
   }, []);
 
   const currentUtterance = useCallback(() => {
-    return (finalBufRef.current + " " + interimBufRef.current).trim();
+    return composeUtterance(finalBufRef.current, interimBufRef.current);
   }, []);
 
   const extendConvo = useCallback(() => {
@@ -546,15 +550,20 @@ export function VoiceAssistant({
       setRecAliveBoth(false);
       if (!wantListenRef.current) return;
 
+      // Promote unfinalized interim so the next Edge one-shot session
+      // does not overwrite it. Do not flush here — sessions end mid-phrase.
+      if (interimBufRef.current.trim()) {
+        finalBufRef.current = promoteInterim(
+          finalBufRef.current,
+          interimBufRef.current
+        );
+        interimBufRef.current = "";
+      }
       if (
         (modeRef.current === "command" || modeRef.current === "wake") &&
         currentUtterance().length > 2
       ) {
-        if (!silenceTimerRef.current) {
-          silenceTimerRef.current = setTimeout(() => {
-            flushAskRef.current();
-          }, 400);
-        }
+        armSilenceRef.current();
       }
 
       // Don't fight TTS
@@ -699,7 +708,7 @@ export function VoiceAssistant({
       clearBuf();
       setLastHeard(text);
       setModeBoth("thinking");
-      setStatus("Thinking…");
+      setStatus("On it…");
       setError(null);
       setBusy(true);
       askingRef.current = true;
@@ -714,12 +723,51 @@ export function VoiceAssistant({
       // Plain async — do NOT use startTransition (defers the reply)
       void (async () => {
         try {
-          const result = await actionAiConversation(historyRef.current, {
+          const meta = helpMetaReply(text);
+          if (meta) {
+            const result = {
+              ok: true as const,
+              text: meta,
+              source: "local" as const,
+              pendingAction: null,
+            };
+            historyRef.current = [
+              ...historyRef.current,
+              { role: "assistant", content: result.text },
+            ];
+            setLastReply(result.text);
+            setError(null);
+            if (process.env.NODE_ENV !== "production") {
+              console.info("[carina-voice]", { q: text, a: result.text, source: "local-meta" });
+            }
+            await speak(result.text);
+            // Audit in the background; do not wait or speak again.
+            void streamCarinaConversation(historyRef.current.slice(0, -1), {
+              pendingAction: pendingActionRef.current,
+              language: langRef.current.code,
+              source: "APP",
+              page: window.location.pathname,
+            });
+            return;
+          }
+
+          setStatus("On it…");
+          const result = await streamCarinaConversation(historyRef.current, {
             pendingAction: pendingActionRef.current,
             language: langRef.current.code,
             source: "APP",
             page: window.location.pathname,
+            onAck: () => setStatus("On it…"),
+            onDelta: (preview) => setStatus(preview.slice(0, 80)),
           });
+          if (process.env.NODE_ENV !== "production" && result.ok) {
+            console.info("[carina-voice]", {
+              q: text,
+              a: result.text.slice(0, 160),
+              source: result.source,
+              timing: result.timing,
+            });
+          }
           if (!result.ok) {
             setError(result.error);
             setLastReply(result.error);
@@ -865,7 +913,7 @@ export function VoiceAssistant({
     askRef.current = ask;
   }, [ask]);
 
-  /** Send whatever we have buffered (final + interim). */
+  /** Send the composed utterance after a real pause, not a stale/partial cut-off. */
   const flushAsk = useCallback(() => {
     silenceTimerRef.current = null;
     if (askingRef.current) return;
@@ -905,10 +953,17 @@ export function VoiceAssistant({
 
   const armSilence = useCallback(() => {
     clearSilence();
+    const ms = finalBufRef.current.trim()
+      ? SILENCE_AFTER_FINAL_MS
+      : SILENCE_INTERIM_ONLY_MS;
     silenceTimerRef.current = setTimeout(() => {
       flushAskRef.current();
-    }, SILENCE_MS);
+    }, ms);
   }, [clearSilence]);
+  useEffect(() => {
+    armSilenceRef.current = armSilence;
+  }, [armSilence]);
+
 
   const handleResult = useCallback(
     (finalChunk: string, interim: string) => {
