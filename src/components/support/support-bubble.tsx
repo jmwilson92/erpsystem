@@ -46,7 +46,9 @@ import {
   actionTranslateText,
   type SupportThreadMessage,
 } from "@/app/support/actions";
-import { actionAiConversation, actionAiFeedback } from "@/app/ai/actions";
+import { actionAiFeedback } from "@/app/ai/actions";
+import { streamCarinaConversation } from "@/lib/ai-help/conversation-client";
+import { helpMetaReply } from "@/lib/ai-help/meta";
 import {
   SUPPORT_CATEGORIES,
   SUPPORT_PRIORITIES,
@@ -419,22 +421,56 @@ export function SupportBubble({
       ...carinaMsgs.filter((m) => m.content?.trim()),
       { role: "user" as const, content: q },
     ].slice(-12);
-    setCarinaMsgs(nextHistory);
-    startTransition(async () => {
+    const meta = helpMetaReply(q);
+    const ack = meta || "On it…";
+    setCarinaMsgs([
+      ...nextHistory,
+      { role: "assistant", content: ack },
+    ]);
+    // Do not use startTransition — it defers the first paint and the reply.
+    void (async () => {
       try {
-        const result = await actionAiConversation(nextHistory, {
+        const result = await streamCarinaConversation(nextHistory, {
           page: pathname,
           pendingAction: carinaPendingRef.current,
           language: carinaLang.code,
           source,
           guestKey: guestAiKey(),
+          onAck: () => {
+            if (meta) return;
+            setCarinaMsgs((m) => {
+              const copy = m.slice();
+              const last = copy[copy.length - 1];
+              if (last?.role === "assistant") copy[copy.length - 1] = { ...last, content: "On it…" };
+              return copy;
+            });
+          },
+          onDelta: (text) => {
+            setCarinaMsgs((m) => {
+              const copy = m.slice();
+              const last = copy[copy.length - 1];
+              if (last?.role === "assistant") copy[copy.length - 1] = { ...last, content: text };
+              return copy;
+            });
+          },
         });
+        if (process.env.NODE_ENV !== "production") {
+          console.info("[carina-chat]", {
+            q,
+            a: result.ok ? result.text.slice(0, 160) : result.error,
+            source: result.ok ? result.source : "error",
+            timing: result.ok ? result.timing : undefined,
+          });
+        }
         if (!result.ok) {
           setError(result.error);
-          setCarinaMsgs((m) => [
-            ...m,
-            { role: "assistant", content: result.error },
-          ]);
+          setCarinaMsgs((m) => {
+            const copy = m.slice();
+            const last = copy[copy.length - 1];
+            if (last?.role === "assistant") copy[copy.length - 1] = { ...last, content: result.error };
+            else copy.push({ role: "assistant", content: result.error });
+            return copy;
+          });
           return;
         }
         carinaPendingRef.current = result.pendingAction ?? null;
@@ -443,10 +479,14 @@ export function SupportBubble({
           setCarinaLang(next);
           storeLang(next);
         }
-        setCarinaMsgs((m) => [
-          ...m,
-          { role: "assistant", content: result.text, citations: result.citations, answerId: result.answerId },
-        ]);
+        setCarinaMsgs((m) => {
+          const copy = m.slice();
+          const last = copy[copy.length - 1];
+          const rec = { role: "assistant" as const, content: result.text, citations: result.citations, answerId: result.answerId };
+          if (last?.role === "assistant") copy[copy.length - 1] = rec;
+          else copy.push(rec);
+          return copy;
+        });
         if (result.href) {
           window.dispatchEvent(
             new CustomEvent("forge:carina-navigate", {
@@ -492,7 +532,7 @@ export function SupportBubble({
       } finally {
         carinaBusyRef.current = false;
       }
-    });
+    })();
   }
 
   function handleCreate(e: React.FormEvent<HTMLFormElement>) {
