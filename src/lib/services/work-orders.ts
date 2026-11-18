@@ -1326,7 +1326,7 @@ export async function assignWorkOrderProject(params: {
     select: { id: true, number: true, name: true, status: true },
   });
   if (!project) throw new Error("Project not found");
-  let wbsElementId = params.wbsElementId || null;
+  const wbsElementId = params.wbsElementId || null;
   if (wbsElementId) {
     const wbs = await prisma.wbsElement.findUnique({
       where: { id: wbsElementId },
