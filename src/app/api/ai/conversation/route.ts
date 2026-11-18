@@ -27,6 +27,7 @@ export async function POST(req: NextRequest) {
     language?: string | null;
     page?: string | null;
     source?: string | null;
+    pendingAction?: import("@/lib/services/ai").AiPendingAction | null;
   };
   try {
     body = await req.json();
@@ -66,6 +67,8 @@ export async function POST(req: NextRequest) {
         const result = await processAiConversation(clean, {
           page,
           language: body.language,
+          pendingAction: body.pendingAction ?? null,
+          userId: identity.user.id,
           onDelta: (text) => {
             if (text && text !== lastDelta) {
               lastDelta = text;

@@ -70,6 +70,7 @@ import {
   carinaPointEvent,
   carinaPttDownEvent,
   carinaPttUpEvent,
+  carinaPendingEvent,
   speechRecognitionSupported,
 } from "@/lib/carina-voice-bus";
 import { cn } from "@/lib/utils";
@@ -160,13 +161,18 @@ export function SupportBubble({
   const panelRef = useRef<HTMLDivElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const carinaPendingRef = useRef<{
-    action: string;
-    partial: Record<string, string>;
-    phase?: "clarify" | "confirm";
-  } | null>(null);
+  const carinaPendingRef = useRef<AiPendingAction | null>(null);
   const carinaBusyRef = useRef(false);
   const [pendingDraft, setPendingDraft] = useState<AiPendingAction | null>(null);
+  useEffect(() => {
+    const onPending = (e: Event) => {
+      const pending = (e as CustomEvent).detail as AiPendingAction | null;
+      carinaPendingRef.current = pending?.draft ? pending : null;
+      setPendingDraft(pending?.draft ? pending : null);
+    };
+    window.addEventListener("forge:carina-pending", onPending);
+    return () => window.removeEventListener("forge:carina-pending", onPending);
+  }, []);
   const titleId = useId();
   const needContact = !accountLinked;
 
@@ -476,8 +482,9 @@ export function SupportBubble({
           });
           return;
         }
-        carinaPendingRef.current = result.pendingAction ?? null;
+        carinaPendingRef.current = result.pendingAction?.draft ? result.pendingAction : null;
         setPendingDraft(result.pendingAction?.draft ? result.pendingAction : null);
+        window.dispatchEvent(carinaPendingEvent(carinaPendingRef.current));
         if (result.language) {
           const next = resolveLang(result.language);
           setCarinaLang(next);
@@ -809,6 +816,7 @@ export function SupportBubble({
                   onResolved={(result) => {
                     setPendingDraft(null);
                     carinaPendingRef.current = null;
+                    window.dispatchEvent(carinaPendingEvent(null));
                     setCarinaMsgs((m) => [
                       ...m,
                       { role: "assistant", content: result.text },

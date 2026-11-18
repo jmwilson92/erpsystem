@@ -41,7 +41,7 @@ export function isConfirmUtterance(text: string): boolean {
   const t = text.trim().toLowerCase();
   return /^(yes|yeah|yep|yup|ok|okay|confirm|confirmed|do it|go ahead|proceed|please do|affirmative)([.!]*)?$/.test(
     t
-  ) || /\b(confirm( that| the change)?|yes,? (please|do it|confirm)|go ahead and (do|confirm))\b/i.test(
+  ) || /\b(confirm (that|the change|this|it)|yes,? (please|do it|confirm)|go ahead and (do it|confirm))\b/i.test(
     t
   );
 }
@@ -50,7 +50,7 @@ export function isCancelUtterance(text: string): boolean {
   const t = text.trim().toLowerCase();
   return /^(no|nope|nah|cancel|cancelled|canceled|stop|never mind|nevermind|abort|don't|do not)([.!]*)?$/.test(
     t
-  ) || /\b(cancel( that| the change)?|don't (do|confirm|change)|never mind)\b/i.test(
+  ) || /\b(cancel (that|the change|this|it)|don't (do|confirm|change)( that| this| it)?|never mind)\b/i.test(
     t
   );
 }
@@ -74,7 +74,7 @@ export function isExcludedDomain(text: string): string | null {
   if (/\b(permission|role|password|admin access|grant access|promote|demote user)\b/.test(t)) {
     return "I can’t change users or permissions by voice.";
   }
-  if (/\b(pay\b|invoice|journal|ledger|cash|revenue|contract value|budget (cost|amount|total)|development budget|unit cost|price|\$|usd)\b/.test(t) &&
+  if ((/\b(pay\b|invoice|journal|ledger|cash|revenue|contract value|budget|development budget|unit cost|price|usd)\b/.test(t) || /[\$€£]/.test(t)) &&
       !/\b(tie|assign|link|attach).*\b(budget|charge code|wbs)\b/.test(t)) {
     return "I can’t change money, billing or budget amounts by voice. I can attach a work order to an existing project or budget, but I won’t edit dollar figures.";
   }

@@ -113,7 +113,7 @@ export async function actionCarinaConfirm(params: {
     if (!identity?.user) return { ok: false, error: "Sign in to confirm a Carina action." };
     const draft = params.pendingAction?.draft;
     const key = params.pendingAction?.idempotencyKey || params.pendingAction?.partial?.idempotencyKey;
-    if (!draft || !key) return { ok: false, error: "There is no draft to confirm." };
+    if (!key) return { ok: false, error: "There is no draft to confirm." };
     const { executeCarinaDraft } = await import("@/lib/services/carina-voice-actions");
     const { getCarinaFeatures } = await import("@/lib/services/carina-features");
     const features = await getCarinaFeatures();

@@ -189,7 +189,11 @@ async function findPart(hint?: string, numbers?: string[]) {
   return resolveUnique(rows, "part", (r) => r.partNumber);
 }
 
-function draftPending(draft: CarinaActionDraft, text: string): AiConversationOutput {
+async function draftPending(
+  draft: CarinaActionDraft,
+  text: string,
+  userId: string
+): Promise<AiConversationOutput> {
   const idempotencyKey = randomUUID();
   const pending: AiPendingAction = {
     action: draft.execute.kind,
@@ -199,6 +203,18 @@ function draftPending(draft: CarinaActionDraft, text: string): AiConversationOut
     idempotencyKey,
     requiresPin: draft.execute.requiresPin,
   };
+  await prisma.carinaVoiceActionReceipt.create({
+    data: {
+      idempotencyKey,
+      userId,
+      action: draft.execute.kind,
+      entityType: draft.changes[0]?.entityType || "Unknown",
+      entityId: draft.changes[0]?.entityId || "unknown",
+      status: "PENDING",
+      requestHash: await requestHash(draft.execute),
+      result: JSON.stringify(draft),
+    },
+  });
   return {
     text,
     source: "local",
@@ -207,7 +223,8 @@ function draftPending(draft: CarinaActionDraft, text: string): AiConversationOut
 }
 
 async function buildDraft(
-  intent: ParsedVoiceIntent
+  intent: ParsedVoiceIntent,
+  userId: string
 ): Promise<AiConversationOutput> {
   switch (intent.kind) {
     case "EDIT_PROJECT": {
@@ -254,7 +271,7 @@ async function buildDraft(
           `I found ${project.number} “${project.name}”, but I need the exact field to change (name, description, status, phase, start date or end date). I won’t edit budgets or contract values.`
         );
       }
-      return draftPending(
+      return await draftPending(
         {
           title: `Edit project ${project.number}`,
           summary: `Update ${changes.length} field(s) on ${project.number} “${project.name}”. I will not change money fields.`,
@@ -263,7 +280,8 @@ async function buildDraft(
         },
         `Here’s the exact project change I would make. Confirm to apply it, or cancel.\n${changes
           .map((c) => `• ${c.field}: ${c.from} → ${c.to}`)
-          .join("\n")}\n${DISCLOSE}`
+          .join("\n")}\n${DISCLOSE}`,
+        userId
       );
     }
     case "TIE_WO": {
@@ -310,7 +328,7 @@ async function buildDraft(
           to: wbsLabel,
         });
       }
-      return draftPending(
+      return await draftPending(
         {
           title: `Tie ${wo.number} to a project`,
           summary: `Set the project (and WBS if provided) on ${wo.number}. This does not change budget dollar amounts.`,
@@ -324,7 +342,8 @@ async function buildDraft(
         },
         `Here’s the exact work-order link I would make. Confirm to apply it, or cancel.\n${changes
           .map((c) => `• ${c.field}: ${c.from} → ${c.to}`)
-          .join("\n")}\n${DISCLOSE}`
+          .join("\n")}\n${DISCLOSE}`,
+        userId
       );
     }
     case "CYCLE_COUNT": {
@@ -335,7 +354,7 @@ async function buildDraft(
       const items = await prisma.inventoryItem.findMany({
         where: {
           partId: part.id,
-          quantityOnHand: { gt: 0 },
+          ...(intent.locationHint ? {} : { quantityOnHand: { gt: 0 } }),
           ...(intent.locationHint
             ? {
                 OR: [
@@ -350,7 +369,7 @@ async function buildDraft(
       });
       if (!items.length) {
         throw new Error(
-          `I couldn’t find on-hand inventory for ${part.partNumber}${intent.locationHint ? ` at ${intent.locationHint}` : ""}.`
+          `I couldn’t find inventory for ${part.partNumber}${intent.locationHint ? ` at ${intent.locationHint}` : ""}. Please give the exact part number and bin.`
         );
       }
       if (!intent.locationHint && items.length > 1) {
@@ -380,7 +399,7 @@ async function buildDraft(
           to: fmt(intent.countedQty),
         },
       ];
-      return draftPending(
+      return await draftPending(
         {
           title: `Cycle count ${part.partNumber}`,
           summary: `Post a cycle count for ${part.partNumber} at ${loc}: ${item.quantityOnHand} → ${intent.countedQty}. Reason: ${reason}.`,
@@ -397,8 +416,7 @@ async function buildDraft(
             },
           },
         },
-        `Here’s the exact inventory count I would post through the cycle-count process. Confirm to apply it, or cancel.\n• ${part.partNumber} at ${loc}: ${item.quantityOnHand} → ${intent.countedQty}\nReason: ${reason}\n${DISCLOSE}`
-      );
+        `Here’s the exact inventory count I would post through the cycle-count process. Confirm to apply it, or cancel.\n• ${part.partNumber} at ${loc}: ${item.quantityOnHand} → ${intent.countedQty}\nReason: ${reason}\n${DISCLOSE}`, userId);
     }
     case "CONSUME_PARTS": {
       const wo = await findWorkOrder(intent.workOrderHint, intent.numbers);
@@ -434,7 +452,7 @@ async function buildDraft(
           to: "Create a kit and pick available inventory into staging",
         });
       }
-      return draftPending(
+      return await draftPending(
         {
           title: `Consume parts to ${wo.number}`,
           summary: openKit
@@ -450,7 +468,8 @@ async function buildDraft(
         },
         `Here’s the exact kitting change I would make for ${wo.number}. Confirm to apply it, or cancel.\n${changes
           .map((c) => `• ${c.field}: ${c.from} → ${c.to}`)
-          .join("\n")}\n${DISCLOSE}`
+          .join("\n")}\n${DISCLOSE}`,
+        userId
       );
     }
     case "OUTPUT_WO": {
@@ -471,7 +490,7 @@ async function buildDraft(
           to,
         },
       ];
-      return draftPending(
+      return await draftPending(
         {
           title: mode === "STOCK" ? `Put away ${wo.number} to stock` : `Send ${wo.number} to Receiving`,
           summary:
@@ -486,8 +505,7 @@ async function buildDraft(
             params: { workOrderId: wo.id, mode },
           },
         },
-        `Here’s the exact work-order status change I would make. Confirm to apply it, or cancel.\n• status: ${wo.status} → ${to}\n${DISCLOSE}`
-      );
+        `Here’s the exact work-order status change I would make. Confirm to apply it, or cancel.\n• status: ${wo.status} → ${to}\n${DISCLOSE}`, userId);
     }
     case "HIGH_RISK_PARTS":
       throw new Error("HIGH_RISK_PARTS is read-only and should be answered directly");
@@ -537,12 +555,37 @@ async function requestHash(plan: CarinaExecutePlan): Promise<string> {
 
 export async function executeCarinaDraft(params: {
   userId: string;
-  draft: CarinaActionDraft;
+  draft?: CarinaActionDraft | null;
   idempotencyKey: string;
   pinCode?: string | null;
   voiceApproved?: boolean;
 }): Promise<{ text: string; href?: string }> {
-  const { draft, userId, idempotencyKey } = params;
+  const { userId, idempotencyKey } = params;
+  const existing = await prisma.carinaVoiceActionReceipt.findUnique({
+    where: { idempotencyKey },
+  });
+  if (existing?.status === "CONFIRMED") {
+    return {
+      text: existing.result || "That confirmation was already applied. I didn’t change anything again.",
+    };
+  }
+  if (existing && existing.userId !== userId) {
+    throw new Error("That confirmation belongs to another session. I didn’t change any records.");
+  }
+  if (existing?.status === "CANCELLED") {
+    throw new Error("That draft was cancelled. Ask me to prepare the change again.");
+  }
+  let draft = params.draft;
+  if (existing?.status === "PENDING" && existing.result) {
+    try {
+      draft = JSON.parse(existing.result) as CarinaActionDraft;
+    } catch {
+      draft = params.draft;
+    }
+  }
+  if (!draft?.execute || existing?.status !== "PENDING") {
+    throw new Error("That confirmation expired or was not found. Please ask me to prepare the change again.");
+  }
   if (draft.execute.requiresPin) {
     if (!params.voiceApproved) {
       throw new Error("This change needs a voice “approve” and your sign-off PIN. Voice alone is not a signature.");
@@ -552,15 +595,6 @@ export async function executeCarinaDraft(params: {
     }
     const { verifySignaturePin } = await import("@/lib/services/signature-pin");
     await verifySignaturePin(userId, params.pinCode);
-  }
-
-  const existing = await prisma.carinaVoiceActionReceipt.findUnique({
-    where: { idempotencyKey },
-  });
-  if (existing?.status === "CONFIRMED") {
-    return {
-      text: existing.result || "That confirmation was already applied. I didn’t change anything again.",
-    };
   }
 
   const allowed = await userHasPermission(userId, draft.execute.permission);
@@ -641,15 +675,17 @@ export async function executeCarinaDraft(params: {
       let kitId = p.kitOrderId ? String(p.kitOrderId) : "";
       if (!kitId) {
         const canCreate = await userHasPermission(userId, "kitting.create");
-        if (!canCreate) {
-          throw new Error("You don’t have permission to create a kit. I didn’t change any records.");
+        const canComplete = await userHasPermission(userId, "kitting.complete");
+        if (!canCreate || !canComplete) {
+          throw new Error("You don’t have permission to create and complete a kit. I didn’t change any records.");
         }
         const kit = await createKitOrder({ workOrderId: String(p.workOrderId), userId });
         kitId = kit.id;
-      }
-      const canComplete = await userHasPermission(userId, "kitting.complete");
-      if (!canComplete) {
-        throw new Error("You don’t have permission to complete a kit. I didn’t change any records.");
+      } else {
+        const canComplete = await userHasPermission(userId, "kitting.complete");
+        if (!canComplete) {
+          throw new Error("You don’t have permission to complete a kit. I didn’t change any records.");
+        }
       }
       const kit = await completeKitOrder({ kitOrderId: kitId, userId });
       href = `/work-orders/${p.workOrderId}`;
@@ -677,17 +713,9 @@ export async function executeCarinaDraft(params: {
     }
 
     const result = `${text} ${DISCLOSE}`;
-    await prisma.carinaVoiceActionReceipt.create({
-      data: {
-        idempotencyKey,
-        userId,
-        action: kind,
-        entityType: draft.changes[0]?.entityType || "Unknown",
-        entityId: draft.changes[0]?.entityId || "unknown",
-        status: "CONFIRMED",
-        requestHash: hash,
-        result,
-      },
+    await prisma.carinaVoiceActionReceipt.update({
+      where: { idempotencyKey },
+      data: { status: "CONFIRMED", requestHash: hash, result },
     });
     await logAudit({
       entityType: draft.changes[0]?.entityType || "CarinaVoiceAction",
@@ -729,8 +757,15 @@ export async function handleCarinaVoiceTurn(params: {
   const pending = params.pendingAction;
   const question = params.question.trim();
 
-  if (pending?.phase === "confirm" && pending.draft) {
+  const pendingKey = pending?.idempotencyKey || pending?.partial?.idempotencyKey;
+  if (pending?.phase === "confirm" && (pending.draft || pendingKey)) {
     if (isCancelUtterance(question)) {
+      if (pendingKey) {
+        await prisma.carinaVoiceActionReceipt.updateMany({
+          where: { idempotencyKey: pendingKey, userId: params.userId, status: "PENDING" },
+          data: { status: "CANCELLED" },
+        });
+      }
       return {
         text: `Cancelled. I didn’t change any records. ${DISCLOSE}`,
         source: "local",
@@ -753,10 +788,13 @@ export async function handleCarinaVoiceTurn(params: {
         };
       }
       try {
+        if (!pendingKey) {
+          throw new Error("That confirmation expired or was not found. Please ask me to prepare the change again.");
+        }
         const out = await executeCarinaDraft({
           userId: params.userId,
           draft: pending.draft,
-          idempotencyKey: pending.idempotencyKey || pending.partial?.idempotencyKey || randomUUID(),
+          idempotencyKey: pendingKey,
           voiceApproved: pending.voiceApproved || isApproveUtterance(question),
         });
         return { text: out.text, href: out.href, source: "local", pendingAction: null };
@@ -806,7 +844,7 @@ export async function handleCarinaVoiceTurn(params: {
   }
 
   try {
-    return await buildDraft(intent);
+    return await buildDraft(intent, params.userId);
   } catch (e) {
     return {
       text: `${e instanceof Error ? e.message : "I couldn’t prepare that change."} ${DISCLOSE}`,
