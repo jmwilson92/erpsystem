@@ -13,13 +13,13 @@ export async function processAiQuery(query:string):Promise<string> {
   const out=await actionAiConversation([{role:'user',content:query}]);
   return out.ok?out.text:out.error;
 }
-export async function processAiConversation(messages:{role:'user'|'assistant';content:string}[],opts?:{pendingAction?:AiPendingAction|null;language?:string|null;page?:string|null}):Promise<AiConversationOutput> {
+export async function processAiConversation(messages:{role:'user'|'assistant';content:string}[],opts?:{pendingAction?:AiPendingAction|null;language?:string|null;page?:string|null;onDelta?:(text:string)=>void}):Promise<AiConversationOutput> {
   const {resolveLang,detectLanguageSwitch,DEFAULT_LANG}=await import('../carina-language');
   const questions=messages.filter(m=>m.role==='user');
   const last=questions.at(-1)?.content.trim() || '';
   const lang=detectLanguageSwitch(last) || resolveLang(opts?.language || DEFAULT_LANG.code);
   if(!last) return {text:'Please ask a Protessera question.',language:lang.code,source:'local'};
-  const out=await answerHelp(last,{page:opts?.page,language:lang.name,previousQuestion:questions.at(-2)?.content});
+  const out=await answerHelp(last,{page:opts?.page,language:lang.name,previousQuestion:questions.at(-2)?.content,onDelta:opts?.onDelta});
   const tid=/\b(show me|walk me|tour|guide me)\b/i.test(last)?matchTourFromQuery(last):null;
   return {...out,language:lang.code,pendingAction:null,guide:out.citations.length && tid && getTour(tid)?{tourId:tid}:undefined};
 }
