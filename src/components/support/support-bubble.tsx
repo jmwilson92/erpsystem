@@ -49,6 +49,8 @@ import {
 import { actionAiFeedback } from "@/app/ai/actions";
 import { streamCarinaConversation } from "@/lib/ai-help/conversation-client";
 import { helpMetaReply } from "@/lib/ai-help/meta";
+import { CarinaDraftCard } from "@/components/ai/carina-draft-card";
+import type { AiPendingAction } from "@/lib/services/ai";
 import {
   SUPPORT_CATEGORIES,
   SUPPORT_PRIORITIES,
@@ -164,6 +166,7 @@ export function SupportBubble({
     phase?: "clarify" | "confirm";
   } | null>(null);
   const carinaBusyRef = useRef(false);
+  const [pendingDraft, setPendingDraft] = useState<AiPendingAction | null>(null);
   const titleId = useId();
   const needContact = !accountLinked;
 
@@ -474,6 +477,7 @@ export function SupportBubble({
           return;
         }
         carinaPendingRef.current = result.pendingAction ?? null;
+        setPendingDraft(result.pendingAction?.draft ? result.pendingAction : null);
         if (result.language) {
           const next = resolveLang(result.language);
           setCarinaLang(next);
@@ -798,6 +802,26 @@ export function SupportBubble({
                 <p className="mx-3 mb-1 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-200">
                   {error}
                 </p>
+              )}
+              {tab === "ai" && pendingDraft?.draft && (
+                <CarinaDraftCard
+                  pending={pendingDraft}
+                  onResolved={(result) => {
+                    setPendingDraft(null);
+                    carinaPendingRef.current = null;
+                    setCarinaMsgs((m) => [
+                      ...m,
+                      { role: "assistant", content: result.text },
+                    ]);
+                    if (result.href) {
+                      window.dispatchEvent(
+                        new CustomEvent("forge:carina-navigate", {
+                          detail: { href: result.href },
+                        })
+                      );
+                    }
+                  }}
+                />
               )}
               <form
                 onSubmit={sendCarina}

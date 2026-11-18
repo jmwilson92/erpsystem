@@ -4585,8 +4585,28 @@ model CompanySettings {
   foundingMember       Boolean   @default(false)
   /// Verified qualifying subscription/trial start (legacy backfill: observed eligibility).
   foundingQualifiedAt  DateTime?
+  /// Admin opt-in: Carina may propose and (after confirm) perform permitted record changes.
+  /// Off by default. Never grants permissions the signed-in user does not already have.
+  carinaVoiceActions   Boolean   @default(false)
   updatedById          String?
   updatedAt            DateTime  @updatedAt
+}
+
+/// Idempotency receipt for a confirmed Carina voice/action change (tenant-scoped).
+model CarinaVoiceActionReceipt {
+  id             String   @id @default(cuid())
+  idempotencyKey String   @unique
+  userId         String
+  action         String
+  entityType     String
+  entityId       String
+  status         String   // CONFIRMED | FAILED
+  requestHash    String?
+  result         String?
+  createdAt      DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
 }
 
 // ═══════════════════════════════════════════════════════════════

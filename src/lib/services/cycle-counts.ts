@@ -9,13 +9,25 @@ export async function createCycleCount(params: {
   scope?: string;
   notes?: string;
   userId?: string;
+  partId?: string;
+  locationCode?: string;
 }) {
   const scope = params.scope?.trim() || "";
+  const locationCode = params.locationCode?.trim() || "";
 
   const items = await prisma.inventoryItem.findMany({
     where: {
       quantityOnHand: { gt: 0 },
-      ...(scope
+      ...(params.partId ? { partId: params.partId } : {}),
+      ...(locationCode
+        ? {
+            OR: [
+              { location: { code: { equals: locationCode, mode: "insensitive" } } },
+              { location: { code: { contains: locationCode, mode: "insensitive" } } },
+            ],
+          }
+        : {}),
+      ...(scope && !params.partId && !locationCode
         ? {
             OR: [
               { location: { code: { contains: scope } } },

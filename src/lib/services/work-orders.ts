@@ -1299,3 +1299,58 @@ export async function getFloorBoardData() {
     },
   };
 }
+
+/** Attach an existing work order to a project and optional WBS. Same rules as create. */
+export async function assignWorkOrderProject(params: {
+  workOrderId: string;
+  projectId: string;
+  wbsElementId?: string | null;
+  userId?: string;
+}) {
+  const wo = await prisma.workOrder.findUnique({
+    where: { id: params.workOrderId },
+    select: {
+      id: true,
+      number: true,
+      status: true,
+      projectId: true,
+      wbsElementId: true,
+    },
+  });
+  if (!wo) throw new Error("Work order not found");
+  if (["COMPLETED", "CLOSED", "CANCELLED"].includes(wo.status)) {
+    throw new Error(`Cannot retarget ${wo.number} because it is ${wo.status}`);
+  }
+  const project = await prisma.project.findUnique({
+    where: { id: params.projectId },
+    select: { id: true, number: true, name: true, status: true },
+  });
+  if (!project) throw new Error("Project not found");
+  let wbsElementId = params.wbsElementId || null;
+  if (wbsElementId) {
+    const wbs = await prisma.wbsElement.findUnique({
+      where: { id: wbsElementId },
+      select: { id: true, projectId: true, code: true },
+    });
+    if (!wbs) throw new Error("WBS element not found");
+    if (wbs.projectId !== project.id) {
+      throw new Error(`WBS ${wbs.code} does not belong to project ${project.number}`);
+    }
+  }
+  const updated = await prisma.workOrder.update({
+    where: { id: wo.id },
+    data: { projectId: project.id, wbsElementId },
+  });
+  const { logAudit } = await import("@/lib/audit");
+  await logAudit({
+    entityType: "WorkOrder",
+    entityId: wo.id,
+    action: "ASSIGNED_PROJECT",
+    userId: params.userId || null,
+    changes: {
+      projectId: { from: wo.projectId, to: project.id },
+      wbsElementId: { from: wo.wbsElementId, to: wbsElementId },
+    },
+  });
+  return updated;
+}

@@ -10,6 +10,7 @@ import {
   actionSetModuleEnabled,
   actionSaveCompanyOps,
   actionSetBomPrototypeDefault,
+  actionSetCarinaVoiceActions,
 } from "@/app/actions";
 import { Input } from "@/components/ui/input";
 import { MODULES } from "@/lib/modules";
@@ -231,6 +232,42 @@ export default async function AdminSettingsPage() {
                   Save operations settings
                 </Button>
               </div>
+            )}
+          </form>
+        </CardContent>
+      </Card>
+
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Bot className="h-4 w-4 text-teal-400" />
+            Carina voice actions
+          </CardTitle>
+          <p className="text-xs text-slate-500">
+            Off by default. When on, signed-in users can ask Carina (voice or
+            chat) to propose record changes. Nothing is written until they
+            confirm. Carina uses each user’s own permissions and never
+            changes money, payroll, HR or user access. Signature work also
+            needs a voice “approve” plus the user’s PIN.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <form action={actionSetCarinaVoiceActions} className="flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2 text-sm text-slate-200">
+              <input
+                type="checkbox"
+                name="carinaVoiceActions"
+                defaultChecked={!!company.carinaVoiceActions}
+                disabled={!canEdit}
+                className="h-4 w-4"
+              />
+              Allow confirm-gated Carina voice actions in this workspace
+            </label>
+            {canEdit && (
+              <Button type="submit" size="sm">
+                Save Carina setting
+              </Button>
             )}
           </form>
         </CardContent>
