@@ -35,13 +35,53 @@ export function formatPercent(n: number, digits = 1) {
   return `${n.toFixed(digits)}%`;
 }
 
+const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/** Parse a date-only value (YYYY-MM-DD) as a local calendar day, not UTC midnight. */
+export function parseCalendarDateInput(raw: string): Date | null {
+  const trimmed = raw.trim();
+  const match = DATE_ONLY.exec(trimmed);
+  if (match) {
+    const year = Number(match[1]), month = Number(match[2]), day = Number(match[3]);
+    const date = new Date(year, month - 1, day);
+    if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
+    return date;
+  }
+  const date = new Date(trimmed);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function asCalendarDate(date: Date | string): Date | null {
+  if (typeof date === "string") {
+    const trimmed = date.trim();
+    const match = DATE_ONLY.exec(trimmed) || /^(\d{4})-(\d{2})-(\d{2})T00:00:00(?:\.\d+)?Z$/.exec(trimmed);
+    if (match) {
+      const year = Number(match[1]), month = Number(match[2]), day = Number(match[3]);
+      return new Date(year, month - 1, day);
+    }
+    const parsed = parseISO(trimmed);
+    if (!isValid(parsed)) return null;
+    date = parsed;
+  }
+  if (!(date instanceof Date) || !isValid(date)) return null;
+  if (
+    date.getUTCHours() === 0 &&
+    date.getUTCMinutes() === 0 &&
+    date.getUTCSeconds() === 0 &&
+    date.getUTCMilliseconds() === 0
+  ) {
+    return new Date(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+  }
+  return date;
+}
+
 export function formatDate(
   date: Date | string | null | undefined,
   pattern = "MMM d, yyyy"
 ) {
   if (!date) return "—";
-  const d = typeof date === "string" ? parseISO(date) : date;
-  if (!isValid(d)) return "—";
+  const d = asCalendarDate(date);
+  if (!d) return "—";
   return format(d, pattern);
 }
 

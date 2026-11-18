@@ -109,8 +109,22 @@ export async function assignVirtualAsset(params: {
     where: { id: params.assetId },
   });
   if (!asset) throw new Error("Virtual asset not found");
-  if (asset.status === "RETIRED" || asset.status === "EXPIRED") {
-    throw new Error("Cannot assign retired/expired asset");
+  if (["RETIRED", "EXPIRED", "CONSUMED", "SHIPPED"].includes(asset.status)) {
+    throw new Error(`Cannot assign a ${asset.status.toLowerCase()} asset`);
+  }
+  const priorForUser = await prisma.virtualAssetAssignment.findFirst({
+    where: { virtualAssetId: asset.id, userId: params.userId },
+    orderBy: { createdAt: "desc" },
+  });
+  const alreadyHoldsSeat = asset.assignedToId === params.userId || priorForUser?.action === "ASSIGN";
+  if (alreadyHoldsSeat) {
+    if (asset.assignedToId !== params.userId) {
+      return prisma.virtualAsset.update({
+        where: { id: asset.id },
+        data: { assignedToId: params.userId, status: asset.status === "AVAILABLE" ? "ASSIGNED" : asset.status },
+      });
+    }
+    return asset;
   }
   if (asset.seats != null && asset.seatsUsed >= asset.seats) {
     throw new Error("No seats available");
@@ -199,8 +213,8 @@ export async function checkoutVirtualAsset(params: {
   });
   if (!asset) throw new Error("Virtual asset not found");
   if (asset.checkedOutToId) throw new Error("Already checked out");
-  if (["RETIRED", "EXPIRED"].includes(asset.status)) {
-    throw new Error("Cannot check out retired/expired asset");
+  if (["RETIRED", "EXPIRED", "CONSUMED", "SHIPPED"].includes(asset.status)) {
+    throw new Error(`Cannot check out a ${asset.status.toLowerCase()} asset`);
   }
 
   const updated = await prisma.virtualAsset.update({
@@ -239,6 +253,9 @@ export async function returnVirtualAsset(params: {
     where: { id: params.assetId },
   });
   if (!asset) throw new Error("Virtual asset not found");
+  if (["CONSUMED", "RETIRED", "EXPIRED", "SHIPPED"].includes(asset.status)) {
+    throw new Error(`Cannot return a ${asset.status.toLowerCase()} asset`);
+  }
   if (!asset.checkedOutToId) throw new Error("Not checked out");
 
   const prior = asset.checkedOutToId;

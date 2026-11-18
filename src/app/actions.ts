@@ -3418,8 +3418,9 @@ export async function actionSetWorkOrderDueDate(formData: FormData): Promise<voi
   const workOrderId = (formData.get("workOrderId") as string) || "";
   const raw = ((formData.get("dueDate") as string) || "").trim();
   if (!workOrderId) return;
-  const dueDate = raw ? new Date(raw) : null;
-  if (raw && Number.isNaN(dueDate?.getTime())) {
+  const { parseCalendarDateInput } = await import("@/lib/utils");
+  const dueDate = raw ? parseCalendarDateInput(raw) : null;
+  if (raw && !dueDate) {
     await flashToast("Invalid date", "error");
   } else {
     await prisma.workOrder.update({
@@ -3714,10 +3715,25 @@ export async function actionAcceptQuote(formData: FormData): Promise<void> {
 
 export async function actionSendQuote(formData: FormData): Promise<void> {
   const quoteId = formData.get("quoteId") as string;
-  await prisma.quote.update({
-    where: { id: quoteId },
-    data: { status: "SENT" },
-  });
+  const quote = await prisma.quote.findUnique({ where: { id: quoteId } });
+  if (!quote) {
+    await flashToast("Quote not found", "error");
+  } else if (quote.status !== "DRAFT") {
+    await flashToast(`Quote is ${quote.status} — only drafts can be sent`, "error");
+  } else {
+    await prisma.quote.update({
+      where: { id: quoteId },
+      data: { status: "SENT" },
+    });
+    await logAudit({
+      entityType: "Quote",
+      entityId: quoteId,
+      action: "QUOTE_SENT",
+      userId: (await getCurrentUser())?.id,
+      metadata: { number: quote.number },
+    });
+    await flashToast(`${quote.number} marked sent — awaiting customer PO`);
+  }
   revalidatePath(`/sales/quotes/${quoteId}`);
   revalidatePath("/sales/quotes");
 }
