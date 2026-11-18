@@ -7,7 +7,7 @@ import { StatCard } from "@/components/shared/stat-card";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { computeEvm, formatPercent } from "@/lib/utils";
+import { computeEvm, formatPercent, greetingFor, resolveDisplayTimeZone } from "@/lib/utils";
 import {
   Factory,
   AlertTriangle,
@@ -29,7 +29,7 @@ import { DashboardPersonalize } from "@/components/dashboard/dashboard-personali
 import { Sparkline } from "@/components/dashboard/sparkline";
 import { LandingPage } from "@/components/marketing/landing-page";
 import { SITE_DESCRIPTION, SITE_NAME, SITE_TITLE_DESCRIPTOR } from "@/lib/site";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { DEMO_COOKIE } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth-core";
 
@@ -106,6 +106,7 @@ export default async function DashboardPage({
 
   const now = new Date();
   const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+  const { greeting, dateLabel } = greetingFor(now, resolveDisplayTimeZone((await headers()).get("x-vercel-ip-timezone")));
   const [
     woCounts,
     openMrb,
@@ -215,8 +216,6 @@ export default async function DashboardPage({
   const bookings6mo = bookingsByMonth.reduce((s, m) => s + m.value, 0);
 
   const firstName = user.name.split(" ")[0];
-  const hour = now.getHours();
-  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   const approvalsWaiting = notif.badges["/approvals"] || 0;
   const sheetStatus = currentSheet
     ? currentSheet.status.replace(/_/g, " ").toLowerCase()
@@ -264,11 +263,7 @@ export default async function DashboardPage({
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-xs uppercase tracking-wider text-slate-500">
-            {now.toLocaleDateString("en-US", {
-              weekday: "long",
-              month: "long",
-              day: "numeric",
-            })}
+            {dateLabel}
           </p>
           <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-50">
             {greeting}, {firstName}

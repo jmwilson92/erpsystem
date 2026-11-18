@@ -247,6 +247,47 @@ export function parseJsonArray<T = string>(value: string | null | undefined): T[
   }
 }
 
+export function isValidTimeZone(timeZone: string): boolean {
+  try {
+    Intl.DateTimeFormat("en-US", { timeZone }).format(new Date());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Prefer the visitor timezone (Vercel IP header), then process.env.TZ, then the runtime default. */
+export function resolveDisplayTimeZone(headerTz?: string | null): string {
+  for (const candidate of [headerTz?.trim(), process.env.TZ?.trim()]) {
+    if (candidate && isValidTimeZone(candidate)) return candidate;
+  }
+  try {
+    const resolved = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (resolved && isValidTimeZone(resolved)) return resolved;
+  } catch {
+    /* ignore */
+  }
+  return "UTC";
+}
+
+/** Dashboard greeting and calendar day in a named IANA timezone, not the server's local clock. */
+export function greetingFor(date: Date, timeZone: string): { greeting: string; dateLabel: string; hour: number } {
+  const hourRaw = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour: "numeric",
+    hourCycle: "h23",
+  }).formatToParts(date).find((part) => part.type === "hour")?.value;
+  const hour = Number(hourRaw);
+  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+  const dateLabel = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+  }).format(date);
+  return { greeting, dateLabel, hour: Number.isFinite(hour) ? hour : 0 };
+}
+
 export function slugify(s: string) {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 }
