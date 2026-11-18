@@ -48,12 +48,58 @@ async function main() {
     calls=0;globalThis.fetch=async()=>{calls++;throw Error('must never call')};
     assert.equal((await answerHelp('Finish WO-1')).source,'local');assert.equal(calls,0);
   } finally {globalThis.fetch=original;if(key===undefined) delete process.env.XAI_API_KEY;else process.env.XAI_API_KEY=key;}
+
+  const { helpMetaReply } = await import('../src/lib/ai-help/meta');
+  assert.equal(helpMetaReply('can you hear me')?.startsWith('Yes, I can hear you'), true);
+  assert.ok(helpMetaReply('Carina, can you hear me?'));
+  assert.ok(helpMetaReply('are you there'));
+  assert.ok(helpMetaReply('hello'));
+  assert.equal(helpMetaReply('can you hear the difference between a certified BOM and a prototype'), null);
+  assert.equal(helpMetaReply('How do I create a work order?'), null);
+  const { composeUtterance, promoteInterim } = await import('../src/lib/ai-help/utterance');
+  assert.equal(composeUtterance('can you', 'can you hear me'), 'can you hear me');
+  assert.equal(composeUtterance('Carina can you', ''), 'Carina can you');
+  assert.equal(composeUtterance('can you', 'you hear me'), 'can you hear me');
+  assert.equal(promoteInterim('Carina can you', 'hear me'), 'Carina can you hear me');
+  const { extractStreamingHelpText, HELP_EVIDENCE_CHARS, HELP_EVIDENCE_LIMIT, HELP_GROK_TIMEOUT_MS, HELP_MAX_TOKENS } = await import('../src/lib/ai-help/answer');
+  assert.equal(extractStreamingHelpText('{"text":"Hello there","sourceIds":["bom-certification"]}'), 'Hello there');
+  assert.equal(extractStreamingHelpText('{"text":"Partial'), 'Partial');
+  const giant={...bom,text:'x'.repeat(5000)};
+  const sys=helpSystem([giant,giant,giant],'/bom','English');
+  assert.ok(!sys.includes('x'.repeat(HELP_EVIDENCE_CHARS+1)), 'Evidence must be trimmed');
+  assert.equal(HELP_EVIDENCE_LIMIT,2);
+  assert.equal(HELP_MAX_TOKENS,400);
+  assert.equal(HELP_GROK_TIMEOUT_MS,8000);
+  assert.match(fs.readFileSync('src/lib/ai-help/answer.ts','utf8'), /retrieveHelp\(question,opts\?\.page,HELP_EVIDENCE_LIMIT\)/);
+  assert.ok(!/retrieveHelp\(question\+\(opts\?\.previousQuestion/.test(fs.readFileSync('src/lib/ai-help/answer.ts','utf8')), 'Previous turns must not be mixed into retrieval');
+
+  calls=0;
+  process.env.XAI_API_KEY='synthetic-test-only';
+  const fetchWas=globalThis.fetch;
+  try {
+    globalThis.fetch=async()=>{calls++;throw Error('meta replies must not call the model')};
+    const heard=await answerHelp('can you hear me',{previousQuestion:'How many open work orders do I have?'});
+    assert.equal(heard.source,'local');
+    assert.match(heard.text,/Yes, I can hear you/);
+    assert.equal(calls,0);
+  } finally {globalThis.fetch=fetchWas;}
+
   const voice=fs.readFileSync('src/components/ai/voice-assistant.tsx','utf8');
   const examples=voice.slice(voice.indexOf('Examples:'),voice.indexOf('If “Hearing:”'));
   assert.match(voice,/Read-only help — no record changes/);
   assert.match(examples,/show me how to create a work order/);
   assert.match(examples,/explain work order completion/);
   assert.ok(!/finish work order|WO-10042/i.test(examples),'Voice examples must not promise ERP mutations');
+  assert.match(voice,/promoteInterim/);
+  assert.match(voice,/SILENCE_INTERIM_ONLY_MS/);
+  const onendAt=voice.indexOf('rec.onend = ()');
+  const onend=voice.slice(onendAt, voice.indexOf('recRef.current = rec', onendAt));
+  assert.ok(!onend.includes(', 400)'), 'onend must not flush after 400ms');
+  assert.match(onend,/promoteInterim/);
+  assert.match(voice,/streamCarinaConversation/);
+  assert.match(voice,/helpMetaReply/);
+  assert.match(fs.readFileSync('src/components/support/support-bubble.tsx','utf8'),/streamCarinaConversation/);
+  assert.match(fs.readFileSync('src/app/api/ai/conversation/route.ts','utf8'),/type: "ack"/);
   console.log('PASS AI-001 voice examples stay read-only; mutations still refused; permitted account counts allowed');
   const ai=fs.readFileSync('src/lib/services/ai.ts','utf8');
   assert.ok(!/getAiContextSummary|tryCarinaAction|getFloorBoardData/.test(ai),'Conversation entry must not execute agent actions or load the floor board');
