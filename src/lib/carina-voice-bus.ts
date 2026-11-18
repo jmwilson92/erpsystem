@@ -49,6 +49,33 @@ export function readWantListen(): boolean {
   }
 }
 
+
+export function carinaVoiceStatusEvent(detail: {
+  listening: boolean;
+  recAlive: boolean;
+  error: string | null;
+  supported: boolean;
+}) {
+  return new CustomEvent("forge:carina-voice-status", { detail });
+}
+
+export function carinaPttDownEvent() {
+  return new CustomEvent("forge:carina-ptt-down");
+}
+
+export function carinaPttUpEvent() {
+  return new CustomEvent("forge:carina-ptt-up");
+}
+
+export function speechRecognitionSupported(): boolean {
+  if (typeof window === "undefined") return false;
+  const w = window as unknown as {
+    SpeechRecognition?: unknown;
+    webkitSpeechRecognition?: unknown;
+  };
+  return !!(w.SpeechRecognition || w.webkitSpeechRecognition);
+}
+
 /** Non-blocking temporary highlight (page stays clickable). */
 export function carinaPointEvent(detail: {
   selector: string;

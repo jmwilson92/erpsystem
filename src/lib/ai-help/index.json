@@ -181,7 +181,7 @@
         "src/lib/services/permissions.ts",
         "src/components/layout/app-shell.tsx"
       ],
-      "text": "Access depends on the signed-in user, assigned role, permissions and tenant. A menu item or a guided tour does not grant permission. Ask a company administrator to review a missing module or denied action; do not switch identities, forge cookies or bypass a permission check. The AI help assistant is read-only: it explains procedures but does not create, finish, delete, post, approve, sign or modify ERP records. It does not fetch live plant, HR, payroll or other tenant data. For live status, open the authorized module. Use Help & Support for a human; submitting a ticket is a separate user action."
+      "text": "Access depends on the signed-in user, assigned role, permissions and tenant. A menu item or a guided tour does not grant permission. Ask a company administrator to review a missing module or denied action; do not switch identities, forge cookies or bypass a permission check. The AI help assistant is read-only: it explains procedures but does not create, finish, delete, post, approve, sign or modify ERP records. When you are signed in, it may report permission-checked counts from your own tenant — open work orders by status, sales orders, purchase orders, NCRs, and low-stock items — and will never invent a number or read payroll, HR, financial balances, or another tenant. For other live records, open the authorized module. Use Help & Support for a human; submitting a ticket is a separate user action."
     },
     {
       "id": "getting-started",

@@ -17,6 +17,7 @@ import {
   useRef,
   useState,
   useTransition,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -35,6 +36,7 @@ import {
   Bot,
   Mic,
   MicOff,
+  Radio,
 } from "lucide-react";
 import {
   actionCreateSupportTicketResult,
@@ -62,6 +64,9 @@ import {
   readWantListen,
   stopCarinaVoiceEvent,
   carinaPointEvent,
+  carinaPttDownEvent,
+  carinaPttUpEvent,
+  speechRecognitionSupported,
 } from "@/lib/carina-voice-bus";
 import { cn } from "@/lib/utils";
 
@@ -144,6 +149,10 @@ export function SupportBubble({
   const [carinaInput, setCarinaInput] = useState("");
   const [carinaLang, setCarinaLang] = useState<CarinaLang>(DEFAULT_LANG);
   const [voiceOn, setVoiceOn] = useState(false);
+  const [recAlive, setRecAlive] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [voiceSupported, setVoiceSupported] = useState(true);
+  const [pttHeld, setPttHeld] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -159,12 +168,43 @@ export function SupportBubble({
   useEffect(() => {
     setCarinaLang(loadStoredLang());
     setVoiceOn(readWantListen());
+    setVoiceSupported(speechRecognitionSupported());
     const onListen = (e: Event) => {
-      setVoiceOn(!!(e as CustomEvent).detail?.listening);
+      const d = (e as CustomEvent).detail as {
+        listening?: boolean;
+        recAlive?: boolean;
+      };
+      setVoiceOn(!!d?.listening);
+      if (!d?.listening) {
+        setRecAlive(false);
+        setPttHeld(false);
+      } else if (typeof d?.recAlive === "boolean") {
+        setRecAlive(d.recAlive);
+      }
+    };
+    const onAlive = (e: Event) => {
+      setRecAlive(!!(e as CustomEvent).detail?.recAlive);
+    };
+    const onStatus = (e: Event) => {
+      const d = (e as CustomEvent).detail as {
+        listening?: boolean;
+        recAlive?: boolean;
+        error?: string | null;
+        supported?: boolean;
+      };
+      if (typeof d?.listening === "boolean") setVoiceOn(d.listening);
+      if (typeof d?.recAlive === "boolean") setRecAlive(d.recAlive);
+      if (d?.error !== undefined) setVoiceError(d.error);
+      if (typeof d?.supported === "boolean") setVoiceSupported(d.supported);
     };
     window.addEventListener("forge:carina-listen-changed", onListen);
-    return () =>
+    window.addEventListener("forge:carina-rec-alive", onAlive);
+    window.addEventListener("forge:carina-voice-status", onStatus);
+    return () => {
       window.removeEventListener("forge:carina-listen-changed", onListen);
+      window.removeEventListener("forge:carina-rec-alive", onAlive);
+      window.removeEventListener("forge:carina-voice-status", onStatus);
+    };
   }, []);
 
   // Force support-only outside ERP
@@ -311,24 +351,61 @@ export function SupportBubble({
   function toggleVoice() {
     if (voiceOn) {
       setVoiceOn(false);
+      setRecAlive(false);
+      setVoiceError(null);
+      setPttHeld(false);
       persistWantListen(false);
       window.dispatchEvent(stopCarinaVoiceEvent());
       setCarinaMsgs((m) => [
         ...m,
         { role: "assistant", content: "Voice off. You can still type here." },
       ]);
-    } else {
+      return;
+    }
+    if (!speechRecognitionSupported()) {
+      setVoiceSupported(false);
+      setVoiceError(
+        "Voice listening isn’t supported in this browser. Use Microsoft Edge or Google Chrome on this site, or type your question."
+      );
+      return;
+    }
+    setVoiceError(null);
+    setVoiceOn(true);
+    window.dispatchEvent(enableCarinaVoiceEvent());
+    setCarinaMsgs((m) => [
+      ...m,
+      {
+        role: "assistant",
+        content:
+          "Voice on site-wide. I’m Carina, an AI assistant. Allow the microphone if the browser asks, then say “Carina, …” from any ERP page (Karina, Corina, Katrina, and Carena also work). Hold Push to talk if the wake word is missed. Type here anytime.",
+      },
+    ]);
+  }
+
+  function pttPointerDown(e: ReactPointerEvent) {
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    if (!speechRecognitionSupported()) {
+      setVoiceSupported(false);
+      setVoiceError(
+        "Voice listening isn’t supported in this browser. Use Microsoft Edge or Google Chrome, or type your question."
+      );
+      return;
+    }
+    setVoiceError(null);
+    setPttHeld(true);
+    if (!voiceOn) {
       setVoiceOn(true);
       window.dispatchEvent(enableCarinaVoiceEvent());
-      setCarinaMsgs((m) => [
-        ...m,
-        {
-          role: "assistant",
-          content:
-            "Voice on site-wide. Say “Carina, …” from any ERP page. Say “Carina” while I talk to interrupt. Type here anytime.",
-        },
-      ]);
     }
+    window.dispatchEvent(carinaPttDownEvent());
+  }
+
+  function pttPointerUp(e: ReactPointerEvent) {
+    e.preventDefault();
+    if (!pttHeld && !voiceOn) return;
+    setPttHeld(false);
+    window.dispatchEvent(carinaPttUpEvent());
   }
 
   function sendCarina(e: React.FormEvent) {
@@ -520,7 +597,13 @@ export function SupportBubble({
               </h2>
               <p className="truncate text-[10px] text-slate-500">
                 {tab === "ai"
-                  ? `Carina · ${carinaLang.name}${voiceOn ? " · voice on" : ""}`
+                  ? `Carina · ${carinaLang.name}${
+                      voiceOn
+                        ? recAlive
+                          ? " · listening"
+                          : " · reconnecting"
+                        : ""
+                    }`
                   : inSupportThread
                     ? active!.number
                     : "Message our team"}
@@ -586,13 +669,34 @@ export function SupportBubble({
                       ? "bg-teal-500 text-slate-950"
                       : "border border-slate-600 text-slate-300 hover:border-teal-500/50"
                   )}
+                  aria-pressed={voiceOn}
                 >
                   {voiceOn ? (
                     <Mic className="h-3 w-3" />
                   ) : (
                     <MicOff className="h-3 w-3" />
                   )}
-                  {voiceOn ? "Voice on" : "Voice"}
+                  {voiceOn
+                    ? recAlive
+                      ? "Listening"
+                      : "Reconnecting"
+                    : "Voice"}
+                </button>
+                <button
+                  type="button"
+                  onPointerDown={pttPointerDown}
+                  onPointerUp={pttPointerUp}
+                  onPointerCancel={pttPointerUp}
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold",
+                    pttHeld
+                      ? "bg-amber-400 text-slate-950"
+                      : "border border-slate-600 text-slate-300 hover:border-amber-400/50"
+                  )}
+                  aria-pressed={pttHeld}
+                >
+                  <Radio className="h-3 w-3" />
+                  {pttHeld ? "Release" : "Push to talk"}
                 </button>
                 <Link
                   href="/ai"
@@ -605,6 +709,20 @@ export function SupportBubble({
                   AI · powered by Grok
                 </span>
               </div>
+                <p className="px-3 py-1 text-[11px] text-slate-400" aria-live="polite">
+                  {!voiceSupported
+                    ? "Voice listening isn’t supported in this browser. Use Microsoft Edge or Google Chrome, or type your question. I’m an AI assistant."
+                    : voiceOn
+                      ? recAlive
+                        ? "Listening for “Carina”… I’m an AI assistant."
+                        : "Reconnecting the microphone…"
+                      : "Tap Voice to listen for “Carina”, or hold Push to talk. I’m an AI assistant."}
+                </p>
+                {voiceError && (
+                  <p className="mx-3 mb-1 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-200">
+                    {voiceError}
+                  </p>
+                )}
                 <p className="px-3 py-2 text-[11px] text-slate-400">AI can make mistakes. Read-only help, not live data. Questions, answers and feedback are logged in your workspace for review. Questions go to xAI; don’t share PINs, secrets, personal or controlled data. <button type="button" className="underline" onClick={()=>setTab("support")}>Human support</button></p>
               <div
                 ref={scrollerRef}
