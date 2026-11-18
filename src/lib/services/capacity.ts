@@ -1,3 +1,5 @@
+import { logAudit } from "@/lib/audit";
+import { withMutationLock } from "@/lib/mutation-lock";
 import { prisma } from "@/lib/db";
 import {
   startOfWeek,
@@ -484,51 +486,55 @@ export async function assignWorkCenterStaff(params: {
   workCenterId: string;
   userId: string;
   hoursPerDay?: number;
+  actorId?: string;
 }): Promise<{
   staff: Awaited<ReturnType<typeof prisma.workCenterStaff.upsert>>;
   movedFrom: { code: string; name: string } | null;
 }> {
-  const other = await prisma.workCenterStaff.findFirst({
-    where: {
-      userId: params.userId,
-      isActive: true,
-      workCenterId: { not: params.workCenterId },
-    },
-    include: { workCenter: { select: { code: true, name: true } } },
-  });
-
-  if (other) {
-    await prisma.workCenterStaff.update({
-      where: { id: other.id },
-      data: { isActive: false },
+  const hours = params.hoursPerDay ?? 8;
+  if (!Number.isFinite(hours) || hours <= 0 || hours > 24) throw new Error("Staff hours must be finite, positive and at most 24");
+  return withMutationLock("User", params.userId, async db => {
+    await db.user.findUniqueOrThrow({ where: { id: params.userId } });
+    const target = await db.workCenter.findUniqueOrThrow({ where: { id: params.workCenterId } });
+    if (!target.isActive) throw new Error("Cannot staff an inactive station");
+    const other = await db.workCenterStaff.findFirst({
+      where: {
+        userId: params.userId,
+        isActive: true,
+        workCenterId: { not: params.workCenterId },
+      },
+      include: { workCenter: { select: { code: true, name: true } } },
     });
-  }
 
-  const staff = await prisma.workCenterStaff.upsert({
-    where: {
-      workCenterId_userId: {
+    await db.workCenterStaff.updateMany({ where: { userId: params.userId, isActive: true, workCenterId: { not: params.workCenterId } }, data: { isActive: false } });
+
+    const staff = await db.workCenterStaff.upsert({
+      where: {
+        workCenterId_userId: {
+          workCenterId: params.workCenterId,
+          userId: params.userId,
+        },
+      },
+      create: {
         workCenterId: params.workCenterId,
         userId: params.userId,
+        hoursPerDay: hours,
+        isActive: true,
       },
-    },
-    create: {
-      workCenterId: params.workCenterId,
-      userId: params.userId,
-      hoursPerDay: params.hoursPerDay ?? 8,
-      isActive: true,
-    },
-    update: {
-      hoursPerDay: params.hoursPerDay ?? 8,
-      isActive: true,
-    },
-  });
+      update: {
+        hoursPerDay: hours,
+        isActive: true,
+      },
+    });
 
-  return {
-    staff,
-    movedFrom: other
-      ? { code: other.workCenter.code, name: other.workCenter.name }
-      : null,
-  };
+    await logAudit({ entityType: "WorkCenterStaff", entityId: staff.id, action: "ASSIGNED", userId: params.actorId, metadata: { assignedUserId: params.userId, workCenterId: params.workCenterId } }, db);
+    return {
+      staff,
+      movedFrom: other
+        ? { code: other.workCenter.code, name: other.workCenter.name }
+        : null,
+    };
+  });
 }
 
 export async function getActiveStaffAssignments(): Promise<
@@ -557,12 +563,11 @@ export async function getActiveStaffAssignments(): Promise<
 export async function removeWorkCenterStaff(params: {
   workCenterId: string;
   userId: string;
+  actorId?: string;
 }) {
-  return prisma.workCenterStaff.updateMany({
-    where: {
-      workCenterId: params.workCenterId,
-      userId: params.userId,
-    },
-    data: { isActive: false },
+  return withMutationLock("User", params.userId, async db => {
+    const result = await db.workCenterStaff.updateMany({ where: { workCenterId: params.workCenterId, userId: params.userId, isActive: true }, data: { isActive: false } });
+    if (result.count) await logAudit({ entityType: "WorkCenterStaff", entityId: params.userId, action: "REMOVED", userId: params.actorId, metadata: { workCenterId: params.workCenterId } }, db);
+    return result;
   });
 }

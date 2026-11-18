@@ -1,3 +1,4 @@
+import { withMutationLock } from "@/lib/mutation-lock";
 /**
  * Asset Tracker — company tools, test equipment, and demo units.
  * Assets check out to a person and optionally attach to a work order
@@ -54,48 +55,51 @@ export async function checkoutAsset(params: {
   engTaskId?: string | null;
   actorId?: string | null;
 }) {
-  const asset = await prisma.asset.findUniqueOrThrow({
-    where: { id: params.assetId },
-  });
-  if (asset.status === "CHECKED_OUT" || asset.status === "IN_USE") {
-    throw new Error("Asset is already checked out");
-  }
-  if (asset.status === "RETIRED") {
-    throw new Error("Asset is retired");
-  }
-  if (params.offsite && asset.locationScope === "IN_HOUSE_ONLY") {
-    throw new Error(
-      `${asset.assetTag} is in-house only and cannot leave the facility.`
-    );
-  }
+  return withMutationLock("Asset", params.assetId, async db => {
+    const asset = await db.asset.findUniqueOrThrow({
+      where: { id: params.assetId },
+    });
+    if (asset.status === "CHECKED_OUT" || asset.status === "IN_USE") {
+      throw new Error("Asset is already checked out");
+    }
+    if (asset.status === "RETIRED") {
+      throw new Error("Asset is retired");
+    }
+    if (asset.status !== "AVAILABLE") throw new Error("Asset is not available for checkout");
+    if (params.offsite && asset.locationScope === "IN_HOUSE_ONLY") {
+      throw new Error(
+        `${asset.assetTag} is in-house only and cannot leave the facility.`
+      );
+    }
 
-  await prisma.assetCheckout.create({
-    data: {
-      assetId: asset.id,
-      userId: params.userId,
-      purpose: params.purpose || null,
-      offsite: Boolean(params.offsite),
-      destination: params.destination || null,
-      dueAt: params.dueAt || null,
-    },
+    await db.assetCheckout.create({
+      data: {
+        assetId: asset.id,
+        userId: params.userId,
+        purpose: params.purpose || null,
+        offsite: Boolean(params.offsite),
+        destination: params.destination || null,
+        dueAt: params.dueAt || null,
+      },
+    });
+    const updated = await db.asset.update({
+      where: { id: asset.id },
+      data: {
+        status: "CHECKED_OUT",
+        assignedToUserId: params.userId,
+        workOrderId: params.workOrderId || null,
+        engTaskId: params.engTaskId || null,
+      },
+    });
+    await logAudit({
+      entityType: "Asset",
+      entityId: asset.id,
+      action: params.offsite ? "ASSET_CHECKED_OUT_OFFSITE" : "ASSET_CHECKED_OUT",
+      userId: params.actorId,
+      metadata: { destination: params.destination, purpose: params.purpose },
+    }, db);
+    return updated;
   });
-  const updated = await prisma.asset.update({
-    where: { id: asset.id },
-    data: {
-      status: "CHECKED_OUT",
-      assignedToUserId: params.userId,
-      workOrderId: params.workOrderId || null,
-      engTaskId: params.engTaskId || null,
-    },
-  });
-  await logAudit({
-    entityType: "Asset",
-    entityId: asset.id,
-    action: params.offsite ? "ASSET_CHECKED_OUT_OFFSITE" : "ASSET_CHECKED_OUT",
-    userId: params.actorId,
-    metadata: { destination: params.destination, purpose: params.purpose },
-  });
-  return updated;
 }
 
 export async function checkinAsset(params: {
@@ -103,33 +107,41 @@ export async function checkinAsset(params: {
   returnNote?: string;
   actorId?: string | null;
 }) {
-  const open = await prisma.assetCheckout.findFirst({
-    where: { assetId: params.assetId, checkedInAt: null },
-    orderBy: { checkedOutAt: "desc" },
-  });
-  if (open) {
-    await prisma.assetCheckout.update({
-      where: { id: open.id },
-      data: { checkedInAt: new Date(), returnNote: params.returnNote || null },
+  return withMutationLock("Asset", params.assetId, async db => {
+    const asset = await db.asset.findUniqueOrThrow({ where: { id: params.assetId } });
+    if (asset.status === "RETIRED" || asset.status === "MAINTENANCE") throw new Error("Retired/maintenance asset cannot be checked in to available");
+    const openCount = await db.assetCheckout.count({ where: { assetId: asset.id, checkedInAt: null } });
+    if (openCount > 1 || (asset.status === "AVAILABLE" && openCount)) throw new Error("Inconsistent asset custody requires reconciliation");
+    if (asset.status === "AVAILABLE") return asset;
+    if (!["CHECKED_OUT", "IN_USE"].includes(asset.status)) throw new Error("Asset is not checked out");
+    const open = await db.assetCheckout.findFirst({
+      where: { assetId: params.assetId, checkedInAt: null },
+      orderBy: { checkedOutAt: "desc" },
     });
-  }
-  const updated = await prisma.asset.update({
-    where: { id: params.assetId },
-    data: {
-      status: "AVAILABLE",
-      assignedToUserId: null,
-      workOrderId: null,
-      engTaskId: null,
-    },
+    if (open) {
+      await db.assetCheckout.update({
+        where: { id: open.id },
+        data: { checkedInAt: new Date(), returnNote: params.returnNote || null },
+      });
+    }
+    const updated = await db.asset.update({
+      where: { id: params.assetId },
+      data: {
+        status: "AVAILABLE",
+        assignedToUserId: null,
+        workOrderId: null,
+        engTaskId: null,
+      },
+    });
+    await logAudit({
+      entityType: "Asset",
+      entityId: params.assetId,
+      action: "ASSET_CHECKED_IN",
+      userId: params.actorId,
+      metadata: { returnNote: params.returnNote },
+    }, db);
+    return updated;
   });
-  await logAudit({
-    entityType: "Asset",
-    entityId: params.assetId,
-    action: "ASSET_CHECKED_IN",
-    userId: params.actorId,
-    metadata: { returnNote: params.returnNote },
-  });
-  return updated;
 }
 
 export async function getAssetsOverview() {

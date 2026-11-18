@@ -4611,10 +4611,8 @@ export async function actionSavePlanningSettings(
   await savePlanningSettings(
     {
       calendarMode,
-      fixedShiftHours: Number.isFinite(fixedShiftHours) ? fixedShiftHours : 8,
-      customShiftHours: Number.isFinite(customShiftHours)
-        ? customShiftHours
-        : 8,
+      fixedShiftHours,
+      customShiftHours,
     },
     user?.id
   );
@@ -7030,11 +7028,14 @@ export async function actionAlignBusinessPriority(
 export async function actionAssignWorkCenterStaff(
   formData: FormData
 ): Promise<{ movedFrom: { code: string; name: string } | null }> {
+  const { requirePermission } = await import("@/lib/auth");
+  const actor = await requirePermission("workcenters.manage");
   const { assignWorkCenterStaff } = await import("@/lib/services/capacity");
   const result = await assignWorkCenterStaff({
     workCenterId: formData.get("workCenterId") as string,
     userId: formData.get("userId") as string,
     hoursPerDay: Number(formData.get("hoursPerDay") || 8),
+    actorId: actor.id,
   });
   revalidatePath("/planning");
   revalidatePath("/workcenters");
@@ -7045,10 +7046,13 @@ export async function actionAssignWorkCenterStaff(
 export async function actionRemoveWorkCenterStaff(
   formData: FormData
 ): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const actor = await requirePermission("workcenters.manage");
   const { removeWorkCenterStaff } = await import("@/lib/services/capacity");
   await removeWorkCenterStaff({
     workCenterId: formData.get("workCenterId") as string,
     userId: formData.get("userId") as string,
+    actorId: actor.id,
   });
   revalidatePath("/planning");
   revalidatePath("/workcenters");
