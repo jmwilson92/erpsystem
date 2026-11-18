@@ -153,11 +153,17 @@ function rowToObject(row: string[], mapping: Record<number, string>) {
   return obj;
 }
 
-const num = (v: string | undefined) => {
-  if (!v) return undefined;
-  const n = Number(v.replace(/[$,\s]/g, ""));
-  return Number.isFinite(n) ? n : undefined;
-};
+function parseNumber(
+  label: string,
+  v: string | undefined,
+  opts: { min?: number; integer?: boolean } = {},
+) {
+  const n = Number(String(v ?? "").replace(/[$,\s]/g, ""));
+  if (!Number.isFinite(n)) throw new Error(`${label} must be a number`);
+  if (opts.integer && !Number.isInteger(n)) throw new Error(`${label} must be a whole number`);
+  if (opts.min != null && n < opts.min) throw new Error(`${label} cannot be negative`);
+  return n;
+}
 
 const VALID_ROLES = [
   "ADMIN", "ENGINEERING", "CM", "QUALITY", "PURCHASING",
@@ -229,7 +235,7 @@ export async function runImport(params: {
   }
 
   // Deferred manager links for people (managers may appear later in file)
-  const managerLinks: { email: string; managerEmail: string }[] = [];
+  const managerLinks: { row: number; email: string; managerEmail: string }[] = [];
 
   for (let r = 1; r < rows.length; r++) {
     const obj = rowToObject(rows[r], mapping);
@@ -247,13 +253,18 @@ export async function runImport(params: {
     try {
       if (params.entity === "parts") {
         if (!obj.partNumber) throw new Error("Missing part number");
+        const standardCost = parseNumber("standardCost", obj.standardCost, { min: 0 });
+        const leadTimeDays = parseNumber("leadTimeDays", obj.leadTimeDays, { min: 0, integer: true });
+        const minStock = parseNumber("minStock", obj.minStock, { min: 0 });
+        const maxStock = parseNumber("maxStock", obj.maxStock, { min: 0 });
+        if (minStock > maxStock) throw new Error("minStock cannot be greater than maxStock");
         const data = {
           description: obj.description || obj.partNumber,
           uom: obj.uom?.toUpperCase() || "EA",
-          standardCost: num(obj.standardCost) ?? 0,
-          leadTimeDays: Math.round(num(obj.leadTimeDays) ?? 0),
-          minStock: num(obj.minStock) ?? 0,
-          maxStock: num(obj.maxStock) ?? 0,
+          standardCost,
+          leadTimeDays,
+          minStock,
+          maxStock,
           partType: ["MAKE", "BUY", "PHANTOM", "ASSEMBLY"].includes(
             obj.partType?.toUpperCase() || ""
           )
@@ -288,7 +299,7 @@ export async function runImport(params: {
         const data = {
           contactEmail: obj.contactEmail || null,
           paymentTerms: obj.paymentTerms?.toUpperCase().replace(/\s+/g, "") || "NET30",
-          creditLimit: num(obj.creditLimit) ?? 0,
+          creditLimit: parseNumber("creditLimit", obj.creditLimit, { min: 0 }),
         };
         const existing = await prisma.customer.findFirst({
           where: { name: obj.name },
@@ -373,7 +384,7 @@ export async function runImport(params: {
         // Wire the org chart for newly-created people (and everyone in update
         // mode); don't re-touch existing people that were skipped.
         if (obj.managerEmail && (!existing || mode === "update")) {
-          managerLinks.push({ email, managerEmail: obj.managerEmail.toLowerCase() });
+          managerLinks.push({ row: r + 1, email, managerEmail: obj.managerEmail.toLowerCase() });
         }
       }
     } catch (e) {
@@ -384,16 +395,54 @@ export async function runImport(params: {
     }
   }
 
-  // Second pass: wire the org chart once everyone exists
-  for (const link of managerLinks) {
-    const [emp, mgr] = await Promise.all([
-      prisma.user.findUnique({ where: { email: link.email } }),
-      prisma.user.findUnique({ where: { email: link.managerEmail } }),
-    ]);
-    if (emp && mgr && emp.id !== mgr.id) {
+  // Second pass: wire the org chart once everyone exists, rejecting cycles.
+  if (managerLinks.length > 0) {
+    const users = await prisma.user.findMany({ select: { id: true, email: true, managerId: true } });
+    const byEmail = new Map(users.map((u) => [u.email.toLowerCase(), u]));
+    const proposed = new Map(users.map((u) => [u.id, u.managerId as string | null]));
+    const candidates: { row: number; email: string; empId: string; managerId: string }[] = [];
+    for (const link of managerLinks) {
+      const emp = byEmail.get(link.email);
+      const mgr = byEmail.get(link.managerEmail);
+      if (!emp) continue;
+      if (!mgr) {
+        result.errors.push({ row: link.row, message: `Manager ${link.managerEmail} was not found.` });
+        continue;
+      }
+      if (emp.id === mgr.id) {
+        result.errors.push({ row: link.row, message: `${link.email} cannot report to themselves.` });
+        continue;
+      }
+      proposed.set(emp.id, mgr.id);
+      candidates.push({ row: link.row, email: link.email, empId: emp.id, managerId: mgr.id });
+    }
+    const inCycle = new Set<string>();
+    for (const start of proposed.keys()) {
+      const seen: string[] = [];
+      const index = new Map<string, number>();
+      let current: string | null | undefined = start;
+      while (current) {
+        const prior = index.get(current);
+        if (prior != null) {
+          for (const id of seen.slice(prior)) inCycle.add(id);
+          break;
+        }
+        index.set(current, seen.length);
+        seen.push(current);
+        current = proposed.get(current) ?? null;
+      }
+    }
+    for (const link of candidates) {
+      if (inCycle.has(link.empId)) {
+        result.errors.push({
+          row: link.row,
+          message: `Reporting cycle rejected for ${link.email}.`,
+        });
+        continue;
+      }
       await prisma.user.update({
-        where: { id: emp.id },
-        data: { managerId: mgr.id },
+        where: { id: link.empId },
+        data: { managerId: link.managerId },
       });
     }
   }
