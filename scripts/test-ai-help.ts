@@ -90,12 +90,13 @@ async function main() {
   assert.match(examples,/show me how to create a work order/);
   assert.match(examples,/explain work order completion/);
   assert.ok(!/finish work order|WO-10042/i.test(examples),'Voice examples must not promise ERP mutations');
-  assert.match(voice,/promoteInterim/);
+  assert.match(voice,/planRecognitionEnd/);
   assert.match(voice,/SILENCE_INTERIM_ONLY_MS/);
   const onendAt=voice.indexOf('rec.onend = ()');
   const onend=voice.slice(onendAt, voice.indexOf('recRef.current = rec', onendAt));
   assert.ok(!onend.includes(', 400)'), 'onend must not flush after 400ms');
-  assert.match(onend,/promoteInterim/);
+  assert.match(onend,/planRecognitionEnd/);
+  assert.match(onend,/processWakeBeforeRestart/);
   assert.match(voice,/streamCarinaConversation/);
   assert.match(voice,/helpMetaReply/);
   assert.match(fs.readFileSync('src/components/support/support-bubble.tsx','utf8'),/streamCarinaConversation/);

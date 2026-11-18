@@ -13,6 +13,8 @@
  *   - SpeechRecognition often ends mid-session → auto-restart loop
  *   - Edge continuous mode dies quickly and fires `network` without onend
  *     → new instance + backoff, never rec.start() on a dead recognizer
+ *   - Edge one-shot ends (onend / no-speech) are normal: keep "listening",
+ *     do not abort, match wake / PTT transcripts, then start a new instance
  *   - Many utterances only get interim results (no final) → send on silence
  *   - TTS audio kills the recognizer → reboot after every speak
  */
@@ -26,7 +28,14 @@ import {
   actionProbeGrok,
 } from "@/app/ai/actions";
 import { helpMetaReply } from "@/lib/ai-help/meta";
-import { composeUtterance, promoteInterim } from "@/lib/ai-help/utterance";
+import { composeUtterance } from "@/lib/ai-help/utterance";
+import {
+  WATCHDOG_MS,
+  classifyRecognitionError,
+  commitPttTranscript,
+  planRecognitionEnd,
+  shouldWatchdogReboot,
+} from "@/lib/ai-help/recognition-cycle";
 import { streamCarinaConversation } from "@/lib/ai-help/conversation-client";
 import { startCarinaGuideEvent } from "@/components/guides/guided-tour";
 import {
@@ -74,7 +83,6 @@ const CONVO_MS = 30_000;
 const SILENCE_AFTER_FINAL_MS = 1100;
 const SILENCE_INTERIM_ONLY_MS = 1500;
 const SPEAK_GUARD_MS = 800;
-const RESTART_MS = 180;
 
 type Mode = "off" | "wake" | "command" | "thinking" | "speaking";
 
@@ -114,13 +122,6 @@ function getSpeechRecognition(): (new () => SpeechRecognitionLike) | null {
 function isChromiumEdge(): boolean {
   if (typeof navigator === "undefined") return false;
   return /\bEdg(e|A|iOS)?\//.test(navigator.userAgent);
-}
-
-function recognitionRestartDelay(networkFails: number, edge: boolean): number {
-  if (networkFails > 0) {
-    return Math.min(5000, 350 * 2 ** Math.min(networkFails - 1, 4));
-  }
-  return edge ? 100 : RESTART_MS;
 }
 
 function escapeRe(s: string) {
@@ -256,6 +257,7 @@ export function VoiceAssistant({
   const bootGenRef = useRef(0);
   const recAliveRef = useRef(false);
   const networkFailsRef = useRef(0);
+  const startingRef = useRef(false);
   const askingRef = useRef(false);
   /** Business-agent multi-turn state (finish WO, etc.) */
   const pendingActionRef = useRef<AiPendingAction | null>(null);
@@ -340,40 +342,53 @@ export function VoiceAssistant({
     audioRef.current = null;
   }, []);
 
-  const killRecognition = useCallback(() => {
-    if (restartTimerRef.current) {
-      clearTimeout(restartTimerRef.current);
-      restartTimerRef.current = null;
-    }
-    const rec = recRef.current;
-    recRef.current = null;
-    if (rec) {
-      rec.onresult = null;
-      rec.onerror = null;
-      rec.onend = null;
-      rec.onstart = null;
-      rec.onspeechend = null;
-      try {
-        rec.abort();
-      } catch {
+  const detachRecognition = useCallback(
+    (opts?: { abort?: boolean; markDead?: boolean }) => {
+      if (restartTimerRef.current) {
+        clearTimeout(restartTimerRef.current);
+        restartTimerRef.current = null;
+      }
+      const rec = recRef.current;
+      recRef.current = null;
+      if (rec) {
+        rec.onresult = null;
+        rec.onerror = null;
+        rec.onend = null;
+        rec.onstart = null;
+        rec.onspeechend = null;
+        if (opts?.abort) {
+          try {
+            rec.abort();
+          } catch {
+            try {
+              rec.stop();
+            } catch {
+              // ignore
+            }
+          }
+        }
+      }
+      if (opts?.markDead) {
+        recAliveRef.current = false;
+        setRecAlive(false);
         try {
-          rec.stop();
+          window.dispatchEvent(
+            new CustomEvent("forge:carina-rec-alive", {
+              detail: { recAlive: false },
+            })
+          );
         } catch {
           // ignore
         }
       }
-    }
-    setRecAlive(false);
-    try {
-      window.dispatchEvent(
-        new CustomEvent("forge:carina-rec-alive", {
-          detail: { recAlive: false },
-        })
-      );
-    } catch {
-      // ignore
-    }
-  }, []);
+    },
+    []
+  );
+
+  const killRecognition = useCallback(() => {
+    startingRef.current = false;
+    detachRecognition({ abort: true, markDead: true });
+  }, [detachRecognition]);
 
   const setRecAliveBoth = useCallback((alive: boolean) => {
     recAliveRef.current = alive;
@@ -396,12 +411,14 @@ export function VoiceAssistant({
   }, []);
 
   /**
-   * continuous=true with restart-on-end. Brief gaps no longer look "stuck reconnecting".
+   * Restart-on-end with a new instance. Planned Edge one-shot ends stay
+   * "listening" — no abort, no reconnecting flash, no audio drop.
    */
   const bootRecognition = useCallback(() => {
     if (!wantListenRef.current) return;
     if (host !== "shell") return;
     if (typeof window === "undefined") return;
+    if (startingRef.current) return;
     // Only skip while audio is actually playing (not a stuck mode flag)
     if (carinaIsSpeaking()) {
       restartTimerRef.current = setTimeout(() => {
@@ -415,8 +432,11 @@ export function VoiceAssistant({
       return;
     }
 
+    startingRef.current = true;
     const gen = ++bootGenRef.current;
-    killRecognition();
+    // Never abort a just-ended or still-usable session; aborting on Edge
+    // drops the last audio and often starts an aborted/network loop.
+    detachRecognition({ abort: false, markDead: false });
 
     const rec = new Ctor();
     const edge = isChromiumEdge();
@@ -429,6 +449,7 @@ export function VoiceAssistant({
 
     rec.onstart = () => {
       if (bootGenRef.current !== gen) return;
+      startingRef.current = false;
       networkFailsRef.current = 0;
       setRecAliveBoth(true);
       setError(null);
@@ -477,10 +498,12 @@ export function VoiceAssistant({
 
       if (pttRef.current) {
         if (finalText) {
-          pttBufRef.current = (pttBufRef.current + " " + finalText).trim();
+          pttBufRef.current = commitPttTranscript(pttBufRef.current, finalText, "");
+          interimBufRef.current = "";
           setPartial(pttBufRef.current);
         } else if (interimText) {
-          setPartial((pttBufRef.current + " " + interimText).trim());
+          interimBufRef.current = interimText;
+          setPartial(commitPttTranscript(pttBufRef.current, "", interimText));
         }
         return;
       }
@@ -490,7 +513,9 @@ export function VoiceAssistant({
 
     rec.onerror = (ev) => {
       if (bootGenRef.current !== gen) return;
-      if (ev.error === "not-allowed") {
+      startingRef.current = false;
+      const reason = classifyRecognitionError(ev.error);
+      if (reason === "not-allowed") {
         const msg =
           "Microphone permission denied — click the lock icon in the address bar and allow the mic, then tap Voice on.";
         setError(msg);
@@ -516,13 +541,37 @@ export function VoiceAssistant({
         killRecognition();
         return;
       }
-      // no-speech / aborted: normal — onend restarts
-      if (ev.error === "network" || ev.error === "service-not-allowed") {
+      const plan = planRecognitionEnd({
+        reason,
+        edge: isChromiumEdge(),
+        networkFails: networkFailsRef.current,
+        ptt: pttRef.current,
+        wantListen: wantListenRef.current,
+        speaking: carinaIsSpeaking(),
+        finalText: pttRef.current ? "" : finalBufRef.current,
+        interimText: interimBufRef.current,
+        pttBuf: pttBufRef.current,
+      });
+      if (plan.processPttInterim) {
+        pttBufRef.current = plan.pttBuf;
+        if (plan.pttBuf) setPartial(plan.pttBuf);
+      }
+      if (plan.processWakeBeforeRestart && plan.committedFinal) {
+        finalBufRef.current = plan.committedFinal;
+        interimBufRef.current = "";
+        handleResultRef.current(plan.committedFinal, "");
+      }
+      if (plan.incrementNetworkFails) {
         networkFailsRef.current += 1;
+      }
+      // no-speech / aborted: keep listening; onend restarts without a flash
+      if (plan.keepRecAlive) return;
+
+      if (plan.showReconnecting) {
         const msg =
-          ev.error === "network"
-            ? "Speech recognition dropped — retrying…"
-            : "Speech service unavailable — retrying…";
+          reason === "service-not-allowed"
+            ? "Speech service unavailable — retrying…"
+            : "Speech recognition dropped — retrying…";
         setError(msg);
         setRecAliveBoth(false);
         try {
@@ -537,50 +586,80 @@ export function VoiceAssistant({
         } catch {
           // ignore
         }
-        // Edge often does not fire onend after a network error, so do not
-        // wait — and never rec.start() the same failed instance.
-        const delay = recognitionRestartDelay(networkFailsRef.current, true);
-        if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
-        restartTimerRef.current = setTimeout(() => {
-          if (!wantListenRef.current) return;
-          if (carinaIsSpeaking()) return;
-          bootRecognition();
-        }, delay);
-        return;
+        if (plan.restartDelayMs != null) {
+          if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+          restartTimerRef.current = setTimeout(() => {
+            if (!wantListenRef.current) return;
+            if (carinaIsSpeaking()) return;
+            bootRecognition();
+          }, plan.restartDelayMs);
+        }
       }
-      setRecAliveBoth(false);
     };
 
     rec.onend = () => {
       if (bootGenRef.current !== gen) return;
-      setRecAliveBoth(false);
-      if (!wantListenRef.current) return;
+      startingRef.current = false;
+      const plan = planRecognitionEnd({
+        reason: "onend",
+        edge: isChromiumEdge(),
+        networkFails: networkFailsRef.current,
+        ptt: pttRef.current,
+        wantListen: wantListenRef.current,
+        speaking: carinaIsSpeaking() || modeRef.current === "speaking",
+        finalText: pttRef.current ? "" : finalBufRef.current,
+        interimText: interimBufRef.current,
+        pttBuf: pttBufRef.current,
+      });
 
       // Promote unfinalized interim so the next Edge one-shot session
       // does not overwrite it. Do not flush here — sessions end mid-phrase.
-      if (interimBufRef.current.trim()) {
-        finalBufRef.current = promoteInterim(
-          finalBufRef.current,
-          interimBufRef.current
-        );
+      if (!pttRef.current && plan.committedFinal) {
+        finalBufRef.current = plan.committedFinal;
+        interimBufRef.current = "";
+      } else if (pttRef.current) {
         interimBufRef.current = "";
       }
-      if (
-        (modeRef.current === "command" || modeRef.current === "wake") &&
-        currentUtterance().length > 2
-      ) {
-        armSilenceRef.current();
+      if (plan.processPttInterim) {
+        pttBufRef.current = plan.pttBuf;
+        if (plan.pttBuf) setPartial(plan.pttBuf);
+      }
+      if (plan.processWakeBeforeRestart) {
+        if (plan.committedFinal) {
+          handleResultRef.current(plan.committedFinal, "");
+        }
+        if (
+          (modeRef.current === "command" || modeRef.current === "wake") &&
+          currentUtterance().length > 2
+        ) {
+          armSilenceRef.current();
+        }
       }
 
-      // Don't fight TTS
-      if (carinaIsSpeaking() || modeRef.current === "speaking") {
+      if (!wantListenRef.current) {
+        setRecAliveBoth(false);
         return;
       }
 
-      const delay = recognitionRestartDelay(
-        networkFailsRef.current,
-        isChromiumEdge()
-      );
+      if (plan.keepRecAlive) {
+        recAliveRef.current = true;
+      } else if (plan.showReconnecting) {
+        setRecAliveBoth(false);
+      }
+
+      // Don't fight TTS
+      if (plan.restartDelayMs == null) return;
+
+      // Drop this ended instance without abort, then start a new one.
+      if (recRef.current === rec) {
+        rec.onresult = null;
+        rec.onerror = null;
+        rec.onend = null;
+        rec.onstart = null;
+        rec.onspeechend = null;
+        recRef.current = null;
+      }
+
       if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
       restartTimerRef.current = setTimeout(() => {
         if (!wantListenRef.current) return;
@@ -589,13 +668,20 @@ export function VoiceAssistant({
         // Always a new SpeechRecognition instance. Edge's rec.start() after
         // onend / network is often a no-op or immediately errors again.
         bootRecognition();
-      }, delay);
+      }, plan.restartDelayMs);
     };
 
     recRef.current = rec;
     try {
       rec.start();
-    } catch {
+    } catch (e) {
+      startingRef.current = false;
+      const alreadyStarted =
+        e instanceof Error &&
+        /already started|InvalidStateError/i.test(`${e.name} ${e.message}`);
+      if (alreadyStarted && recRef.current === rec) {
+        return;
+      }
       restartTimerRef.current = setTimeout(() => {
         if (wantListenRef.current && bootGenRef.current === gen) {
           bootRecognition();
@@ -604,6 +690,7 @@ export function VoiceAssistant({
     }
   }, [
     currentUtterance,
+    detachRecognition,
     host,
     killRecognition,
     setModeBoth,
@@ -1179,6 +1266,7 @@ export function VoiceAssistant({
     if (!wantListenRef.current) await startListening();
     if (modeRef.current === "speaking") stopSpeaking();
     pttBufRef.current = "";
+    interimBufRef.current = "";
     setPtt(true);
     pttRef.current = true;
     setModeBoth("command");
@@ -1191,7 +1279,12 @@ export function VoiceAssistant({
     if (!pttRef.current) return;
     setPtt(false);
     pttRef.current = false;
-    const text = pttBufRef.current.trim();
+    // PTT uses its own buffer + leftover interim; do not mix wake-session finals.
+    const text = commitPttTranscript(
+      pttBufRef.current,
+      "",
+      interimBufRef.current
+    );
     pttBufRef.current = "";
     setPartial("");
     if (text.length > 1) ask(text);
@@ -1273,17 +1366,23 @@ export function VoiceAssistant({
       void startListening();
     }
 
-    // Watchdog: Edge can leave a dead recognizer object after `network`
-    // without clearing recRef or firing onend. Reboot if not actually alive.
+    // Watchdog: Edge can leave a dead recognizer after `network` without
+    // onend. Do not reboot during a planned one-shot restart or in-flight start.
     const watchdog = window.setInterval(() => {
-      if (!wantListenRef.current) return;
-      if (carinaIsSpeaking()) return;
-      if (modeRef.current === "thinking") return;
-      if (restartTimerRef.current) return;
-      if (!recRef.current || !recAliveRef.current) {
+      if (
+        shouldWatchdogReboot({
+          wantListen: wantListenRef.current,
+          speaking: carinaIsSpeaking(),
+          thinking: modeRef.current === "thinking",
+          restartPending: !!restartTimerRef.current,
+          starting: startingRef.current,
+          recExists: !!recRef.current,
+          recAlive: recAliveRef.current,
+        })
+      ) {
         bootRecognition();
       }
-    }, 1500);
+    }, WATCHDOG_MS);
 
     return () => {
       window.removeEventListener("forge:carina-enable-voice", onEnable);
