@@ -713,7 +713,7 @@ export function createLookupApi(opts: {
   async function ensureAllowed(
     userId: string | undefined,
     entity: LookupEntityId
-  ): Promise<LookupResult | null> {
+  ): Promise<Extract<LookupResult, { ok: false }> | null> {
     if (!userId) {
       return {
         ok: false,
@@ -742,7 +742,7 @@ export function createLookupApi(opts: {
       ? ([] as LookupEntityId[]).concat(params.entity)
       : LOOKUP_ENTITIES;
     const hits: LookupHit[] = [];
-    let denied: LookupResult | null = null;
+    let denied: Extract<LookupResult, { ok: false }> | null = null;
     for (const entity of entities) {
       if (!isLookupEntity(entity)) continue;
       const block = await ensureAllowed(params.userId, entity);
