@@ -125,6 +125,48 @@ export const REASON_ACTION_TOOLS: GrokToolDef[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "propose_demand_plan",
+      description:
+        "Prepare a confirm-gated demand plan: explode the BOM, net supply, backward-schedule, and propose a forecast, draft budget, planning worksheet (MRS), planned work orders and draft purchase requests. Follow the company/BOM prototypeRequired setting unless the user overrides (skip prototype / plan as production). Ask for budget amount, owner and charge code if missing (each skippable).",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          partNumber: { type: "string" },
+          quantity: { type: "number" },
+          dueDate: { type: "string", description: "Need-by date YYYY-MM-DD" },
+          budgetAmount: { type: "number" },
+          budgetOwnerName: { type: "string" },
+          chargeCode: { type: "string" },
+          skipBudget: { type: "boolean" },
+          override: { type: "string", enum: ["none", "skip_prototype", "plan_as_production"] },
+        },
+        required: ["partNumber", "quantity", "dueDate"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "propose_planning_worksheet",
+      description:
+        "Prepare a confirm-gated planning worksheet (material requisition). Pass a forecast number, or a part number, quantity and due date.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          forecastNumber: { type: "string" },
+          partNumber: { type: "string" },
+          quantity: { type: "number" },
+          dueDate: { type: "string" },
+          override: { type: "string", enum: ["none", "skip_prototype", "plan_as_production"] },
+        },
+      },
+    },
+  },
 ];
 
 export function reasonTools(voiceActions: boolean): GrokToolDef[] {
@@ -163,6 +205,23 @@ export type ReasonActionPort = {
     countedQty?: number;
     projectName?: string;
     reason?: string;
+  }) => Promise<{ ok: boolean; text: string; pendingAction?: AiPendingAction | null }>;
+  proposeDemandPlan: (input: {
+    partNumber: string;
+    quantity: number;
+    dueDate: string;
+    budgetAmount?: number;
+    budgetOwnerName?: string;
+    chargeCode?: string;
+    skipBudget?: boolean;
+    override?: string;
+  }) => Promise<{ ok: boolean; text: string; pendingAction?: AiPendingAction | null }>;
+  proposePlanningWorksheet: (input: {
+    forecastNumber?: string;
+    partNumber?: string;
+    quantity?: number;
+    dueDate?: string;
+    override?: string;
   }) => Promise<{ ok: boolean; text: string; pendingAction?: AiPendingAction | null }>;
 };
 
@@ -327,6 +386,34 @@ async function executeReasonTool(
     }
     const out = await ctx.api.get({ userId: ctx.userId, entity, idOrNumber });
     return { result: out, citations: out.ok ? citationsFromHits(out.hits) : undefined };
+  }
+  if (name === "propose_demand_plan" || name === "propose_planning_worksheet") {
+    if (!ctx.voiceActions) {
+      return { result: { ok: false, message: "Carina voice actions are off in this workspace. An administrator can enable them in Admin → Settings." } };
+    }
+    if (!ctx.actions) {
+      return { result: { ok: false, message: "Action tools are not available on this turn." } };
+    }
+    const out =
+      name === "propose_demand_plan"
+        ? await ctx.actions.proposeDemandPlan({
+            partNumber: String(args.partNumber || "").trim(),
+            quantity: Number(args.quantity) || 0,
+            dueDate: String(args.dueDate || "").trim(),
+            budgetAmount: args.budgetAmount != null ? Number(args.budgetAmount) : undefined,
+            budgetOwnerName: args.budgetOwnerName ? String(args.budgetOwnerName) : undefined,
+            chargeCode: args.chargeCode ? String(args.chargeCode) : undefined,
+            skipBudget: !!args.skipBudget,
+            override: args.override ? String(args.override) : undefined,
+          })
+        : await ctx.actions.proposePlanningWorksheet({
+            forecastNumber: args.forecastNumber ? String(args.forecastNumber) : undefined,
+            partNumber: args.partNumber ? String(args.partNumber) : undefined,
+            quantity: args.quantity != null ? Number(args.quantity) : undefined,
+            dueDate: args.dueDate ? String(args.dueDate) : undefined,
+            override: args.override ? String(args.override) : undefined,
+          });
+    return { result: out, pendingAction: out.pendingAction };
   }
   if (name === "propose_purchase_request" || name === "propose_change") {
     if (!ctx.voiceActions) {

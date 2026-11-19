@@ -1,4 +1,5 @@
 /** Pure intent parsing for Carina voice actions. No I/O. */
+import { parseDemandPlanUtterance } from "@/lib/services/carina-planning";
 
 export type VoiceActionKind =
   | "EDIT_PROJECT"
@@ -7,6 +8,8 @@ export type VoiceActionKind =
   | "CONSUME_PARTS"
   | "OUTPUT_WO"
   | "CREATE_PURCHASE_REQUEST"
+  | "PLAN_DEMAND"
+  | "CREATE_PLANNING_WORKSHEET"
   | "HIGH_RISK_PARTS";
 
 export type ParsedVoiceIntent = {
@@ -28,6 +31,15 @@ export type ParsedVoiceIntent = {
   prDepartment?: string;
   prPartNumber?: string;
   prUom?: string;
+  planPartNumber?: string;
+  planQuantity?: number;
+  planDueDate?: string;
+  planOverride?: "none" | "skip_prototype" | "plan_as_production";
+  forecastNumber?: string;
+  budgetAmount?: number;
+  budgetOwnerName?: string;
+  chargeCode?: string;
+  skipBudget?: boolean;
 };
 
 const NUMBER_RE =
@@ -106,6 +118,36 @@ export function parseVoiceActionIntent(question: string): ParsedVoiceIntent | nu
   const woNum = numbers.find((n) => /^(WO|SWO|BWO|MWO)-/.test(n));
   const projNum = numbers.find((n) => /^(PRJ|PROJ)-/.test(n));
   const budgetNum = numbers.find((n) => /^(BDGT|BUDGET)-/.test(n));
+
+  // Planning worksheet (MRS) — do not treat as a purchase requisition
+  if (
+    /\b(planning worksheet|material requisition|\bmrs\b)\b/.test(lower) &&
+    /\b(create|generate|make|open|new|plan)\b/.test(lower)
+  ) {
+    const fc = numbers.find((n) => /^FC-/.test(n));
+    return { kind: "CREATE_PLANNING_WORKSHEET", numbers, forecastNumber: fc };
+  }
+
+  if (
+    /\b(plan|planning)\b/.test(lower) &&
+    /\b(demand|forecast|build|process|make)\b/.test(lower)
+  ) {
+    const parsed = parseDemandPlanUtterance(t);
+    return {
+      kind: "PLAN_DEMAND",
+      numbers,
+      planPartNumber: parsed.partNumber,
+      planQuantity: parsed.quantity,
+      planDueDate: parsed.dueDate ? parsed.dueDate.toISOString().slice(0, 10) : undefined,
+      planOverride: parsed.override,
+      forecastNumber: parsed.forecastNumber,
+      budgetAmount: parsed.budgetAmount ?? undefined,
+      budgetOwnerName: parsed.budgetOwnerName ?? undefined,
+      chargeCode: parsed.chargeCode ?? undefined,
+      skipBudget: parsed.skipBudget,
+      partHint: parsed.partNumber,
+    };
+  }
 
   if (
     /\b(create|open|make|start|submit|raise|file|new|buy)\b/.test(lower) &&
