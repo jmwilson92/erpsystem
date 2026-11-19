@@ -47,6 +47,8 @@ import {
 } from "@/app/actions";
 import { ActionLoadingForm } from "@/components/layout/action-loading";
 import { listBudgets } from "@/lib/services/budgets";
+import { getProjectLaborProgress } from "@/lib/services/labor-progress";
+import { LaborProgressTable } from "@/components/labor/labor-progress-table";
 
 export const dynamic = "force-dynamic";
 
@@ -58,6 +60,7 @@ const TABS = [
   { id: "charter", label: "Charter" },
   { id: "wbs", label: "WBS" },
   { id: "budgets", label: "Budgets" },
+  { id: "labor", label: "Labor progress" },
   { id: "campaigns", label: "Campaigns" },
   { id: "schedule", label: "Gates" },
   { id: "pi", label: "PI planning" },
@@ -131,6 +134,7 @@ export default async function PmoProjectDetailPage({
     campaigns,
     businessPriorities,
     projectBudgets,
+    laborProgress,
   ] = await Promise.all([
     getProjectDetail(id),
     prisma.user.findMany({
@@ -150,6 +154,7 @@ export default async function PmoProjectDetailPage({
       orderBy: { priority: "asc" },
     }),
     listBudgets({ projectId: id }),
+    getProjectLaborProgress(id),
   ]);
   if (!project) notFound();
 
@@ -1243,6 +1248,23 @@ export default async function PmoProjectDetailPage({
             </CardContent>
           </Card>
         </div>
+      )}
+
+      {tab === "labor" && (
+        <Card className="border-slate-800">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-base">Work order labor progress</CardTitle>
+            <Link
+              href={`/reports?view=labor-progress&projectId=${project.id}`}
+              className="text-xs text-sky-400 hover:underline"
+            >
+              Open in Reports / CSV
+            </Link>
+          </CardHeader>
+          <CardContent>
+            <LaborProgressTable rollup={laborProgress} />
+          </CardContent>
+        </Card>
       )}
 
       {/* ── REPORTS link ── */}

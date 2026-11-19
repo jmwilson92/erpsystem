@@ -1,5 +1,8 @@
 import Link from "next/link";
 import { REPORT_CATALOG, runReport } from "@/lib/services/reports";
+import { prisma } from "@/lib/db";
+import { queryLaborProgressReport } from "@/lib/services/labor-progress";
+import { LaborProgressTable } from "@/components/labor/labor-progress-table";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -37,8 +40,48 @@ export default async function ReportsPage({
 }) {
   const sp = searchParams ? await searchParams : {};
   const viewKey = (Array.isArray(sp.view) ? sp.view[0] : sp.view) || "";
+  const projectId = (Array.isArray(sp.projectId) ? sp.projectId[0] : sp.projectId) || "";
+  const budgetId = (Array.isArray(sp.budgetId) ? sp.budgetId[0] : sp.budgetId) || "";
+  const from = (Array.isArray(sp.from) ? sp.from[0] : sp.from) || "";
+  const to = (Array.isArray(sp.to) ? sp.to[0] : sp.to) || "";
+  const includeCompleted =
+    ((Array.isArray(sp.includeCompleted) ? sp.includeCompleted[0] : sp.includeCompleted) || "") === "1";
   const active = REPORT_CATALOG.find((r) => r.key === viewKey);
-  const table = active ? await runReport(active.key) : null;
+  const laborFilters = {
+    projectId: projectId || undefined,
+    budgetId: budgetId || undefined,
+    from: from ? new Date(from) : undefined,
+    to: to ? new Date(to) : undefined,
+    includeCompleted,
+  };
+  const table =
+    active && active.key !== "labor-progress"
+      ? await runReport(active.key)
+      : active
+        ? await runReport(active.key, laborFilters)
+        : null;
+  const laborRollup =
+    active?.key === "labor-progress" ? await queryLaborProgressReport(laborFilters) : null;
+  const [projects, budgets] = laborRollup
+    ? await Promise.all([
+        prisma.project.findMany({
+          orderBy: { number: "asc" },
+          select: { id: true, number: true, name: true },
+          take: 200,
+        }),
+        prisma.budget.findMany({
+          orderBy: { number: "asc" },
+          select: { id: true, number: true, name: true },
+          take: 200,
+        }),
+      ])
+    : [[], []];
+  const csvQs = new URLSearchParams({ key: "labor-progress" });
+  if (projectId) csvQs.set("projectId", projectId);
+  if (budgetId) csvQs.set("budgetId", budgetId);
+  if (from) csvQs.set("from", from);
+  if (to) csvQs.set("to", to);
+  if (includeCompleted) csvQs.set("includeCompleted", "1");
 
   const groups = ["Financial", "Operations", "Quality", "People"] as const;
 
@@ -113,7 +156,84 @@ export default async function ReportsPage({
         })}
       </div>
 
-      {table && (
+      {laborRollup && (
+        <Card>
+          <CardHeader className="space-y-3 pb-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <FileBarChart className="h-4 w-4 text-teal-400" />
+              Work order labor progress
+            </CardTitle>
+            <form className="flex flex-wrap items-end gap-2 text-xs" method="get">
+              <input type="hidden" name="view" value="labor-progress" />
+              <label className="text-slate-500">
+                Project
+                <select
+                  name="projectId"
+                  defaultValue={projectId}
+                  className="mt-0.5 block h-8 rounded-md border border-slate-700 bg-slate-950 px-2 text-slate-200"
+                >
+                  <option value="">All projects</option>
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.number} · {p.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-slate-500">
+                Budget
+                <select
+                  name="budgetId"
+                  defaultValue={budgetId}
+                  className="mt-0.5 block h-8 rounded-md border border-slate-700 bg-slate-950 px-2 text-slate-200"
+                >
+                  <option value="">All budgets</option>
+                  {budgets.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.number} · {b.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-slate-500">
+                From
+                <input
+                  type="date"
+                  name="from"
+                  defaultValue={from}
+                  className="mt-0.5 block h-8 rounded-md border border-slate-700 bg-slate-950 px-2 text-slate-200"
+                />
+              </label>
+              <label className="text-slate-500">
+                To
+                <input
+                  type="date"
+                  name="to"
+                  defaultValue={to}
+                  className="mt-0.5 block h-8 rounded-md border border-slate-700 bg-slate-950 px-2 text-slate-200"
+                />
+              </label>
+              <label className="flex items-center gap-1.5 text-slate-400">
+                <input type="checkbox" name="includeCompleted" value="1" defaultChecked={includeCompleted} />
+                Include cancelled
+              </label>
+              <Button type="submit" size="sm">
+                Filter
+              </Button>
+              <Button asChild size="sm" variant="outline">
+                <a href={`/reports/export?${csvQs.toString()}`}>
+                  <Download className="mr-1 h-3.5 w-3.5" /> Download CSV
+                </a>
+              </Button>
+            </form>
+          </CardHeader>
+          <CardContent>
+            <LaborProgressTable rollup={laborRollup} />
+          </CardContent>
+        </Card>
+      )}
+
+      {table && !laborRollup && (
         <Card>
           <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="flex items-center gap-2 text-base">

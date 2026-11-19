@@ -3,6 +3,10 @@
  * department asks for. Each report returns { columns, rows } so the
  * hub page and the CSV export route share one definition.
  */
+import {
+  queryLaborProgressReport,
+  type LaborProgressFilters,
+} from "@/lib/services/labor-progress";
 import { prisma } from "@/lib/db";
 import { getGaapReportPack } from "@/lib/services/gaap";
 import {
@@ -75,6 +79,7 @@ export const REPORT_CATALOG: {
   { key: "job-profit", title: "Job Profitability", group: "Financial", description: "Estimate, shop log, and cost on the books for each job tied to a project" },
   { key: "wip-books", title: "WIP on the Books", group: "Financial", description: "Work-in-process balance by job from posted journals" },
   { key: "labor-dist", title: "Labor Distribution", group: "People", description: "Hours charged to a job, project, or indirect code, with the program" },
+  { key: "labor-progress", title: "Work Order Labor Progress", group: "Operations", description: "Allocated vs clocked hours by work order, rolled up to a project or budget. Filterable and exportable." },
   { key: "indirect-rates", title: "Indirect Rates", group: "Financial", description: "Provisional vs actual fringe, shop overhead, and G&A. A worksheet, not a rate agreement." },
   { key: "unallowables", title: "Unallowable Costs", group: "Financial", description: "Costs flagged to stay out of government billings and rate pools" },
   { key: "ice", title: "Incurred Cost Worksheet", group: "Financial", description: "Schedules in the shape of an incurred-cost package. Not a submission to the government." },
@@ -87,7 +92,10 @@ function ageBucket(days: number): string {
   return "90+";
 }
 
-export async function runReport(key: string): Promise<ReportTable> {
+export async function runReport(
+  key: string,
+  filters?: LaborProgressFilters
+): Promise<ReportTable> {
   switch (key) {
     case "pl": {
       const { incomeStatement: pl } = await getGaapReportPack();
@@ -439,6 +447,50 @@ export async function runReport(key: string): Promise<ReportTable> {
       return reportUnallowables();
     case "ice":
       return reportIce();
+    case "labor-progress": {
+      const rollup = await queryLaborProgressReport(filters || {});
+      return {
+        title: "Work Order Labor Progress",
+        columns: [
+          "Work Order",
+          "Status",
+          "Part",
+          "Project",
+          "Allocated Hours",
+          "Clocked Hours",
+          "Remaining Hours",
+          "% Complete",
+          "Over Allocated",
+          "Labor Cost",
+        ],
+        rows: [
+          ...rollup.rows.map((r) => [
+            r.number,
+            r.status,
+            r.partNumber || "",
+            r.projectNumber || r.projectName || "",
+            r.allocatedHours ?? "",
+            r.clockedHours,
+            r.remainingHours ?? "",
+            r.percentComplete ?? "",
+            r.overAllocated ? "YES" : "NO",
+            r.laborCost,
+          ]),
+          [
+            "TOTALS",
+            "",
+            "",
+            "",
+            rollup.allocatedHours,
+            rollup.clockedHours,
+            rollup.remainingHours,
+            rollup.percentComplete ?? "",
+            String(rollup.overAllocatedCount),
+            rollup.laborCost,
+          ],
+        ],
+      };
+    }
     default:
       throw new Error(`Unknown report: ${key}`);
   }

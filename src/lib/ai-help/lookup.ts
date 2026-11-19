@@ -19,6 +19,11 @@ import {
   permissionDeniedResult,
   stripSensitiveFields,
 } from "./lookup-policy";
+import {
+  getBudgetLaborProgress,
+  getProjectLaborProgress,
+  getWorkOrderLaborProgressMany,
+} from "@/lib/services/labor-progress";
 
 export type CountBreakdown = { total: number; byStatus: Record<string, number> };
 
@@ -228,8 +233,16 @@ export function createPrismaLookupStore(db: typeof prisma = prisma): LookupStore
             take: limit,
             orderBy: { number: "asc" },
           });
-          return rows.map((r) =>
-            hit("work_order", {
+          const labor = await getWorkOrderLaborProgressMany(rows.map((r) => r.id));
+          return rows.map((r) => {
+            const lp = labor.get(r.id);
+            const laborBit =
+              lp && lp.allocatedHours != null
+                ? `${lp.clockedHours}h / ${lp.allocatedHours}h allocated (${lp.percentComplete ?? 0}%${lp.overAllocated ? ", over allocated" : ""})`
+                : lp
+                  ? `${lp.clockedHours}h clocked, no allocation`
+                  : null;
+            return hit("work_order", {
               id: r.id,
               number: r.number,
               title: `Work order ${r.number}`,
@@ -240,6 +253,7 @@ export function createPrismaLookupStore(db: typeof prisma = prisma): LookupStore
                 `qty ${r.quantityCompleted}/${r.quantity}`,
                 r.dueDate && `due ${r.dueDate.toISOString().slice(0, 10)}`,
                 r.project?.number && `project ${r.project.number}`,
+                laborBit,
               ]
                 .filter(Boolean)
                 .join(" · "),
@@ -250,9 +264,13 @@ export function createPrismaLookupStore(db: typeof prisma = prisma): LookupStore
                 projectId: r.project?.id ?? null,
                 quantity: r.quantity,
                 quantityCompleted: r.quantityCompleted,
+                allocatedHours: lp?.allocatedHours ?? null,
+                clockedHours: lp?.clockedHours ?? null,
+                laborPercentComplete: lp?.percentComplete ?? null,
+                overAllocated: lp?.overAllocated ?? false,
               },
-            })
-          );
+            });
+          });
         }
         case "sales_order": {
           const rows = await db.salesOrder.findMany({
@@ -399,17 +417,30 @@ export function createPrismaLookupStore(db: typeof prisma = prisma): LookupStore
             },
             take: limit,
           });
-          return rows.map((r) =>
-            hit("project", {
+          const rollups = await Promise.all(rows.map((r) => getProjectLaborProgress(r.id)));
+          return rows.map((r, i) => {
+            const roll = rollups[i];
+            const laborBit =
+              roll.workOrderCount > 0
+                ? `${roll.clockedHours}h / ${roll.allocatedHours}h on ${roll.workOrderCount} WOs (${roll.percentComplete ?? 0}%, ${roll.overAllocatedCount} over allocated)`
+                : "no linked work orders";
+            return hit("project", {
               id: r.id,
               number: r.number,
               title: `Project ${r.number} · ${r.name}`,
               status: r.status,
               href: `/projects/${r.id}`,
-              summary: r.customerName || r.name,
-              fields: { name: r.name, customerName: r.customerName },
-            })
-          );
+              summary: [r.customerName || r.name, laborBit].filter(Boolean).join(" · "),
+              fields: {
+                name: r.name,
+                customerName: r.customerName,
+                allocatedHours: roll.allocatedHours,
+                clockedHours: roll.clockedHours,
+                laborPercentComplete: roll.percentComplete,
+                overAllocatedCount: roll.overAllocatedCount,
+              },
+            });
+          });
         }
         case "budget": {
           const rows = await db.budget.findMany({
@@ -430,14 +461,24 @@ export function createPrismaLookupStore(db: typeof prisma = prisma): LookupStore
             },
             take: limit,
           });
-          return rows.map((r) =>
-            hit("budget", {
+          const rollups = await Promise.all(rows.map((r) => getBudgetLaborProgress(r.id)));
+          return rows.map((r, i) => {
+            const roll = rollups[i];
+            const laborBit =
+              roll.workOrderCount > 0
+                ? `${roll.clockedHours}h / ${roll.allocatedHours}h on ${roll.workOrderCount} WOs (${roll.percentComplete ?? 0}%, ${roll.overAllocatedCount} over allocated)`
+                : "no linked work orders";
+            return hit("budget", {
               id: r.id,
               number: r.number,
               title: `Budget ${r.number} · ${r.name}`,
               status: r.status,
               href: `/budgets/${r.id}`,
-              summary: [r.chargeCode && `charge code ${r.chargeCode}`, r.project?.number && `project ${r.project.number}`]
+              summary: [
+                r.chargeCode && `charge code ${r.chargeCode}`,
+                r.project?.number && `project ${r.project.number}`,
+                laborBit,
+              ]
                 .filter(Boolean)
                 .join(" · ") || r.name,
               fields: {
@@ -445,9 +486,15 @@ export function createPrismaLookupStore(db: typeof prisma = prisma): LookupStore
                 chargeCode: r.chargeCode,
                 projectId: r.project?.id ?? null,
                 projectNumber: r.project?.number ?? null,
+                allocatedHours: roll.allocatedHours,
+                clockedHours: roll.clockedHours,
+                laborPercentComplete: roll.percentComplete,
+                overAllocatedCount: roll.overAllocatedCount,
+                laborCost: roll.laborCost,
+                laborBudget: roll.laborBudget,
               },
-            })
-          );
+            });
+          });
         }
         case "ncr": {
           const rows = await db.nonConformance.findMany({

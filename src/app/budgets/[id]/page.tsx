@@ -9,6 +9,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { getBudgetDetail } from "@/lib/services/budgets";
+import { getBudgetLaborProgress } from "@/lib/services/labor-progress";
+import { LaborProgressTable } from "@/components/labor/labor-progress-table";
 import {
   actionEnactBudget,
   actionCloseBudget,
@@ -28,7 +30,7 @@ export default async function BudgetDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [budget, users, allForecasts] = await Promise.all([
+  const [budget, users, allForecasts, laborProgress] = await Promise.all([
     getBudgetDetail(id),
     prisma.user.findMany({
       where: { isActive: true },
@@ -41,6 +43,7 @@ export default async function BudgetDetailPage({
       take: 80,
       select: { id: true, number: true, name: true },
     }),
+    getBudgetLaborProgress(id),
   ]);
   if (!budget) notFound();
   const linkedForecastIds = new Set(
@@ -517,6 +520,21 @@ export default async function BudgetDetailPage({
               via PR / manual post.
             </p>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle className="text-base">Work order labor progress</CardTitle>
+          <Link
+            href={`/reports?view=labor-progress&budgetId=${budget.id}`}
+            className="text-xs text-sky-400 hover:underline"
+          >
+            Open in Reports / CSV
+          </Link>
+        </CardHeader>
+        <CardContent>
+          <LaborProgressTable rollup={laborProgress} />
         </CardContent>
       </Card>
     </div>
