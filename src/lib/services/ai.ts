@@ -35,7 +35,10 @@ export async function processAiConversation(messages:{role:'user'|'assistant';co
       pendingAction: opts.pendingAction,
       userId: opts.userId,
     });
-    if (acted) return { ...acted, language: lang.code };
+    if (acted) {
+      if (acted.text) opts?.onDelta?.(acted.text);
+      return { ...acted, language: lang.code };
+    }
     const { getCarinaFeatures } = await import('./carina-features');
     const features = await getCarinaFeatures();
     voiceActions=!!features.voiceActions;
@@ -43,7 +46,10 @@ export async function processAiConversation(messages:{role:'user'|'assistant';co
     // Do not fall through to the leftover "I'm read-only help" safety line.
     if (voiceActions) {
       const fallback = unparsedActionReply(last);
-      if (fallback) return { text: fallback, source: 'local', language: lang.code, pendingAction: opts.pendingAction ?? null };
+      if (fallback) {
+        opts?.onDelta?.(fallback);
+        return { text: fallback, source: 'local', language: lang.code, pendingAction: opts.pendingAction ?? null };
+      }
     }
   }
   const out=await answerHelp(last,{page:opts?.page,language:lang.name,previousQuestion:questions.at(-2)?.content,onDelta:opts?.onDelta,userId:opts?.userId,voiceActions});

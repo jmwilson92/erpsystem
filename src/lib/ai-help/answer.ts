@@ -2,6 +2,7 @@ import { grokChat, grokChatStream, grokChatWithTools, grokConfigured } from '../
 import { citation, helpPageContext, retrieveHelp, type HelpCitation, type HelpEntry } from './knowledge';
 import { ACCOUNT_SNAPSHOT_UNAVAILABLE, formatAccountSnapshotReply, loadAccountSnapshot, wantsAccountSnapshot } from './account-snapshot';
 import { helpMetaReply } from './meta';
+import { parseVoiceActionIntent } from '../services/carina-voice-intent';
 import { isExcludedLookupQuery, LOOKUP_EXCLUDED_MESSAGE, wantsRecordLookup } from './lookup-policy';
 import { answerRecordLookup } from './lookup-loop';
 import { createPrismaLookupStore } from './lookup';
@@ -72,7 +73,13 @@ function logHelpPair(question:string, answer:HelpAnswer, started:number) {
   });
 }
 
+/** Action drafts are handled by handleCarinaVoiceTurn; do not retrieve product docs first. */
+export function shouldSkipHelpRetrieval(question:string, opts?:{voiceActions?:boolean}): boolean {
+  return !!opts?.voiceActions && !!parseVoiceActionIntent(question);
+}
+
 type HelpOpts = {page?:string|null;language?:string; previousQuestion?:string; onDelta?:(text:string)=>void; userId?:string|null; voiceActions?:boolean};
+
 
 export async function answerHelp(question:string, opts?:HelpOpts): Promise<HelpAnswer> {
   const started = Date.now();
@@ -139,9 +146,11 @@ export async function answerHelp(question:string, opts?:HelpOpts): Promise<HelpA
   const retrieveAt=Date.now();
   // Retrieve from the CURRENT question only. Mixing in the previous turn
   // was sending "can you hear me" at work-order (or other) docs.
-  const entries=retrieveHelp(question,opts?.page,HELP_EVIDENCE_LIMIT);
+  // Action intents skip product-doc retrieval so first-sentence TTS can start sooner.
+  const skipRetrieve=shouldSkipHelpRetrieval(question,opts);
+  const entries=skipRetrieve?[]:retrieveHelp(question,opts?.page,HELP_EVIDENCE_LIMIT);
   const retrieveMs=Date.now()-retrieveAt;
-  if(!entries.length || !grokConfigured()) {
+  if((!entries.length && !skipRetrieve) || !grokConfigured()) {
     const out:HelpAnswer={text:HELP_FALLBACK,citations:[],source:'local',timing:{retrieveMs,totalMs:Date.now()-started}};
     logHelpPair(question,out,started);
     return out;
