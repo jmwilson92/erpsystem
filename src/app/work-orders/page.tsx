@@ -170,7 +170,7 @@ export default async function WorkOrdersPage({
 
       {canManageWos && (
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card className="border-teal-900/40" data-tour="wo-create">
+        <Card className="border-teal-900/40" data-tour="wo-create" data-carina-target="wo-create">
           <CardHeader>
             <CardTitle className="text-base">Create production WO (BOM)</CardTitle>
           </CardHeader>

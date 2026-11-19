@@ -331,7 +331,7 @@ export default async function AdminSettingsPage() {
         <CardContent>
           <form action={actionSetBomPrototypeDefault} className="flex flex-wrap items-center gap-3">
             <label htmlFor="bomDefaultPath" className="text-sm">New BOMs</label>
-            <select id="bomDefaultPath" name="certificationPath" defaultValue={company.bomPrototypeRequired ? "PROTOTYPE" : "DIRECT"} disabled={!canEdit} className="rounded border border-slate-700 bg-slate-950 p-2 text-sm">
+            <select id="bomDefaultPath" name="certificationPath" data-carina-target="bom-prototype-default" defaultValue={company.bomPrototypeRequired ? "PROTOTYPE" : "DIRECT"} disabled={!canEdit} className="rounded border border-slate-700 bg-slate-950 p-2 text-sm">
               <option value="PROTOTYPE">Prototype required</option>
               <option value="DIRECT">Direct certification (no prototype)</option>
             </select>

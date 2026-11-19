@@ -3,7 +3,7 @@ import { answerHelp } from '../ai-help/answer';
 import type { HelpCitation } from '../ai-help/knowledge';
 import { getTour, matchTourFromQuery, type TourStep } from '../guides';
 export type AiMessage = {role:'user'|'assistant'|'system';content:string};
-export type AiGuideAction = {tourId?:string;steps?:TourStep[]};
+export type AiGuideAction = {tourId?:string;steps?:TourStep[];stepByStep?:boolean};
 /** Kept for old clients; deliberately never executed or trusted by the help assistant. */
 export type AiPendingAction = {
   action:string;
@@ -49,6 +49,78 @@ export async function processAiConversation(messages:{role:'user'|'assistant';co
       if (pending.text) opts?.onDelta?.(pending.text);
       return { ...pending, language: lang.code };
     }
+    const { advanceHowto, isHowtoOfferAccept, isHowtoPending, startHowto } = await import('../ai-help/howto');
+    const { looksLikeHowto, looksLikeNavigate } = await import('../ai-help/nav-registry');
+    const { looksLikeRecordNav, resolveNavigation } = await import('../ai-help/navigate');
+    if (isHowtoPending(opts.pendingAction)) {
+      const advanced = advanceHowto(opts.pendingAction, last);
+      if (advanced) {
+        if (advanced.text) opts?.onDelta?.(advanced.text);
+        return {
+          text: advanced.text,
+          source: 'local',
+          language: lang.code,
+          href: advanced.href,
+          guide: advanced.guide,
+          pendingAction: advanced.pendingAction ?? null,
+        };
+      }
+      const offerKind = String(opts.pendingAction?.partial?.offerKind || "");
+      if (isHowtoOfferAccept(last) && offerKind) {
+        const offerQuestion =
+          offerKind === "CREATE_PURCHASE_REQUEST"
+            ? "create a purchase request"
+            : offerKind === "PLAN_DEMAND"
+              ? "plan this demand"
+              : offerKind === "CYCLE_COUNT"
+                ? "post a cycle count"
+                : last;
+        const offered = await handleCarinaVoiceTurn({
+          question: offerQuestion,
+          pendingAction: null,
+          userId: opts.userId,
+        });
+        if (offered) {
+          if (offered.text) opts?.onDelta?.(offered.text);
+          return { ...offered, language: lang.code };
+        }
+      }
+    }
+    if (looksLikeHowto(last)) {
+      const started = startHowto(last, { voice: !!opts?.voice });
+      if (started) {
+        if (started.text) opts?.onDelta?.(started.text);
+        return {
+          text: started.text,
+          source: 'local',
+          language: lang.code,
+          href: started.href,
+          guide: started.guide,
+          pendingAction: started.pendingAction ?? null,
+        };
+      }
+    }
+    if (looksLikeNavigate(last) || looksLikeRecordNav(last)) {
+      const { createPrismaLookupStore } = await import('../ai-help/lookup');
+      const { userCanView, userHasPermission } = await import('../auth');
+      const nav = await resolveNavigation(last, {
+        userId: opts.userId,
+        store: createPrismaLookupStore(),
+        canView: userCanView,
+        hasPermission: (id, perm) => userHasPermission(id, perm),
+      });
+      if (nav.text) opts?.onDelta?.(nav.text);
+      return {
+        text: nav.text,
+        source: 'local',
+        language: lang.code,
+        href: nav.ok ? nav.href : undefined,
+        guide: nav.highlight
+          ? { stepByStep: true, steps: [{ selector: nav.highlight.selector, route: nav.href, title: nav.highlight.label || '', body: nav.text }] }
+          : undefined,
+        pendingAction: nav.pendingAction ?? opts.pendingAction ?? null,
+      };
+    }
     const { grokConfigured, grokChatWithTools } = await import('./grok');
     if (grokConfigured()) {
       try {
@@ -81,6 +153,8 @@ export async function processAiConversation(messages:{role:'user'|'assistant';co
             citations: reasoned.citations,
             pendingAction: reasoned.pendingAction ?? opts.pendingAction ?? null,
             language: lang.code,
+            href: reasoned.href,
+            guide: reasoned.guide,
           };
         }
       } catch {
