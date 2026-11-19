@@ -655,7 +655,7 @@ export function VoiceAssistant({
           rec.onspeechend = null;
           recRef.current = null;
         }
-        debugVoice("rec-onend-held", plan.reason || "onend");
+        debugVoice("rec-onend-held", "onend");
         return;
       }
 
