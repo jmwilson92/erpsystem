@@ -774,7 +774,7 @@ export function SupportBubble({
                     {voiceError}
                   </p>
                 )}
-                <p className="px-3 py-2 text-[11px] text-slate-400">AI can make mistakes. Read-only help, not live data. Questions, answers and feedback are logged in your workspace for review. Questions go to xAI; don’t share PINs, secrets, personal or controlled data. <button type="button" className="underline" onClick={()=>setTab("support")}>Human support</button></p>
+                <p className="px-3 py-2 text-[11px] text-slate-400">AI can make mistakes. She can look up records you may view, and when an administrator enables Carina voice actions she can propose confirm-gated changes and create a purchase request. Questions, answers and feedback are logged in your workspace for review. Questions go to xAI; don’t share PINs, secrets, personal or controlled data. <button type="button" className="underline" onClick={()=>setTab("support")}>Human support</button></p>
               <div
                 ref={scrollerRef}
                 className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 py-3"

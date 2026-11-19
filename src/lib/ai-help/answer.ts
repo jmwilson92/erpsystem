@@ -3,6 +3,7 @@ import { citation, helpPageContext, retrieveHelp, type HelpCitation, type HelpEn
 import { ACCOUNT_SNAPSHOT_UNAVAILABLE, formatAccountSnapshotReply, loadAccountSnapshot, wantsAccountSnapshot } from './account-snapshot';
 import { helpMetaReply } from './meta';
 import { parseVoiceActionIntent } from '../services/carina-voice-intent';
+import { ACTIONS_DISABLED_POLICY, ACTIONS_ENABLED_POLICY, sanitizeEvidenceText } from './knowledge-pack';
 import { isExcludedLookupQuery, LOOKUP_EXCLUDED_MESSAGE, wantsRecordLookup } from './lookup-policy';
 import { answerRecordLookup } from './lookup-loop';
 import { createPrismaLookupStore } from './lookup';
@@ -17,11 +18,15 @@ export type HelpAnswer = { text:string; citations:HelpCitation[]; source:'grok'|
 export type HelpTiming = { localMs?:number; retrieveMs?:number; ttftMs?:number; totalMs?:number };
 /** True when the user is asking Carina to perform a record change, not a how-to. */
 export function looksLikeRecordChange(question:string): boolean {
-  return /^(?:please\s+)?(?:create|delete|finish|complete|approve|sign|post|release|cancel|pay|submit|change|update|send)\b|\b(?:do it for me|on my behalf|create .* for me|finish .* for me)\b/i.test(question.trim());
+  return /^(?:please\s+|can you\s+|could you\s+|would you\s+|i (?:want|need) (?:you )?to\s+)?(?:create|delete|finish|complete|approve|sign|post|release|cancel|pay|submit|change|update|send|buy|purchase|make|start|raise)\b|\b(?:do it for me|on my behalf|create .* for me|finish .* for me|purchase request|change records)\b/i.test(question.trim());
 }
 
 export function helpSafetyReply(question:string, opts?:{voiceActions?:boolean}): string | null {
-  if (/\b(ignore (?:all |previous |the )*(?:instructions|rules)|system prompt|developer message|jailbreak|reveal.*(?:secret|key|token)|other (?:tenant|company|customer).*data|bypass.*(?:pin|permission|certif))\b/i.test(question)) return "I can't bypass permissions, reveal secrets or other tenants' data. I only provide read-only Protessera help. Use Support for an authorized human review.";
+  if (/\b(ignore (?:all |previous |the )*(?:instructions|rules)|system prompt|developer message|jailbreak|reveal.*(?:secret|key|token)|other (?:tenant|company|customer).*data|bypass.*(?:pin|permission|certif))\b/i.test(question)) {
+    return opts?.voiceActions
+      ? "I can't bypass permissions, reveal secrets or other tenants' data. Use Support for an authorized human review."
+      : "I can't bypass permissions, reveal secrets or other tenants' data. I only provide read-only Protessera help. Use Support for an authorized human review.";
+  }
   if (isExcludedLookupQuery(question) || /\b(?:list|show|get)\b.*\b(?:salaries|employees)\b/i.test(question)) return LOOKUP_EXCLUDED_MESSAGE;
 
   // When confirm-gated voice actions are on, do not refuse with the leftover
@@ -32,9 +37,7 @@ export function helpSafetyReply(question:string, opts?:{voiceActions?:boolean}):
 }
 export function helpSystem(entries:HelpEntry[], page:string, language:string, opts?:{voiceActions?:boolean; voice?:boolean}) {
   const context=entries.map(e=>({id:e.id,title:e.title,text:e.text.slice(0,HELP_EVIDENCE_CHARS)}));
-  const writePolicy=opts?.voiceActions
-    ? "Confirm-gated record changes (edit a project, tie a work order to a project or budget, post a cycle count, consume parts on a work order, complete a work order) are handled by a separate action layer that always asks the user to confirm. For this how-to or lookup turn: do not claim a record was changed, signed or submitted. Money, payroll, HR and user access stay off limits."
-    : "READ-ONLY product help: no ERP writes.";
+  const writePolicy=opts?.voiceActions ? ACTIONS_ENABLED_POLICY : ACTIONS_DISABLED_POLICY;
   const lengthPolicy=opts?.voice
     ? VOICE_REPLY_POLICY
     : "Reply in a concise and practical way (up to 5 sentences).";
@@ -161,7 +164,7 @@ export async function answerHelp(question:string, opts?:HelpOpts): Promise<HelpA
   // was sending "can you hear me" at work-order (or other) docs.
   // Action intents skip product-doc retrieval so first-sentence TTS can start sooner.
   const skipRetrieve=shouldSkipHelpRetrieval(question,opts);
-  const entries=skipRetrieve?[]:retrieveHelp(question,opts?.page,HELP_EVIDENCE_LIMIT);
+  const entries=(skipRetrieve?[]:retrieveHelp(question,opts?.page,HELP_EVIDENCE_LIMIT)).map((e)=>({...e,text:sanitizeEvidenceText(e.text,!!opts?.voiceActions)}));
   const retrieveMs=Date.now()-retrieveAt;
   if((!entries.length && !skipRetrieve) || !grokConfigured()) {
     const out:HelpAnswer={text:HELP_FALLBACK,citations:[],source:'local',timing:{retrieveMs,totalMs:Date.now()-started}};

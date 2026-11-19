@@ -53,7 +53,8 @@ assert.ok(!/synth\.pause\(\)/.test(audio));
 
 const answer = fs.readFileSync("src/lib/ai-help/answer.ts", "utf8");
 assert.match(answer, /const skipRetrieve=shouldSkipHelpRetrieval\(question,opts\);/);
-assert.match(answer, /const entries=skipRetrieve\?\[\]:retrieveHelp/);
+assert.match(answer, /skipRetrieve\?\[\]:retrieveHelp/);
+assert.match(answer, /sanitizeEvidenceText\(/);
 
 const ai = fs.readFileSync("src/lib/services/ai.ts", "utf8");
 assert.match(ai, /if \(acted\.text\) opts\?\.onDelta\?\.\(acted\.text\)/);

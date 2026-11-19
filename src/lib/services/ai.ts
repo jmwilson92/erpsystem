@@ -1,4 +1,4 @@
-/** Existing Carina chat/voice entry points: grounded read-only help, plus permission-checked account counts. */
+/** Existing Carina chat/voice entry points: reasoning-led lookups and confirm-gated actions, plus fallback help. */
 import { answerHelp } from '../ai-help/answer';
 import type { HelpCitation } from '../ai-help/knowledge';
 import { getTour, matchTourFromQuery, type TourStep } from '../guides';
@@ -28,8 +28,65 @@ export async function processAiConversation(messages:{role:'user'|'assistant';co
   const lang=detectLanguageSwitch(last) || resolveLang(opts?.language || DEFAULT_LANG.code);
   if(!last) return {text:'Please ask a Protessera question.',language:lang.code,source:'local'};
   let voiceActions=false;
+  const { helpMetaReply } = await import('../ai-help/meta');
+  const meta = helpMetaReply(last);
+  if (meta) {
+    opts?.onDelta?.(meta);
+    return { text: meta, source: 'local', language: lang.code, pendingAction: opts?.pendingAction ?? null };
+  }
   if (opts?.userId) {
-    const { handleCarinaVoiceTurn, unparsedActionReply } = await import('./carina-voice-actions');
+    const { handleCarinaVoiceTurn, unparsedActionReply, createReasonActionPort } = await import('./carina-voice-actions');
+    const { getCarinaFeatures } = await import('./carina-features');
+    const features = await getCarinaFeatures();
+    voiceActions=!!features.voiceActions;
+    const pending = await handleCarinaVoiceTurn({
+      question: last,
+      pendingAction: opts.pendingAction,
+      userId: opts.userId,
+      pendingOnly: true,
+    });
+    if (pending) {
+      if (pending.text) opts?.onDelta?.(pending.text);
+      return { ...pending, language: lang.code };
+    }
+    const { grokConfigured, grokChatWithTools } = await import('./grok');
+    if (grokConfigured()) {
+      try {
+        const { runCarinaReasonTurn, REASON_TIMEOUT_MS } = await import('../ai-help/reason-loop');
+        const { HELP_VOICE_MAX_TOKENS } = await import('../ai-help/voice-style');
+        const { createPrismaLookupStore } = await import('../ai-help/lookup');
+        const reasoned = await runCarinaReasonTurn({
+          question: last,
+          userId: opts.userId,
+          voiceActions,
+          language: lang.name,
+          page: opts.page,
+          voice: !!opts?.voice,
+          store: createPrismaLookupStore(),
+          actions: voiceActions ? createReasonActionPort(opts.userId) : undefined,
+          chat: async ({ system, messages, tools }) =>
+            grokChatWithTools({
+              system,
+              messages,
+              tools,
+              timeoutMs: REASON_TIMEOUT_MS,
+              maxTokens: opts?.voice ? HELP_VOICE_MAX_TOKENS : 500,
+            }),
+          onDelta: opts?.onDelta,
+        });
+        if (reasoned?.text) {
+          return {
+            text: reasoned.text,
+            source: reasoned.source,
+            citations: reasoned.citations,
+            pendingAction: reasoned.pendingAction ?? opts.pendingAction ?? null,
+            language: lang.code,
+          };
+        }
+      } catch {
+        // Fall back to regex intents and grounded help if the model or tools fail.
+      }
+    }
     const acted = await handleCarinaVoiceTurn({
       question: last,
       pendingAction: opts.pendingAction,
@@ -39,11 +96,6 @@ export async function processAiConversation(messages:{role:'user'|'assistant';co
       if (acted.text) opts?.onDelta?.(acted.text);
       return { ...acted, language: lang.code };
     }
-    const { getCarinaFeatures } = await import('./carina-features');
-    const features = await getCarinaFeatures();
-    voiceActions=!!features.voiceActions;
-    // Toggle is on, but this phrase is not one of the confirm-gated intents.
-    // Do not fall through to the leftover "I'm read-only help" safety line.
     if (voiceActions) {
       const fallback = unparsedActionReply(last);
       if (fallback) {

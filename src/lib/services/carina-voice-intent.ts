@@ -6,6 +6,7 @@ export type VoiceActionKind =
   | "CYCLE_COUNT"
   | "CONSUME_PARTS"
   | "OUTPUT_WO"
+  | "CREATE_PURCHASE_REQUEST"
   | "HIGH_RISK_PARTS";
 
 export type ParsedVoiceIntent = {
@@ -20,6 +21,13 @@ export type ParsedVoiceIntent = {
   countedQty?: number;
   reason?: string;
   projectFields?: Record<string, string>;
+  prDescription?: string;
+  prQuantity?: number;
+  prPurpose?: string;
+  prJustification?: string;
+  prDepartment?: string;
+  prPartNumber?: string;
+  prUom?: string;
 };
 
 const NUMBER_RE =
@@ -98,6 +106,33 @@ export function parseVoiceActionIntent(question: string): ParsedVoiceIntent | nu
   const woNum = numbers.find((n) => /^(WO|SWO|BWO|MWO)-/.test(n));
   const projNum = numbers.find((n) => /^(PRJ|PROJ)-/.test(n));
   const budgetNum = numbers.find((n) => /^(BDGT|BUDGET)-/.test(n));
+
+  if (
+    /\b(create|open|make|start|submit|raise|file|new|buy)\b/.test(lower) &&
+    /\b(purchase request|purchasing request|requisition|\bpr\b)\b/.test(lower)
+  ) {
+    const qtyRaw = after(t, /\b(\d+(?:\.\d+)?)\s*(?:x|ea|pcs|pieces|units)?\b/i);
+    const prQuantity = qtyRaw != null ? Number(qtyRaw) : 1;
+    const prPartNumber =
+      after(t, /\bpart(?: number)?\s+([A-Za-z0-9._\/-]{2,})\b/i) ||
+      numbers.find((n) => /^(PN)-/i.test(n));
+    let prDescription = t
+      .replace(/\b(please|can you|could you|would you|i (?:want|need) (?:you )?to|hey|hi|carina)\b/gi, " ")
+      .replace(/\b(create|open|make|start|submit|raise|file|new|buy)\b/gi, " ")
+      .replace(/\b(a|an|the|me|us|for|of|purchase request|purchasing request|requisition|\bpr\b)\b/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (prQuantity && prDescription) {
+      prDescription = prDescription.replace(new RegExp("^" + String(prQuantity) + "\\s*"), "").trim();
+    }
+    return {
+      kind: "CREATE_PURCHASE_REQUEST",
+      numbers,
+      prDescription: prDescription || "requested items",
+      prQuantity: Number.isFinite(prQuantity) && prQuantity > 0 ? prQuantity : 1,
+      prPartNumber,
+    };
+  }
 
   const highRisk =
     /\b(high[ -]?risk|class a|abc class a)\b/.test(lower) &&

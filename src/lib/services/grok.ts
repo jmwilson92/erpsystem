@@ -199,7 +199,7 @@ export type GrokToolCall = {
 /** One tool-aware chat turn. Used by Carina record lookup; no retries. */
 export async function grokChatWithTools(params: {
   system: string;
-  messages: { role: "system" | "user" | "assistant" | "tool"; content: string; toolCallId?: string; name?: string }[];
+  messages: { role: "system" | "user" | "assistant" | "tool"; content: string; toolCallId?: string; name?: string; toolCalls?: GrokToolCall[] }[];
   tools: GrokToolDef[];
   timeoutMs?: number;
   temperature?: number;
@@ -216,6 +216,17 @@ export async function grokChatWithTools(params: {
           content: m.content,
           tool_call_id: m.toolCallId || "tool",
           name: m.name,
+        };
+      }
+      if (m.role === "assistant" && m.toolCalls?.length) {
+        return {
+          role: "assistant",
+          content: m.content || null,
+          tool_calls: m.toolCalls.map((c) => ({
+            id: c.id || "tool",
+            type: "function",
+            function: { name: c.name, arguments: JSON.stringify(c.arguments || {}) },
+          })),
         };
       }
       return { role: m.role, content: m.content };

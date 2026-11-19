@@ -14,6 +14,7 @@ export type LookupEntityId =
   | "sales_order"
   | "quote"
   | "purchase_order"
+  | "purchase_request"
   | "vendor"
   | "customer"
   | "project"
@@ -37,6 +38,7 @@ export const LOOKUP_ENTITIES: LookupEntityId[] = [
   "sales_order",
   "quote",
   "purchase_order",
+  "purchase_request",
   "vendor",
   "customer",
   "project",
@@ -62,6 +64,7 @@ export const LOOKUP_PERMISSIONS: Record<LookupEntityId, string[]> = {
   sales_order: ["sales"],
   quote: ["sales"],
   purchase_order: ["purchasing"],
+  purchase_request: ["purchasing"],
   vendor: ["suppliers"],
   customer: ["customers"],
   project: ["pmo", "projects"],
@@ -86,6 +89,7 @@ export const LOOKUP_LABELS: Record<LookupEntityId, string> = {
   sales_order: "sales orders",
   quote: "quotes",
   purchase_order: "purchase orders",
+  purchase_request: "purchase requests",
   vendor: "vendors",
   customer: "customers",
   project: "projects",
@@ -170,6 +174,7 @@ export function parseRecordHints(question: string): RecordHint[] {
     work_order: "WO-",
     sales_order: "SO-",
     purchase_order: "PO-",
+    purchase_request: "PR-",
     quote: "QT-",
     ncr: "NCR-",
     mrb: "MRB-",
@@ -193,6 +198,7 @@ export function parseRecordHints(question: string): RecordHint[] {
     ["work_order", /\b(?:work orders?[- ]#?|WO[- ]?)(\d{2,}[A-Za-z0-9-]*)\b/gi],
     ["sales_order", /\b(?:sales orders?[- ]#?|SO[- ]?)(\d{2,}[A-Za-z0-9-]*)\b/gi],
     ["purchase_order", /\b(?:purchase orders?[- ]#?|PO[- ]?)(\d{2,}[A-Za-z0-9-]*)\b/gi],
+    ["purchase_request", /\b(?:purchase requests?[- ]#?|PR[- ]?)(\d{2,}[A-Za-z0-9-]*)\b/gi],
     ["quote", /\b(?:quotes?[- ]#?|QT[- ]?)(\d{2,}[A-Za-z0-9-]*)\b/gi],
     ["ncr", /\bNCR[- ]?(\d{2,}[A-Za-z0-9-]*)\b/gi],
     ["mrb", /\bMRB[- ]?(\d{2,}[A-Za-z0-9-]*)\b/gi],

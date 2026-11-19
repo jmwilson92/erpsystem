@@ -20,7 +20,10 @@ export async function getCarinaFeatures(): Promise<CarinaFeatures> {
       select: { carinaVoiceActions: true },
     });
     voiceActions = !!row?.carinaVoiceActions;
-  } catch {
+  } catch (e) {
+    // Same CompanySettings id "default" as Admin → Settings. If this throws
+    // (missing column, tenant mismatch), fail closed and log — do not invent "on".
+    console.warn("[carina-features] could not read CompanySettings.carinaVoiceActions", e instanceof Error ? e.message : "error");
     voiceActions = false;
   }
   return {
