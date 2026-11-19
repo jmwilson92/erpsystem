@@ -76,6 +76,55 @@ export async function processAiConversation(messages:{role:'user'|'assistant';co
       const summary = await consumeAwaySummary(deps, opts.userId);
       awayPrefix = summary.text ? `${summary.text} ` : "";
     }
+    const {
+      answerFloorStatus,
+      isFloorPending,
+      isFloorPrOfferAccept,
+      loadFloorSnapshot,
+      isFloorDetailUtterance,
+      looksLikeFloorStatus,
+    } = await import('./carina-floor');
+    if (isFloorPending(opts.pendingAction) && isFloorPrOfferAccept(last)) {
+      const pn = String(opts.pendingAction?.partial?.offerPartNumber || "").trim();
+      if (pn) {
+        if (voiceActions) {
+          const offered = await handleCarinaVoiceTurn({
+            question: `draft a purchase request for ${pn}`,
+            pendingAction: null,
+            userId: opts.userId,
+          });
+          if (offered) {
+            const wrapped = wrapAway({ ...offered, language: lang.code, text: offered.text });
+            if (wrapped.text) opts?.onDelta?.(wrapped.text);
+            return wrapped;
+          }
+        }
+        if (!opts?.skipCarinaTasks) {
+          const { addCarinaTask, prismaCarinaTaskDeps } = await import('./carina-tasks');
+          const taskDeps = await prismaCarinaTaskDeps();
+          const out = await addCarinaTask(taskDeps, { userId: opts.userId, text: `draft a purchase request for ${pn}` });
+          opts?.onDelta?.(out.text);
+          return wrapAway({ text: out.text, source: "local" as const, language: lang.code, href: out.href, pendingAction: null });
+        }
+      }
+    }
+    if (looksLikeFloorStatus(last) || isFloorPending(opts.pendingAction) || isFloorDetailUtterance(last)) {
+      const floor = await answerFloorStatus({
+        question: last,
+        pending: opts.pendingAction,
+        loadSnapshot: () => loadFloorSnapshot(),
+      });
+      if (floor) {
+        if (floor.text) opts?.onDelta?.(floor.text);
+        return wrapAway({
+          text: floor.text,
+          source: "local" as const,
+          language: lang.code,
+          href: floor.href,
+          pendingAction: floor.pendingAction,
+        });
+      }
+    }
     const { advanceHowto, isHowtoOfferAccept, isHowtoPending, startHowto } = await import('../ai-help/howto');
     const { looksLikeHowto, looksLikeNavigate } = await import('../ai-help/nav-registry');
     const { looksLikeRecordNav, resolveNavigation } = await import('../ai-help/navigate');

@@ -72,6 +72,25 @@ export const REASON_LOOKUP_TOOLS: GrokToolDef[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "get_floor_status",
+      description:
+        "Production-floor monitor: a concise overview of open and late work, low-stock parts (days of cover, high-usage first), work-center staffing versus scheduled load for the coming weeks, past-due purchase orders, quality holds/NCRs, and pending approvals. Use for “status of my floor”, “running low on parts”, or “which work center is overloaded”. Set topic to drill in.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          topic: {
+            type: "string",
+            enum: ["overview", "low_stock", "capacity", "late", "quality", "approvals"],
+            description: "overview for the short rundown; otherwise the area to explain in more detail.",
+          },
+        },
+      },
+    },
+  },
 ];
 
 export const REASON_ACTION_TOOLS: GrokToolDef[] = [
@@ -547,6 +566,46 @@ async function executeReasonTool(
       pendingAction: nav.pendingAction,
       href: nav.ok ? nav.href : undefined,
       guide,
+    };
+  }
+  if (name === "get_floor_status") {
+    const { loadFloorSnapshot, formatFloorOverview, formatFloorDetail, floorPendingAction } = await import(
+      "@/lib/services/carina-floor"
+    );
+    const topicRaw = String(args.topic || "overview").trim();
+    const topic =
+      topicRaw === "low_stock" ||
+      topicRaw === "capacity" ||
+      topicRaw === "late" ||
+      topicRaw === "quality" ||
+      topicRaw === "approvals"
+        ? topicRaw
+        : "overview";
+    const snapshot = await loadFloorSnapshot();
+    const detail = topic === "overview" ? { text: formatFloorOverview(snapshot) } : formatFloorDetail(snapshot, topic);
+    return {
+      result: {
+        ok: true,
+        text: detail.text,
+        href: "href" in detail ? detail.href : undefined,
+        lowStock: snapshot.lowStock.slice(0, 5).map((a) => ({
+          partNumber: a.partNumber,
+          daysOfCover: a.daysOfCover,
+          title: a.title,
+        })),
+        capacity: snapshot.capacity.slice(0, 5).map((a) => ({
+          workCenter: a.workCenter,
+          weekLabel: a.weekLabel,
+          utilizationPct: Math.round(a.utilizationPct),
+          title: a.title,
+        })),
+        lateWorkOrders: snapshot.signals.lateWorkOrders.length,
+        pastDuePurchaseOrders: snapshot.signals.pastDuePurchaseOrders.length,
+        openNcrs: snapshot.signals.openNcrs.length,
+        pendingApprovals: snapshot.signals.pendingApprovals,
+      },
+      href: "href" in detail ? detail.href : undefined,
+      pendingAction: floorPendingAction(topic, "offerPrPart" in detail ? detail.offerPrPart : undefined),
     };
   }
   return { result: { ok: false, message: `Unknown tool ${name}` } };

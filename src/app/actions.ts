@@ -10802,6 +10802,17 @@ export async function actionSaveLaborOverrunRoles(formData: FormData): Promise<v
   redirect("/admin/settings");
 }
 
+export async function actionSaveCarinaFloorRoles(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("admin.permissions");
+  const { setCarinaFloorNotifyRoles } = await import("@/lib/services/carina-floor");
+  const roles = formData.getAll("roles").map((v) => String(v));
+  await setCarinaFloorNotifyRoles({ roles, userId: user?.id });
+  await flashToast("Carina floor notification roles saved");
+  revalidatePath("/admin/settings");
+  redirect("/admin/settings");
+}
+
 export async function actionMarkNotificationRead(formData: FormData): Promise<void> {
   const user = await getCurrentUser();
   if (!user) throw new Error("Sign in required");
