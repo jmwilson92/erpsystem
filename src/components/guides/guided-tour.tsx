@@ -39,8 +39,8 @@ function stopNarration() {
 }
 
 /** Shared audio channel — never overlaps Carina's main speak path. */
-function narrate(text: string): Promise<void> {
-  return carinaPlaySpeech(text, { language: "en", voiceId: "carina" });
+async function narrate(text: string): Promise<void> {
+  await carinaPlaySpeech(text, { language: "en", voiceId: "carina" });
 }
 
 type Rect = { top: number; left: number; width: number; height: number };

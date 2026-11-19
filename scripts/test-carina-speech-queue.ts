@@ -61,6 +61,16 @@ assert.ok(!speakFn.includes("recRef.current?.stop()"), "speak() must not stop th
 assert.match(voice, /carinaIsSpeaking\(\) && !pttRef/);
 assert.match(voice, /shouldShowVoiceDebug/);
 assert.match(voice, /data-voice-debug/);
-assert.match(voice, /onDelta: \(preview\) => setStatus/);
+assert.match(voice, /onDelta:/);
+assert.match(voice, /carinaEnqueueCumulative/);
+assert.match(voice, /carinaFinishReply/);
+assert.match(voice, /carinaWarmTts/);
+assert.match(voice, /carinaStartReply/);
+const enqueueAt = voice.indexOf("carinaEnqueueCumulative(preview");
+assert.ok(enqueueAt > 0);
+const afterEnqueue = voice.slice(enqueueAt, enqueueAt + 3500);
+assert.match(afterEnqueue, /carinaFinishReply\(result\.text/);
+assert.ok(!/else \{\s*await speak\(result\.text\);\s*\}/.test(afterEnqueue), "must not cancel streamed TTS with a full-reply speak()");
+
 
 console.log("PASS Carina voice rework: one server TTS element, persistent mic, separate PTT, action toggle safety");

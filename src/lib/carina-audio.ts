@@ -1,18 +1,34 @@
 /**
  * Single global audio channel for Carina + guided tours.
- * Each reply is one server-TTS audio element at a fixed volume.
- * No speechSynthesis, and no pause/resume keep-alive (those caused
- * mid-reply pauses and sudden volume jumps on Edge).
+ * Stream TTS by sentence: start the first-sentence fetch as soon as that
+ * text is ready, play it at a fixed volume, and prefetch the rest. No
+ * speechSynthesis and no pause/resume keep-alive.
  */
-import { tidySpeechText } from "@/lib/ai-help/speech-queue";
+import {
+  createSpeechBuffer,
+  splitSentences,
+  tidySpeechText,
+} from "@/lib/ai-help/speech-queue";
 
 export const SPEECH_VOLUME = 1;
-/** /api/tts truncates at 1800 characters; stitch longer replies into one blob. */
+/** /api/tts truncates at 1800 characters; keep fetches at or under that. */
 export const TTS_FETCH_MAX_CHARS = 1800;
+
+export type CarinaSpeakTimings = {
+  timeToFirstAudioMs: number | null;
+  firstSentenceChars: number;
+};
 
 let gen = 0;
 let currentAudio: HTMLAudioElement | null = null;
 let speaking = false;
+let playTail: Promise<void> = Promise.resolve();
+let replyStartedAt = 0;
+let firstAudioAt: number | null = null;
+let firstSentenceChars = 0;
+const buffer = createSpeechBuffer(TTS_FETCH_MAX_CHARS);
+let lastTimings: CarinaSpeakTimings = { timeToFirstAudioMs: null, firstSentenceChars: 0 };
+let warmupInFlight: Promise<void> | null = null;
 
 export function carinaAudioGen(): number {
   return gen;
@@ -31,9 +47,17 @@ export function carinaIsSpeaking(): boolean {
   return speaking;
 }
 
+export function carinaLastSpeakTimings(): CarinaSpeakTimings {
+  return lastTimings;
+}
+
 export function carinaStopAllAudio(): void {
   gen += 1;
   speaking = false;
+  buffer.reset();
+  playTail = Promise.resolve();
+  firstAudioAt = null;
+  firstSentenceChars = 0;
   if (currentAudio) {
     try {
       currentAudio.onended = null;
@@ -53,13 +77,23 @@ export function carinaBeginSpeechHold(): void {
   speaking = true;
 }
 
-/** Start a new spoken reply. Cancels only a previous reply. */
+/** Start a new spoken reply. Cancels only a previous reply, not later sentences. */
 export function carinaStartReply(): void {
   carinaStopAllAudio();
   carinaBeginSpeechHold();
+  replyStartedAt = nowMs();
+  firstAudioAt = null;
+  firstSentenceChars = 0;
+  lastTimings = { timeToFirstAudioMs: null, firstSentenceChars: 0 };
 }
 
-/** Split tidy text into fetch-sized pieces without splitting mid-utterance playback. */
+function nowMs(): number {
+  return typeof performance !== "undefined" && typeof performance.now === "function"
+    ? performance.now()
+    : Date.now();
+}
+
+/** Split tidy text into fetch-sized pieces. */
 export function splitTtsFetches(text: string, max = TTS_FETCH_MAX_CHARS): string[] {
   const src = tidySpeechText(text);
   if (!src) return [];
@@ -102,19 +136,15 @@ async function fetchTtsChunk(
   return buf;
 }
 
-function concatBuffers(parts: ArrayBuffer[]): ArrayBuffer {
-  const total = parts.reduce((n, p) => n + p.byteLength, 0);
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const p of parts) {
-    out.set(new Uint8Array(p), offset);
-    offset += p.byteLength;
-  }
-  return out.buffer;
-}
-
 async function playOneAudio(buf: ArrayBuffer, type: string, g: number): Promise<void> {
   if (g !== gen) return;
+  if (firstAudioAt == null) {
+    firstAudioAt = nowMs();
+    lastTimings = {
+      timeToFirstAudioMs: Math.max(0, Math.round(firstAudioAt - replyStartedAt)),
+      firstSentenceChars,
+    };
+  }
   const url = URL.createObjectURL(new Blob([buf], { type: type || "audio/mpeg" }));
   const audio = new Audio(url);
   audio.volume = SPEECH_VOLUME;
@@ -134,51 +164,96 @@ async function playOneAudio(buf: ArrayBuffer, type: string, g: number): Promise<
   });
 }
 
+/** Keep the first spoken sentence in its own TTS fetch so audio can start sooner. */
+export function peelFirstSentence(chunks: string[]): string[] {
+  if (chunks.length === 0) return chunks;
+  const { complete, rest } = splitSentences(chunks[0]);
+  if (!complete.length) return chunks;
+  const first = complete[0];
+  const leftover = tidySpeechText([complete.slice(1).join(" "), rest, ...chunks.slice(1)].filter(Boolean).join(" "));
+  return leftover ? [first, ...splitTtsFetches(leftover)] : [first];
+}
+
+function enqueueChunks(chunks: string[], opts: { language?: string; voiceId?: string } | undefined) {
+  if (!chunks.length) return;
+  speaking = true;
+  const g = gen;
+  const queue = firstSentenceChars ? chunks : peelFirstSentence(chunks);
+  for (const chunk of queue) {
+    if (!firstSentenceChars) firstSentenceChars = chunk.length;
+    // Start the fetch immediately so it overlaps playback of the previous sentence
+    // and the rest of the token stream.
+    const prepared = fetchTtsChunk(chunk, opts, g).catch(() => null);
+    playTail = playTail.then(async () => {
+      if (g !== gen) return;
+      speaking = true;
+      const buf = await prepared;
+      if (!buf || g !== gen) return;
+      await playOneAudio(buf, "audio/mpeg", g);
+    });
+  }
+}
+
+/** Queue newly completed sentences from a cumulative stream. Never cancels. */
+export function carinaEnqueueCumulative(
+  cumulative: string,
+  opts?: { language?: string; voiceId?: string }
+): number {
+  carinaBeginSpeechHold();
+  const chunks = buffer.ingest(cumulative);
+  enqueueChunks(chunks, opts);
+  return chunks.length;
+}
+
+/** Flush leftover text, wait for the queue, then release the mic hold. */
+export async function carinaFinishReply(
+  finalText?: string,
+  opts?: { language?: string; voiceId?: string }
+): Promise<CarinaSpeakTimings> {
+  carinaBeginSpeechHold();
+  const g = gen;
+  const chunks = buffer.flush(finalText);
+  enqueueChunks(chunks, opts);
+  await playTail;
+  if (g === gen) speaking = false;
+  return lastTimings;
+}
+
 /**
- * Play a complete reply as a single audio element at a fixed volume.
- * Fetches may be stitched, but the listener hears one element, not a queue.
+ * Play a complete reply (tours, one-shot, meta). Starts first-sentence TTS
+ * immediately instead of waiting to concatenate the whole audio.
  */
 export async function carinaPlaySpeech(
   text: string,
   opts?: { language?: string; voiceId?: string }
-): Promise<void> {
-  const chunks = splitTtsFetches(text);
-  if (!chunks.length) return;
+): Promise<CarinaSpeakTimings> {
+  const spoken = tidySpeechText(text);
+  if (!spoken) return lastTimings;
   carinaStartReply();
+  const chunks = splitTtsFetches(spoken);
+  enqueueChunks(chunks, opts);
+  // Mark the buffer as already queued so a later finish of the same text is a no-op.
+  buffer.flush(spoken);
   const g = gen;
-  try {
-    const bufs: ArrayBuffer[] = [];
-    for (const chunk of chunks) {
-      if (g !== gen) return;
-      const buf = await fetchTtsChunk(chunk, opts, g);
-      if (!buf) return;
-      bufs.push(buf);
-    }
-    if (g !== gen) return;
-    await playOneAudio(concatBuffers(bufs), "audio/mpeg", g);
-  } catch {
-    // Server TTS is required. Do not fall back to speechSynthesis — that
-    // path caused choppy, volume-jumping playback on Edge.
-    if (g === gen) speaking = false;
-    return;
-  }
+  await playTail;
   if (g === gen) speaking = false;
+  return lastTimings;
 }
 
-/** Ignored: replies are spoken once when finished, not as streamed fragments. */
-export function carinaEnqueueCumulative(_cumulative: string, _opts?: { language?: string; voiceId?: string }): number {
-  carinaBeginSpeechHold();
-  return 0;
-}
-
-/** Play the finished reply as one audio element. */
-export async function carinaFinishReply(
-  finalText?: string,
-  opts?: { language?: string; voiceId?: string }
-): Promise<void> {
-  if (!finalText?.trim()) {
-    speaking = false;
-    return;
-  }
-  await carinaPlaySpeech(finalText, opts);
+/** Open the TTS route / upstream TLS so the first real sentence is not a cold start. */
+export function carinaWarmTts(): Promise<void> {
+  if (typeof fetch !== "function") return Promise.resolve();
+  if (warmupInFlight) return warmupInFlight;
+  warmupInFlight = fetch("/api/tts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ warmup: true }),
+    cache: "no-store",
+  })
+    .then(() => undefined)
+    .catch(() => undefined)
+    .finally(() => {
+      warmupInFlight = null;
+    });
+  return warmupInFlight;
 }
