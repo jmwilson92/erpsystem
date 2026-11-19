@@ -32,6 +32,7 @@ import { composeUtterance } from "@/lib/ai-help/utterance";
 import {
   WATCHDOG_MS,
   classifyRecognitionError,
+  collectRecognitionTranscripts,
   commitPttTranscript,
   planRecognitionEnd,
   shouldWatchdogReboot,
@@ -460,55 +461,34 @@ export function VoiceAssistant({
 
     rec.onresult = (ev) => {
       if (bootGenRef.current !== gen) return;
-      setRecAliveBoth(true);
-      let finals = "";
-      let interim = "";
-      let wakeHint = "";
-      for (let i = 0; i < ev.results.length; i++) {
-        const r = ev.results[i];
-        let best = "";
-        try {
-          best = (r[0]?.transcript || "").trim();
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const anyR = r as any;
-          const n = typeof anyR.length === "number" ? anyR.length : 1;
-          for (let a = 0; a < Math.min(n, 3); a++) {
-            const alt = (anyR[a]?.transcript || "").trim();
-            if (alt && includesWake(alt, nameRef.current)) {
-              wakeHint = alt;
-              if (a === 0 || !includesWake(best, nameRef.current)) {
-                best = best && a === 0 ? best : alt;
-              }
-            }
+      // A throw here used to kill the Edge session and flash "reconnecting"
+      // on any speech. Swallow it and keep the recognizer alive.
+      try {
+        setRecAliveBoth(true);
+        const { finalText, interimText } = collectRecognitionTranscripts(
+          ev,
+          (text) => includesWake(text, nameRef.current)
+        );
+        const display = (finalText || interimText).trim();
+        if (display) setRawHeard(display);
+
+        if (pttRef.current) {
+          if (finalText) {
+            pttBufRef.current = commitPttTranscript(pttBufRef.current, finalText, "");
+            interimBufRef.current = "";
+            setPartial(pttBufRef.current);
+          } else if (interimText) {
+            interimBufRef.current = interimText;
+            setPartial(commitPttTranscript(pttBufRef.current, "", interimText));
           }
-        } catch {
-          best = "";
+          return;
         }
-        if (!best) continue;
-        if (r.isFinal) finals += best + " ";
-        else interim += best + " ";
-      }
-      if (wakeHint && !includesWake(finals + " " + interim, nameRef.current)) {
-        interim = (interim + " " + wakeHint).trim();
-      }
-      const finalText = finals.trim();
-      const interimText = interim.trim();
-      const display = (finalText || interimText).trim();
-      if (display) setRawHeard(display);
 
-      if (pttRef.current) {
-        if (finalText) {
-          pttBufRef.current = commitPttTranscript(pttBufRef.current, finalText, "");
-          interimBufRef.current = "";
-          setPartial(pttBufRef.current);
-        } else if (interimText) {
-          interimBufRef.current = interimText;
-          setPartial(commitPttTranscript(pttBufRef.current, "", interimText));
-        }
-        return;
+        handleResultRef.current(finalText, interimText);
+      } catch {
+        // Leave recAlive as-is. onend will do a planned restart if the
+        // engine ends the one-shot session after speech.
       }
-
-      handleResultRef.current(finalText, interimText);
     };
 
     rec.onerror = (ev) => {

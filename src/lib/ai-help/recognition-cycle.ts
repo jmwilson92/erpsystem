@@ -99,6 +99,57 @@ export function commitPttTranscript(pttBuf: string, finalText: string, interimTe
   return (prev + " " + committed).replace(/\s+/g, " ").trim();
 }
 
+/**
+ * Read SpeechRecognition results without throwing. Edge can hand back a
+ * sparse or odd result list; a throw in onresult ends the session and
+ * looks like an instant "reconnecting" flash on any speech.
+ */
+export function collectRecognitionTranscripts(
+  ev: unknown,
+  isWake: (text: string) => boolean = () => false
+): { finalText: string; interimText: string } {
+  let finals = "";
+  let interim = "";
+  let wakeHint = "";
+  try {
+    const results = ev && typeof ev === "object" ? (ev as { results?: unknown }).results : null;
+    if (!results || typeof (results as { length?: unknown }).length !== "number") {
+      return { finalText: "", interimText: "" };
+    }
+    const len = (results as { length: number }).length;
+    for (let i = 0; i < len; i++) {
+      try {
+        const r = (results as ArrayLike<unknown>)[i] as {
+          isFinal?: boolean;
+          length?: number;
+          [index: number]: { transcript?: string } | undefined;
+        } | null;
+        if (!r) continue;
+        let best = "";
+        const n = typeof r.length === "number" ? r.length : 1;
+        for (let a = 0; a < Math.min(n, 3); a++) {
+          const alt = (r[a]?.transcript || "").trim();
+          if (!alt) continue;
+          if (!best) best = alt;
+          if (isWake(alt) && !isWake(best)) best = alt;
+          if (isWake(alt)) wakeHint = alt;
+        }
+        if (!best) continue;
+        if (r.isFinal) finals += best + " ";
+        else interim += best + " ";
+      } catch {
+        // skip a single bad result
+      }
+    }
+    if (wakeHint && !isWake((finals + " " + interim).trim())) {
+      interim = (interim + " " + wakeHint).trim();
+    }
+  } catch {
+    return { finalText: finals.trim(), interimText: interim.trim() };
+  }
+  return { finalText: finals.trim(), interimText: interim.trim() };
+}
+
 export type RecognitionEndPlan = {
   showReconnecting: boolean;
   keepRecAlive: boolean;

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
   classifyRecognitionError,
+  collectRecognitionTranscripts,
   commitPttTranscript,
   commitSessionTranscript,
   isBenignRecognitionEnd,
@@ -39,6 +40,46 @@ assert.equal(endPlan!.keepRecAlive, true);
 assert.equal(endPlan!.showReconnecting, false);
 assert.equal(endPlan!.restartDelayMs, 100);
 assert.equal(endPlan!.abortBeforeRestart, false);
+
+// ANY speech — not just the wake word — then an immediate one-shot onend.
+// This is what the live Edge repro does; silence stays on listening.
+const anySpeech = simulateEdgeSessionCycle({
+  events: [
+    { type: 'start' },
+    { type: 'interim', text: 'hello there' },
+    { type: 'end' },
+  ],
+});
+assert.ok(anySpeech.ui.every((s) => s === 'listening'), 'any speech must not flash reconnecting');
+assert.equal(anySpeech.finalText, 'hello there');
+assert.equal(anySpeech.abortedRestarts, 0);
+assert.equal(anySpeech.plans.at(-1)?.keepRecAlive, true);
+assert.equal(anySpeech.plans.at(-1)?.showReconnecting, false);
+
+// Edge-like / malformed result lists must not throw (a throw in onresult
+// ends the session and looks like reconnecting on the first syllable).
+assert.deepEqual(collectRecognitionTranscripts(undefined), { finalText: '', interimText: '' });
+assert.deepEqual(collectRecognitionTranscripts({}), { finalText: '', interimText: '' });
+assert.deepEqual(collectRecognitionTranscripts({ results: null }), { finalText: '', interimText: '' });
+const speech = collectRecognitionTranscripts({
+  results: [{ 0: { transcript: ' hello ' }, isFinal: false, length: 1 }],
+});
+assert.deepEqual(speech, { finalText: '', interimText: 'hello' });
+const finalish = collectRecognitionTranscripts({
+  results: [
+    { 0: { transcript: 'WO-10042' }, isFinal: true, length: 1 },
+    { 0: { transcript: 'status' }, length: 1 }, // missing isFinal → interim
+  ],
+});
+assert.equal(finalish.finalText, 'WO-10042');
+assert.equal(finalish.interimText, 'status');
+const getterThrow = {
+  results: {
+    length: 1,
+    0: new Proxy({}, { get() { throw new Error('edge result getter'); } }),
+  },
+};
+assert.deepEqual(collectRecognitionTranscripts(getterThrow), { finalText: '', interimText: '' });
 
 // Empty no-speech cycle (idle listening) also stays on listening.
 const idle = simulateEdgeSessionCycle({
@@ -169,6 +210,17 @@ assert.match(voice, /shouldWatchdogReboot/);
 assert.match(voice, /startingRef/);
 assert.match(voice, /commitPttTranscript/);
 assert.match(voice, /already started\|InvalidStateError/);
+assert.match(voice, /collectRecognitionTranscripts/);
+const onresultAt = voice.indexOf('rec.onresult = (ev)');
+assert.ok(onresultAt > 0);
+const onresult = voice.slice(onresultAt, voice.indexOf('rec.onerror = (ev)', onresultAt));
+assert.match(onresult, /try \{/);
+assert.match(onresult, /collectRecognitionTranscripts/);
+assert.ok(!/streamCarinaConversation/.test(onresult), 'onresult must not start an SSE turn');
+assert.ok(!/flushAsk/.test(onresult), 'onresult must not flush a question on interim speech');
+assert.ok(!/setRecAliveBoth\(false\)/.test(onresult), 'an onresult throw must not mark the mic dead');
+assert.ok(!/rec\.onspeechstart\s*=/.test(voice), 'speech-start must not reset the session');
+assert.ok(!/rec\.onaudiostart\s*=/.test(voice), 'audio-start must not reset the session');
 assert.ok(!/getUserMedia/.test(onend), 'mic stream must not be reacquired on each onend');
 const bootAt = voice.indexOf('const bootRecognition = useCallback');
 const boot = voice.slice(bootAt, voice.indexOf('const scheduleBoot = useCallback', bootAt));
