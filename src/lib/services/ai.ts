@@ -36,7 +36,7 @@ export async function processAiConversation(messages:{role:'user'|'assistant';co
     });
     if (acted) return { ...acted, language: lang.code };
   }
-  const out=await answerHelp(last,{page:opts?.page,language:lang.name,previousQuestion:questions.at(-2)?.content,onDelta:opts?.onDelta});
+  const out=await answerHelp(last,{page:opts?.page,language:lang.name,previousQuestion:questions.at(-2)?.content,onDelta:opts?.onDelta,userId:opts?.userId});
   const tid=/(show me|walk me|tour|guide me)/i.test(last)?matchTourFromQuery(last):null;
   // Keep an outstanding confirm-gated draft if this turn was only a help/meta reply.
   return {...out,language:lang.code,pendingAction:opts?.pendingAction ?? null,guide:out.citations.length && tid && getTour(tid)?{tourId:tid}:undefined};

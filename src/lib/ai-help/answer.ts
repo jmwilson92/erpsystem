@@ -1,7 +1,10 @@
-import { grokChat, grokChatStream, grokConfigured } from '../services/grok';
+import { grokChat, grokChatStream, grokChatWithTools, grokConfigured } from '../services/grok';
 import { citation, helpPageContext, retrieveHelp, type HelpCitation, type HelpEntry } from './knowledge';
 import { ACCOUNT_SNAPSHOT_UNAVAILABLE, formatAccountSnapshotReply, loadAccountSnapshot, wantsAccountSnapshot } from './account-snapshot';
 import { helpMetaReply } from './meta';
+import { isExcludedLookupQuery, LOOKUP_EXCLUDED_MESSAGE, wantsRecordLookup } from './lookup-policy';
+import { answerRecordLookup } from './lookup-loop';
+import { createPrismaLookupStore } from './lookup';
 export const HELP_FALLBACK = "I can't verify that from the product guides. Open the Support tab for a human; I haven't sent a ticket or changed any records.";
 export const HELP_EVIDENCE_LIMIT = 2;
 export const HELP_EVIDENCE_CHARS = 800;
@@ -11,7 +14,7 @@ export type HelpAnswer = { text:string; citations:HelpCitation[]; source:'grok'|
 export type HelpTiming = { localMs?:number; retrieveMs?:number; ttftMs?:number; totalMs?:number };
 export function helpSafetyReply(question:string): string | null {
   if (/\b(ignore (?:all |previous |the )*(?:instructions|rules)|system prompt|developer message|jailbreak|reveal.*(?:secret|key|token)|other (?:tenant|company|customer).*data|bypass.*(?:pin|permission|certif))\b/i.test(question)) return "I can't bypass permissions, reveal secrets or other tenants' data. I only provide read-only Protessera help. Use Support for an authorized human review.";
-  if (/^(?:what(?:'s| is| are)|how (?:much|many)|show|list|get|give me)\b.*\b(?:my|our|current|today|live)\b.*\b(?:payroll|salary|balance|suppliers|plant|revenue)\b|\b(?:list|show|get)\b.*\b(?:salaries|employees)\b/i.test(question)) return "I don't access payroll, HR, financial balances or other private records I haven't been given a permission-checked tool for. Open the authorized module for that data, or use the Support tab for a human.";
+  if (isExcludedLookupQuery(question) || /\b(?:list|show|get)\b.*\b(?:salaries|employees)\b/i.test(question)) return LOOKUP_EXCLUDED_MESSAGE;
 
   if (/^(?:please\s+)?(?:create|delete|finish|complete|approve|sign|post|release|cancel|pay|submit|change|update|send)\b|\b(?:do it for me|on my behalf|create .* for me|finish .* for me)\b/i.test(question)) return "I'm read-only help, so I haven't changed, signed or submitted anything. Open the relevant module and review its normal permissions and approvals. I can explain the steps.";
   return null;
@@ -58,7 +61,7 @@ function logHelpPair(question:string, answer:HelpAnswer, started:number) {
   });
 }
 
-type HelpOpts = {page?:string|null;language?:string; previousQuestion?:string; onDelta?:(text:string)=>void};
+type HelpOpts = {page?:string|null;language?:string; previousQuestion?:string; onDelta?:(text:string)=>void; userId?:string|null};
 
 export async function answerHelp(question:string, opts?:HelpOpts): Promise<HelpAnswer> {
   const started = Date.now();
@@ -88,6 +91,38 @@ export async function answerHelp(question:string, opts?:HelpOpts): Promise<HelpA
       const out:HelpAnswer={ text: ACCOUNT_SNAPSHOT_UNAVAILABLE, citations: [], source: "local", timing:{totalMs:Date.now()-started} };
       logHelpPair(question,out,started);
       return out;
+    }
+  }
+  if (wantsRecordLookup(question)) {
+    try {
+      const looked = await answerRecordLookup({
+        question,
+        userId: opts?.userId || undefined,
+        store: createPrismaLookupStore(),
+        onDelta: opts?.onDelta,
+        chat: grokConfigured()
+          ? async (params) =>
+              grokChatWithTools({
+                system: params.system,
+                messages: params.messages,
+                tools: params.tools,
+                timeoutMs: HELP_GROK_TIMEOUT_MS,
+                maxTokens: HELP_MAX_TOKENS,
+              })
+          : undefined,
+      });
+      if (looked) {
+        const out:HelpAnswer={
+          text: looked.text,
+          citations: looked.citations,
+          source: looked.source,
+          timing:{totalMs:Date.now()-started,ttftMs:Date.now()-started},
+        };
+        logHelpPair(question,out,started);
+        return out;
+      }
+    } catch {
+      // Fall through to product docs; docs are one source, not the only one.
     }
   }
   const retrieveAt=Date.now();

@@ -179,3 +179,84 @@ export async function probeGrok(): Promise<GrokProbe> {
     };
   }
 }
+
+
+export type GrokToolDef = {
+  type: "function";
+  function: {
+    name: string;
+    description?: string;
+    parameters?: unknown;
+  };
+};
+
+export type GrokToolCall = {
+  id?: string;
+  name: string;
+  arguments: Record<string, unknown>;
+};
+
+/** One tool-aware chat turn. Used by Carina record lookup; no retries. */
+export async function grokChatWithTools(params: {
+  system: string;
+  messages: { role: "system" | "user" | "assistant" | "tool"; content: string; toolCallId?: string; name?: string }[];
+  tools: GrokToolDef[];
+  timeoutMs?: number;
+  temperature?: number;
+  maxTokens?: number;
+}): Promise<{ text?: string; toolCalls?: GrokToolCall[] }> {
+  const key = process.env.XAI_API_KEY?.trim();
+  if (!key) throw new Error("XAI_API_KEY is not configured on the server");
+  const messages = [
+    { role: "system", content: params.system },
+    ...params.messages.map((m) => {
+      if (m.role === "tool") {
+        return {
+          role: "tool",
+          content: m.content,
+          tool_call_id: m.toolCallId || "tool",
+          name: m.name,
+        };
+      }
+      return { role: m.role, content: m.content };
+    }),
+  ];
+  const res = await fetch(`${XAI_BASE}/chat/completions`, {
+    method: "POST",
+    signal: AbortSignal.timeout(params.timeoutMs ?? 8000),
+    cache: "no-store",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      model: grokModel(),
+      temperature: params.temperature ?? 0.1,
+      max_tokens: Math.min(params.maxTokens ?? 400, 800),
+      tools: params.tools,
+      tool_choice: "auto",
+      messages,
+    }),
+  });
+  if (!res.ok) {
+    console.warn("[ai] upstream status", res.status);
+    throw new Error("AI service unavailable. Use the Support tab or try again later.");
+  }
+  const data = (await res.json()) as {
+    choices?: {
+      message?: {
+        content?: string;
+        tool_calls?: { id?: string; function?: { name?: string; arguments?: string } }[];
+      };
+    }[];
+  };
+  const message = data.choices?.[0]?.message;
+  const toolCalls: GrokToolCall[] = [];
+  for (const call of message?.tool_calls || []) {
+    let args: Record<string, unknown> = {};
+    try {
+      args = JSON.parse(call.function?.arguments || "{}");
+    } catch {
+      args = {};
+    }
+    if (call.function?.name) toolCalls.push({ id: call.id, name: call.function.name, arguments: args });
+  }
+  return { text: message?.content?.trim() || undefined, toolCalls: toolCalls.length ? toolCalls : undefined };
+}
