@@ -129,6 +129,7 @@ model User {
   mfaCredential            MfaCredential?
   notifications            UserNotification[]
   laborEstimateChanges     LaborEstimateHistory[]
+  carinaTasks              CarinaTask[]             @relation("CarinaTaskCreator")
 }
 
 model AuditLog {
@@ -4640,6 +4641,47 @@ model CarinaVoiceActionReceipt {
 
   @@index([userId])
   @@index([createdAt])
+}
+
+
+/// Background / to-do work Carina runs as the creating user.
+model CarinaTask {
+  id                 String    @id @default(cuid())
+  createdById        String
+  createdBy          User      @relation("CarinaTaskCreator", fields: [createdById], references: [id])
+  /// Original request, as the user typed or said it.
+  text               String
+  /// JSON parsed intent / plan (kind, numbers, draft fields).
+  parsedIntent       String?
+  plan               String?
+  /// queued | working | needs-approval | needs-info | done | failed | cancelled
+  status             String    @default("queued")
+  sortOrder          Int       @default(0)
+  /// JSON array of { at, message, href? }
+  log                String    @default("[]")
+  resultHref         String?
+  resultSummary      String?
+  /// User confirmed the read-back when adding the task (allows unattended confirm-gated changes).
+  confirmedReadback  Boolean   @default(false)
+  readbackText       String?
+  approvedAt         DateTime?
+  approvedById       String?
+  rejectedNote       String?
+  approvalId         String?
+  /// Optional *.approve / action permission that also lets another user decide the inbox item.
+  approvePermission  String?
+  needsInfoQuestion  String?
+  startedAt          DateTime?
+  finishedAt         DateTime?
+  lastError          String?
+  summarizedAt       DateTime?
+  idempotencyKey     String?   @unique
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([status, sortOrder])
+  @@index([createdById, status])
+  @@index([approvalId])
 }
 
 // ═══════════════════════════════════════════════════════════════

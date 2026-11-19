@@ -5,6 +5,7 @@
  *
  * Tabs (ERP only):
  *   AI  — Carina text + enable site-wide voice
+ *   To-do — Carina’s background task list
  *   Support — human ticket thread (same as before)
  *
  * Landing / marketing / login: Support tab only (no AI).
@@ -37,6 +38,7 @@ import {
   Mic,
   MicOff,
   Radio,
+  ListTodo,
 } from "lucide-react";
 import {
   actionCreateSupportTicketResult,
@@ -50,6 +52,8 @@ import { actionAiFeedback } from "@/app/ai/actions";
 import { streamCarinaConversation } from "@/lib/ai-help/conversation-client";
 import { helpMetaReply } from "@/lib/ai-help/meta";
 import { CarinaDraftCard } from "@/components/ai/carina-draft-card";
+import { CarinaTodoPanel } from "@/components/ai/carina-todo-panel";
+import { Suspense } from "react";
 import type { AiPendingAction } from "@/lib/services/ai";
 import {
   SUPPORT_CATEGORIES,
@@ -81,7 +85,7 @@ const THREAD_KEY = "forge-support-active-thread";
 const GUEST_AI_KEY = "forge-carina-guest-id";
 const POLL_MS = 2000;
 
-type Tab = "ai" | "support";
+type Tab = "ai" | "todo" | "support";
 
 type ActiveThread = {
   kind: "guest" | "user";
@@ -220,7 +224,7 @@ export function SupportBubble({
 
   // Force support-only outside ERP
   useEffect(() => {
-    if (!aiAllowed && tab === "ai") setTab("support");
+    if (!aiAllowed && (tab === "ai" || tab === "todo")) setTab("support");
   }, [aiAllowed, tab]);
 
   const persistThread = useCallback((t: ActiveThread | null) => {
@@ -656,6 +660,8 @@ export function SupportBubble({
                           : " · reconnecting"
                         : ""
                     }`
+                  : tab === "todo"
+                    ? "Carina’s to-do list"
                   : inSupportThread
                     ? active!.number
                     : "Message our team"}
@@ -686,6 +692,19 @@ export function SupportBubble({
               >
                 <Bot className="h-3.5 w-3.5" />
                 AI assistant
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab("todo")}
+                className={cn(
+                  "flex flex-1 items-center justify-center gap-1.5 py-2 text-xs font-semibold",
+                  tab === "todo"
+                    ? "border-b-2 border-teal-400 text-teal-300"
+                    : "text-slate-500 hover:text-slate-300"
+                )}
+              >
+                <ListTodo className="h-3.5 w-3.5" />
+                To-do
               </button>
               <button
                 type="button"
@@ -857,6 +876,15 @@ export function SupportBubble({
                   )}
                 </button>
               </form>
+            </div>
+          )}
+
+          {/* ── Carina to-do ── */}
+          {tab === "todo" && aiAllowed && (
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-3">
+              <Suspense fallback={<p className="text-xs text-slate-500">Loading to-do list…</p>}>
+                <CarinaTodoPanel compact />
+              </Suspense>
             </div>
           )}
 

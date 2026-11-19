@@ -135,6 +135,33 @@ export async function getNotificationSummary(user: {
       href: "/purchasing?tab=prs",
     });
   }
+  try {
+    const { prismaCarinaTaskDeps, listCarinaApprovalsForUser } = await import(
+      "@/lib/services/carina-tasks"
+    );
+    const carinaInbox = await listCarinaApprovalsForUser(await prismaCarinaTaskDeps(), {
+      userId: user.id,
+    });
+    if (carinaInbox.length > 0) {
+      items.push({
+        label: "Carina actions waiting on your okay",
+        count: carinaInbox.length,
+        href: "/approvals",
+      });
+    }
+    const unreadCarina = await prisma.userNotification.count({
+      where: { userId: user.id, isRead: false, type: "CARINA_TASK" },
+    });
+    if (unreadCarina > 0) {
+      items.push({
+        label: "Carina to-do updates",
+        count: unreadCarina,
+        href: "/notifications",
+      });
+    }
+  } catch {
+    // advisory — never break the shell
+  }
   if (canPmo && pmAlerts > 0) {
     items.push({ label: "PM alerts", count: pmAlerts, href: "/pmo/alerts" });
   }

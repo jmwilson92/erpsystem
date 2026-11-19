@@ -21,18 +21,23 @@ export async function processAiQuery(query:string):Promise<string> {
   const out=await actionAiConversation([{role:'user',content:query}]);
   return out.ok?out.text:out.error;
 }
-export async function processAiConversation(messages:{role:'user'|'assistant';content:string}[],opts?:{pendingAction?:AiPendingAction|null;language?:string|null;page?:string|null;userId?:string|null;onDelta?:(text:string)=>void;voice?:boolean}):Promise<AiConversationOutput> {
+export async function processAiConversation(messages:{role:'user'|'assistant';content:string}[],opts?:{pendingAction?:AiPendingAction|null;language?:string|null;page?:string|null;userId?:string|null;onDelta?:(text:string)=>void;voice?:boolean;skipCarinaTasks?:boolean}):Promise<AiConversationOutput> {
   const {resolveLang,detectLanguageSwitch,DEFAULT_LANG}=await import('../carina-language');
   const questions=messages.filter(m=>m.role==='user');
   const last=questions.at(-1)?.content.trim() || '';
   const lang=detectLanguageSwitch(last) || resolveLang(opts?.language || DEFAULT_LANG.code);
   if(!last) return {text:'Please ask a Protessera question.',language:lang.code,source:'local'};
   let voiceActions=false;
+  let awayPrefix="";
+  const wrapAway = <T extends { text: string; source?: "grok" | "local" }>(out: T): T => {
+    if (!awayPrefix) return out;
+    return { ...out, text: `${awayPrefix}${out.text}`.trim() };
+  };
   const { helpMetaReply } = await import('../ai-help/meta');
   const meta = helpMetaReply(last);
   if (meta) {
     opts?.onDelta?.(meta);
-    return { text: meta, source: 'local', language: lang.code, pendingAction: opts?.pendingAction ?? null };
+    return { text: meta, source: 'local' as const, language: lang.code, pendingAction: opts?.pendingAction ?? null };
   }
   if (opts?.userId) {
     const { handleCarinaVoiceTurn, unparsedActionReply, createReasonActionPort } = await import('./carina-voice-actions');
@@ -49,6 +54,28 @@ export async function processAiConversation(messages:{role:'user'|'assistant';co
       if (pending.text) opts?.onDelta?.(pending.text);
       return { ...pending, language: lang.code };
     }
+    if (!opts?.skipCarinaTasks) {
+      const { consumeAwaySummary, looksLikeAddToList, looksLikeAwaySummaryAsk, addCarinaTask, prismaCarinaTaskDeps } = await import('./carina-tasks');
+      const deps = await prismaCarinaTaskDeps();
+      if (looksLikeAwaySummaryAsk(last)) {
+        const summary = await consumeAwaySummary(deps, opts.userId);
+        const list = await deps.tasks.listForUser(opts.userId);
+        const open = list.filter((t) => !["done", "cancelled"].includes(t.status));
+        const text = summary.text || "I don’t have any new finishes to report.";
+        const extra = open.length ? ` I still have ${open.length} on my list.` : "";
+        const reply = `${text}${extra}`;
+        opts?.onDelta?.(reply);
+        return { text: reply, source: "local" as const, language: lang.code };
+      }
+      if (looksLikeAddToList(last)) {
+        const out = await addCarinaTask(deps, { userId: opts.userId, text: last });
+        const text = out.text;
+        opts?.onDelta?.(text);
+        return { text, source: "local" as const, language: lang.code, href: out.href, pendingAction: null };
+      }
+      const summary = await consumeAwaySummary(deps, opts.userId);
+      awayPrefix = summary.text ? `${summary.text} ` : "";
+    }
     const { advanceHowto, isHowtoOfferAccept, isHowtoPending, startHowto } = await import('../ai-help/howto');
     const { looksLikeHowto, looksLikeNavigate } = await import('../ai-help/nav-registry');
     const { looksLikeRecordNav, resolveNavigation } = await import('../ai-help/navigate');
@@ -56,14 +83,14 @@ export async function processAiConversation(messages:{role:'user'|'assistant';co
       const advanced = advanceHowto(opts.pendingAction, last);
       if (advanced) {
         if (advanced.text) opts?.onDelta?.(advanced.text);
-        return {
+        return wrapAway({
           text: advanced.text,
-          source: 'local',
+          source: 'local' as const,
           language: lang.code,
           href: advanced.href,
           guide: advanced.guide,
           pendingAction: advanced.pendingAction ?? null,
-        };
+        });
       }
       const offerKind = String(opts.pendingAction?.partial?.offerKind || "");
       if (isHowtoOfferAccept(last) && offerKind) {
@@ -81,8 +108,9 @@ export async function processAiConversation(messages:{role:'user'|'assistant';co
           userId: opts.userId,
         });
         if (offered) {
-          if (offered.text) opts?.onDelta?.(offered.text);
-          return { ...offered, language: lang.code };
+          const wrapped = wrapAway({ ...offered, language: lang.code, text: offered.text });
+          if (wrapped.text) opts?.onDelta?.(wrapped.text);
+          return wrapped;
         }
       }
     }
@@ -90,14 +118,14 @@ export async function processAiConversation(messages:{role:'user'|'assistant';co
       const started = startHowto(last, { voice: !!opts?.voice });
       if (started) {
         if (started.text) opts?.onDelta?.(started.text);
-        return {
+        return wrapAway({
           text: started.text,
-          source: 'local',
+          source: 'local' as const,
           language: lang.code,
           href: started.href,
           guide: started.guide,
           pendingAction: started.pendingAction ?? null,
-        };
+        });
       }
     }
     if (looksLikeNavigate(last) || looksLikeRecordNav(last)) {
@@ -110,16 +138,16 @@ export async function processAiConversation(messages:{role:'user'|'assistant';co
         hasPermission: (id, perm) => userHasPermission(id, perm),
       });
       if (nav.text) opts?.onDelta?.(nav.text);
-      return {
+      return wrapAway({
         text: nav.text,
-        source: 'local',
+        source: 'local' as const,
         language: lang.code,
         href: nav.ok ? nav.href : undefined,
         guide: nav.highlight
           ? { stepByStep: true, steps: [{ selector: nav.highlight.selector, route: nav.href, title: nav.highlight.label || '', body: nav.text }] }
           : undefined,
         pendingAction: nav.pendingAction ?? opts.pendingAction ?? null,
-      };
+      });
     }
     const { grokConfigured, grokChatWithTools } = await import('./grok');
     if (grokConfigured()) {
@@ -147,7 +175,7 @@ export async function processAiConversation(messages:{role:'user'|'assistant';co
           onDelta: opts?.onDelta,
         });
         if (reasoned?.text) {
-          return {
+          return wrapAway({
             text: reasoned.text,
             source: reasoned.source,
             citations: reasoned.citations,
@@ -155,7 +183,7 @@ export async function processAiConversation(messages:{role:'user'|'assistant';co
             language: lang.code,
             href: reasoned.href,
             guide: reasoned.guide,
-          };
+          });
         }
       } catch {
         // Fall back to regex intents and grounded help if the model or tools fail.
@@ -167,19 +195,20 @@ export async function processAiConversation(messages:{role:'user'|'assistant';co
       userId: opts.userId,
     });
     if (acted) {
-      if (acted.text) opts?.onDelta?.(acted.text);
-      return { ...acted, language: lang.code };
+      const wrapped = wrapAway({ ...acted, language: lang.code, text: acted.text });
+      if (wrapped.text) opts?.onDelta?.(wrapped.text);
+      return wrapped;
     }
     if (voiceActions) {
       const fallback = unparsedActionReply(last);
       if (fallback) {
         opts?.onDelta?.(fallback);
-        return { text: fallback, source: 'local', language: lang.code, pendingAction: opts.pendingAction ?? null };
+        return wrapAway({ text: fallback, source: 'local' as const, language: lang.code, pendingAction: opts.pendingAction ?? null });
       }
     }
   }
   const out=await answerHelp(last,{page:opts?.page,language:lang.name,previousQuestion:questions.at(-2)?.content,onDelta:opts?.onDelta,userId:opts?.userId,voiceActions,voice:!!opts?.voice});
   const tid=/\b(show me|walk me|tour|guide me)\b/i.test(last)?matchTourFromQuery(last):null;
   // Keep an outstanding confirm-gated draft if this turn was only a help/meta reply.
-  return {...out,language:lang.code,pendingAction:opts?.pendingAction ?? null,guide:out.citations.length && tid && getTour(tid)?{tourId:tid}:undefined};
+  return wrapAway({...out,language:lang.code,pendingAction:opts?.pendingAction ?? null,guide:out.citations.length && tid && getTour(tid)?{tourId:tid}:undefined});
 }
