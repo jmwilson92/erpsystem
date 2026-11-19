@@ -22,6 +22,7 @@ import {
   type VoiceActionKind,
 } from "@/lib/services/carina-voice-intent";
 import { getCarinaFeatures } from "@/lib/services/carina-features";
+import { looksLikeRecordChange } from "@/lib/ai-help/answer";
 
 export type CarinaDraftChange = {
   entityType: string;
@@ -746,6 +747,18 @@ export async function executeCarinaDraft(params: {
     }
     throw new Error(msg);
   }
+}
+
+
+/** When the toggle is on but the intent router cannot parse the request. */
+export const UNPARSED_ACTION_REPLY =
+  "I can propose confirm-gated changes for editing a project, tying a work order to a project or budget, posting a cycle count, consuming parts on a work order, and completing a work order. I didn’t catch enough detail to prepare that change. Try, for example: “complete work order WO-123” or “tie WO-123 to project PRJ-1”. I can’t create new records, and money, payroll, HR and user access stay off limits.";
+
+export function unparsedActionReply(question: string): string | null {
+  const excluded = isExcludedDomain(question);
+  if (excluded) return excluded;
+  if (!looksLikeRecordChange(question)) return null;
+  return UNPARSED_ACTION_REPLY;
 }
 
 export async function handleCarinaVoiceTurn(params: {

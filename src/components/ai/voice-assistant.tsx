@@ -58,17 +58,17 @@ import {
 } from "@/lib/carina-voice-bus";
 import type { AiPendingAction } from "@/lib/services/ai";
 import {
-  carinaIsAudioCurrent,
   carinaPlaySpeech,
   carinaStopAllAudio,
   carinaBumpAudioGen,
   carinaIsSpeaking,
   carinaBeginSpeechHold,
-  carinaAudioGen,
-  carinaStartReply,
-  carinaEnqueueCumulative,
-  carinaFinishReply,
 } from "@/lib/carina-audio";
+import {
+  MIC_AUDIO_CONSTRAINTS,
+  createVoiceDebugLog,
+  shouldShowVoiceDebug,
+} from "@/lib/ai-help/voice-debug";
 import {
   bestPointAnchor,
   wantsPointOnly,
@@ -260,6 +260,15 @@ export function VoiceAssistant({
   const lastAskAtRef = useRef(0);
   const pttBufRef = useRef("");
   const pttRef = useRef(false);
+  const pttRecRef = useRef<SpeechRecognitionLike | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const voiceDebugRef = useRef(createVoiceDebugLog());
+  const [voiceDebugOn, setVoiceDebugOn] = useState(false);
+  const [voiceDebugText, setVoiceDebugText] = useState("");
+  const debugVoice = (event: string, detail?: string) => {
+    voiceDebugRef.current.push(event, detail);
+    if (voiceDebugOn) setVoiceDebugText(voiceDebugRef.current.format());
+  };
   const bootGenRef = useRef(0);
   const recAliveRef = useRef(false);
   const networkFailsRef = useRef(0);
@@ -469,6 +478,10 @@ export function VoiceAssistant({
       // A throw here used to kill the Edge session and flash "reconnecting"
       // on any speech. Swallow it and keep the recognizer alive.
       try {
+        if (carinaIsSpeaking() && !pttRef.current) {
+          debugVoice("ignore-result", "speaking");
+          return;
+        }
         setRecAliveBoth(true);
         const { finalText, interimText } = collectRecognitionTranscripts(
           ev,
@@ -632,8 +645,19 @@ export function VoiceAssistant({
         setRecAliveBoth(false);
       }
 
-      // Don't fight TTS
-      if (plan.restartDelayMs == null) return;
+      // Don't fight TTS — leave the mic stream alone and boot after onend of speech.
+      if (carinaIsSpeaking() || modeRef.current === "speaking" || plan.restartDelayMs == null) {
+        if (recRef.current === rec) {
+          rec.onresult = null;
+          rec.onerror = null;
+          rec.onend = null;
+          rec.onstart = null;
+          rec.onspeechend = null;
+          recRef.current = null;
+        }
+        debugVoice("rec-onend-held", plan.reason || "onend");
+        return;
+      }
 
       // Drop this ended instance without abort, then start a new one.
       if (recRef.current === rec) {
@@ -717,25 +741,18 @@ export function VoiceAssistant({
 
       speakingTextRef.current = spoken;
       speakStartedAtRef.current = Date.now();
-      // Hold the mic before stopping recognition so the watchdog cannot
-      // reboot it during the TTS fetch (which ducks/cuts Edge audio).
+      // Hold recognition (do not stop the mic stream or restart capture).
+      // Results are ignored until this reply's audio ends.
       carinaBeginSpeechHold();
       setModeBoth("speaking");
-      setStatus(`Speaking… say “${nameRef.current}” to interrupt`);
+      setStatus("Speaking…");
       setError(null);
-
-      // Pause recognition while speaking to avoid self-echo loops
-      try {
-        recRef.current?.stop();
-      } catch {
-        // ignore
-      }
-
-      speakGenRef.current = carinaAudioGen();
+      debugVoice("tts-start", spoken.slice(0, 80));
       await carinaPlaySpeech(spoken, {
         language: ttsLanguageCode(langRef.current),
         voiceId: DEFAULT_VOICE_ID,
       });
+      debugVoice("tts-end");
 
       // Another speak may have started
       if (carinaIsSpeaking()) return;
@@ -832,37 +849,13 @@ export function VoiceAssistant({
           }
 
           setStatus("On it…");
-          const speechOpts = {
-            language: ttsLanguageCode(langRef.current),
-            voiceId: DEFAULT_VOICE_ID,
-          };
-          let speechOpen = false;
-          const openSpeech = () => {
-            if (host === "page" || speechOpen) return;
-            speechOpen = true;
-            speakStartedAtRef.current = Date.now();
-            carinaStartReply();
-            setModeBoth("speaking");
-            setStatus(`Speaking… say “${nameRef.current}” to interrupt`);
-            try {
-              recRef.current?.stop();
-            } catch {
-              // ignore
-            }
-          };
           const result = await streamCarinaConversation(historyRef.current, {
             pendingAction: pendingActionRef.current,
             language: langRef.current.code,
             source: "APP",
             page: window.location.pathname,
             onAck: () => setStatus("On it…"),
-            onDelta: (preview) => {
-              setStatus(preview.slice(0, 80));
-              if (host === "page" || !preview.trim()) return;
-              openSpeech();
-              speakingTextRef.current = preview;
-              carinaEnqueueCumulative(preview, speechOpts);
-            },
+            onDelta: (preview) => setStatus(preview.slice(0, 80)),
           });
           if (process.env.NODE_ENV !== "production" && result.ok) {
             console.info("[carina-voice]", {
@@ -942,14 +935,7 @@ export function VoiceAssistant({
           }
 
           if (point && typeof window !== "undefined") {
-            if (speechOpen) {
-              speakingTextRef.current = result.text;
-              await carinaFinishReply(result.text, speechOpts);
-              speakingTextRef.current = "";
-              if (wantListenRef.current) scheduleBoot(400);
-            } else {
-              await speak(result.text.replace(/\n+/g, " ").slice(0, 320));
-            }
+            await speak(result.text.replace(/\n+/g, " ").slice(0, 320));
             setStatus("Highlighting…");
             window.dispatchEvent(
               carinaPointEvent({
@@ -965,8 +951,6 @@ export function VoiceAssistant({
                 : "Highlighted"
             );
           } else if (willTour && typeof window !== "undefined") {
-            if (speechOpen) carinaStopAllAudio();
-
             // Tour narration owns speech — only a short ack so we don't double-talk
             setLastReply(result.text);
             setStatus("Opening walkthrough…");
@@ -986,19 +970,7 @@ export function VoiceAssistant({
             // Resume listen after a beat without stacking TTS
             if (wantListenRef.current) scheduleBoot(800);
           } else {
-            openSpeech();
-            speakingTextRef.current = result.text;
-            await carinaFinishReply(result.text, speechOpts);
-            if (carinaIsSpeaking()) return;
-            speakingTextRef.current = "";
-            setModeBoth("command");
-            extendConvo();
-            setStatus(
-              wantListenRef.current
-                ? `Listening… (say “${nameRef.current}” or just ask)`
-                : "Off"
-            );
-            if (wantListenRef.current) scheduleBoot(400);
+            await speak(result.text);
           }
 
           if (result.pendingAction) {
@@ -1226,14 +1198,13 @@ export function VoiceAssistant({
         setError("Needs HTTPS.");
         return;
       }
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
-      stream.getTracks().forEach((t) => t.stop());
+      const live = streamRef.current?.getTracks().some((tr) => tr.readyState === "live");
+      if (!live) {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: MIC_AUDIO_CONSTRAINTS,
+        });
+        streamRef.current = stream;
+      }
     } catch (e) {
       const msg = `Mic blocked: ${e instanceof Error ? e.message : String(e)}. Click the lock icon in the address bar, allow the microphone, then tap Voice on.`;
       setError(msg);
@@ -1280,6 +1251,20 @@ export function VoiceAssistant({
     persistWantListen(false);
     bootGenRef.current += 1;
     killRecognition();
+    try {
+      pttRecRef.current?.stop();
+    } catch {
+      // ignore
+    }
+    pttRecRef.current = null;
+    streamRef.current?.getTracks().forEach((tr) => {
+      try {
+        tr.stop();
+      } catch {
+        // ignore
+      }
+    });
+    streamRef.current = null;
     stopSpeaking();
     carinaStopAllAudio();
     clearSilence();
@@ -1295,9 +1280,102 @@ export function VoiceAssistant({
     globalAskLock = false;
   }, [clearBuf, clearSilence, host, killRecognition, setModeBoth, stopSpeaking]);
 
+  const ensureMicStream = useCallback(async () => {
+    const live = streamRef.current?.getTracks().some((tr) => tr.readyState === "live");
+    if (live) return streamRef.current;
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: MIC_AUDIO_CONSTRAINTS,
+    });
+    streamRef.current = stream;
+    return stream;
+  }, []);
+
+  const stopPttRecognition = useCallback(() => {
+    const rec = pttRecRef.current;
+    pttRecRef.current = null;
+    if (!rec) return;
+    rec.onresult = null;
+    rec.onerror = null;
+    rec.onend = null;
+    rec.onstart = null;
+    try {
+      rec.stop();
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const startPttRecognition = useCallback(() => {
+    const Ctor = getSpeechRecognition();
+    if (!Ctor) return;
+    stopPttRecognition();
+    // Do not run the wake/listen recognizer at the same time as PTT.
+    detachRecognition({ abort: false, markDead: false });
+    const rec = new Ctor();
+    const edge = isChromiumEdge();
+    rec.continuous = !edge;
+    rec.interimResults = true;
+    rec.lang = langRef.current.code || "en-US";
+    if (typeof rec.maxAlternatives === "number") rec.maxAlternatives = 3;
+    rec.onresult = (ev) => {
+      if (!pttRef.current || pttRecRef.current !== rec) return;
+      try {
+        const { finalText, interimText } = collectRecognitionTranscripts(
+          ev,
+          (text) => includesWake(text, nameRef.current)
+        );
+        const display = (finalText || interimText).trim();
+        if (display) setRawHeard(display);
+        if (finalText) {
+          pttBufRef.current = commitPttTranscript(pttBufRef.current, finalText, "");
+          interimBufRef.current = "";
+          setPartial(pttBufRef.current);
+        } else if (interimText) {
+          interimBufRef.current = interimText;
+          setPartial(commitPttTranscript(pttBufRef.current, "", interimText));
+        }
+        debugVoice("ptt-result", (finalText || interimText).slice(0, 80));
+      } catch {
+        // keep the PTT session
+      }
+    };
+    rec.onend = () => {
+      if (pttRecRef.current !== rec) return;
+      pttRecRef.current = null;
+      // Edge one-shot ends mid-hold: start a fresh PTT recognizer only while held.
+      if (pttRef.current) {
+        debugVoice("ptt-onend-restart");
+        startPttRecognition();
+      }
+    };
+    rec.onerror = () => {
+      /* onend follows and restarts while held */
+    };
+    pttRecRef.current = rec;
+    try {
+      rec.start();
+      debugVoice("ptt-rec-start");
+    } catch {
+      pttRecRef.current = null;
+    }
+  }, [detachRecognition, stopPttRecognition]);
+
   const pttDown = useCallback(async () => {
-    if (!wantListenRef.current) await startListening();
     if (modeRef.current === "speaking") stopSpeaking();
+    try {
+      await ensureMicStream();
+    } catch (e) {
+      const msg = `Mic blocked: ${e instanceof Error ? e.message : String(e)}. Allow the microphone, then hold Talk again.`;
+      setError(msg);
+      debugVoice("ptt-mic-blocked", msg);
+      return;
+    }
+    if (!wantListenRef.current) {
+      wantListenRef.current = true;
+      shellEngineActive = true;
+      persistWantListen(true);
+      setListening(true);
+    }
     pttBufRef.current = "";
     interimBufRef.current = "";
     setPtt(true);
@@ -1306,26 +1384,31 @@ export function VoiceAssistant({
     extendConvo();
     setStatus("Talk now… release when done");
     setPartial("");
-  }, [extendConvo, setModeBoth, startListening, stopSpeaking]);
+    startPttRecognition();
+  }, [ensureMicStream, extendConvo, setModeBoth, startPttRecognition, stopSpeaking]);
 
   const pttUp = useCallback(() => {
     if (!pttRef.current) return;
     setPtt(false);
     pttRef.current = false;
-    // PTT uses its own buffer + leftover interim; do not mix wake-session finals.
+    stopPttRecognition();
+    // Commit the final transcript, or the last interim if nothing finalized.
     const text = commitPttTranscript(
       pttBufRef.current,
       "",
       interimBufRef.current
     );
     pttBufRef.current = "";
+    interimBufRef.current = "";
     setPartial("");
+    debugVoice("ptt-up", text.slice(0, 80) || "(empty)");
     if (text.length > 1) ask(text);
     else {
       setModeBoth("command");
       setStatus(`Listening… (say “${nameRef.current}”)`);
     }
-  }, [ask, setModeBoth]);
+    if (wantListenRef.current) scheduleBoot(200);
+  }, [ask, scheduleBoot, setModeBoth, stopPttRecognition]);
 
   useEffect(() => {
     return () => {
@@ -1426,6 +1509,13 @@ export function VoiceAssistant({
     };
   }, [bootRecognition, host, pttDown, pttUp, setModeBoth, startListening, stopListening]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const on = shouldShowVoiceDebug(window.location.search);
+    setVoiceDebugOn(on);
+    if (on) setVoiceDebugText(voiceDebugRef.current.format());
+  }, []);
+
   async function saveName() {
     const clean = nameDraft.trim() || DEFAULT_NAME;
     setBusy(true);
@@ -1480,12 +1570,29 @@ export function VoiceAssistant({
     }
   }
 
+  const debugOverlay = voiceDebugOn ? (
+    <div
+      data-voice-debug="1"
+      className="pointer-events-none fixed bottom-3 left-3 z-[9999] max-h-[40vh] max-w-[min(28rem,92vw)] overflow-auto rounded-md border border-amber-500/40 bg-black/80 p-2 font-mono text-[10px] leading-snug text-amber-100 shadow-lg"
+    >
+      <div className="mb-1 font-semibold text-amber-200">Carina voiceDebug</div>
+      <div>
+        mode={mode} listen={String(listening)} recAlive={String(recAlive)} rec={recRef.current ? "yes" : "no"} ptt={String(ptt)}{" "}
+        speaking={String(carinaIsSpeaking())} stream={
+          streamRef.current?.getTracks().some((tr) => tr.readyState === "live") ? "live" : "off"
+        }
+      </div>
+      <div>status={status}</div>
+      <pre className="mt-1 whitespace-pre-wrap text-amber-100/90">{voiceDebugText || "waiting for events…"}</pre>
+    </div>
+  ) : null;
+
   const speaking = mode === "speaking";
   const awake = mode === "command" || mode === "thinking";
 
   // Shell host: engine only — no floating status bubble (voice UI is in help chat)
   if (host === "shell" || compact) {
-    return null;
+    return debugOverlay;
   }
 
   return (
@@ -1626,7 +1733,7 @@ export function VoiceAssistant({
         )}
         {mode === "speaking" && (
           <span className="ml-2 rounded bg-amber-500/20 px-1.5 py-0.5 text-amber-200">
-            Speaking — say “{name}” to cut in
+            Speaking
           </span>
         )}
         {mode === "thinking" && (
@@ -1655,12 +1762,14 @@ export function VoiceAssistant({
       {error && <p className="text-xs text-amber-300">{error}</p>}
 
       <p className="text-[11px] text-slate-600">
-        Read-only help — no record changes. I can answer permitted counts like open work orders.
+        I can answer permitted counts and, when an administrator enables Carina voice actions, propose confirm-gated record changes.
         Examples: “{name}, show me how to create a work order” · “{name},
         walk me through MRB” · “{name}, explain work order completion”.
         If “Hearing:” never updates, use
         Chrome/Edge on HTTPS with mic allowed and the tab focused.
       </p>
+
+      {debugOverlay}
 
       <details className="text-[11px] text-slate-600">
         <summary className="cursor-pointer text-slate-500 hover:text-slate-400">
