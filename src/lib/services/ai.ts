@@ -54,7 +54,6 @@ export async function processAiConversation(messages:{role:'user'|'assistant';co
       if (pending.text) opts?.onDelta?.(pending.text);
       return { ...pending, language: lang.code };
     }
-    let awayPrefix = "";
     if (!opts?.skipCarinaTasks) {
       const { consumeAwaySummary, looksLikeAddToList, looksLikeAwaySummaryAsk, addCarinaTask, prismaCarinaTaskDeps } = await import('./carina-tasks');
       const deps = await prismaCarinaTaskDeps();

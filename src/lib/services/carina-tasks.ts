@@ -9,6 +9,7 @@
  * park as needs-approval and appear in the Approvals inbox as a "Carina action".
  * Approve executes as the requesting user; reject cancels with a note.
  */
+import { appendTaskLog, parseTaskLog, type CarinaTaskLogEntry, type CarinaTaskRecord } from "@/lib/services/carina-task-model";
 import { logAudit } from "@/lib/audit";
 import { userHasPermission } from "@/lib/auth";
 import { prisma } from "@/lib/db";
@@ -28,36 +29,6 @@ export const CARINA_TASK_STATUSES = [
   "cancelled",
 ] as const;
 export type CarinaTaskStatus = (typeof CARINA_TASK_STATUSES)[string extends never ? never : number] | (typeof CARINA_TASK_STATUSES)[number];
-
-export type CarinaTaskLogEntry = { at: string; message: string; href?: string };
-
-export type CarinaTaskRecord = {
-  id: string;
-  createdById: string;
-  text: string;
-  parsedIntent: string | null;
-  plan: string | null;
-  status: string;
-  sortOrder: number;
-  log: string;
-  resultHref: string | null;
-  resultSummary: string | null;
-  confirmedReadback: boolean;
-  readbackText: string | null;
-  approvedAt: Date | null;
-  approvedById: string | null;
-  rejectedNote: string | null;
-  approvalId: string | null;
-  approvePermission: string | null;
-  needsInfoQuestion: string | null;
-  startedAt: Date | null;
-  finishedAt: Date | null;
-  lastError: string | null;
-  summarizedAt: Date | null;
-  idempotencyKey: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-};
 
 export type CarinaTaskSafety = "unattended" | "needs-approval" | "needs-info" | "excluded" | "needs-pin";
 
@@ -252,22 +223,6 @@ export function buildReadback(kind: string, text: string): string {
   }
 }
 
-export function parseTaskLog(raw: string | null | undefined): CarinaTaskLogEntry[] {
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw) as CarinaTaskLogEntry[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-export function appendTaskLog(raw: string | null | undefined, message: string, href?: string): string {
-  const entries = parseTaskLog(raw);
-  entries.push({ at: new Date().toISOString(), message, href });
-  return JSON.stringify(entries);
-}
-
 export type CarinaApprovalView = {
   approvalId: string;
   taskId: string;
@@ -335,10 +290,6 @@ export type CarinaTaskDeps = {
     nextSortOrder(userId: string): Promise<number>;
   };
 };
-
-function iso(d: Date) {
-  return d;
-}
 
 export async function addCarinaTask(
   deps: CarinaTaskDeps,
@@ -965,3 +916,5 @@ export function liveCarinaTaskExecutor(): CarinaTaskExecutor {
 }
 
 export type { VoiceActionKind };
+export type { CarinaTaskLogEntry, CarinaTaskRecord } from "@/lib/services/carina-task-model";
+export { parseTaskLog, appendTaskLog } from "@/lib/services/carina-task-model";

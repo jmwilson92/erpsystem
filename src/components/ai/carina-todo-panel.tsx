@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,8 +11,7 @@ import {
   actionReorderCarinaTasks,
   actionUpdateCarinaTask,
 } from "@/app/ai/carina-task-actions";
-import type { CarinaTaskRecord } from "@/lib/services/carina-tasks";
-import { parseTaskLog } from "@/lib/services/carina-tasks";
+import { parseTaskLog, type CarinaTaskRecord } from "@/lib/services/carina-task-model";
 import Link from "next/link";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -50,10 +49,7 @@ export function CarinaTodoPanel({ compact = false }: { compact?: boolean }) {
     if (focusId) setOpenLog(focusId);
   }, [focusId]);
 
-  const visible = useMemo(
-    () => tasks.filter((t) => compact || true),
-    [tasks, compact]
-  );
+  const visible = tasks;
 
   return (
     <div className={compact ? "flex h-full flex-col" : "space-y-3"}>
