@@ -2,6 +2,7 @@
  * Always-on mic pipeline: one getUserMedia stream, energy VAD, WAV clips
  * for server STT. No browser Web Speech API.
  */
+import { createBargeDetector } from "@/lib/ai-help/barge-in";
 import { createEnergyVad, rmsFromFloat32 } from "@/lib/ai-help/mic-vad";
 import { concatInt16, downsampleTo16k, durationMsOfPcm, encodeWav } from "@/lib/ai-help/pcm-wav";
 
@@ -25,8 +26,9 @@ export function startMicListen(
     getSpeaking?: () => boolean;
     getPtt?: () => boolean;
     onLevel?: (rms: number) => void;
-    onVad?: (event: "start" | "end" | "clip") => void;
+    onVad?: (event: "start" | "end" | "clip" | "barge") => void;
     onUtterance?: (utt: ListenUtterance) => void;
+    onBargeIn?: () => void;
   }
 ): ListenHandle {
   const AC =
@@ -45,10 +47,13 @@ export function startMicListen(
   void ctx.resume();
 
   const vad = createEnergyVad();
+  const barge = createBargeDetector();
   const chunks: Int16Array[] = [];
   let capturing = false;
+  let barging = false;
   let lastLevel = 0;
   let stopped = false;
+  let wasSpeaking = false;
 
   const begin = () => {
     chunks.length = 0;
@@ -64,6 +69,8 @@ export function startMicListen(
     const pcm = concatInt16(chunks);
     chunks.length = 0;
     vad.reset();
+    barge.reset();
+    barging = false;
     const durationMs = durationMsOfPcm(pcm);
     if (durationMs < 180 && reason !== "ptt") return;
     if (!pcm.length) return;
@@ -85,24 +92,38 @@ export function startMicListen(
 
     const speaking = !!opts.getSpeaking?.();
     const ptt = !!opts.getPtt?.();
-    // Hold capture while she talks (unless PTT), so her voice is not transcribed.
-    if (speaking && !ptt) {
-      if (capturing) {
-        chunks.length = 0;
-        capturing = false;
-      }
-      vad.reset();
-      return;
-    }
-
     const pcm = downsampleTo16k(input, ev.inputBuffer.sampleRate || ctx.sampleRate);
     const dtMs = (input.length / (ev.inputBuffer.sampleRate || ctx.sampleRate)) * 1000;
 
+    if (speaking && !wasSpeaking) barge.reset();
+    if (!speaking) {
+      barging = false;
+      if (wasSpeaking) barge.reset();
+    }
+    wasSpeaking = speaking;
+
     if (ptt) {
+      barging = false;
       if (!capturing) begin();
       chunks.push(pcm);
       return;
     }
+
+    // Keep VAD running on the AEC'd stream while she talks. Echo is ignored
+    // until user energy stays above the adaptive floor for ~250ms.
+    if (speaking && !barging) {
+      const evnt = barge.pushRms(rms, dtMs);
+      if (evnt === "barge") {
+        barging = true;
+        begin();
+        vad.forceStart();
+        chunks.push(pcm);
+        opts.onVad?.("barge");
+        opts.onBargeIn?.();
+      }
+      return;
+    }
+
 
     const evnt = vad.pushRms(rms, dtMs);
     if (evnt === "start") {
@@ -124,6 +145,8 @@ export function startMicListen(
       capturing = false;
       chunks.length = 0;
       vad.reset();
+      barge.reset();
+      barging = false;
       try {
         proc.disconnect();
         src.disconnect();

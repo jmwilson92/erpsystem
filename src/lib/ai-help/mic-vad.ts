@@ -17,6 +17,7 @@ export type EnergyVad = {
   pushRms: (rms: number, dtMs: number) => VadEvent | null;
   inSpeech: () => boolean;
   speechMs: () => number;
+  forceStart: () => void;
   reset: () => void;
 };
 
@@ -92,6 +93,12 @@ export function createEnergyVad(opts?: {
     },
     inSpeech: () => speaking,
     speechMs: () => speechMs,
+    forceStart() {
+      speaking = true;
+      aboveMs = 0;
+      belowMs = 0;
+      speechMs = Math.max(speechMs, minMs);
+    },
     reset() {
       speaking = false;
       aboveMs = 0;

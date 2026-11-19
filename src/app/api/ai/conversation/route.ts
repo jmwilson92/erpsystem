@@ -28,6 +28,7 @@ export async function POST(req: NextRequest) {
     page?: string | null;
     source?: string | null;
     pendingAction?: import("@/lib/services/ai").AiPendingAction | null;
+    voice?: boolean;
   };
   try {
     body = await req.json();
@@ -69,6 +70,7 @@ export async function POST(req: NextRequest) {
           language: body.language,
           pendingAction: body.pendingAction ?? null,
           userId: identity.user.id,
+          voice: !!body.voice,
           onDelta: (text) => {
             if (text && text !== lastDelta) {
               lastDelta = text;

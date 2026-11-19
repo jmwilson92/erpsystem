@@ -83,6 +83,11 @@ async function main() {
   assert.ok(!sys.includes('x'.repeat(HELP_EVIDENCE_CHARS+1)), 'Evidence must be trimmed');
   assert.equal(HELP_EVIDENCE_LIMIT,2);
   assert.equal(HELP_MAX_TOKENS,400);
+  const { HELP_VOICE_MAX_TOKENS: voiceTok, VOICE_REPLY_POLICY } = await import('../src/lib/ai-help/answer');
+  assert.equal(voiceTok,180);
+  assert.match(helpSystem([bom],'/bom','English',{voice:true}), /VOICE MODE|plain spoken/);
+  assert.match(VOICE_REPLY_POLICY, /1-2 short sentences/);
+
   assert.equal(HELP_GROK_TIMEOUT_MS,8000);
   assert.match(fs.readFileSync('src/lib/ai-help/answer.ts','utf8'), /retrieveHelp\(question,opts\?\.page,HELP_EVIDENCE_LIMIT\)/);
   assert.ok(!/retrieveHelp\(question\+\(opts\?\.previousQuestion/.test(fs.readFileSync('src/lib/ai-help/answer.ts','utf8')), 'Previous turns must not be mixed into retrieval');

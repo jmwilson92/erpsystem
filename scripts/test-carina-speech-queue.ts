@@ -63,6 +63,8 @@ const speakFn = voice.slice(voice.indexOf("const speak = useCallback"), voice.in
 assert.ok(!speakFn.includes("recRef.current?.stop()"), "speak() must not stop the recognizer / mic");
 assert.match(voice, /getSpeaking: \(\) => carinaIsSpeaking\(\)/);
 assert.match(voice, /getPtt: \(\) => pttRef.current/);
+assert.match(voice, /onBargeIn/);
+assert.match(voice, /interruptTurn\("ptt"\)/);
 
 assert.match(voice, /shouldShowVoiceDebug/);
 assert.match(voice, /data-voice-debug/);

@@ -11,8 +11,9 @@
  *
  * Listening uses one getUserMedia stream, client energy VAD, and server STT
  * (xAI grok-voice-transcribe-2.0). Browser Web Speech is not used.
- * While she speaks, capture is held (AEC + ignore) so her voice is not
- * transcribed. PTT records while held and transcribes on release.
+ * While she speaks, VAD stays on the AEC'd stream; sustained user energy
+ * barges in (stops audio, clears the queue, aborts the turn). PTT press
+ * interrupts immediately and transcribes on release.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Bot, Mic, MicOff, Volume2, Radio } from "lucide-react";
@@ -155,6 +156,8 @@ export function VoiceAssistant({
   const networkFailsRef = useRef(0);
   const startingRef = useRef(false);
   const askingRef = useRef(false);
+  const turnSeqRef = useRef(0);
+  const askAbortRef = useRef<AbortController | null>(null);
   /** Business-agent multi-turn state (finish WO, etc.) */
   const pendingActionRef = useRef<AiPendingAction | null>(null);
   useEffect(() => {
@@ -238,6 +241,27 @@ export function VoiceAssistant({
     audioRef.current = null;
   }, []);
 
+  /** Cancel the in-flight turn and audio so a barge-in or PTT can take over. */
+  const interruptTurn = useCallback(
+    (reason: string) => {
+      turnSeqRef.current += 1;
+      try {
+        askAbortRef.current?.abort();
+      } catch {
+        // ignore
+      }
+      askAbortRef.current = null;
+      askingRef.current = false;
+      globalAskLock = false;
+      setBusy(false);
+      stopSpeaking();
+      setModeBoth("command");
+      extendConvo();
+      debugVoice("interrupt", reason);
+    },
+    [extendConvo, setModeBoth, stopSpeaking]
+  );
+
   const detachRecognition = useCallback(
     (opts?: { abort?: boolean; markDead?: boolean }) => {
       if (restartTimerRef.current) {
@@ -317,6 +341,10 @@ export function VoiceAssistant({
           setMicLevel(rms);
         },
         onVad: (event) => debugVoice(`vad-${event}`),
+        onBargeIn: () => {
+          interruptTurn("barge");
+          setStatus("Listening…");
+        },
         onUtterance: (utt) => {
           debugVoice("vad-end", `${utt.durationMs}ms ${utt.reason}`);
           const vadEndedAt = utt.vadEndedAt;
@@ -354,7 +382,7 @@ export function VoiceAssistant({
       setError(msg);
       debugVoice("pipeline-error", msg);
     }
-  }, [host, setRecAliveBoth]);
+  }, [host, interruptTurn, setRecAliveBoth]);
 
   const scheduleBoot = useCallback(
     (delayMs = 200) => {
@@ -464,6 +492,14 @@ export function VoiceAssistant({
       void carinaWarmTts();
       askingRef.current = true;
       globalAskLock = true;
+      const myTurn = ++turnSeqRef.current;
+      try {
+        askAbortRef.current?.abort();
+      } catch {
+        // ignore
+      }
+      const ac = new AbortController();
+      askAbortRef.current = ac;
       extendConvo();
 
       historyRef.current = [
@@ -498,6 +534,8 @@ export function VoiceAssistant({
               language: langRef.current.code,
               source: "APP",
               page: window.location.pathname,
+              voice: true,
+              signal: ac.signal,
             });
             return;
           }
@@ -506,13 +544,14 @@ export function VoiceAssistant({
           const speechOpts = {
             language: ttsLanguageCode(langRef.current),
             voiceId: DEFAULT_VOICE_ID,
+            turnId: myTurn,
           };
           let speechOpen = false;
           const openSpeech = () => {
             if (host === "page" || speechOpen) return;
             speechOpen = true;
             speakStartedAtRef.current = Date.now();
-            carinaStartReply();
+            carinaStartReply(myTurn);
             setModeBoth("speaking");
             setStatus("Speaking…");
           };
@@ -521,11 +560,15 @@ export function VoiceAssistant({
             language: langRef.current.code,
             source: "APP",
             page: window.location.pathname,
+            voice: true,
+            signal: ac.signal,
             onAck: () => {
+              if (turnSeqRef.current !== myTurn) return;
               setStatus("On it…");
               void carinaWarmTts();
             },
             onDelta: (preview) => {
+              if (turnSeqRef.current !== myTurn) return;
               setStatus(preview.slice(0, 80));
               if (host === "page" || !preview.trim()) return;
               openSpeech();
@@ -533,6 +576,9 @@ export function VoiceAssistant({
               carinaEnqueueCumulative(preview, speechOpts);
             },
           });
+          if (turnSeqRef.current !== myTurn || (!result.ok && result.aborted)) {
+            return;
+          }
           if (process.env.NODE_ENV !== "production" && result.ok) {
             console.info("[carina-voice]", {
               q: text,
@@ -705,9 +751,11 @@ export function VoiceAssistant({
           setStatus("Error — still listening");
           if (wantListenRef.current) scheduleBoot(200);
         } finally {
-          askingRef.current = false;
-          globalAskLock = false;
-          setBusy(false);
+          if (turnSeqRef.current === myTurn) {
+            askingRef.current = false;
+            globalAskLock = false;
+            setBusy(false);
+          }
         }
       })();
     },
@@ -1029,7 +1077,9 @@ export function VoiceAssistant({
   }, [bootRecognition]);
 
   const pttDown = useCallback(async () => {
-    if (modeRef.current === "speaking") stopSpeaking();
+    if (modeRef.current === "speaking" || modeRef.current === "thinking" || askingRef.current) {
+      interruptTurn("ptt");
+    }
     try {
       await ensureMicStream();
     } catch (e) {
@@ -1053,7 +1103,7 @@ export function VoiceAssistant({
     setStatus("Talk now… release when done");
     setPartial("");
     startPttRecognition();
-  }, [ensureMicStream, extendConvo, setModeBoth, startPttRecognition, stopSpeaking]);
+  }, [ensureMicStream, extendConvo, interruptTurn, setModeBoth, startPttRecognition]);
 
   const pttUp = useCallback(() => {
     if (!pttRef.current) return;

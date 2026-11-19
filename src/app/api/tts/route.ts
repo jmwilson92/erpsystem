@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { helpIdentity } from '@/lib/ai-help/identity';
 import { reserveHelpTurn, redactHelpText } from '@/lib/ai-help/budget';
+import { normalizeSpeechText } from '@/lib/ai-help/speech-normalize';
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
 
@@ -40,7 +41,7 @@ export async function POST(req:NextRequest) {
   let text:string, language:string;
   try {
     if(typeof body.text!=='string' || body.text.length>4000 || !body.text.trim()) throw Error();
-    text=redactHelpText(body.text).slice(0,1800);
+    text=normalizeSpeechText(redactHelpText(body.text)).slice(0,1800);
     const raw=typeof (body.language || body.lang)==='string'?String(body.language || body.lang):'en';
     language=raw.toLowerCase().split(/[-_]/)[0];
     if(!/^[a-z]{2,3}$/.test(language)) language='en';

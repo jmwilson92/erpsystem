@@ -49,6 +49,8 @@ assert.ok(!warmup.includes("reserveHelpTurn"), "warmup must not spend a help-tur
 
 const listen = fs.readFileSync("src/lib/carina-listen.ts", "utf8");
 assert.match(listen, /createEnergyVad/);
+assert.match(listen, /createBargeDetector/);
+assert.match(listen, /onBargeIn/);
 assert.ok(!/SpeechRecognition|webkitSpeechRecognition/.test(listen));
 
 const voice = fs.readFileSync("src/components/ai/voice-assistant.tsx", "utf8");
