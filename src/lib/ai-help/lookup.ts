@@ -20,9 +20,12 @@ import {
   stripSensitiveFields,
 } from "./lookup-policy";
 
+export type CountBreakdown = { total: number; byStatus: Record<string, number> };
+
 export type LookupStore = {
   search(entity: LookupEntityId, query: string, take: number): Promise<LookupHit[]>;
   get(entity: LookupEntityId, idOrNumber: string): Promise<LookupHit | null>;
+  count(entity: LookupEntityId): Promise<CountBreakdown>;
 };
 
 export type LookupCanView = (userId: string, module: string) => Promise<boolean>;
@@ -56,6 +59,66 @@ function hit(
 
 function like(q: string) {
   return q.trim().slice(0, 80);
+}
+
+
+function toStatusBreakdown(
+  rows: Array<{ status: string; _count: { _all: number } | number }>
+): CountBreakdown {
+  const byStatus: Record<string, number> = {};
+  let total = 0;
+  for (const row of rows) {
+    const n = typeof row._count === "number" ? row._count : row._count._all;
+    byStatus[row.status] = (byStatus[row.status] || 0) + n;
+    total += n;
+  }
+  return { total, byStatus };
+}
+
+async function countByStatus(model: { groupBy: (args: { by: ["status"]; _count: { _all: true } }) => Promise<unknown> }): Promise<CountBreakdown> {
+  const rows = (await model.groupBy({ by: ["status"], _count: { _all: true } })) as Array<{
+    status: string;
+    _count: { _all: number } | number;
+  }>;
+  return toStatusBreakdown(rows);
+}
+
+async function countPrismaEntity(db: typeof prisma, entity: LookupEntityId): Promise<CountBreakdown> {
+  switch (entity) {
+    case "work_order":
+      return countByStatus(db.workOrder);
+    case "sales_order":
+      return countByStatus(db.salesOrder);
+    case "quote":
+      return countByStatus(db.quote);
+    case "purchase_order":
+      return countByStatus(db.purchaseOrder);
+    case "purchase_request":
+      return countByStatus(db.purchaseRequest);
+    case "project":
+      return countByStatus(db.project);
+    case "budget":
+      return countByStatus(db.budget);
+    case "ncr":
+      return countByStatus(db.nonConformance);
+    case "mrb":
+      return countByStatus(db.mrbCase);
+    case "shipment":
+      return countByStatus(db.shipment);
+    case "rma":
+      return countByStatus(db.rma);
+    case "document":
+      return countByStatus(db.cmDocument);
+    case "part": {
+      const [active, inactive] = await Promise.all([
+        db.part.count({ where: { isActive: true } }),
+        db.part.count({ where: { isActive: false } }),
+      ]);
+      return { total: active + inactive, byStatus: { ACTIVE: active, INACTIVE: inactive } };
+    }
+    default:
+      return { total: 0, byStatus: {} };
+  }
 }
 
 export function createPrismaLookupStore(db: typeof prisma = prisma): LookupStore {
@@ -655,6 +718,36 @@ export function createPrismaLookupStore(db: typeof prisma = prisma): LookupStore
             })
           );
         }
+        case "purchase_request": {
+          const rows = await db.purchaseRequest.findMany({
+            where: {
+              OR: [
+                { number: contains(q) },
+                { justification: contains(q) },
+                { department: contains(q) },
+              ],
+            },
+            select: {
+              id: true,
+              number: true,
+              status: true,
+              department: true,
+              justification: true,
+            },
+            take: limit,
+          });
+          return rows.map((r) =>
+            hit("purchase_request", {
+              id: r.id,
+              number: r.number,
+              title: r.number,
+              status: r.status,
+              href: `/purchasing?pr=${r.id}`,
+              summary: [r.status, r.department, r.justification].filter(Boolean).join(" · ").slice(0, 180),
+              fields: { department: r.department, justification: r.justification },
+            })
+          );
+        }
         case "document": {
           const rows = await db.cmDocument.findMany({
             where: {
@@ -690,6 +783,10 @@ export function createPrismaLookupStore(db: typeof prisma = prisma): LookupStore
         matches.find((h) => h.number.toLowerCase().includes(lower) || h.id === q) ||
         null
       );
+    },
+
+    async count(entity) {
+      return countPrismaEntity(db, entity);
     },
   };
 }
@@ -782,7 +879,20 @@ export function createLookupApi(opts: {
     return { ok: true, hits: [rec] };
   }
 
-  return { search, get };
+  async function count(params: {
+    userId?: string;
+    entity: LookupEntityId;
+  }): Promise<{ ok: true; breakdown: CountBreakdown } | LookupFailure> {
+    if (!isLookupEntity(params.entity)) {
+      return { ok: false, reason: "invalid", message: "That record type isn’t available for a count." };
+    }
+    const block = await ensureAllowed(params.userId, params.entity);
+    if (block) return block;
+    const breakdown = await opts.store.count(params.entity);
+    return { ok: true, breakdown };
+  }
+
+  return { search, get, count };
 }
 
 const defaultApi = createLookupApi({ store: createPrismaLookupStore() });

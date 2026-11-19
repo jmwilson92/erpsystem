@@ -70,6 +70,15 @@ function memoryStore(records: LookupHit[]): LookupStore {
         null
       );
     },
+    async count(entity) {
+      const rows = records.filter((r) => r.entity === entity);
+      const byStatus: Record<string, number> = {};
+      for (const r of rows) {
+        const s = r.status || "unknown";
+        byStatus[s] = (byStatus[s] || 0) + 1;
+      }
+      return { total: rows.length, byStatus };
+    },
   };
 }
 

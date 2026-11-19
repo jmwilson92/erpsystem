@@ -508,6 +508,17 @@ async function buildDraft(
         },
         `Here’s the exact work-order status change I would make. Confirm to apply it, or cancel.\n• status: ${wo.status} → ${to}\n${DISCLOSE}`, userId);
     }
+    case "CREATE_PURCHASE_REQUEST":
+      return composePurchaseRequestDraft({
+        userId,
+        description: intent.prDescription || "requested items",
+        quantity: intent.prQuantity || 1,
+        uom: intent.prUom,
+        purpose: intent.prPurpose,
+        justification: intent.prJustification,
+        department: intent.prDepartment,
+        partNumber: intent.prPartNumber,
+      });
     case "HIGH_RISK_PARTS":
       throw new Error("HIGH_RISK_PARTS is read-only and should be answered directly");
   }
@@ -709,6 +720,24 @@ export async function executeCarinaDraft(params: {
         href = "/receiving?tab=putaway";
       }
       href = href || `/work-orders/${p.workOrderId}`;
+    } else if (kind === "CREATE_PURCHASE_REQUEST") {
+      const { createStandalonePurchaseRequest } = await import("@/lib/services/purchase-requests");
+      let lines: Array<{ partId?: string | null; description: string; quantity: number; uom?: string }> = [];
+      try {
+        lines = JSON.parse(String(p.linesJson || "[]"));
+      } catch {
+        throw new Error("That purchase request draft was missing its lines. Please ask me to prepare it again.");
+      }
+      const pr = await createStandalonePurchaseRequest({
+        lines,
+        purpose: (typeof p.purpose === "string" ? p.purpose : "OTHER") as "FACILITIES" | "OTHER" | "MANUFACTURING" | "PROJECT",
+        justification: typeof p.justification === "string" ? p.justification : null,
+        department: typeof p.department === "string" ? p.department : null,
+        submit: false,
+        userId,
+      });
+      href = `/purchasing?pr=${pr.id}`;
+      text = `I created draft purchase request ${pr.number}. It is not submitted yet — open Purchasing to review and submit.`;
     } else {
       throw new Error("Unknown Carina action");
     }
@@ -751,8 +780,112 @@ export async function executeCarinaDraft(params: {
 
 
 /** When the toggle is on but the intent router cannot parse the request. */
+
+export async function composePurchaseRequestDraft(params: {
+  userId: string;
+  description: string;
+  quantity: number;
+  uom?: string;
+  purpose?: string;
+  justification?: string;
+  department?: string;
+  partNumber?: string;
+}): Promise<AiConversationOutput> {
+  const description = (params.description || "").trim();
+  const quantity = Number(params.quantity) || 0;
+  if (!description || quantity <= 0) {
+    return {
+      text: "What should I put on the purchase request? Give a description and quantity, for example “10 office chairs”.",
+      source: "local",
+      pendingAction: null,
+    };
+  }
+  let partId: string | undefined;
+  if (params.partNumber?.trim()) {
+    const part = await findPart(params.partNumber);
+    partId = part.id;
+  }
+  const purpose = (params.purpose || (partId ? "MANUFACTURING" : "OTHER")).toUpperCase();
+  if ((purpose === "MANUFACTURING" || purpose === "PROJECT") && !partId) {
+    return {
+      text: "Manufacturing and project purchase requests need a catalog part number on every line. Give a PN, or I can draft it as facilities/other with a free-text description.",
+      source: "local",
+      pendingAction: null,
+    };
+  }
+  const uom = (params.uom || "EA").trim() || "EA";
+  const draft: CarinaActionDraft = {
+    title: "Create purchase request",
+    summary: `Create a draft purchase request for ${quantity} ${uom} of ${description}${params.partNumber ? ` (catalog ${params.partNumber})` : ""} as ${purpose.toLowerCase()}. It will be saved as DRAFT, not submitted, until you confirm.`,
+    changes: [
+      {
+        entityType: "PurchaseRequest",
+        entityId: "new",
+        entityLabel: "new purchase request",
+        field: "create draft",
+        from: "(none)",
+        to: `${quantity} ${uom} ${description}`,
+      },
+    ],
+    execute: {
+      kind: "CREATE_PURCHASE_REQUEST",
+      permission: "purchasing.pr.create",
+      requiresPin: false,
+      params: {
+        purpose,
+        justification: params.justification || "",
+        department: params.department || "",
+        linesJson: JSON.stringify([
+          { partId: partId || null, description, quantity, uom },
+        ]),
+      },
+    },
+  };
+  return draftPending(
+    draft,
+    `${draft.summary} Say yes to confirm, or no to cancel. ${DISCLOSE}`,
+    params.userId
+  );
+}
+
+export function createReasonActionPort(userId: string): import("@/lib/ai-help/reason-loop").ReasonActionPort {
+  return {
+    async proposePurchaseRequest(input) {
+      const out = await composePurchaseRequestDraft({ userId, ...input });
+      return { ok: !!out.pendingAction, text: out.text, pendingAction: out.pendingAction ?? null };
+    },
+    async proposeChange(input) {
+      const kind = input.kind as import("@/lib/services/carina-voice-intent").VoiceActionKind;
+      const allowed = new Set(["EDIT_PROJECT", "TIE_WO", "CYCLE_COUNT", "CONSUME_PARTS", "OUTPUT_WO"]);
+      if (!allowed.has(kind)) {
+        return { ok: false, text: "That change isn’t in the confirm-gated set I can propose yet.", pendingAction: null };
+      }
+      const intent: import("@/lib/services/carina-voice-intent").ParsedVoiceIntent = {
+        kind,
+        numbers: [input.workOrderNumber, input.projectNumber, input.budgetNumber, input.partNumber].filter(
+          (n): n is string => !!n
+        ),
+        workOrderHint: input.workOrderNumber,
+        projectHint: input.projectNumber || input.projectName,
+        budgetHint: input.budgetNumber,
+        partHint: input.partNumber,
+        locationHint: input.location,
+        countedQty: input.countedQty,
+        reason: input.reason,
+        projectFields: input.projectName ? { name: input.projectName } : undefined,
+      };
+      try {
+        const out = await buildDraft(intent, userId);
+        return { ok: !!out.pendingAction, text: out.text, pendingAction: out.pendingAction ?? null };
+      } catch (e) {
+        return { ok: false, text: e instanceof Error ? e.message : "I couldn’t prepare that change.", pendingAction: null };
+      }
+    },
+  };
+}
+
 export const UNPARSED_ACTION_REPLY =
-  "I can propose confirm-gated changes for editing a project, tying a work order to a project or budget, posting a cycle count, consuming parts on a work order, and completing a work order. I didn’t catch enough detail to prepare that change. Try, for example: “complete work order WO-123” or “tie WO-123 to project PRJ-1”. I can’t create new records, and money, payroll, HR and user access stay off limits.";
+  "I can look up records and, when you confirm, propose changes or create a purchase request — for example edit a project, tie a work order to a project or budget, post a cycle count, consume parts, complete a work order, or create a PR. Tell me what you want to do, including numbers like WO-123 or what to buy and how many. Money, payroll, HR and user access stay off limits.";
 
 export function unparsedActionReply(question: string): string | null {
   const excluded = isExcludedDomain(question);
@@ -765,12 +898,16 @@ export async function handleCarinaVoiceTurn(params: {
   question: string;
   pendingAction?: AiPendingAction | null;
   userId: string;
+  /** Only resolve an outstanding confirm/cancel; leave new intents to the model. */
+  pendingOnly?: boolean;
 }): Promise<AiConversationOutput | null> {
   const features = await getCarinaFeatures();
   const pending = params.pendingAction;
   const question = params.question.trim();
 
   const pendingKey = pending?.idempotencyKey || pending?.partial?.idempotencyKey;
+  const hasPendingConfirm = pending?.phase === "confirm" && !!(pending.draft || pendingKey);
+  if (params.pendingOnly && !hasPendingConfirm) return null;
   if (pending?.phase === "confirm" && (pending.draft || pendingKey)) {
     if (isCancelUtterance(question)) {
       if (pendingKey) {
@@ -820,6 +957,15 @@ export async function handleCarinaVoiceTurn(params: {
       }
     }
   }
+
+  if (params.pendingOnly && hasPendingConfirm) {
+    return {
+      text: "I still have a change waiting for you. Say yes to confirm, or no to cancel.",
+      source: "local",
+      pendingAction: pending,
+    };
+  }
+  if (params.pendingOnly) return null;
 
   const excluded = isExcludedDomain(question);
   const intent = parseVoiceActionIntent(question);
