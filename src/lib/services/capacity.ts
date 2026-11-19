@@ -17,6 +17,10 @@ import {
   workingMinutesBetween,
   type CalendarContext,
 } from "@/lib/services/schedule";
+import {
+  getWorkOrderLaborProgressMany,
+  laborLoadHours,
+} from "@/lib/services/labor-progress";
 
 export type CapacityAlertLevel = "OK" | "NEAR" | "OVER";
 
@@ -44,6 +48,11 @@ export type WorkCenterCapacity = {
     plannedEnd: string | null;
     scheduleRisk: string | null;
     priorityLabel: string;
+    allocatedHours: number | null;
+    clockedHours: number;
+    remainingHours: number;
+    laborPercent: number | null;
+    overAllocated: boolean;
   }[];
 };
 
@@ -261,7 +270,9 @@ export async function getCapacityAndWorkload(
   const unscheduledList: UnscheduledBucket["workOrders"] = [];
   let unscheduledHours = 0;
 
-  // Precompute hours for each WO
+  const laborById = await getWorkOrderLaborProgressMany(workOrders.map((w) => w.id));
+
+  // Precompute hours for each WO (remaining labor hours feed the man-hour load)
   const woLoad = new Map<
     string,
     {
@@ -272,10 +283,23 @@ export async function getCapacityAndWorkload(
     }
   >();
   for (const wo of workOrders) {
-    const load = await hoursInHorizonForWo(wo, start, end, calCtx);
+    const lp = laborById.get(wo.id);
+    const loadHours = laborLoadHours({
+      allocatedHours: wo.allocatedHours ?? lp?.allocatedHours,
+      clockedHours: lp?.clockedHours ?? 0,
+      estimatedMinutes: wo.estimatedMinutes,
+      status: wo.status,
+    });
+    const loadMinutes = Math.round(loadHours * 60);
+    const load = await hoursInHorizonForWo(
+      { ...wo, estimatedMinutes: loadMinutes },
+      start,
+      end,
+      calCtx
+    );
     woLoad.set(wo.id, load);
     if (!load.scheduled) {
-      const h = (wo.estimatedMinutes || 0) / 60;
+      const h = loadHours;
       unscheduledHours += h;
       unscheduledList.push({
         id: wo.id,
@@ -321,11 +345,18 @@ export async function getCapacityAndWorkload(
           );
         }
       }
+      const lp = laborById.get(wo.id);
+      const remaining = laborLoadHours({
+        allocatedHours: wo.allocatedHours ?? lp?.allocatedHours,
+        clockedHours: lp?.clockedHours ?? 0,
+        estimatedMinutes: wo.estimatedMinutes,
+        status: wo.status,
+      });
       woRows.push({
         id: wo.id,
         number: wo.number,
         status: wo.status,
-        estimatedHours: Math.round(((wo.estimatedMinutes || 0) / 60) * 10) / 10,
+        estimatedHours: Math.round(remaining * 10) / 10,
         hoursInHorizon: Math.round(load.hours * 10) / 10,
         plannedStart: load.plannedStart?.toISOString() || null,
         plannedEnd: load.plannedEnd?.toISOString() || null,
@@ -333,6 +364,11 @@ export async function getCapacityAndWorkload(
         priorityLabel: wo.businessPriority
           ? `${wo.businessPriority.number} ${wo.businessPriority.title}`
           : "Unrated",
+        allocatedHours: wo.allocatedHours ?? lp?.allocatedHours ?? null,
+        clockedHours: lp?.clockedHours ?? 0,
+        remainingHours: remaining,
+        laborPercent: lp?.percentComplete ?? null,
+        overAllocated: lp?.overAllocated ?? false,
       });
     }
 
@@ -400,11 +436,18 @@ export async function getCapacityAndWorkload(
           );
         }
       }
+      const lp = laborById.get(wo.id);
+      const remaining = laborLoadHours({
+        allocatedHours: wo.allocatedHours ?? lp?.allocatedHours,
+        clockedHours: lp?.clockedHours ?? 0,
+        estimatedMinutes: wo.estimatedMinutes,
+        status: wo.status,
+      });
       woRows.push({
         id: wo.id,
         number: wo.number,
         status: wo.status,
-        estimatedHours: Math.round(((wo.estimatedMinutes || 0) / 60) * 10) / 10,
+        estimatedHours: Math.round(remaining * 10) / 10,
         hoursInHorizon: Math.round(load.hours * 10) / 10,
         plannedStart: load.plannedStart?.toISOString() || null,
         plannedEnd: load.plannedEnd?.toISOString() || null,
@@ -412,6 +455,11 @@ export async function getCapacityAndWorkload(
         priorityLabel: wo.businessPriority
           ? `${wo.businessPriority.number} ${wo.businessPriority.title}`
           : "Unrated",
+        allocatedHours: wo.allocatedHours ?? lp?.allocatedHours ?? null,
+        clockedHours: lp?.clockedHours ?? 0,
+        remainingHours: remaining,
+        laborPercent: lp?.percentComplete ?? null,
+        overAllocated: lp?.overAllocated ?? false,
       });
     }
     if (projected > 0 || woRows.length) {

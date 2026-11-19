@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { formatCurrency } from "@/lib/utils";
 import {
   actionUpdateItem,
+  actionSetItemLaborEstimate,
   actionUpsertPartVendor,
   actionUpdatePartInspectionFlags,
   actionRemoveBomLine,
@@ -595,6 +596,45 @@ export default async function ItemDetailPage({
             <Button type="submit">Save</Button>
           )}
         </form>
+      )}
+
+      {tab === "general" && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Allocated build time</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form action={actionSetItemLaborEstimate} className="flex flex-wrap items-end gap-3">
+              <input type="hidden" name="id" value={part.id} />
+              <FieldInput
+                label="Hours per unit"
+                name="allocatedHoursPerUnit"
+                type="number"
+                step="0.01"
+                defaultValue={part.allocatedHoursPerUnit != null ? String(part.allocatedHoursPerUnit) : ""}
+              />
+              <label className="flex items-center gap-1.5 text-xs text-slate-400">
+                <input
+                  type="checkbox"
+                  name="laborEstimateLocked"
+                  defaultChecked={part.laborEstimateLocked}
+                />
+                Lock (manual override — don&apos;t learn from completed WOs)
+              </label>
+              <button type="submit" className="h-8 rounded-md border border-slate-700 px-3 text-xs text-slate-200">
+                Save labor estimate
+              </button>
+            </form>
+            <p className="mt-2 text-[11px] text-slate-500">
+              Last actual: {part.lastActualHoursPerUnit != null ? `${part.lastActualHoursPerUnit} h/unit` : "none yet"}
+              {part.laborEstimateSource ? ` · source ${part.laborEstimateSource}` : ""}
+              {part.laborEstimateUpdatedAt
+                ? ` · updated ${part.laborEstimateUpdatedAt.toISOString().slice(0, 10)}`
+                : ""}
+              . Used when the BOM revision has no hours of its own. Snapshotted onto the work order at release.
+            </p>
+          </CardContent>
+        </Card>
       )}
 
       {tab === "vendors" && (

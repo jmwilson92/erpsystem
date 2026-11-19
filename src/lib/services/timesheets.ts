@@ -11,6 +11,7 @@
  */
 import { parseCalendarDate, addCalendarDays } from "@/lib/calendar-date";
 import { prisma } from "@/lib/db";
+import { onWorkOrderTimeChanged } from "@/lib/services/labor-progress";
 import { logAudit } from "@/lib/audit";
 import { userHasPermission } from "@/lib/auth";
 import {
@@ -279,6 +280,15 @@ export async function pushApprovedPtoToTimesheets(ptoId: string) {
 
 const NON_WORK_TYPES = ["PTO", "SICK", "HOLIDAY"];
 
+async function refreshLaborAfterTime(workOrderId?: string | null) {
+  if (!workOrderId) return;
+  try {
+    await onWorkOrderTimeChanged(workOrderId);
+  } catch (err) {
+    console.warn("labor progress refresh failed", err);
+  }
+}
+
 /** Key a manual entry (overhead, sick day, holiday, or direct charge). */
 export async function addTimesheetEntry(params: {
   userId: string;
@@ -335,6 +345,7 @@ export async function addTimesheetEntry(params: {
       laborRate: DEFAULT_LABOR_RATE,
     },
   });
+  await refreshLaborAfterTime(entry.workOrderId);
   return { sheet, entry };
 }
 
@@ -371,6 +382,7 @@ export async function removeTimesheetEntry(params: {
     throw new Error("Timesheet is locked");
   }
   await prisma.timeEntry.delete({ where: { id: entry.id } });
+  await refreshLaborAfterTime(entry.workOrderId);
 }
 
 export async function submitTimesheet(params: { id: string; userId: string }) {
@@ -634,6 +646,10 @@ export async function saveTimecardGrid(params: {
     });
   }
 
+  const priorDrafts = await prisma.timeEntry.findMany({
+    where: { timesheetId: sheet.id, status: "DRAFT" },
+    select: { workOrderId: true },
+  });
   await prisma.timeEntry.deleteMany({
     where: { timesheetId: sheet.id, status: "DRAFT" },
   });
@@ -651,6 +667,12 @@ export async function saveTimecardGrid(params: {
       },
     });
   }
+  const laborIds = new Set(
+    [...priorDrafts.map((e) => e.workOrderId), ...creates.map((c) => c.workOrderId)].filter(
+      (id): id is string => !!id
+    )
+  );
+  for (const id of laborIds) await refreshLaborAfterTime(id);
   await logAudit({
     entityType: "Timesheet",
     entityId: sheet.id,

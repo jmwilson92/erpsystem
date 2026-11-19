@@ -11,6 +11,7 @@ import {
   actionCertifyBomForPrototype,
   actionCreateWoFromBom,
 } from "@/app/actions";
+import { actionSetBomLaborEstimate } from "@/app/actions";
 import { compareBomRevisions, whereUsed } from "@/lib/services/bom";
 import Link from "next/link";
 
@@ -127,6 +128,34 @@ export default async function BomDetailPage({
           </span>
         )}
       </div>
+
+      <Card>
+        <CardHeader><CardTitle>Allocated build time</CardTitle></CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          <form action={actionSetBomLaborEstimate} className="flex flex-wrap items-end gap-3">
+            <input type="hidden" name="bomHeaderId" value={bom.id} />
+            <label className="text-[10px] uppercase text-slate-500">
+              Hours per unit
+              <input
+                name="allocatedHoursPerUnit"
+                type="number"
+                step="0.01"
+                defaultValue={bom.allocatedHoursPerUnit != null ? String(bom.allocatedHoursPerUnit) : ""}
+                className="mt-0.5 block h-8 rounded-md border border-slate-700 bg-slate-950 px-2 text-sm text-slate-200"
+              />
+            </label>
+            <label className="flex items-center gap-1.5 text-xs text-slate-400">
+              <input type="checkbox" name="laborEstimateLocked" defaultChecked={bom.laborEstimateLocked} />
+              Lock (manual override)
+            </label>
+            <Button type="submit" size="sm" variant="outline">Save labor estimate</Button>
+          </form>
+          <p className="text-[11px] text-slate-500">
+            Overrides the item card when set. Last actual: {bom.lastActualHoursPerUnit != null ? `${bom.lastActualHoursPerUnit} h/unit` : "none yet"}
+            {bom.laborEstimateSource ? ` · source ${bom.laborEstimateSource}` : ""}. Work order allocated hours = this × quantity, snapshotted at release.
+          </p>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader><CardTitle>Certification path</CardTitle></CardHeader>

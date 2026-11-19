@@ -11,7 +11,10 @@ import {
   actionSaveCompanyOps,
   actionSetBomPrototypeDefault,
   actionSetCarinaVoiceActions,
+  actionSaveLaborOverrunRoles,
 } from "@/app/actions";
+import { ROLES } from "@/lib/auth";
+import { DEFAULT_OVERRUN_ROLES } from "@/lib/services/labor-progress";
 import { Input } from "@/components/ui/input";
 import { MODULES } from "@/lib/modules";
 import { Button } from "@/components/ui/button";
@@ -237,6 +240,53 @@ export default async function AdminSettingsPage() {
         </CardContent>
       </Card>
 
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-base">
+            Labor overrun notifications
+          </CardTitle>
+          <p className="text-xs text-slate-500">
+            When a work order clocks more than 100% of its allocated hours, notify the
+            assignee plus everyone in the roles you pick (once per work order). Default
+            is Production and PM.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <form action={actionSaveLaborOverrunRoles} className="space-y-3">
+            <div className="flex flex-wrap gap-3">
+              {ROLES.map((role) => {
+                let selected = [...DEFAULT_OVERRUN_ROLES] as string[];
+                try {
+                  if (company.laborOverrunNotifyRoles) {
+                    const parsed = JSON.parse(company.laborOverrunNotifyRoles);
+                    if (Array.isArray(parsed) && parsed.length) selected = parsed;
+                  }
+                } catch {
+                  /* keep default */
+                }
+                return (
+                  <label key={role} className="flex items-center gap-1.5 text-xs text-slate-300">
+                    <input
+                      type="checkbox"
+                      name="roles"
+                      value={role}
+                      defaultChecked={selected.includes(role)}
+                      disabled={!canEdit}
+                    />
+                    {role}
+                  </label>
+                );
+              })}
+            </div>
+            {canEdit && (
+              <Button type="submit" size="sm">
+                Save notification roles
+              </Button>
+            )}
+          </form>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="pb-2">

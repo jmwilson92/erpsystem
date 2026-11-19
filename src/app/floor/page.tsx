@@ -4,6 +4,7 @@ import { getFloorBoardData } from "@/lib/services/work-orders";
 import { getCurrentUser, userCanSeeFinancials, userHasPermission } from "@/lib/auth";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
+import { LaborProgressBar } from "@/components/labor/labor-progress-bar";
 import { workOrderHoldProvenance } from "@/lib/provenance";
 import { compactCurrency, cn } from "@/lib/utils";
 import Link from "next/link";
@@ -49,6 +50,7 @@ export default async function FloorPage({
     : false;
   const showWip = canSeeWip && pick(sp, "wip") === "1";
   const progressMap = Object.fromEntries(data.signOffProgress.map((s) => [s.id, s.pct]));
+  const laborMap = Object.fromEntries((data.laborProgress || []).map((r) => [r.workOrderId, r]));
 
   // Selectable WOs for per-WO flow tracing: active WOs at their current station
   // (path runs to that station), plus recent completed WOs (full flow).
@@ -306,6 +308,17 @@ export default async function FloorPage({
                           {wo.quantity > 1 ? ` × ${wo.quantity}` : ""}
                           {wo.assignee ? ` · ${wo.assignee.name}` : ""}
                         </p>
+                        {laborMap[wo.id] && (
+                          <div className="relative mt-1">
+                            <LaborProgressBar
+                              compact
+                              allocatedHours={laborMap[wo.id].allocatedHours}
+                              clockedHours={laborMap[wo.id].clockedHours}
+                              percentComplete={laborMap[wo.id].percentComplete}
+                              overAllocated={laborMap[wo.id].overAllocated}
+                            />
+                          </div>
+                        )}
                       </Link>
                     );
                   })}

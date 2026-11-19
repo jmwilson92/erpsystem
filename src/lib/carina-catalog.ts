@@ -690,6 +690,24 @@ export const CATALOG_ANCHORS: CatalogAnchor[] = [
     keywords: ["report", "export", "csv"],
     area: "programs",
   },
+  {
+    id: "labor-progress-report",
+    label: "Work order labor progress",
+    route: "/reports?view=labor-progress",
+    selector: '[data-tour="page-header"]',
+    description: "Allocated vs clocked labor hours by work order, rolled up to a project or budget, with CSV export. Also available as a read service at /api/labor-progress.",
+    keywords: [
+      "labor progress",
+      "percent complete",
+      "allocated hours",
+      "clocked hours",
+      "over allocated",
+      "work order progress",
+      "project labor",
+      "budget labor",
+    ],
+    area: "programs",
+  },
 
   // ── Admin ──────────────────────────────────────────────────────────
   {

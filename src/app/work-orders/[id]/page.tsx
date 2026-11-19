@@ -1,5 +1,8 @@
 import { DocBacklinks } from "@/components/docs/backlinks";
 import { prisma } from "@/lib/db";
+import { getWorkOrderLaborProgress } from "@/lib/services/labor-progress";
+import { LaborProgressBar } from "@/components/labor/labor-progress-bar";
+import { actionSetWorkOrderAllocatedHours } from "@/app/actions";
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
@@ -190,6 +193,7 @@ export default async function WorkOrderDetailPage({
       }),
     ]);
   if (!wo) notFound();
+  const labor = await getWorkOrderLaborProgress(wo.id);
 
   const testProcsForForm = testProcedures.filter(
     (tp) => !wo.partId || !tp.partId || tp.partId === wo.partId
@@ -762,7 +766,37 @@ export default async function WorkOrderDetailPage({
                 ? ` · ${wo.estimatedMinutes} min est`
                 : ""}
               {wo.scheduleMode ? ` · ${wo.scheduleMode}` : ""}
+              {labor.laborEstimateSource ? ` · labor source ${labor.laborEstimateSource}` : ""}
             </p>
+            <div className="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+              <p className="text-[10px] uppercase tracking-wide text-slate-500">Labor progress</p>
+              <LaborProgressBar
+                allocatedHours={labor.allocatedHours}
+                clockedHours={labor.clockedHours}
+                percentComplete={labor.percentComplete}
+                overAllocated={labor.overAllocated}
+              />
+              <form action={actionSetWorkOrderAllocatedHours} className="mt-2 flex flex-wrap items-end gap-2">
+                <input type="hidden" name="workOrderId" value={wo.id} />
+                <label className="text-[10px] uppercase text-slate-500">
+                  Allocated hours
+                  <input
+                    name="allocatedHours"
+                    type="number"
+                    step="0.01"
+                    defaultValue={labor.allocatedHours ?? ""}
+                    className="mt-0.5 block h-8 rounded-md border border-slate-700 bg-slate-950 px-2 text-xs text-slate-200"
+                  />
+                </label>
+                <label className="flex items-center gap-1 text-[11px] text-slate-400">
+                  <input type="checkbox" name="laborEstimateLocked" defaultChecked={wo.laborEstimateLocked} />
+                  Lock
+                </label>
+                <Button type="submit" size="sm" variant="outline" className="h-8 text-xs">
+                  Save allocation
+                </Button>
+              </form>
+            </div>
             {wo.scheduleRisk && wo.scheduleRisk !== "OK" && (
               <p className="text-xs font-medium text-amber-400">
                 Risk: {wo.scheduleRisk}

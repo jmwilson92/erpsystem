@@ -10735,3 +10735,94 @@ export async function actionDecidePoAmendment(
   revalidatePath("/purchasing");
   revalidatePath("/approvals");
 }
+
+
+export async function actionSetItemLaborEstimate(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("items.manage");
+  const { setItemLaborEstimate } = await import("@/lib/services/labor-progress");
+  const id = formStr(formData, "id");
+  const raw = formStr(formData, "allocatedHoursPerUnit");
+  const hours = raw.trim() === "" ? null : formNum(formData, "allocatedHoursPerUnit");
+  await setItemLaborEstimate({
+    partId: id,
+    allocatedHoursPerUnit: hours,
+    lock: formBool(formData, "laborEstimateLocked"),
+    userId: user?.id,
+  });
+  await flashToast("Item labor estimate saved");
+  revalidatePath(`/items/${id}`);
+  revalidatePath("/items");
+  redirect(`/items/${id}?tab=general`);
+}
+
+export async function actionSetBomLaborEstimate(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("bom.edit");
+  const { setBomLaborEstimate } = await import("@/lib/services/labor-progress");
+  const id = formStr(formData, "bomHeaderId");
+  const raw = formStr(formData, "allocatedHoursPerUnit");
+  const hours = raw.trim() === "" ? null : formNum(formData, "allocatedHoursPerUnit");
+  await setBomLaborEstimate({
+    bomHeaderId: id,
+    allocatedHoursPerUnit: hours,
+    lock: formBool(formData, "laborEstimateLocked"),
+    userId: user?.id,
+  });
+  await flashToast("BOM labor estimate saved");
+  revalidatePath(`/bom/${id}`);
+  redirect(`/bom/${id}`);
+}
+
+export async function actionSetWorkOrderAllocatedHours(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("workorders.status.update");
+  const { setWorkOrderAllocatedOverride } = await import("@/lib/services/labor-progress");
+  const id = formStr(formData, "workOrderId");
+  await setWorkOrderAllocatedOverride({
+    workOrderId: id,
+    allocatedHours: formNum(formData, "allocatedHours"),
+    lock: formBool(formData, "laborEstimateLocked"),
+    userId: user?.id,
+  });
+  await flashToast("Work order allocated hours saved");
+  revalidatePath(`/work-orders/${id}`);
+  revalidatePath("/work-orders");
+  redirect(`/work-orders/${id}`);
+}
+
+export async function actionSaveLaborOverrunRoles(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("admin.permissions");
+  const { setLaborOverrunNotifyRoles } = await import("@/lib/services/labor-progress");
+  const roles = formData.getAll("roles").map((v) => String(v));
+  await setLaborOverrunNotifyRoles({ roles, userId: user?.id });
+  await flashToast("Labor overrun notification roles saved");
+  revalidatePath("/admin/settings");
+  redirect("/admin/settings");
+}
+
+export async function actionMarkNotificationRead(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("Sign in required");
+  const id = formStr(formData, "id");
+  await prisma.userNotification.updateMany({
+    where: { id, userId: user.id },
+    data: { isRead: true },
+  });
+  revalidatePath("/notifications");
+  revalidatePath("/", "layout");
+}
+
+export async function actionMarkAllNotificationsRead(): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("Sign in required");
+  await prisma.userNotification.updateMany({
+    where: { userId: user.id, isRead: false },
+    data: { isRead: true },
+  });
+  await flashToast("Notifications marked read");
+  revalidatePath("/notifications");
+  revalidatePath("/", "layout");
+  redirect("/notifications");
+}

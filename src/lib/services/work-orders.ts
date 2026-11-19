@@ -1,6 +1,12 @@
 import { verifySignaturePin } from "./signature-pin";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
+import {
+  snapshotWorkOrderAllocatedHours,
+  recordCompletionActuals,
+  laborLoadHours,
+  getWorkOrderLaborProgressMany,
+} from "@/lib/services/labor-progress";
 import { seedStepAssignments } from "@/lib/services/workcenters";
 import {
   backSchedule,
@@ -353,7 +359,16 @@ export async function createWorkOrder(params: {
     },
   });
 
-  return wo;
+  try {
+    await snapshotWorkOrderAllocatedHours({
+      workOrderId: wo.id,
+      userId: params.createdById,
+    });
+    return await prisma.workOrder.findUniqueOrThrow({ where: { id: wo.id } });
+  } catch (err) {
+    console.warn("labor allocation snapshot on create failed", err);
+    return wo;
+  }
 }
 
 /**
@@ -533,6 +548,16 @@ export async function startWorkOrderProduction(params: {
     metadata: { from: wo.status },
   });
 
+  try {
+    await snapshotWorkOrderAllocatedHours({
+      workOrderId: wo.id,
+      userId: params.userId,
+      freeze: true,
+    });
+  } catch (err) {
+    console.warn("labor allocation snapshot on production start failed", err);
+  }
+
   return updated;
 }
 
@@ -547,6 +572,19 @@ export async function updateWorkOrderStatus(params: {
 
   const toStatus = params.toStatus.trim().toUpperCase();
   if (["RELEASED", "IN_PROGRESS", "KITTED", "KITTING", "READY_TO_KIT"].includes(toStatus)) await assertProductionBomCertified(wo);
+
+  if (["RELEASED", "IN_PROGRESS"].includes(toStatus) && !wo.laborEstimateLocked) {
+    try {
+      await snapshotWorkOrderAllocatedHours({
+        workOrderId: wo.id,
+        userId: params.userId,
+        force: true,
+        freeze: true,
+      });
+    } catch (err) {
+      console.warn("labor allocation snapshot on status change failed", err);
+    }
+  }
 
   const data: Record<string, unknown> = { status: toStatus };
   if (toStatus === "IN_PROGRESS" && !wo.actualStart) {
@@ -581,6 +619,14 @@ export async function updateWorkOrderStatus(params: {
     userId: params.userId,
     changes: { from: wo.status, to: toStatus },
   });
+
+  if (toStatus === "COMPLETED" || toStatus === "CLOSED") {
+    try {
+      await recordCompletionActuals({ workOrderId: wo.id, userId: params.userId });
+    } catch (err) {
+      console.warn("labor actuals at completion failed", err);
+    }
+  }
 
   return updated;
 }
@@ -1221,17 +1267,27 @@ export async function getFloorBoardData() {
       };
     }
     byCenter[center].orders.push(wo);
-    // Rough load estimate from remaining steps, WO estimate, or default
-    const pending = wo.stepCompletions.filter((s) =>
-      ["PENDING", "IN_PROGRESS"].includes(s.status)
-    ).length;
-    if (pending > 0) {
-      byCenter[center].loadHours += pending * 0.5;
-    } else if (wo.estimatedMinutes && wo.estimatedMinutes > 0) {
-      byCenter[center].loadHours += wo.estimatedMinutes / 60;
-    } else {
-      byCenter[center].loadHours += wo.type === "INSPECTION" ? 1.5 : 2;
+  }
+
+  const laborById = await getWorkOrderLaborProgressMany(workOrders.map((w) => w.id));
+  for (const wo of workOrders) {
+    const center = wo.workCenter || "UNASSIGNED";
+    const lp = laborById.get(wo.id);
+    let hours = laborLoadHours({
+      allocatedHours: wo.allocatedHours ?? lp?.allocatedHours,
+      clockedHours: lp?.clockedHours ?? 0,
+      estimatedMinutes: wo.estimatedMinutes,
+      status: wo.status,
+    });
+    if (
+      hours <= 0 &&
+      !["COMPLETED", "CANCELLED", "CLOSED", "SCRAPPED"].includes(wo.status) &&
+      (wo.allocatedHours == null || wo.allocatedHours <= 0) &&
+      !(wo.estimatedMinutes && wo.estimatedMinutes > 0)
+    ) {
+      hours = wo.type === "INSPECTION" ? 1.5 : 2;
     }
+    if (byCenter[center]) byCenter[center].loadHours += hours;
   }
 
   const wipValue = workOrders.reduce(
@@ -1284,6 +1340,7 @@ export async function getFloorBoardData() {
     byCenter: centers.sort((a, b) => a.sortOrder - b.sortOrder),
     wipValue,
     signOffProgress,
+    laborProgress: [...laborById.values()],
     counts: {
       planned: workOrders.filter((w) => w.status === "PLANNED").length,
       released: workOrders.filter((w) => w.status === "RELEASED").length,

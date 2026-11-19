@@ -127,6 +127,8 @@ model User {
   supportMessages          SupportMessage[]         @relation("SupportMessageAuthor")
   supportNotes             SupportNote[]            @relation("SupportNoteAuthor")
   mfaCredential            MfaCredential?
+  notifications            UserNotification[]
+  laborEstimateChanges     LaborEstimateHistory[]
 }
 
 model AuditLog {
@@ -299,9 +301,18 @@ model Part {
   unitWeight                Float?
   weightUom                 String?        @default("LB") // optional shelf life for lot expiry
   notes                     String?
+  /// Manual or learned allocated labor hours for one unit of this item.
+  allocatedHoursPerUnit     Float?
+  lastActualHoursPerUnit    Float?
+  /// MANUAL | LAST_ACTUAL | OVERRIDE
+  laborEstimateSource       String?
+  /// When true, completion does not overwrite allocatedHoursPerUnit.
+  laborEstimateLocked       Boolean        @default(false)
+  laborEstimateUpdatedAt    DateTime?
   createdAt                 DateTime       @default(now())
   updatedAt                 DateTime       @updatedAt
 
+  laborEstimateHistory LaborEstimateHistory[]
   bomHeaders          BomHeader[]
   bomLines            BomLine[]                 @relation("ComponentPart")
   inventoryItems      InventoryItem[]
@@ -386,9 +397,17 @@ model BomHeader {
   effectiveDate          DateTime?
   obsoleteDate           DateTime?
   notes                  String?
+  /// Allocated labor hours for one unit of this BOM revision (overrides the item card when set).
+  allocatedHoursPerUnit  Float?
+  lastActualHoursPerUnit Float?
+  /// MANUAL | LAST_ACTUAL | OVERRIDE
+  laborEstimateSource    String?
+  laborEstimateLocked    Boolean   @default(false)
+  laborEstimateUpdatedAt DateTime?
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
 
+  laborEstimateHistory LaborEstimateHistory[]
   lines            BomLine[]
   workOrders       WorkOrder[]
   changeRequests   ChangeRequest[]
@@ -671,6 +690,15 @@ model WorkOrder {
   /// WI | TRAVELER | DEFAULT | MANUAL
   estimateSource        String?
   estimateUpdatedAt     DateTime?
+  /// Snapshot of allocated labor hours at release (total for the WO qty).
+  allocatedHours          Float?
+  allocatedHoursPerUnit   Float?
+  /// ITEM | BOM | LAST_ACTUAL | MANUAL | OVERRIDE | WI | TRAVELER | DEFAULT
+  laborEstimateSource     String?
+  /// When true, auto-snapshot will not overwrite allocated hours.
+  laborEstimateLocked     Boolean              @default(false)
+  overAllocatedNotifiedAt DateTime?
+  laborActualRecordedAt   DateTime?
   /// Peg child subassembly WO → parent assembly WO
   parentWorkOrderId     String?
   parentWorkOrder       WorkOrder?           @relation("WoPegTree", fields: [parentWorkOrderId], references: [id], onDelete: SetNull)
@@ -693,6 +721,7 @@ model WorkOrder {
   stepCompletions      WorkOrderStepCompletion[]
   materialIssues       MaterialTransaction[]
   timeEntries          TimeEntry[]
+  laborEstimateHistory LaborEstimateHistory[]
   ncrs                 NonConformance[]
   inspections          Inspection[]
   statusHistory        WorkOrderStatusHistory[]
@@ -4272,6 +4301,7 @@ model TimeEntry {
 
   changes TimeEntryChange[]
 
+  @@index([workOrderId])
   @@index([projectId])
   @@index([engTaskId])
   @@index([campaignId])
@@ -4588,6 +4618,9 @@ model CompanySettings {
   /// Admin opt-in: Carina may propose and (after confirm) perform permitted record changes.
   /// Off by default. Never grants permissions the signed-in user does not already have.
   carinaVoiceActions   Boolean   @default(false)
+  /// JSON string array of User.role values notified when a WO exceeds allocated hours.
+  /// Default (null) is PRODUCTION and PM.
+  laborOverrunNotifyRoles String?
   updatedById          String?
   updatedAt            DateTime  @updatedAt
 }
@@ -6192,4 +6225,46 @@ model DocLink {
 
   @@unique([pageId, targetType, targetId])
   @@index([targetType, targetId])
+}
+
+/// History of allocated / learned labor-hour estimates on an item, BOM, or WO.
+model LaborEstimateHistory {
+  id             String     @id @default(cuid())
+  partId         String?
+  part           Part?      @relation(fields: [partId], references: [id], onDelete: SetNull)
+  bomHeaderId    String?
+  bomHeader      BomHeader? @relation(fields: [bomHeaderId], references: [id], onDelete: SetNull)
+  workOrderId    String?
+  workOrder      WorkOrder? @relation(fields: [workOrderId], references: [id], onDelete: SetNull)
+  /// MANUAL | LAST_ACTUAL | OVERRIDE | SNAPSHOT | COMPLETION
+  source         String
+  hoursPerUnit   Float
+  totalHours     Float?
+  quantity       Float?
+  notes          String?
+  userId         String?
+  user           User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt      DateTime   @default(now())
+
+  @@index([partId, createdAt])
+  @@index([bomHeaderId, createdAt])
+  @@index([workOrderId])
+}
+
+/// In-app inbox item (labor overrun and similar alerts).
+model UserNotification {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type       String
+  title      String
+  body       String
+  href       String?
+  entityType String?
+  entityId   String?
+  isRead     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([userId, isRead, createdAt])
+  @@index([entityType, entityId])
 }

@@ -1,4 +1,6 @@
 import { prisma } from "@/lib/db";
+import { getWorkOrderLaborProgressMany } from "@/lib/services/labor-progress";
+import { LaborProgressBar } from "@/components/labor/labor-progress-bar";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { workOrderHoldProvenance } from "@/lib/provenance";
@@ -113,6 +115,8 @@ export default async function WorkOrdersPage({
   // Group work orders into "houses" by the leadership business priority they
   // roll up to, highest priority first, with an Unrated bucket last.
   type WO = (typeof workOrders)[number];
+  const laborById = await getWorkOrderLaborProgressMany(workOrders.map((w) => w.id));
+
   const byPriority = new Map<string, WO[]>();
   for (const wo of workOrders) {
     const key = wo.businessPriorityId || "UNRATED";
@@ -504,6 +508,16 @@ export default async function WorkOrdersPage({
                               <p className="text-sm text-slate-200">
                                 {formatDate(wo.dueDate)}
                               </p>
+                            </div>
+                            <div className="min-w-[8rem]">
+                              <p className="text-slate-400">Labor</p>
+                              <LaborProgressBar
+                                compact
+                                allocatedHours={laborById.get(wo.id)?.allocatedHours}
+                                clockedHours={laborById.get(wo.id)?.clockedHours ?? 0}
+                                percentComplete={laborById.get(wo.id)?.percentComplete}
+                                overAllocated={laborById.get(wo.id)?.overAllocated}
+                              />
                             </div>
                           </div>
                         </CardContent>

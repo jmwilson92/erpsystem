@@ -208,6 +208,21 @@ export async function getNotificationSummary(user: {
     // advisory
   }
 
+  try {
+    const unread = await prisma.userNotification.count({
+      where: { userId: user.id, isRead: false },
+    });
+    if (unread > 0) {
+      items.push({
+        label: "Unread notifications",
+        count: unread,
+        href: "/notifications",
+      });
+    }
+  } catch {
+    // advisory — table may not exist until backfill
+  }
+
   // Several items can point at the same href (e.g. general + purchasing
   // approvals both land on /approvals). Sum them so sidebar/dashboard
   // badges reflect the combined count instead of the last one written.
