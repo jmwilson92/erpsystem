@@ -193,13 +193,14 @@ async function findPart(hint?: string, numbers?: string[]) {
 async function draftPending(
   draft: CarinaActionDraft,
   text: string,
-  userId: string
+  userId: string,
+  phase: "confirm" | "clarify" = "confirm"
 ): Promise<AiConversationOutput> {
   const idempotencyKey = randomUUID();
   const pending: AiPendingAction = {
     action: draft.execute.kind,
     partial: { idempotencyKey },
-    phase: "confirm",
+    phase,
     draft,
     idempotencyKey,
     requiresPin: draft.execute.requiresPin,
@@ -508,6 +509,27 @@ async function buildDraft(
         },
         `Here’s the exact work-order status change I would make. Confirm to apply it, or cancel.\n• status: ${wo.status} → ${to}\n${DISCLOSE}`, userId);
     }
+    case "PLAN_DEMAND":
+      return composeDemandPlanDraft({
+        userId,
+        partNumber: intent.planPartNumber || intent.partHint,
+        quantity: intent.planQuantity,
+        dueDate: intent.planDueDate,
+        override: intent.planOverride,
+        budgetAmount: intent.budgetAmount,
+        budgetOwnerName: intent.budgetOwnerName,
+        chargeCode: intent.chargeCode,
+        skipBudget: intent.skipBudget,
+      });
+    case "CREATE_PLANNING_WORKSHEET":
+      return composePlanningWorksheetDraft({
+        userId,
+        forecastNumber: intent.forecastNumber,
+        partNumber: intent.planPartNumber || intent.partHint,
+        quantity: intent.planQuantity,
+        dueDate: intent.planDueDate,
+        override: intent.planOverride,
+      });
     case "CREATE_PURCHASE_REQUEST":
       return composePurchaseRequestDraft({
         userId,
@@ -738,6 +760,17 @@ export async function executeCarinaDraft(params: {
       });
       href = `/purchasing?pr=${pr.id}`;
       text = `I created draft purchase request ${pr.number}. It is not submitted yet — open Purchasing to review and submit.`;
+    } else if (kind === "PLAN_DEMAND" || kind === "CREATE_PLANNING_WORKSHEET") {
+      const { executeDemandPlan, reviveDemandPlan } = await import("@/lib/services/carina-planning");
+      let plan;
+      try {
+        plan = reviveDemandPlan(JSON.parse(String(p.planJson || "")));
+      } catch {
+        throw new Error("That demand plan draft was missing its details. Please ask me to prepare it again.");
+      }
+      const out = await executeDemandPlan(plan, userId);
+      href = out.href;
+      text = out.text;
     } else {
       throw new Error("Unknown Carina action");
     }
@@ -848,6 +881,175 @@ export async function composePurchaseRequestDraft(params: {
   );
 }
 
+
+async function composeDemandPlanDraft(params: {
+  userId: string;
+  partNumber?: string;
+  quantity?: number;
+  dueDate?: string;
+  override?: import("@/lib/services/carina-planning").PathOverride;
+  budgetAmount?: number;
+  budgetOwnerName?: string;
+  chargeCode?: string;
+  skipBudget?: boolean;
+  asWorksheet?: boolean;
+}): Promise<AiConversationOutput> {
+  const {
+    buildDemandPlan,
+    createPrismaPlanningStore,
+    needsBudgetClarify,
+    BUDGET_CLARIFY_PROMPT,
+    parsePlanDate,
+  } = await import("@/lib/services/carina-planning");
+  const partNumber = (params.partNumber || "").trim();
+  const quantity = Number(params.quantity) || 0;
+  const dueDate = params.dueDate ? parsePlanDate(params.dueDate) || new Date(`${params.dueDate}T00:00:00`) : null;
+  if (!partNumber || quantity <= 0 || !dueDate || Number.isNaN(dueDate.getTime())) {
+    return {
+      text: "I can plan that, but I need a part number, quantity and need-by date. For example: plan 20 of WIDGET-20 by 2027-03-15.",
+      source: "local",
+      pendingAction: null,
+    };
+  }
+  try {
+    const store = await createPrismaPlanningStore();
+    const plan = await buildDemandPlan(
+      {
+        partNumber,
+        quantity,
+        dueDate,
+        override: params.override || "none",
+        budgetAmount: params.budgetAmount,
+        budgetOwnerName: params.budgetOwnerName,
+        chargeCode: params.chargeCode,
+        skipBudget: !!params.skipBudget || !!params.asWorksheet,
+      },
+      store
+    );
+    const title = params.asWorksheet ? "Create planning worksheet" : "Plan this demand";
+    const draft: CarinaActionDraft = {
+      title,
+      summary: plan.summary,
+      changes: [
+        {
+          entityType: "Forecast",
+          entityId: "new",
+          entityLabel: `plan ${quantity} ${partNumber}`,
+          field: params.asWorksheet ? "create planning worksheet" : "create demand plan",
+          from: "(none)",
+          to: `${plan.path} · ${quantity} ${partNumber} by ${dueDate.toISOString().slice(0, 10)}`,
+        },
+      ],
+      execute: {
+        kind: params.asWorksheet ? "CREATE_PLANNING_WORKSHEET" : "PLAN_DEMAND",
+        permission: "planning.forecast.create",
+        requiresPin: false,
+        params: { planJson: JSON.stringify(plan) },
+      },
+    };
+    if (needsBudgetClarify(plan.input) && !params.asWorksheet) {
+      return draftPending(
+        draft,
+        `I can plan ${quantity} of ${plan.part.partNumber} by ${dueDate.toISOString().slice(0, 10)} on the ${plan.path === "PROTOTYPE" ? "prototype" : plan.path === "PRODUCTION_HELD" ? "direct-certify production (held)" : "production"} path. ${BUDGET_CLARIFY_PROMPT} ${DISCLOSE}`,
+        params.userId,
+        "clarify"
+      );
+    }
+    return draftPending(
+      draft,
+      `${plan.summary} Say yes to confirm, or no to cancel. ${DISCLOSE}`,
+      params.userId,
+      "confirm"
+    );
+  } catch (e) {
+    return {
+      text: e instanceof Error ? e.message : "I couldn’t build that plan.",
+      source: "local",
+      pendingAction: null,
+    };
+  }
+}
+
+async function composePlanningWorksheetDraft(params: {
+  userId: string;
+  forecastNumber?: string;
+  partNumber?: string;
+  quantity?: number;
+  dueDate?: string;
+  override?: import("@/lib/services/carina-planning").PathOverride;
+}): Promise<AiConversationOutput> {
+  if (params.forecastNumber) {
+    const forecast = await prisma.forecast.findFirst({
+      where: { number: { equals: params.forecastNumber, mode: "insensitive" } },
+      include: { lines: { include: { part: true } } },
+    });
+    if (!forecast) {
+      return { text: `I couldn’t find forecast ${params.forecastNumber}.`, source: "local", pendingAction: null };
+    }
+    const line = forecast.lines[0];
+    if (!line) {
+      return { text: `Forecast ${forecast.number} has no lines to explode into a planning worksheet.`, source: "local", pendingAction: null };
+    }
+    return composeDemandPlanDraft({
+      userId: params.userId,
+      partNumber: line.part.partNumber,
+      quantity: line.quantity,
+      dueDate: (line.dueDate || forecast.periodEnd || new Date()).toISOString().slice(0, 10),
+      override: params.override,
+      skipBudget: true,
+      asWorksheet: true,
+    });
+  }
+  return composeDemandPlanDraft({
+    userId: params.userId,
+    partNumber: params.partNumber,
+    quantity: params.quantity,
+    dueDate: params.dueDate,
+    override: params.override,
+    skipBudget: true,
+    asWorksheet: true,
+  });
+}
+
+async function applyDemandPlanClarify(
+  pending: AiPendingAction,
+  question: string,
+  userId: string
+): Promise<AiConversationOutput> {
+  const { parseBudgetClarify, mergeClarifyIntoInput, formatPlanSummary, needsBudgetClarify, BUDGET_CLARIFY_PROMPT, reviveDemandPlan } = await import(
+    "@/lib/services/carina-planning"
+  );
+  const draft = pending.draft;
+  if (!draft) {
+    return { text: "That plan expired. Ask me to plan it again.", source: "local", pendingAction: null };
+  }
+  let plan: import("@/lib/services/carina-planning").DemandPlan;
+  try {
+    plan = reviveDemandPlan(JSON.parse(String(draft.execute.params.planJson || "")));
+  } catch {
+    return { text: "That plan draft was missing its details. Ask me to prepare it again.", source: "local", pendingAction: null };
+  }
+  plan.input = mergeClarifyIntoInput(plan.input, parseBudgetClarify(question));
+  plan.summary = formatPlanSummary(plan);
+  draft.summary = plan.summary;
+  draft.execute.params.planJson = JSON.stringify(plan);
+  pending.draft = draft;
+  pending.phase = needsBudgetClarify(plan.input) ? "clarify" : "confirm";
+  if (pending.phase === "clarify") {
+    return {
+      text: `${BUDGET_CLARIFY_PROMPT} ${DISCLOSE}`,
+      source: "local",
+      pendingAction: pending,
+    };
+  }
+  return {
+    text: `${plan.summary} Say yes to confirm, or no to cancel. ${DISCLOSE}`,
+    source: "local",
+    pendingAction: pending,
+  };
+}
+
+
 export function createReasonActionPort(userId: string): import("@/lib/ai-help/reason-loop").ReasonActionPort {
   return {
     async proposePurchaseRequest(input) {
@@ -881,11 +1083,36 @@ export function createReasonActionPort(userId: string): import("@/lib/ai-help/re
         return { ok: false, text: e instanceof Error ? e.message : "I couldn’t prepare that change.", pendingAction: null };
       }
     },
+    async proposeDemandPlan(input) {
+      const out = await composeDemandPlanDraft({
+        userId,
+        partNumber: input.partNumber,
+        quantity: input.quantity,
+        dueDate: input.dueDate,
+        override: input.override as import("@/lib/services/carina-planning").PathOverride | undefined,
+        budgetAmount: input.budgetAmount,
+        budgetOwnerName: input.budgetOwnerName,
+        chargeCode: input.chargeCode,
+        skipBudget: input.skipBudget,
+      });
+      return { ok: !!out.pendingAction, text: out.text, pendingAction: out.pendingAction ?? null };
+    },
+    async proposePlanningWorksheet(input) {
+      const out = await composePlanningWorksheetDraft({
+        userId,
+        forecastNumber: input.forecastNumber,
+        partNumber: input.partNumber,
+        quantity: input.quantity,
+        dueDate: input.dueDate,
+        override: input.override as import("@/lib/services/carina-planning").PathOverride | undefined,
+      });
+      return { ok: !!out.pendingAction, text: out.text, pendingAction: out.pendingAction ?? null };
+    },
   };
 }
 
 export const UNPARSED_ACTION_REPLY =
-  "I can look up records and, when you confirm, propose changes or create a purchase request — for example edit a project, tie a work order to a project or budget, post a cycle count, consume parts, complete a work order, or create a PR. Tell me what you want to do, including numbers like WO-123 or what to buy and how many. Money, payroll, HR and user access stay off limits.";
+  "I can look up records and, when you confirm, propose changes or create a purchase request or a demand plan — for example edit a project, tie a work order to a project or budget, post a cycle count, consume parts, complete a work order, create a PR, plan demand, or create a planning worksheet. Tell me what you want to do, including numbers like WO-123 or what to buy and how many. Money, payroll, HR and user access stay off limits.";
 
 export function unparsedActionReply(question: string): string | null {
   const excluded = isExcludedDomain(question);
@@ -907,7 +1134,23 @@ export async function handleCarinaVoiceTurn(params: {
 
   const pendingKey = pending?.idempotencyKey || pending?.partial?.idempotencyKey;
   const hasPendingConfirm = pending?.phase === "confirm" && !!(pending.draft || pendingKey);
-  if (params.pendingOnly && !hasPendingConfirm) return null;
+  const hasPendingClarify = pending?.phase === "clarify" && !!pending.draft;
+  if (params.pendingOnly && !hasPendingConfirm && !hasPendingClarify) return null;
+
+  if (pending?.phase === "clarify" && pending.draft) {
+    if (isCancelUtterance(question)) {
+      if (pendingKey) {
+        await prisma.carinaVoiceActionReceipt.updateMany({
+          where: { idempotencyKey: pendingKey, userId: params.userId, status: "PENDING" },
+          data: { status: "CANCELLED" },
+        });
+      }
+      return { text: `Cancelled. I didn’t change any records. ${DISCLOSE}`, source: "local", pendingAction: null };
+    }
+    const out = await applyDemandPlanClarify(pending, question, params.userId);
+    return out;
+  }
+
   if (pending?.phase === "confirm" && (pending.draft || pendingKey)) {
     if (isCancelUtterance(question)) {
       if (pendingKey) {

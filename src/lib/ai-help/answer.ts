@@ -18,7 +18,7 @@ export type HelpAnswer = { text:string; citations:HelpCitation[]; source:'grok'|
 export type HelpTiming = { localMs?:number; retrieveMs?:number; ttftMs?:number; totalMs?:number };
 /** True when the user is asking Carina to perform a record change, not a how-to. */
 export function looksLikeRecordChange(question:string): boolean {
-  return /^(?:please\s+|can you\s+|could you\s+|would you\s+|i (?:want|need) (?:you )?to\s+)?(?:create|delete|finish|complete|approve|sign|post|release|cancel|pay|submit|change|update|send|buy|purchase|make|start|raise)\b|\b(?:do it for me|on my behalf|create .* for me|finish .* for me|purchase request|change records)\b/i.test(question.trim());
+  return /^(?:please\s+|can you\s+|could you\s+|would you\s+|i (?:want|need) (?:you )?to\s+)?(?:create|delete|finish|complete|approve|sign|post|release|cancel|pay|submit|change|update|send|buy|purchase|make|start|raise|plan)\b|\b(?:do it for me|on my behalf|create .* for me|finish .* for me|purchase request|change records|plan this demand|planning worksheet|material requisition)\b/i.test(question.trim());
 }
 
 export function helpSafetyReply(question:string, opts?:{voiceActions?:boolean}): string | null {
