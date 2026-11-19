@@ -1,6 +1,6 @@
 # Protessera Bug List (live)
 
-Updated: **2026-11-18 01:34 PM PST**. Owner: Jeramey Wilson.
+Updated: **2026-11-18 5:19 PM PT**.. Owner: Jeramey Wilson.
 Live Google Doc: https://docs.google.com/document/d/1DfNkpBAHioliXV4_RVWPRfjkF5XkfyoCuf3LS7xZHJI/edit
 GitHub copy: https://github.com/jmwilson92/erpsystem/blob/bugs/live-list/docs/BUG-LIST.md
 
@@ -98,6 +98,14 @@ Remaining **1 actions / 46 services**, plus 13 API routes and 229 models. Nested
 - Expected: Every serving production tenant has tables/columns/enums required by released main before queries run. A permanent metadata-only SELECT sweep detects missing Account.allowability even when local fixtures pass.
 - Actual: Owner identified missing production tenant column. Fix task reports legacy backfill added7tables/31columns to public and all11application schemas passed2,464zero-row model-column probes plus Prisma Account reads at04:46PM PST; its report is preserved, not claimed as this sweep verification. Independent attempt ran zero SQL: configured direct endpoint is IPv6-unreachable (ENETUNREACH). Handoff mentions a corrected session pooler but does not name it; no pooler host is injected. No current zero-drift or backfill-success claim. Unauthenticated GET status codes do not verify the authenticated dashboard.
 - Source: `prisma/schema.prisma Account.allowability; per-tenant release/backfill pipeline; ship143-handoff.txt connection approach`
+
+#### LOGIN-001 — Production /login 500 after #174 shipped without schema backfill, then leftover #173 alias after the DB password reset
+- Module: Production release / schema backfill / environment | Severity: **critical** | Status: **Fixed** — additive backfill of `CompanySettings.carinaVoiceActions` (default false) and `CarinaVoiceActionReceipt` on all 11 serving schemas (2,480 all-column probes plus Prisma Account.findFirst); Vercel production/preview `DATABASE_URL` and `DIRECT_URL` updated after the owner password reset; www and apex pointed at post-update redeploy `dpl_J7b4w39Xkvbw1pttVvydDowt16mu` (`c4fe072`, 2026-11-18 03:45:51 PM PT). `GET /login` 200 and `GET /api/health` db up, with no P2022/P1000/28P01 on that deploy.
+- Steps: After #174 merged, GET www `/login` and `/api/health`. Roll back to #173, apply the additive backfill, then after the password reset update Vercel DB URLs, redeploy, and re-point www only at a deploy built after the env update.
+- Expected: Schema additions are backfilled before promotion. `/login` returns 200 and `/api/health` shows db up. After a DB password reset, www points at a deploy built with the new env vars.
+- Actual: #174 promotion at 1:44:53 PM PT returned `/login` HTTP 500 (P2022 `CompanySettings.carinaVoiceActions` missing). After backfill and the password reset, the new #174 redeploy was healthy at 3:43:10 PM PT, but www stayed on #173 (old password) until 3:45:51 PM PT, so `/login` stayed 500 with 28P01.
+- Source: `prisma/schema.prisma` CompanySettings.carinaVoiceActions / CarinaVoiceActionReceipt; `scripts/backfill-tenant-schemas.ts`; Vercel production aliases
+- Fix verification: post-backfill report clean + 2,480 probes; www `/login` 200 and `/api/health` db up at 3:45:58–3:45:59 PM PT on `dpl_J7b4w39Xkvbw1pttVvydDowt16mu`.
 
 ### Next and safety
 
