@@ -482,7 +482,7 @@ export function SupportBubble({
           });
           return;
         }
-        carinaPendingRef.current = result.pendingAction?.draft ? result.pendingAction : null;
+        carinaPendingRef.current = result.pendingAction ?? null;
         setPendingDraft(result.pendingAction?.draft ? result.pendingAction : null);
         window.dispatchEvent(carinaPendingEvent(carinaPendingRef.current));
         if (result.language) {
@@ -509,15 +509,16 @@ export function SupportBubble({
         const { wantsPointOnly, bestPointAnchor } = await import(
           "@/lib/carina-catalog"
         );
-        if (wantsPointOnly(q)) {
-          const a = bestPointAnchor(q);
+        const stepByStep = !!result.guide?.stepByStep;
+        if (wantsPointOnly(q) || stepByStep) {
+          const a = wantsPointOnly(q) ? bestPointAnchor(q) : null;
           const step = result.guide?.steps?.[0];
           const sel = a?.selector || step?.selector;
           if (sel) {
             window.dispatchEvent(
               carinaPointEvent({
                 selector: sel,
-                route: a?.route || step?.route,
+                route: a?.route || step?.route || result.href,
                 label: a?.label || step?.title || "Here",
                 ms: 3200,
               })

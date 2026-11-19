@@ -250,7 +250,7 @@ export default async function PurchasingPage({
         actions={
           <div className="flex flex-wrap gap-2">
             <Link href="/purchasing/pr/new">
-              <Button size="sm">
+              <Button size="sm" data-carina-target="new-purchase-request">
                 <FileInput className="mr-1.5 h-3.5 w-3.5" />
                 New purchase request
               </Button>
@@ -287,7 +287,7 @@ export default async function PurchasingPage({
       </div>
 
       {/* Tab switch (preserves filters) */}
-      <div className="flex gap-1 rounded-lg border border-slate-800 bg-slate-950/60 p-1 w-fit" data-tour="pr-po-tabs">
+      <div className="flex gap-1 rounded-lg border border-slate-800 bg-slate-950/60 p-1 w-fit" data-tour="pr-po-tabs" data-carina-target="pr-po-tabs">
         <Link
           href={`/purchasing?${new URLSearchParams({
             ...Object.fromEntries(

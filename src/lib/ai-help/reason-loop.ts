@@ -4,7 +4,9 @@
  * hearing-check fast path and as a fallback when this loop fails.
  */
 import type { HelpCitation } from "./knowledge";
-import type { AiPendingAction } from "@/lib/services/ai";
+import type { AiGuideAction, AiPendingAction } from "@/lib/services/ai";
+import { resolveNavigation } from "./navigate";
+import { startHowto } from "./howto";
 import {
   LOOKUP_ENTITIES,
   LOOKUP_EXCLUDED_MESSAGE,
@@ -169,8 +171,45 @@ export const REASON_ACTION_TOOLS: GrokToolDef[] = [
   },
 ];
 
+export const REASON_NAV_TOOLS: GrokToolDef[] = [
+  {
+    type: "function",
+    function: {
+      name: "navigate",
+      description:
+        "Navigate the signed-in user to an app page or a specific record they may view. Use for “take me to”, “open”, “go to”, “show me WO-00008”. Returns an href the client will router.push. If several matches, ask which one. If permission is missing, say so and do not navigate.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          query: { type: "string", description: "The place or record the user asked for." },
+        },
+        required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "explain_howto",
+      description:
+        "Start a step-by-step how-to: navigate to the right page, explain the current step in one or two short sentences, and highlight the control. The user says “next” for the next step. Offer to do it when Carina has a confirm-gated action for the task.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          question: { type: "string" },
+        },
+        required: ["question"],
+      },
+    },
+  },
+];
+
 export function reasonTools(voiceActions: boolean): GrokToolDef[] {
-  return voiceActions ? [...REASON_LOOKUP_TOOLS, ...REASON_ACTION_TOOLS] : REASON_LOOKUP_TOOLS;
+  return voiceActions
+    ? [...REASON_LOOKUP_TOOLS, ...REASON_NAV_TOOLS, ...REASON_ACTION_TOOLS]
+    : [...REASON_LOOKUP_TOOLS, ...REASON_NAV_TOOLS];
 }
 
 export type ReasonChat = (params: {
@@ -232,6 +271,8 @@ export type ReasonTurnResult = {
   pendingAction?: AiPendingAction | null;
   hops: number;
   toolNames: string[];
+  href?: string;
+  guide?: AiGuideAction;
 };
 
 function entityOf(value: unknown): LookupEntityId | null {
@@ -268,6 +309,8 @@ export async function runCarinaReasonTurn(opts: {
   const messages: Parameters<ReasonChat>[0]["messages"] = [{ role: "user", content: opts.question }];
   const toolNames: string[] = [];
   let pendingAction: AiPendingAction | null | undefined;
+  let href: string | undefined;
+  let guide: AiGuideAction | undefined;
   const citations: HelpCitation[] = [];
   let hops = 0;
 
@@ -288,9 +331,12 @@ export async function runCarinaReasonTurn(opts: {
           voiceActions: opts.voiceActions,
           api,
           actions: opts.actions,
+          store: opts.store,
         });
         if (payload.pendingAction) pendingAction = payload.pendingAction;
         if (payload.citations) citations.push(...payload.citations);
+        if (payload.href) href = payload.href;
+        if (payload.guide) guide = payload.guide;
         messages.push({
           role: "tool",
           name: call.name,
@@ -310,6 +356,8 @@ export async function runCarinaReasonTurn(opts: {
         pendingAction: pendingAction ?? null,
         hops,
         toolNames,
+        href,
+        guide,
       };
     }
     break;
@@ -330,6 +378,8 @@ export async function runCarinaReasonTurn(opts: {
             pendingAction,
             hops,
             toolNames,
+            href,
+            guide,
           };
         }
       } catch {
@@ -349,11 +399,14 @@ async function executeReasonTool(
     voiceActions: boolean;
     api: ReturnType<typeof createLookupApi>;
     actions?: ReasonActionPort;
+    store: import("./lookup").LookupStore;
   }
 ): Promise<{
   result: unknown;
   pendingAction?: AiPendingAction | null;
   citations?: HelpCitation[];
+  href?: string;
+  guide?: AiGuideAction;
 }> {
   if (name === "count_records") {
     const entity = entityOf(args.entity);
@@ -451,6 +504,50 @@ async function executeReasonTool(
             reason: args.reason ? String(args.reason) : undefined,
           });
     return { result: out, pendingAction: out.pendingAction };
+  }
+  if (name === "navigate" || name === "explain_howto") {
+    const { userCanView, userHasPermission } = await import("@/lib/auth");
+    const query = String(name === "navigate" ? args.query || "" : args.question || "").trim();
+    if (!query) return { result: { ok: false, message: `${name} requires a query.` } };
+    if (name === "explain_howto") {
+      const started = startHowto(query, { voice: false });
+      if (!started) {
+        return { result: { ok: false, message: "I don’t have a step-by-step for that yet. I can still take you to the closest page." } };
+      }
+      return {
+        result: { ok: true, text: started.text, href: started.href },
+        pendingAction: started.pendingAction,
+        href: started.href,
+        guide: started.guide,
+      };
+    }
+    const nav = await resolveNavigation(query, {
+      userId: ctx.userId,
+      store: ctx.store,
+      canView: userCanView,
+      hasPermission: ctx.userId
+        ? (id, perm) => userHasPermission(id, perm)
+        : undefined,
+    });
+    const guide = nav.highlight
+      ? {
+          stepByStep: true,
+          steps: [
+            {
+              selector: nav.highlight.selector,
+              route: nav.href,
+              title: nav.highlight.label || "",
+              body: nav.text,
+            },
+          ],
+        }
+      : undefined;
+    return {
+      result: { ok: nav.ok, text: nav.text, href: nav.ok ? nav.href : undefined, kind: nav.kind, matches: nav.matches },
+      pendingAction: nav.pendingAction,
+      href: nav.ok ? nav.href : undefined,
+      guide,
+    };
   }
   return { result: { ok: false, message: `Unknown tool ${name}` } };
 }

@@ -11,6 +11,39 @@ import { usePathname, useRouter } from "next/navigation";
 
 type Rect = { top: number; left: number; width: number; height: number };
 
+function pathOnly(href: string): string {
+  try {
+    return new URL(href, "http://local").pathname;
+  } catch {
+    return href.split("?")[0].split("#")[0];
+  }
+}
+
+function findCarinaTarget(selector: string): HTMLElement | null {
+  const raw = selector.trim();
+  if (!raw) return null;
+  const tries: string[] = [raw];
+  const attr = raw.match(/data-(?:carina-target|tour)=["']([^"']+)["']/);
+  const id = attr?.[1] || (/^[A-Za-z0-9_-]+$/.test(raw) ? raw : "");
+  if (id) {
+    tries.push(`[data-carina-target="${id}"]`, `[data-tour="${id}"]`, `#${id}`);
+  }
+  const seen = new Set<string>();
+  for (const s of tries) {
+    if (seen.has(s)) continue;
+    seen.add(s);
+    try {
+      const el = document.querySelector(s);
+      if (el) return el as HTMLElement;
+    } catch {
+      // invalid selector
+    }
+  }
+  return null;
+}
+
+
+
 export function CarinaPoint() {
   const router = useRouter();
   const pathname = usePathname();
@@ -57,7 +90,7 @@ export function CarinaPoint() {
   // Navigate then locate
   useEffect(() => {
     if (!pending) return;
-    if (pending.route && pathname !== pending.route) {
+    if (pending.route && pathname !== pathOnly(pending.route)) {
       router.push(pending.route);
       return;
     }
@@ -67,7 +100,7 @@ export function CarinaPoint() {
     let poll: ReturnType<typeof setInterval> | null = null;
 
     const locate = () => {
-      const el = document.querySelector(pending.selector) as HTMLElement | null;
+      const el = findCarinaTarget(pending.selector);
       if (!el) return false;
       el.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
       const r = el.getBoundingClientRect();
@@ -100,7 +133,7 @@ export function CarinaPoint() {
     }
 
     const onScroll = () => {
-      const el = document.querySelector(pending.selector) as HTMLElement | null;
+      const el = findCarinaTarget(pending.selector);
       if (!el) return;
       const r = el.getBoundingClientRect();
       setRect({
@@ -118,7 +151,7 @@ export function CarinaPoint() {
       if (hideTimer) clearTimeout(hideTimer);
       window.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", onScroll);
-      const el = document.querySelector(pending.selector) as HTMLElement | null;
+      const el = findCarinaTarget(pending.selector);
       el?.classList.remove("carina-point-pulse");
     };
   }, [pending, pathname, router]);

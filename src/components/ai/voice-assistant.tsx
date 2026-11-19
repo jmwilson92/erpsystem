@@ -630,17 +630,18 @@ export function VoiceAssistant({
           }
 
           const guide = result.guide;
-          const willTour = !!(
+          const stepByStep = !!guide?.stepByStep;
+          const willTour = !stepByStep && !!(
             guide?.tourId ||
             (guide?.steps && guide.steps.length)
           );
           const userQ = text;
-          const pointMode = wantsPointOnly(userQ);
+          const pointMode = wantsPointOnly(userQ) || stepByStep;
           let point:
             | { selector: string; route?: string; label?: string }
             | null = null;
           if (pointMode) {
-            const a = bestPointAnchor(userQ);
+            const a = wantsPointOnly(userQ) ? bestPointAnchor(userQ) : null;
             if (a?.selector) {
               point = {
                 selector: a.selector,
@@ -650,7 +651,7 @@ export function VoiceAssistant({
             } else if (guide?.steps?.[0]?.selector) {
               point = {
                 selector: guide.steps[0].selector!,
-                route: guide.steps[0].route,
+                route: guide.steps[0].route || result.href,
                 label: guide.steps[0].title,
               };
             }
