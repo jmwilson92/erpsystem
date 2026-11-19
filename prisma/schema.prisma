@@ -4622,6 +4622,10 @@ model CompanySettings {
   /// JSON string array of User.role values notified when a WO exceeds allocated hours.
   /// Default (null) is PRODUCTION and PM.
   laborOverrunNotifyRoles String?
+  /// JSON string array of User.role values notified for Carina floor-monitor alerts
+  /// (low stock, capacity/staffing, late work, quality). Default (null) is
+  /// PRODUCTION, PM, and PURCHASING.
+  carinaFloorNotifyRoles String?
   updatedById          String?
   updatedAt            DateTime  @updatedAt
 }
@@ -4682,6 +4686,29 @@ model CarinaTask {
   @@index([status, sortOrder])
   @@index([createdById, status])
   @@index([approvalId])
+}
+
+/// Deduped Carina floor-monitor alerts. A new notification is sent only when
+/// the condition key changes (severity band, week, or count bucket).
+model CarinaFloorAlert {
+  id             String   @id @default(cuid())
+  /// LOW_STOCK | CAPACITY | LATE_WO | PAST_DUE_PO | QUALITY | APPROVALS | MONITOR
+  type           String
+  /// Stable subject key, e.g. part id or workCenterId+weekStart
+  fingerprint    String
+  /// Changes when the condition changes, so the same issue is not re-notified.
+  conditionKey   String
+  title          String
+  body           String
+  href           String?
+  entityType     String?
+  entityId       String?
+  lastNotifiedAt DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([type, fingerprint])
+  @@index([type, lastNotifiedAt])
 }
 
 // ═══════════════════════════════════════════════════════════════

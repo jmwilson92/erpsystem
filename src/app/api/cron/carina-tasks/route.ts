@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { controlPlaneClient, isValidSchemaName, runWithSchema } from "@/lib/db";
 import { prismaCarinaTaskDeps, runDueTasks } from "@/lib/services/carina-tasks";
+import { prismaFloorMonitorDeps, runFloorMonitor } from "@/lib/services/carina-floor";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,14 +22,21 @@ export async function GET(req: NextRequest) {
   }
 
   const schemas = await listServingSchemas();
-  const results: { schema: string; ran: number; error?: string }[] = [];
+  const results: { schema: string; ran: number; floorNotified?: number; floorRan?: boolean; error?: string }[] = [];
   for (const schema of schemas) {
     try {
       const ran = await runWithSchema(schema, async () => {
         const deps = await prismaCarinaTaskDeps();
-        return runDueTasks(deps, { limit: 10 });
+        const tasks = await runDueTasks(deps, { limit: 10 });
+        let floor = { notified: 0, ran: false as boolean };
+        try {
+          floor = await runFloorMonitor(await prismaFloorMonitorDeps());
+        } catch {
+          // A missing floor-alert table on a lagging schema should not fail the sweep.
+        }
+        return { tasks, floor };
       });
-      results.push({ schema, ran });
+      results.push({ schema, ran: ran.tasks, floorNotified: ran.floor.notified, floorRan: ran.floor.ran });
     } catch (err) {
       const message = err instanceof Error ? err.message : "failed";
       // A missing table on a lagging schema should not fail the whole sweep.

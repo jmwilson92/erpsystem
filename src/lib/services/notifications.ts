@@ -159,6 +159,16 @@ export async function getNotificationSummary(user: {
         href: "/notifications",
       });
     }
+    const unreadFloor = await prisma.userNotification.count({
+      where: { userId: user.id, isRead: false, type: "CARINA_FLOOR" },
+    });
+    if (unreadFloor > 0) {
+      items.push({
+        label: "Carina floor alerts",
+        count: unreadFloor,
+        href: "/notifications",
+      });
+    }
   } catch {
     // advisory — never break the shell
   }

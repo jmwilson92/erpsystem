@@ -12,9 +12,11 @@ import {
   actionSetBomPrototypeDefault,
   actionSetCarinaVoiceActions,
   actionSaveLaborOverrunRoles,
+  actionSaveCarinaFloorRoles,
 } from "@/app/actions";
 import { ROLES } from "@/lib/auth";
 import { DEFAULT_OVERRUN_ROLES } from "@/lib/services/labor-progress";
+import { DEFAULT_FLOOR_NOTIFY_ROLES } from "@/lib/services/carina-floor";
 import { Input } from "@/components/ui/input";
 import { MODULES } from "@/lib/modules";
 import { Button } from "@/components/ui/button";
@@ -282,6 +284,55 @@ export default async function AdminSettingsPage() {
             {canEdit && (
               <Button type="submit" size="sm">
                 Save notification roles
+              </Button>
+            )}
+          </form>
+        </CardContent>
+      </Card>
+
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-base">
+            Carina floor-monitor notifications
+          </CardTitle>
+          <p className="text-xs text-slate-500">
+            When Carina finds low-stock parts, overloaded work centers, late work,
+            past-due purchase orders, or quality holds, notify everyone in the roles
+            you pick. Default is Production, PM, and Purchasing. The same alert is
+            not sent again until the condition changes.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <form action={actionSaveCarinaFloorRoles} className="space-y-3">
+            <div className="flex flex-wrap gap-3">
+              {ROLES.map((role) => {
+                let selected = [...DEFAULT_FLOOR_NOTIFY_ROLES] as string[];
+                try {
+                  if (company.carinaFloorNotifyRoles) {
+                    const parsed = JSON.parse(company.carinaFloorNotifyRoles);
+                    if (Array.isArray(parsed) && parsed.length) selected = parsed;
+                  }
+                } catch {
+                  /* keep default */
+                }
+                return (
+                  <label key={role} className="flex items-center gap-1.5 text-xs text-slate-300">
+                    <input
+                      type="checkbox"
+                      name="roles"
+                      value={role}
+                      defaultChecked={selected.includes(role)}
+                      disabled={!canEdit}
+                    />
+                    {role}
+                  </label>
+                );
+              })}
+            </div>
+            {canEdit && (
+              <Button type="submit" size="sm">
+                Save floor notification roles
               </Button>
             )}
           </form>
