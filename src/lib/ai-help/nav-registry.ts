@@ -113,6 +113,21 @@ const EXTRA_ROUTES: Omit<NavRoute, "permission">[] = [
     group: "Supply Chain",
   },
   {
+    href: "/bom/import",
+    label: "Import BOM from file",
+    synonyms: [
+      "import this bom",
+      "import a bom",
+      "import bom from file",
+      "import bill of materials",
+      "upload bom",
+      "upload a bom",
+      "submit a bom",
+      "import bom",
+    ],
+    group: "Engineering & PLM",
+  },
+  {
     href: "/admin/settings",
     label: "BOM prototype settings",
     synonyms: [

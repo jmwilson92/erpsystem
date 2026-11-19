@@ -129,6 +129,24 @@ export default async function BomDetailPage({
         )}
       </div>
 
+      {bom.sourceFileName && (
+        <Card>
+          <CardHeader><CardTitle>Source file</CardTitle></CardHeader>
+          <CardContent className="space-y-2 text-sm text-slate-300">
+            <p>
+              Imported from <span className="font-mono text-slate-100">{bom.sourceFileName}</span>
+              {bom.sourceKind ? <span className="text-slate-500"> · {bom.sourceKind.replace("_", " ")}</span> : null}
+              {bom.importedAt ? <span className="text-slate-500"> · {formatDate(bom.importedAt)}</span> : null}
+            </p>
+            {bom.sourceFileUrl?.startsWith("data:") && (
+              <a href={bom.sourceFileUrl} download={bom.sourceFileName} className="text-sky-400 hover:underline">
+                Download original file
+              </a>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader><CardTitle>Allocated build time</CardTitle></CardHeader>
         <CardContent className="space-y-2 text-sm">

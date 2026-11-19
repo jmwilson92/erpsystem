@@ -122,7 +122,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/docs", label: "Docs", icon: FileText, keywords: ["knowledge", "wiki", "spaces", "procedures"] },
       { href: "/engineering", label: "Engineering", icon: Briefcase, keywords: ["tasks", "board", "disciplines"] },
       { href: "/requirements", label: "Requirements", icon: ListChecks, keywords: ["jama", "trace", "verification", "shall", "coverage", "system requirements"] },
-      { href: "/bom", label: "BOMs", icon: Layers, keywords: ["bill of materials", "where used", "revision"] },
+      { href: "/bom", label: "BOMs", icon: Layers, keywords: ["bill of materials", "where used", "revision", "import bom"] },
       { href: "/work-instructions", label: "Work Instructions", icon: FileText, keywords: ["wi", "router", "steps"] },
       { href: "/test-procedures", label: "Test Procedures", icon: ClipboardList, keywords: ["atp", "test procedure", "acceptance test", "functional test", "cm controlled"] },
       { href: "/products", label: "Products (PLM)", icon: Package2, keywords: ["product lifecycle", "catalog"] },

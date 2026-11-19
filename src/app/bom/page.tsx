@@ -89,6 +89,9 @@ export default async function BomPage({
         description="BOM revisions and structure — item master lives under Items"
         actions={
           <div className="flex gap-2">
+            <Link href="/bom/import">
+              <Button size="sm">Import BOM from file</Button>
+            </Link>
             <Link href="/items">
               <Button size="sm" variant="outline">
                 Item cards
@@ -127,6 +130,8 @@ export default async function BomPage({
           <div>
             <select name="status" defaultValue={status} className={selectClass}>
               <option value="">All statuses</option>
+              <option value="DRAFT">Draft</option>
+              <option value="IN_REVIEW">In review</option>
               <option value="PROTOTYPE">Prototype</option>
               <option value="CERTIFIED">Certified</option>
               <option value="PRODUCTION">Production</option>

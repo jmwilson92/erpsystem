@@ -22,7 +22,7 @@
     "setup": "prisma generate && prisma db push && tsx prisma/seed.ts",
     "postinstall": "prisma generate",
     "typecheck": "tsc --noEmit",
-    "smoke": "tsx --tsconfig tsconfig.smoke.json scripts/smoke-unit.ts && npm run test:integrity && npm run test:carina-voice-actions && npm run test:ai-help && npm run test:qa && npm run test:qa-workflows && npm run test:qa-finance && npm run test:qa-permissions && npm run test:qa-auth-recovery && npm run test:qa-cm-gfp-authority && npm run test:qa-budget-approvals && npm run test:qa-shipment-stock && npm run test:qa-mrb-conservation && npm run test:qa-critical-integrity && tsx scripts/test-qa-gfp-conservation.ts && npm run test:qa-quality-evidence && npm run test:qa-onboarding-claims && npm run test:qa-shelf-integrity && npm run test:qa-hr-integrity && npm run test:qa-expense-sod && npm run test:qa-engineering-integrity && npm run test:qa-planning-integrity && npm run test:qa-rma-integrity && npm run test:qa-management-integrity && npm run test:qa-calendar-integrity && npm run test:qa-import-integrity && npm run test:qa-quote-va-due && npm run test:qa-leftover-coverage && npm run test:qa-labor-progress",
+    "smoke": "tsx --tsconfig tsconfig.smoke.json scripts/smoke-unit.ts && npm run test:integrity && npm run test:carina-voice-actions && npm run test:ai-help && npm run test:qa && npm run test:qa-workflows && npm run test:qa-finance && npm run test:qa-permissions && npm run test:qa-auth-recovery && npm run test:qa-cm-gfp-authority && npm run test:qa-budget-approvals && npm run test:qa-shipment-stock && npm run test:qa-mrb-conservation && npm run test:qa-critical-integrity && tsx scripts/test-qa-gfp-conservation.ts && npm run test:qa-quality-evidence && npm run test:qa-onboarding-claims && npm run test:qa-shelf-integrity && npm run test:qa-hr-integrity && npm run test:qa-expense-sod && npm run test:qa-engineering-integrity && npm run test:qa-planning-integrity && npm run test:qa-rma-integrity && npm run test:qa-management-integrity && npm run test:qa-calendar-integrity && npm run test:qa-import-integrity && npm run test:qa-quote-va-due && npm run test:qa-leftover-coverage && npm run test:qa-labor-progress && npm run test:qa-bom-import",
     "assert:prod-env": "node scripts/assert-production-env.mjs",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
@@ -68,7 +68,8 @@
     "test:qa-import-integrity": "tsx scripts/test-qa-import-integrity.ts",
     "test:qa-quote-va-due": "tsx scripts/test-qa-quote-va-due.ts",
     "test:qa-leftover-coverage": "tsx scripts/test-qa-leftover-coverage.ts",
-    "test:qa-labor-progress": "tsx scripts/test-qa-labor-progress.ts"
+    "test:qa-labor-progress": "tsx scripts/test-qa-labor-progress.ts",
+    "test:qa-bom-import": "tsx --tsconfig tsconfig.smoke.json scripts/test-qa-bom-import.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
