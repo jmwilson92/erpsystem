@@ -51,14 +51,19 @@ assert.match(audio, /concatBuffers|playOneAudio/);
 
 const voice = fs.readFileSync("src/components/ai/voice-assistant.tsx", "utf8");
 assert.match(voice, /startPttRecognition/);
+assert.match(voice, /startMicListen/);
+assert.ok(!/getSpeechRecognition|webkitSpeechRecognition/.test(voice), "no browser Web Speech");
+
 assert.match(voice, /stopPttRecognition/);
-assert.match(voice, /pttRecRef/);
+assert.match(voice, /flush\("ptt"\)/);
 assert.match(voice, /streamRef/);
 assert.match(voice, /MIC_AUDIO_CONSTRAINTS/);
 assert.ok(!/getTracks\(\)\.forEach\(\(t\) => t\.stop\(\)\)/.test(voice.split("startListening")[1].slice(0, 2000)));
 const speakFn = voice.slice(voice.indexOf("const speak = useCallback"), voice.indexOf("const ask = useCallback"));
 assert.ok(!speakFn.includes("recRef.current?.stop()"), "speak() must not stop the recognizer / mic");
-assert.match(voice, /carinaIsSpeaking\(\) && !pttRef/);
+assert.match(voice, /getSpeaking: \(\) => carinaIsSpeaking\(\)/);
+assert.match(voice, /getPtt: \(\) => pttRef.current/);
+
 assert.match(voice, /shouldShowVoiceDebug/);
 assert.match(voice, /data-voice-debug/);
 assert.match(voice, /onDelta:/);
