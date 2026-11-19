@@ -543,7 +543,7 @@ export async function queryLaborProgressReport(
     ];
   }
 
-  let ids: string[] = (
+  const ids: string[] = (
     await prisma.workOrder.findMany({ where, select: { id: true } })
   ).map((w) => w.id);
 
