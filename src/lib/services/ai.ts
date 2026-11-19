@@ -27,17 +27,27 @@ export async function processAiConversation(messages:{role:'user'|'assistant';co
   const last=questions.at(-1)?.content.trim() || '';
   const lang=detectLanguageSwitch(last) || resolveLang(opts?.language || DEFAULT_LANG.code);
   if(!last) return {text:'Please ask a Protessera question.',language:lang.code,source:'local'};
+  let voiceActions=false;
   if (opts?.userId) {
-    const { handleCarinaVoiceTurn } = await import('./carina-voice-actions');
+    const { handleCarinaVoiceTurn, unparsedActionReply } = await import('./carina-voice-actions');
     const acted = await handleCarinaVoiceTurn({
       question: last,
       pendingAction: opts.pendingAction,
       userId: opts.userId,
     });
     if (acted) return { ...acted, language: lang.code };
+    const { getCarinaFeatures } = await import('./carina-features');
+    const features = await getCarinaFeatures();
+    voiceActions=!!features.voiceActions;
+    // Toggle is on, but this phrase is not one of the confirm-gated intents.
+    // Do not fall through to the leftover "I'm read-only help" safety line.
+    if (voiceActions) {
+      const fallback = unparsedActionReply(last);
+      if (fallback) return { text: fallback, source: 'local', language: lang.code, pendingAction: opts.pendingAction ?? null };
+    }
   }
-  const out=await answerHelp(last,{page:opts?.page,language:lang.name,previousQuestion:questions.at(-2)?.content,onDelta:opts?.onDelta,userId:opts?.userId});
-  const tid=/(show me|walk me|tour|guide me)/i.test(last)?matchTourFromQuery(last):null;
+  const out=await answerHelp(last,{page:opts?.page,language:lang.name,previousQuestion:questions.at(-2)?.content,onDelta:opts?.onDelta,userId:opts?.userId,voiceActions});
+  const tid=/\b(show me|walk me|tour|guide me)\b/i.test(last)?matchTourFromQuery(last):null;
   // Keep an outstanding confirm-gated draft if this turn was only a help/meta reply.
   return {...out,language:lang.code,pendingAction:opts?.pendingAction ?? null,guide:out.citations.length && tid && getTour(tid)?{tourId:tid}:undefined};
 }
