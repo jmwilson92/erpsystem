@@ -11,6 +11,7 @@ import {
   type LookupEntityId,
   type LookupHit,
   type LookupResult,
+  type LookupFailure,
   isExcludedLookupQuery,
   isLookupEntity,
   LOOKUP_EXCLUDED_MESSAGE,
@@ -713,7 +714,7 @@ export function createLookupApi(opts: {
   async function ensureAllowed(
     userId: string | undefined,
     entity: LookupEntityId
-  ): Promise<Extract<LookupResult, { ok: false }> | null> {
+  ): Promise<LookupFailure | null> {
     if (!userId) {
       return {
         ok: false,
@@ -742,7 +743,7 @@ export function createLookupApi(opts: {
       ? ([] as LookupEntityId[]).concat(params.entity)
       : LOOKUP_ENTITIES;
     const hits: LookupHit[] = [];
-    let denied: Extract<LookupResult, { ok: false }> | null = null;
+    let denied: LookupFailure | null = null;
     for (const entity of entities) {
       if (!isLookupEntity(entity)) continue;
       const block = await ensureAllowed(params.userId, entity);

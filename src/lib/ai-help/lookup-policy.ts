@@ -262,7 +262,9 @@ export type LookupResult =
       entity?: LookupEntityId;
     };
 
-export function permissionDeniedResult(entity: LookupEntityId): LookupResult {
+export type LookupFailure = Extract<LookupResult, { ok: false }>;
+
+export function permissionDeniedResult(entity: LookupEntityId): LookupFailure {
   return {
     ok: false,
     reason: "permission-denied",
@@ -271,7 +273,7 @@ export function permissionDeniedResult(entity: LookupEntityId): LookupResult {
   };
 }
 
-export function notFoundResult(entity: LookupEntityId, idOrNumber: string): LookupResult {
+export function notFoundResult(entity: LookupEntityId, idOrNumber: string): LookupFailure {
   return {
     ok: false,
     reason: "not-found",
