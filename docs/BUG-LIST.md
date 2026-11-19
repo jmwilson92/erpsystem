@@ -1,8 +1,20 @@
 # Protessera Bug List (live)
 
-Updated: **2026-11-18 5:19 PM PT**.. Owner: Jeramey Wilson.
+Updated: **2026-11-18 09:47 PM PT**. Owner: Jeramey Wilson.
 Live Google Doc: https://docs.google.com/document/d/1DfNkpBAHioliXV4_RVWPRfjkF5XkfyoCuf3LS7xZHJI/edit
 GitHub copy: https://github.com/jmwilson92/erpsystem/blob/bugs/live-list/docs/BUG-LIST.md
+
+## Latest production ship — 2026-11-18 9:45 PM PT
+
+**LABOR-001** shipped to production via [PR #185](https://github.com/jmwilson92/erpsystem/pull/185). Squash-merge `174252202e76c3054c601840f0484f5367bc2e7f` is live at `dpl_brSfRFwJcnvJ8SPVYhzYrpfNWz68`. www.protessera.com and the protessera.com apex alias point at that deploy (apex 308 to www). `GET /login` 200 (Sign in · Protessera) and `GET /api/health` db up at 9:45:49–9:45:51 PM PT, with no P2022/P1000/28P01 in error/fatal runtime logs on that deploy.
+
+### LABOR-001 — Work-order labor % complete and project/budget rollup
+- Module: Work orders / Capacity / PMO / Budgets / Reports | Severity: **feature** | Status: **Shipped** — [PR #185](https://github.com/jmwilson92/erpsystem/pull/185); squash-merge `174252202e76c3054c601840f0484f5367bc2e7f` on production `dpl_brSfRFwJcnvJ8SPVYhzYrpfNWz68` (2026-11-18 9:45 PM PT). www and apex aliases point at that deploy. `GET /login` 200 and `GET /api/health` db up, with no P2022/P1000/28P01 on that deploy.
+- Request (t435u / t436u): Show work-order % complete from allocated build time on the item card or BOM (clocked time-entry hours / allocated hours). If it goes over 100%, the bar turns red and someone is notified. Hours are entered manually at first; after the work order is completed, last actual hours become the estimated time on the next work order for that item. Remaining hours also feed capacity. If work orders are tied to projects or budgets, that progress rolls up in a report.
+- What shipped: Allocated hours live on the item card and BOM revision (BOM wins), are snapshotted onto the work order at release, and drive % complete from clocked time entries. Over-allocated work orders turn the progress bar red and notify Production/PM once (roles configurable). Completion records last actual hours per unit onto unlocked item/BOM estimates. Capacity and the floor board use remaining hours. Project and budget detail pages, plus a filterable Reports CSV, roll up linked work-order progress, hours, and labor cost vs budget. Carina can read the same service (no voice-file changes). Local fixture `scripts/test-qa-labor-progress.ts` PASS. Sanctioned Vercel sandbox backfill applied 17 additive columns plus `LaborEstimateHistory` and `UserNotification` on public and all 10 tenant/demo schemas (11 serving schemas; 2,502 all-column probes plus Prisma Account.findFirst PASS) before promotion.
+- Source: `src/lib/services/labor-progress.ts`; item/BOM/work-order/capacity/floor/PMO/budget/report/notification UI; `prisma/schema.prisma` LaborEstimateHistory, UserNotification, and allocated-hours fields
+- Verification: exact-head CI and preview green; post-apply report clean + 2,502 probes; www `/login` 200 and `/api/health` db up at 9:45:49–9:45:51 PM PT on `dpl_brSfRFwJcnvJ8SPVYhzYrpfNWz68`.
+
 
 ## Latest QA checkpoint — 2026-11-10 05:25 PM PST
 
