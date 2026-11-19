@@ -5,9 +5,9 @@ import { reserveHelpTurn } from "@/lib/ai-help/budget";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export const STT_PROVIDER = "xai";
-export const STT_MODEL = "grok-voice-transcribe-2.0";
-export const STT_UPSTREAM = "https://api.x.ai/v1/stt";
+const STT_PROVIDER = "xai";
+const STT_MODEL = "grok-voice-transcribe-2.0";
+const STT_UPSTREAM = "https://api.x.ai/v1/stt";
 
 function sttKey(): string {
   return (process.env.TTS_API_KEY || process.env.XAI_API_KEY)?.trim() || "";
