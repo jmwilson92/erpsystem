@@ -1,6 +1,6 @@
 /**
  * Cross-component voice coordination.
- * Only the shell VoiceAssistant owns SpeechRecognition; the /ai settings page
+ * Only the shell VoiceAssistant owns the listen pipeline; the /ai settings page
  * and help bubble request start/stop via events. Survives client-side navigation.
  */
 
@@ -70,10 +70,11 @@ export function carinaPttUpEvent() {
 export function speechRecognitionSupported(): boolean {
   if (typeof window === "undefined") return false;
   const w = window as unknown as {
-    SpeechRecognition?: unknown;
-    webkitSpeechRecognition?: unknown;
+    AudioContext?: typeof AudioContext;
+    webkitAudioContext?: typeof AudioContext;
   };
-  return !!(w.SpeechRecognition || w.webkitSpeechRecognition);
+  const AC = w.AudioContext || w.webkitAudioContext;
+  return !!AC && !!navigator.mediaDevices?.getUserMedia;
 }
 
 /** Non-blocking temporary highlight (page stays clickable). */

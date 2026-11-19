@@ -83,6 +83,11 @@ async function main() {
   assert.ok(!sys.includes('x'.repeat(HELP_EVIDENCE_CHARS+1)), 'Evidence must be trimmed');
   assert.equal(HELP_EVIDENCE_LIMIT,2);
   assert.equal(HELP_MAX_TOKENS,400);
+  const { HELP_VOICE_MAX_TOKENS: voiceTok, VOICE_REPLY_POLICY } = await import('../src/lib/ai-help/answer');
+  assert.equal(voiceTok,180);
+  assert.match(helpSystem([bom],'/bom','English',{voice:true}), /VOICE MODE|plain spoken/);
+  assert.match(VOICE_REPLY_POLICY, /1-2 short sentences/);
+
   assert.equal(HELP_GROK_TIMEOUT_MS,8000);
   assert.match(fs.readFileSync('src/lib/ai-help/answer.ts','utf8'), /retrieveHelp\(question,opts\?\.page,HELP_EVIDENCE_LIMIT\)/);
   assert.ok(!/retrieveHelp\(question\+\(opts\?\.previousQuestion/.test(fs.readFileSync('src/lib/ai-help/answer.ts','utf8')), 'Previous turns must not be mixed into retrieval');
@@ -104,13 +109,10 @@ async function main() {
   assert.match(examples,/show me how to create a work order/);
   assert.match(examples,/explain work order completion/);
   assert.ok(!/finish work order|WO-10042/i.test(examples),'Voice examples must not promise ERP mutations');
-  assert.match(voice,/planRecognitionEnd/);
-  assert.match(voice,/SILENCE_INTERIM_ONLY_MS/);
-  const onendAt=voice.indexOf('rec.onend = ()');
-  const onend=voice.slice(onendAt, voice.indexOf('recRef.current = rec', onendAt));
-  assert.ok(!onend.includes(', 400)'), 'onend must not flush after 400ms');
-  assert.match(onend,/planRecognitionEnd/);
-  assert.match(onend,/processWakeBeforeRestart/);
+  assert.match(voice,/startMicListen/);
+  assert.match(voice,/transcribeUtterance/);
+  assert.match(voice,/flush\("ptt"\)/);
+  assert.ok(!/planRecognitionEnd|webkitSpeechRecognition|getSpeechRecognition/.test(voice), 'browser Web Speech must not be used');
   assert.match(voice,/streamCarinaConversation/);
   assert.match(voice,/helpMetaReply/);
   assert.match(fs.readFileSync('src/components/support/support-bubble.tsx','utf8'),/streamCarinaConversation/);

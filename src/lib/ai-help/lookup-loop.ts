@@ -5,6 +5,7 @@
  * auto-expand hop run first so common questions stay fast.
  */
 import type { HelpCitation } from "./knowledge";
+import { VOICE_REPLY_POLICY } from "./voice-style";
 import {
   LOOKUP_ENTITIES,
   LOOKUP_EXCLUDED_MESSAGE,
@@ -190,6 +191,7 @@ export async function runLookupToolLoop(opts: {
   chat?: ChatWithTools;
   priorHits?: LookupHit[];
   maxHops?: number;
+  voice?: boolean;
 }): Promise<{ hits: LookupHit[]; text: string; hops: number; failures: LookupResult[] }> {
   const maxHops = opts.maxHops ?? LOOKUP_MAX_HOPS;
   const collected = await collectDeterministicHits(opts.execute, opts.question, maxHops);
@@ -199,7 +201,8 @@ export async function runLookupToolLoop(opts: {
 
   if (opts.chat && hops < maxHops) {
     const system =
-      "You are Carina, a read-only Protessera assistant. Use search_records and get_record to look up live tenant data the user may view. Product docs are optional extra context, not a requirement. Never request payroll, HR, salary, financial balances or other tenants' data. After at most a few tool calls, answer with record numbers and in-app paths only. No writes.";
+      "You are Carina, a read-only Protessera assistant. Use search_records and get_record to look up live tenant data the user may view. Product docs are optional extra context, not a requirement. Never request payroll, HR, salary, financial balances or other tenants' data. After at most a few tool calls, answer with record numbers and in-app paths only. No writes."
+      + (opts.voice ? " " + VOICE_REPLY_POLICY : "");
     const messages: {
       role: "system" | "user" | "assistant" | "tool";
       content: string;
@@ -272,6 +275,7 @@ export async function answerRecordLookup(opts: {
   canView?: LookupCanView;
   chat?: ChatWithTools;
   onDelta?: (text: string) => void;
+  voice?: boolean;
 }): Promise<{ text: string; citations: HelpCitation[]; source: "local" | "grok"; hops: number } | null> {
   if (isExcludedLookupQuery(opts.question)) {
     const text = LOOKUP_EXCLUDED_MESSAGE;
@@ -287,6 +291,7 @@ export async function answerRecordLookup(opts: {
     question: opts.question,
     execute,
     chat: opts.chat,
+    voice: opts.voice,
   });
   if (!out.hits.length && !out.failures.length && !opts.chat) return null;
   if (!out.hits.length && !out.failures.length) return null;

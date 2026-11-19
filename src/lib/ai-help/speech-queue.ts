@@ -5,6 +5,7 @@
  * clip a long reply. The queue never cancels in-flight speech unless
  * the caller explicitly stops.
  */
+import { expandSpokenAbbreviations } from "@/lib/ai-help/speech-normalize";
 
 export const SPEECH_CHUNK_MAX_CHARS = 200;
 export const SPEECH_VOLUME = 1;
@@ -14,7 +15,7 @@ export const SPEECH_PITCH = 1;
 export const EDGE_SPEECH_KEEPALIVE_MS = 10_000;
 
 export function tidySpeechText(text: string): string {
-  return text
+  return expandSpokenAbbreviations(text)
     .replace(/\*\*/g, "")
     .replace(/`+/g, "")
     .replace(/#{1,6}\s/g, "")

@@ -21,7 +21,7 @@ export async function processAiQuery(query:string):Promise<string> {
   const out=await actionAiConversation([{role:'user',content:query}]);
   return out.ok?out.text:out.error;
 }
-export async function processAiConversation(messages:{role:'user'|'assistant';content:string}[],opts?:{pendingAction?:AiPendingAction|null;language?:string|null;page?:string|null;userId?:string|null;onDelta?:(text:string)=>void}):Promise<AiConversationOutput> {
+export async function processAiConversation(messages:{role:'user'|'assistant';content:string}[],opts?:{pendingAction?:AiPendingAction|null;language?:string|null;page?:string|null;userId?:string|null;onDelta?:(text:string)=>void;voice?:boolean}):Promise<AiConversationOutput> {
   const {resolveLang,detectLanguageSwitch,DEFAULT_LANG}=await import('../carina-language');
   const questions=messages.filter(m=>m.role==='user');
   const last=questions.at(-1)?.content.trim() || '';
@@ -52,7 +52,7 @@ export async function processAiConversation(messages:{role:'user'|'assistant';co
       }
     }
   }
-  const out=await answerHelp(last,{page:opts?.page,language:lang.name,previousQuestion:questions.at(-2)?.content,onDelta:opts?.onDelta,userId:opts?.userId,voiceActions});
+  const out=await answerHelp(last,{page:opts?.page,language:lang.name,previousQuestion:questions.at(-2)?.content,onDelta:opts?.onDelta,userId:opts?.userId,voiceActions,voice:!!opts?.voice});
   const tid=/\b(show me|walk me|tour|guide me)\b/i.test(last)?matchTourFromQuery(last):null;
   // Keep an outstanding confirm-gated draft if this turn was only a help/meta reply.
   return {...out,language:lang.code,pendingAction:opts?.pendingAction ?? null,guide:out.citations.length && tid && getTour(tid)?{tourId:tid}:undefined};

@@ -4,8 +4,9 @@
  * text is ready, play it at a fixed volume, and prefetch the rest. No
  * speechSynthesis and no pause/resume keep-alive.
  */
+import { normalizeSpeechText } from "@/lib/ai-help/speech-normalize";
+import { createReplyQueue } from "@/lib/ai-help/speech-turn";
 import {
-  createSpeechBuffer,
   splitSentences,
   tidySpeechText,
 } from "@/lib/ai-help/speech-queue";
@@ -26,7 +27,8 @@ let playTail: Promise<void> = Promise.resolve();
 let replyStartedAt = 0;
 let firstAudioAt: number | null = null;
 let firstSentenceChars = 0;
-const buffer = createSpeechBuffer(TTS_FETCH_MAX_CHARS);
+const replyQueue = createReplyQueue();
+let activeTurnId = 0;
 let lastTimings: CarinaSpeakTimings = { timeToFirstAudioMs: null, firstSentenceChars: 0 };
 let warmupInFlight: Promise<void> | null = null;
 
@@ -54,7 +56,7 @@ export function carinaLastSpeakTimings(): CarinaSpeakTimings {
 export function carinaStopAllAudio(): void {
   gen += 1;
   speaking = false;
-  buffer.reset();
+  replyQueue.reset();
   playTail = Promise.resolve();
   firstAudioAt = null;
   firstSentenceChars = 0;
@@ -77,9 +79,20 @@ export function carinaBeginSpeechHold(): void {
   speaking = true;
 }
 
+export type CarinaSpeakOpts = { language?: string; voiceId?: string; turnId?: number };
+
+function isCurrentTurn(turnId?: number): boolean {
+  return turnId == null || turnId === activeTurnId;
+}
+
+export function carinaActiveTurnId(): number {
+  return activeTurnId;
+}
+
 /** Start a new spoken reply. Cancels only a previous reply, not later sentences. */
-export function carinaStartReply(): void {
+export function carinaStartReply(turnId?: number): void {
   carinaStopAllAudio();
+  activeTurnId = turnId ?? activeTurnId + 1;
   carinaBeginSpeechHold();
   replyStartedAt = nowMs();
   firstAudioAt = null;
@@ -123,7 +136,7 @@ async function fetchTtsChunk(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      text: text.slice(0, TTS_FETCH_MAX_CHARS),
+      text: normalizeSpeechText(text).slice(0, TTS_FETCH_MAX_CHARS),
       voiceId: opts?.voiceId || "carina",
       language: opts?.language || "en",
     }),
@@ -194,13 +207,14 @@ function enqueueChunks(chunks: string[], opts: { language?: string; voiceId?: st
   }
 }
 
-/** Queue newly completed sentences from a cumulative stream. Never cancels. */
+/** Queue newly completed sentences from a cumulative stream. Dedupes by index. */
 export function carinaEnqueueCumulative(
   cumulative: string,
-  opts?: { language?: string; voiceId?: string }
+  opts?: CarinaSpeakOpts
 ): number {
+  if (!isCurrentTurn(opts?.turnId)) return 0;
   carinaBeginSpeechHold();
-  const chunks = buffer.ingest(cumulative);
+  const chunks = replyQueue.pushCumulative(cumulative, false);
   enqueueChunks(chunks, opts);
   return chunks.length;
 }
@@ -208,14 +222,15 @@ export function carinaEnqueueCumulative(
 /** Flush leftover text, wait for the queue, then release the mic hold. */
 export async function carinaFinishReply(
   finalText?: string,
-  opts?: { language?: string; voiceId?: string }
+  opts?: CarinaSpeakOpts
 ): Promise<CarinaSpeakTimings> {
+  if (!isCurrentTurn(opts?.turnId)) return lastTimings;
   carinaBeginSpeechHold();
   const g = gen;
-  const chunks = buffer.flush(finalText);
+  const chunks = replyQueue.pushCumulative(finalText || "", true);
   enqueueChunks(chunks, opts);
   await playTail;
-  if (g === gen) speaking = false;
+  if (g === gen && isCurrentTurn(opts?.turnId)) speaking = false;
   return lastTimings;
 }
 
@@ -225,15 +240,15 @@ export async function carinaFinishReply(
  */
 export async function carinaPlaySpeech(
   text: string,
-  opts?: { language?: string; voiceId?: string }
+  opts?: CarinaSpeakOpts
 ): Promise<CarinaSpeakTimings> {
   const spoken = tidySpeechText(text);
   if (!spoken) return lastTimings;
-  carinaStartReply();
+  carinaStartReply(opts?.turnId);
   const chunks = splitTtsFetches(spoken);
   enqueueChunks(chunks, opts);
-  // Mark the buffer as already queued so a later finish of the same text is a no-op.
-  buffer.flush(spoken);
+  // Mark the same sentences as already queued so a later finish is a no-op.
+  replyQueue.pushCumulative(spoken, true);
   const g = gen;
   await playTail;
   if (g === gen) speaking = false;

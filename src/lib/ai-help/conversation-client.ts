@@ -14,7 +14,7 @@ export type CarinaClientResult =
       href?: string;
       timing?: { totalMs?: number; ttftMs?: number };
     }
-  | { ok: false; error: string };
+  | { ok: false; error: string; aborted?: boolean };
 
 /**
  * Stream a Carina turn. Calls onAck immediately, onDelta as text arrives,
@@ -31,9 +31,12 @@ export async function streamCarinaConversation(
     pendingAction?: AiPendingAction | null;
     onAck?: (text: string) => void;
     onDelta?: (text: string) => void;
+    signal?: AbortSignal;
+    voice?: boolean;
   } = {}
 ): Promise<CarinaClientResult> {
   try {
+    if (opts.signal?.aborted) return { ok: false, error: "aborted", aborted: true };
     const res = await fetch("/api/ai/conversation", {
       method: "POST",
       credentials: "same-origin",
@@ -45,7 +48,9 @@ export async function streamCarinaConversation(
         source: opts.source,
         guestKey: opts.guestKey,
         pendingAction: opts.pendingAction,
+        voice: opts.voice,
       }),
+      signal: opts.signal,
     });
     if (!res.ok || !res.body) {
       if (res.status === 404 || res.status === 405) throw new Error("fallback");
@@ -63,6 +68,10 @@ export async function streamCarinaConversation(
     let buf = "";
     let result: CarinaClientResult | null = null;
     while (true) {
+      if (opts.signal?.aborted) {
+        try { await reader.cancel(); } catch { /* ignore */ }
+        return { ok: false, error: "aborted", aborted: true };
+      }
       const { done, value } = await reader.read();
       if (done) break;
       buf += decoder.decode(value, { stream: true });
@@ -101,7 +110,12 @@ export async function streamCarinaConversation(
     }
     if (result) return result;
     return { ok: false, error: "Empty reply from the model" };
-  } catch {
+  } catch (e) {
+    const aborted =
+      opts.signal?.aborted ||
+      (e instanceof DOMException && e.name === "AbortError") ||
+      (e instanceof Error && e.name === "AbortError");
+    if (aborted) return { ok: false, error: "aborted", aborted: true };
     const { actionAiConversation } = await import("@/app/ai/actions");
     opts.onAck?.("On it…");
     const fallback = await actionAiConversation(messages, {
@@ -110,6 +124,7 @@ export async function streamCarinaConversation(
       source: opts.source,
       guestKey: opts.guestKey,
       pendingAction: opts.pendingAction,
+      voice: opts.voice,
     });
     return fallback;
   }

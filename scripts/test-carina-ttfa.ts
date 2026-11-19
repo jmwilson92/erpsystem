@@ -61,6 +61,6 @@ assert.match(ai, /if \(acted\.text\) opts\?\.onDelta\?\.\(acted\.text\)/);
 const voice = fs.readFileSync("src/components/ai/voice-assistant.tsx", "utf8");
 assert.match(voice, /void carinaWarmTts\(\)/);
 assert.match(voice, /carinaEnqueueCumulative\(preview/);
-assert.match(voice, /carinaStartReply\(\)/);
+assert.match(voice, /carinaStartReply/);
 
 console.log("PASS Carina TTFA: first-sentence TTS, action skip-retrieve, warmup");

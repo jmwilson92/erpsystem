@@ -49,6 +49,7 @@ export async function actionAiConversation(
     page?: string | null;
     /** Stable browser id for guest rate limits (localStorage uuid) */
     guestKey?: string | null;
+    voice?: boolean;
   }
 ): Promise<AiConversationResult> {
   try {
@@ -73,6 +74,7 @@ export async function actionAiConversation(
       language: opts?.language,
       pendingAction,
       userId: user.id,
+      voice: !!opts?.voice,
     });
     const result = pendingAction
       ? await run()

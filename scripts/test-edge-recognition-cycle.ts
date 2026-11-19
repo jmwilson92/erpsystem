@@ -194,42 +194,19 @@ assert.equal(
 
 // Source wiring: onend uses the shared planner, does not flush at 400ms,
 // and does not mark the mic dead on a normal end.
+// Live listen path is server STT + energy VAD, not Edge Web Speech.
 const voice = fs.readFileSync('src/components/ai/voice-assistant.tsx', 'utf8');
-const onendAt = voice.indexOf('rec.onend = ()');
-assert.ok(onendAt > 0);
-const onend = voice.slice(onendAt, voice.indexOf('recRef.current = rec', onendAt));
-assert.match(onend, /planRecognitionEnd/);
-assert.match(onend, /processWakeBeforeRestart/);
-assert.match(onend, /processPttInterim/);
-assert.match(onend, /keepRecAlive/);
-assert.ok(!onend.includes(', 400)'), 'onend must not flush after 400ms');
-assert.match(onend, /if \(plan\.keepRecAlive\)/);
-assert.match(onend, /handleResultRef\.current/);
-assert.match(voice, /WATCHDOG_MS/);
-assert.match(voice, /shouldWatchdogReboot/);
-assert.match(voice, /startingRef/);
-assert.match(voice, /commitPttTranscript/);
-assert.match(voice, /already started\|InvalidStateError/);
-assert.match(voice, /collectRecognitionTranscripts/);
-const onresultAt = voice.indexOf('rec.onresult = (ev)');
-assert.ok(onresultAt > 0);
-const onresult = voice.slice(onresultAt, voice.indexOf('rec.onerror = (ev)', onresultAt));
-assert.match(onresult, /try \{/);
-assert.match(onresult, /collectRecognitionTranscripts/);
-assert.ok(!/streamCarinaConversation/.test(onresult), 'onresult must not start an SSE turn');
-assert.ok(!/flushAsk/.test(onresult), 'onresult must not flush a question on interim speech');
-assert.ok(!/setRecAliveBoth\(false\)/.test(onresult), 'an onresult throw must not mark the mic dead');
-assert.ok(!/rec\.onspeechstart\s*=/.test(voice), 'speech-start must not reset the session');
-assert.ok(!/rec\.onaudiostart\s*=/.test(voice), 'audio-start must not reset the session');
-assert.ok(!/getUserMedia/.test(onend), 'mic stream must not be reacquired on each onend');
-const bootAt = voice.indexOf('const bootRecognition = useCallback');
-const boot = voice.slice(bootAt, voice.indexOf('const scheduleBoot = useCallback', bootAt));
-assert.ok(!/getUserMedia/.test(boot), 'boot must not reacquire the mic stream');
-assert.match(boot, /detachRecognition\(\{ abort: false, markDead: false \}\)/);
+assert.match(voice, /startMicListen/);
+assert.match(voice, /transcribeUtterance/);
+assert.match(voice, /grok-voice-transcribe-2\.0/);
+assert.ok(!/getSpeechRecognition|webkitSpeechRecognition|new Ctor\(/.test(voice), 'browser Web Speech must not be used');
+assert.match(voice, /flush\("ptt"\)/);
+assert.match(voice, /vadEnd→stt/);
+assert.match(voice, /Copy logs/);
 assert.match(fs.readFileSync('src/lib/ai-help/conversation-client.ts', 'utf8'), /fetch\("\/api\/ai\/conversation"/);
 assert.ok(
   !/reconnect/i.test(fs.readFileSync('src/lib/ai-help/conversation-client.ts', 'utf8')),
   'SSE client must not drive a reconnecting UI loop'
 );
 
-console.log('PASS Edge onend/no-speech cycle keeps listening, commits wake/PTT, no abort or backoff');
+console.log('PASS energy VAD + server STT listen path; no browser Web Speech');
