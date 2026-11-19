@@ -63,6 +63,11 @@ import {
   carinaStopAllAudio,
   carinaBumpAudioGen,
   carinaIsSpeaking,
+  carinaBeginSpeechHold,
+  carinaAudioGen,
+  carinaStartReply,
+  carinaEnqueueCumulative,
+  carinaFinishReply,
 } from "@/lib/carina-audio";
 import {
   bestPointAnchor,
@@ -712,6 +717,9 @@ export function VoiceAssistant({
 
       speakingTextRef.current = spoken;
       speakStartedAtRef.current = Date.now();
+      // Hold the mic before stopping recognition so the watchdog cannot
+      // reboot it during the TTS fetch (which ducks/cuts Edge audio).
+      carinaBeginSpeechHold();
       setModeBoth("speaking");
       setStatus(`Speaking… say “${nameRef.current}” to interrupt`);
       setError(null);
@@ -723,8 +731,7 @@ export function VoiceAssistant({
         // ignore
       }
 
-      const genBefore = carinaBumpAudioGen();
-      speakGenRef.current = genBefore;
+      speakGenRef.current = carinaAudioGen();
       await carinaPlaySpeech(spoken, {
         language: ttsLanguageCode(langRef.current),
         voiceId: DEFAULT_VOICE_ID,
@@ -825,13 +832,37 @@ export function VoiceAssistant({
           }
 
           setStatus("On it…");
+          const speechOpts = {
+            language: ttsLanguageCode(langRef.current),
+            voiceId: DEFAULT_VOICE_ID,
+          };
+          let speechOpen = false;
+          const openSpeech = () => {
+            if (host === "page" || speechOpen) return;
+            speechOpen = true;
+            speakStartedAtRef.current = Date.now();
+            carinaStartReply();
+            setModeBoth("speaking");
+            setStatus(`Speaking… say “${nameRef.current}” to interrupt`);
+            try {
+              recRef.current?.stop();
+            } catch {
+              // ignore
+            }
+          };
           const result = await streamCarinaConversation(historyRef.current, {
             pendingAction: pendingActionRef.current,
             language: langRef.current.code,
             source: "APP",
             page: window.location.pathname,
             onAck: () => setStatus("On it…"),
-            onDelta: (preview) => setStatus(preview.slice(0, 80)),
+            onDelta: (preview) => {
+              setStatus(preview.slice(0, 80));
+              if (host === "page" || !preview.trim()) return;
+              openSpeech();
+              speakingTextRef.current = preview;
+              carinaEnqueueCumulative(preview, speechOpts);
+            },
           });
           if (process.env.NODE_ENV !== "production" && result.ok) {
             console.info("[carina-voice]", {
@@ -911,7 +942,14 @@ export function VoiceAssistant({
           }
 
           if (point && typeof window !== "undefined") {
-            await speak(result.text.replace(/\n+/g, " ").slice(0, 320));
+            if (speechOpen) {
+              speakingTextRef.current = result.text;
+              await carinaFinishReply(result.text, speechOpts);
+              speakingTextRef.current = "";
+              if (wantListenRef.current) scheduleBoot(400);
+            } else {
+              await speak(result.text.replace(/\n+/g, " ").slice(0, 320));
+            }
             setStatus("Highlighting…");
             window.dispatchEvent(
               carinaPointEvent({
@@ -927,6 +965,8 @@ export function VoiceAssistant({
                 : "Highlighted"
             );
           } else if (willTour && typeof window !== "undefined") {
+            if (speechOpen) carinaStopAllAudio();
+
             // Tour narration owns speech — only a short ack so we don't double-talk
             setLastReply(result.text);
             setStatus("Opening walkthrough…");
@@ -946,7 +986,19 @@ export function VoiceAssistant({
             // Resume listen after a beat without stacking TTS
             if (wantListenRef.current) scheduleBoot(800);
           } else {
-            await speak(result.text);
+            openSpeech();
+            speakingTextRef.current = result.text;
+            await carinaFinishReply(result.text, speechOpts);
+            if (carinaIsSpeaking()) return;
+            speakingTextRef.current = "";
+            setModeBoth("command");
+            extendConvo();
+            setStatus(
+              wantListenRef.current
+                ? `Listening… (say “${nameRef.current}” or just ask)`
+                : "Off"
+            );
+            if (wantListenRef.current) scheduleBoot(400);
           }
 
           if (result.pendingAction) {
@@ -976,6 +1028,7 @@ export function VoiceAssistant({
       clearBuf,
       clearSilence,
       extendConvo,
+      host,
       scheduleBoot,
       setModeBoth,
       speak,
@@ -1352,7 +1405,7 @@ export function VoiceAssistant({
       if (
         shouldWatchdogReboot({
           wantListen: wantListenRef.current,
-          speaking: carinaIsSpeaking(),
+          speaking: carinaIsSpeaking() || modeRef.current === "speaking",
           thinking: modeRef.current === "thinking",
           restartPending: !!restartTimerRef.current,
           starting: startingRef.current,
