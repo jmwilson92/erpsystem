@@ -13,7 +13,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { actionDecidePto, actionAdvanceExpense } from "@/app/actions";
-import { CalendarCheck, Clock, Receipt, ShoppingCart } from "lucide-react";
+import { CalendarCheck, Clock, Receipt, ShoppingCart, Sparkles } from "lucide-react";
+import { actionDecideCarinaAction } from "@/app/ai/carina-task-actions";
+import { listCarinaApprovalsForUser, prismaCarinaTaskDeps } from "@/lib/services/carina-tasks";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +33,9 @@ export default async function ApprovalsPage() {
     userId: user.id,
     userRole: user.role,
   });
+  const carinaActions = await listCarinaApprovalsForUser(await prismaCarinaTaskDeps(), {
+    userId: user.id,
+  }).catch(() => []);
   const openPrs = prsWaiting.length + poAmendments.length;
 
   // Serialize dates for the client queue component.
@@ -51,7 +56,8 @@ export default async function ApprovalsPage() {
     queueForClient.length === 0 &&
     expenses.length === 0 &&
     prsWaiting.length === 0 &&
-    poAmendments.length === 0;
+    poAmendments.length === 0 &&
+    carinaActions.length === 0;
 
   return (
     <div className="space-y-6">
@@ -140,6 +146,67 @@ export default async function ApprovalsPage() {
                   <span className="text-teal-500">Review →</span>
                 </span>
               </Link>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {carinaActions.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-teal-400" />
+              Carina actions waiting on your okay
+            </CardTitle>
+            <p className="text-xs text-slate-500">
+              Carina parked a confirm-gated change. Review the read-back and approve or reject right here. Approve runs the work as the person who asked; reject cancels it with your note.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {carinaActions.map((item) => (
+              <div
+                key={item.taskId}
+                id={`carina-${item.taskId}`}
+                className="rounded-lg border border-teal-900/40 bg-slate-950/50 px-3 py-3"
+              >
+                <p className="text-sm text-slate-200">
+                  <span className="text-teal-300">{item.createdByName}</span> asked Carina to:
+                </p>
+                <p className="mt-1 text-sm text-slate-300">{item.text}</p>
+                <p className="mt-2 text-xs text-slate-400">
+                  <span className="font-medium text-slate-300">Read-back: </span>
+                  {item.readbackText}
+                </p>
+                <p className="mt-1 text-[11px] text-slate-500">
+                  <a href={item.href} className="text-teal-400 hover:underline">
+                    Open the task log
+                  </a>
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <form action={actionDecideCarinaAction}>
+                    <input type="hidden" name="taskId" value={item.taskId} />
+                    <input type="hidden" name="approvalId" value={item.approvalId} />
+                    <input type="hidden" name="decision" value="APPROVED" />
+                    <Button type="submit" size="sm">
+                      Approve
+                    </Button>
+                  </form>
+                  <form action={actionDecideCarinaAction} className="flex gap-1">
+                    <input type="hidden" name="taskId" value={item.taskId} />
+                    <input type="hidden" name="approvalId" value={item.approvalId} />
+                    <input type="hidden" name="decision" value="REJECTED" />
+                    <Input
+                      name="note"
+                      required
+                      placeholder="Reason (required)"
+                      className="h-8 w-44 text-xs"
+                    />
+                    <Button type="submit" size="sm" variant="outline">
+                      Reject
+                    </Button>
+                  </form>
+                </div>
+              </div>
             ))}
           </CardContent>
         </Card>

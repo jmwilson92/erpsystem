@@ -57,7 +57,7 @@ assert.match(answer, /skipRetrieve\?\[\]:retrieveHelp/);
 assert.match(answer, /sanitizeEvidenceText\(/);
 
 const ai = fs.readFileSync("src/lib/services/ai.ts", "utf8");
-assert.match(ai, /if \(acted\.text\) opts\?\.onDelta\?\.\(acted\.text\)/);
+assert.match(ai, /if \((?:acted|wrapped)\.text\) opts\?\.onDelta\?\.\((?:acted|wrapped)\.text\)/);
 
 const voice = fs.readFileSync("src/components/ai/voice-assistant.tsx", "utf8");
 assert.match(voice, /void carinaWarmTts\(\)/);

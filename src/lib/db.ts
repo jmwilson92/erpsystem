@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 
@@ -14,7 +15,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
  */
 
 // Bump when the Prisma schema changes so dev HMR drops a stale client.
-const PRISMA_CLIENT_EPOCH = "docs-founding-billing-v43";
+const PRISMA_CLIENT_EPOCH = "carina-task-v1";
 
 /** Legacy cookie name kept for compatibility with old demo/test-drive routes. */
 export const SANDBOX_COOKIE = "forge-sandbox";
@@ -40,6 +41,20 @@ const globalForPrisma = globalThis as unknown as {
 
 /** Postgres schema name: lowercase, starts with a letter, no injection surface. */
 const SCHEMA_RE = /^[a-z][a-z0-9_]{0,62}$/;
+
+/**
+ * Cron and background runners have no request cookies, so they opt into a
+ * tenant schema with runWithSchema(). Request-scoped code is unchanged.
+ * `null` means the public/control-plane schema.
+ */
+const schemaAls = new AsyncLocalStorage<string | null>();
+
+export function runWithSchema<T>(schema: string, fn: () => T): T {
+  if (schema !== "public" && !SCHEMA_RE.test(schema)) {
+    throw new Error(`Invalid tenant schema name: ${schema}`);
+  }
+  return schemaAls.run(schema === "public" ? null : schema, fn);
+}
 
 function createClient(schema?: string) {
   const connectionString = process.env.DATABASE_URL;
@@ -127,6 +142,8 @@ function getDefaultClient() {
  *    demo schema. `demo_template` is never routable (it's the clone source).
  */
 async function resolveSchema(): Promise<string | null> {
+  const forced = schemaAls.getStore();
+  if (forced !== undefined) return forced;
   try {
     const { cookies } = await import("next/headers");
     const jar = await cookies();
