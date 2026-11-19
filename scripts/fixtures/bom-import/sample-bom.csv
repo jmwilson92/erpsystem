@@ -1,0 +1,5 @@
+Level,Find,Part Number,Description,Qty,UoM,Rev
+0,,WG-ASSY,Widget assembly,1,EA,A
+1,1,WG-HOUSING,Widget housing,1,EA,B
+1,2,SCR-4,Socket cap screw,8,EA,A
+1,3,WASHER-4,Flat washer,8,EA,

@@ -408,12 +408,21 @@ model BomHeader {
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
 
+  /// Set when this revision was approved from a file import. History also keeps
+  /// the source filename and stored file URL even if the import record is later discarded.
+  sourceFileName         String?
+  sourceFileUrl          String?
+  sourceKind             String?
+  importedAt             DateTime?
+  importedById           String?
+
   laborEstimateHistory LaborEstimateHistory[]
   lines            BomLine[]
   workOrders       WorkOrder[]
   changeRequests   ChangeRequest[]
   workInstructions WorkInstruction[]
   cmDocuments      CmDocument[]
+  fileImport       BomImport?
 
   @@unique([partId, revision])
   @@index([status])
@@ -433,6 +442,70 @@ model BomLine {
   notes                String?
   scrapFactor          Float     @default(0)
   sortOrder            Int       @default(0)
+}
+
+/// A file-sourced BOM waiting for review. Approve creates a DRAFT BomHeader;
+/// unmatched lines can become new item cards at that point.
+model BomImport {
+  id                  String   @id @default(cuid())
+  /// PENDING_REVIEW | APPROVED | DISCARDED
+  status              String   @default("PENDING_REVIEW")
+  /// EXCEL | CSV | PDF_TEXT | PDF_LLM | SOLIDWORKS | EDRAWINGS | COMPANION
+  sourceKind          String
+  /// PARSED | NEEDS_EXPORT | PARTIAL
+  parseStatus         String   @default("PARSED")
+  fileName            String
+  fileMime            String?
+  fileUrl             String
+  fileSizeBytes       Int
+  previewText         String?
+  /// TEXT | PDF | NONE
+  previewKind         String?
+  /// JSON object of field -> header name
+  columnMapping       String?
+  extractionNotes     String?
+  needsExport         Boolean  @default(false)
+  companionFileName   String?
+  companionFileUrl    String?
+  companionFileMime   String?
+  assemblyPartNumber  String?
+  assemblyDescription String?
+  assemblyRevision    String?  @default("A")
+  assemblyPartId      String?
+  bomHeaderId         String?  @unique
+  bomHeader           BomHeader? @relation(fields: [bomHeaderId], references: [id])
+  createdById         String
+  reviewedAt          DateTime?
+  reviewedById        String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  lines               BomImportLine[]
+
+  @@index([status])
+  @@index([createdById])
+}
+
+model BomImportLine {
+  id            String    @id @default(cuid())
+  importId      String
+  import        BomImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+  sortOrder     Int       @default(0)
+  level         Int?
+  findNumber    String?
+  partNumber    String?
+  description   String?
+  revision      String?
+  quantity      Float?
+  uom           String?
+  rawText       String?
+  confidence    Float?
+  /// MATCHED | NEW_ITEM | NEEDS_REVIEW | INVALID
+  flag          String    @default("NEEDS_REVIEW")
+  matchedPartId String?
+  createNewItem Boolean   @default(true)
+  notes         String?
+
+  @@index([importId])
 }
 
 // ═══════════════════════════════════════════════════════════════

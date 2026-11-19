@@ -10826,3 +10826,85 @@ export async function actionMarkAllNotificationsRead(): Promise<void> {
   revalidatePath("/", "layout");
   redirect("/notifications");
 }
+
+
+export async function actionImportBomFile(formData: FormData): Promise<void> {
+  const { createBomImportFromFile } = await import("@/lib/services/bom-import");
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size <= 0) throw new Error("Choose a file to upload");
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const rec = await createBomImportFromFile({
+    fileName: file.name,
+    bytes,
+    mime: file.type || null,
+  });
+  await flashToast("File extracted. Review the draft BOM before approving it.");
+  revalidatePath("/bom");
+  revalidatePath(`/bom/import/${rec.id}`);
+  redirect(`/bom/import/${rec.id}`);
+}
+
+export async function actionAttachBomImportCompanion(formData: FormData): Promise<void> {
+  const { attachCompanionFile } = await import("@/lib/services/bom-import");
+  const importId = formStr(formData, "importId");
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size <= 0) throw new Error("Choose an Excel or CSV companion file");
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  await attachCompanionFile({
+    importId,
+    fileName: file.name,
+    bytes,
+    mime: file.type || null,
+  });
+  await flashToast("Companion file parsed. Review the lines before approving.");
+  revalidatePath(`/bom/import/${importId}`);
+  redirect(`/bom/import/${importId}`);
+}
+
+export async function actionRemapBomImport(importId: string, mapping: Record<string, string | undefined>): Promise<void> {
+  const { remapBomImport } = await import("@/lib/services/bom-import");
+  await remapBomImport({ importId, mapping });
+  await flashToast("Column mapping applied.");
+  revalidatePath(`/bom/import/${importId}`);
+}
+
+export async function actionUpdateBomImportReview(params: {
+  importId: string;
+  assemblyPartNumber?: string;
+  assemblyDescription?: string;
+  assemblyRevision?: string;
+  lines: Array<{
+    id?: string;
+    sortOrder?: number;
+    findNumber?: string | null;
+    partNumber?: string | null;
+    description?: string | null;
+    revision?: string | null;
+    quantity?: number | null;
+    uom?: string | null;
+    createNewItem?: boolean;
+    drop?: boolean;
+  }>;
+}): Promise<void> {
+  const { updateBomImportReview } = await import("@/lib/services/bom-import");
+  await updateBomImportReview(params);
+  revalidatePath(`/bom/import/${params.importId}`);
+}
+
+export async function actionApproveBomImport(importId: string): Promise<void> {
+  const { approveBomImport } = await import("@/lib/services/bom-import");
+  const bom = await approveBomImport(importId);
+  await flashToast("Draft BOM saved. It is not certified — review it like any other draft.");
+  revalidatePath("/bom");
+  revalidatePath(`/bom/${bom.id}`);
+  revalidatePath(`/items/${bom.partId}`);
+  redirect(`/bom/${bom.id}`);
+}
+
+export async function actionDiscardBomImport(importId: string): Promise<void> {
+  const { discardBomImport } = await import("@/lib/services/bom-import");
+  await discardBomImport(importId);
+  await flashToast("Import discarded. No BOM was created.");
+  revalidatePath("/bom");
+  redirect("/bom");
+}
