@@ -698,8 +698,8 @@ export async function userCanViewAny(
   modules: string[],
   canView: LookupCanView = userCanView
 ): Promise<boolean> {
-  for (const module of modules) {
-    if (await canView(userId, module)) return true;
+  for (const moduleName of modules) {
+    if (await canView(userId, moduleName)) return true;
   }
   return false;
 }
