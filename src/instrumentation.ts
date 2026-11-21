@@ -136,6 +136,9 @@ export async function onRequestError(
   request: { path?: string; method?: string },
   context?: { routePath?: string }
 ) {
+  // Next compiles this file for Edge and Node. Prisma/pg must stay inside a
+  // NEXT_RUNTIME === "nodejs" branch so the Edge bundle can dead-code it.
+  if (process.env.NEXT_RUNTIME !== "nodejs") return;
   try {
     const { redactError } = await import("@/lib/redact-secrets");
     const { classifyError, newCorrelationId, parsePrismaCode, persistCapturedError } = await import(
