@@ -126,3 +126,38 @@ export async function register() {
     );
   }
 }
+
+/**
+ * Capture unhandled request / action failures with a stable error code and
+ * correlation id. Never throws — diagnosis is best-effort.
+ */
+export async function onRequestError(
+  error: { message?: string } & object,
+  request: { path?: string; method?: string },
+  context?: { routePath?: string }
+) {
+  try {
+    const { redactError } = await import("@/lib/redact-secrets");
+    const { classifyError, newCorrelationId, parsePrismaCode, persistCapturedError } = await import(
+      "@/lib/services/carina-errors"
+    );
+    const message = redactError(error);
+    const classified = classifyError({
+      message,
+      httpStatus: 500,
+      prismaCode: parsePrismaCode(error),
+    });
+    await persistCapturedError({
+      correlationId: newCorrelationId(),
+      classification: classified.classification,
+      errorCode: classified.errorCode,
+      httpStatus: 500,
+      message,
+      route: request?.path || context?.routePath || null,
+      actionAttempted: request?.method || null,
+      source: "server",
+    });
+  } catch {
+    // never break the failing request further
+  }
+}

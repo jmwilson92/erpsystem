@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import Link from "next/link";
 import { redactSecrets } from "@/lib/redact-secrets";
+import { askCarinaAboutError, reportClientError } from "@/lib/carina-error-client";
 
 /**
  * Failures that mean "your browser is holding a build that no longer exists"
@@ -91,6 +92,15 @@ export default function AppError({
       /* never let reporting break the error page itself */
     }
 
+    try {
+      reportClientError({
+        message,
+        source: "boundary",
+        payload: { digest: error.digest ?? null, boundary: "route" },
+      });
+    } catch {
+      /* ignore */
+    }
     tryRecoverStaleBuild(message);
   }, [error]);
 
@@ -125,6 +135,13 @@ export default function AppError({
         >
           Command center
         </Link>
+        <button
+          type="button"
+          onClick={() => askCarinaAboutError()}
+          className="rounded-md border border-teal-700 px-3 py-1.5 text-sm text-teal-200 hover:bg-teal-950"
+        >
+          Ask Carina
+        </button>
       </div>
     </div>
   );

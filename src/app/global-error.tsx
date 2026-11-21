@@ -90,6 +90,7 @@ export default function GlobalError({
               ref {error.digest}
             </p>
           )}
+          <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
           <button
             type="button"
             onClick={() => reset()}
@@ -106,6 +107,30 @@ export default function GlobalError({
           >
             Reload
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              try {
+                const prompt = "Why did that fail?";
+                window.dispatchEvent(new CustomEvent("forge:carina-ask-error", { detail: { prompt } }));
+              } catch {
+                /* ignore */
+              }
+            }}
+            style={{
+              marginTop: 20,
+              padding: "8px 14px",
+              borderRadius: 8,
+              border: "1px solid #0f766e",
+              background: "transparent",
+              color: "#99f6e4",
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            Ask Carina
+          </button>
+          </div>
         </div>
       </body>
     </html>

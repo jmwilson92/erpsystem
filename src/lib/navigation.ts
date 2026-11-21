@@ -28,6 +28,7 @@ import {
   Package,
   Package2,
   Award,
+  Bug,
   Network,
   Briefcase,
   Bot,
@@ -201,6 +202,7 @@ export const NAV_GROUPS: NavGroup[] = [
         ],
       },
       { href: "/admin/permissions", label: "Roles & Permissions", icon: KeyRound, keywords: ["rbac", "access", "security"] },
+      { href: "/admin/errors", label: "Error log", icon: Bug, keywords: ["carina", "errors", "error log", "diagnostics", "bug report"] },
       // Staff support desk is intentionally unlisted — platform only via /admin/support
       { href: "/billing", label: "Plan & Billing", icon: CreditCard, keywords: ["subscription", "trial", "plan", "upgrade", "invoice", "stripe", "payment"] },
       { href: "/setup", label: "Setup Wizard", icon: Rocket, keywords: ["onboarding", "company", "getting started", "plug and play"] },

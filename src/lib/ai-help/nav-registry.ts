@@ -128,6 +128,17 @@ const EXTRA_ROUTES: Omit<NavRoute, "permission">[] = [
     group: "Engineering & PLM",
   },
   {
+    href: "/admin/errors",
+    label: "Error log",
+    synonyms: [
+      "error log",
+      "carina error log",
+      "admin error log",
+      "error reports",
+    ],
+    group: "Administration",
+  },
+  {
     href: "/admin/settings",
     label: "BOM prototype settings",
     synonyms: [

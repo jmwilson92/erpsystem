@@ -6,6 +6,12 @@ export type FlashPayload = {
   m: string;
   k: "success" | "error";
   t: number;
+  code?: string;
+  cid?: string;
+  route?: string;
+  et?: string;
+  ei?: string;
+  a?: string;
 };
 
 /**
@@ -15,14 +21,20 @@ export type FlashPayload = {
  */
 export async function flashToast(
   message: string,
-  kind: "success" | "error" = "success"
+  kind: "success" | "error" = "success",
+  meta?: { errorCode?: string; correlationId?: string; route?: string; entityType?: string; entityId?: string; action?: string }
 ) {
   const jar = await cookies();
+  const payload: FlashPayload = { m: message, k: kind, t: Date.now() };
+  if (meta?.errorCode) payload.code = meta.errorCode;
+  if (meta?.correlationId) payload.cid = meta.correlationId;
+  if (meta?.route) payload.route = meta.route;
+  if (meta?.entityType) payload.et = meta.entityType;
+  if (meta?.entityId) payload.ei = meta.entityId;
+  if (meta?.action) payload.a = meta.action;
   jar.set(
     FLASH_COOKIE,
-    encodeURIComponent(
-      JSON.stringify({ m: message, k: kind, t: Date.now() } satisfies FlashPayload)
-    ),
+    encodeURIComponent(JSON.stringify(payload)),
     { path: "/", maxAge: 30, httpOnly: false, sameSite: "lax" }
   );
 }

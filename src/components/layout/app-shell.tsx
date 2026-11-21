@@ -10,6 +10,7 @@ import { ActionLoadingProvider } from "./action-loading";
 import { GuidedTour } from "@/components/guides/guided-tour";
 import { SupportBubble } from "@/components/support/support-bubble";
 import { VoiceAssistant } from "@/components/ai/voice-assistant";
+import { CarinaErrorListener } from "@/components/ai/carina-error-listener";
 import { CarinaPoint } from "@/components/ai/carina-point";
 import { Toaster } from "sonner";
 
@@ -154,6 +155,7 @@ function ShellInner({
       {currentUser && !pathname?.startsWith("/print") && (
         <VoiceAssistant host="shell" />
       )}
+      {currentUser && <CarinaErrorListener />}
       <Toaster
         theme={theme === "light" ? "light" : "dark"}
         position="bottom-right"
