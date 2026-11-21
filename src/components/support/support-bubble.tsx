@@ -77,6 +77,7 @@ import {
   carinaPendingEvent,
   speechRecognitionSupported,
 } from "@/lib/carina-voice-bus";
+import { ASK_CARINA_EVENT } from "@/lib/carina-error-client";
 import { cn } from "@/lib/utils";
 
 const AUTO_OPEN_MS = 5000;
@@ -423,9 +424,9 @@ export function SupportBubble({
     window.dispatchEvent(carinaPttUpEvent());
   }
 
-  function sendCarina(e: React.FormEvent) {
-    e.preventDefault();
-    const q = carinaInput.trim();
+  const startCarinaQuestionRef = useRef<(q: string) => void>(() => undefined);
+
+  function startCarinaQuestion(q: string) {
     if (!q || pending || carinaBusyRef.current) return;
     setCarinaInput("");
     setError(null);
@@ -550,6 +551,25 @@ export function SupportBubble({
       }
     })();
   }
+
+  startCarinaQuestionRef.current = startCarinaQuestion;
+
+  function sendCarina(e: React.FormEvent) {
+    e.preventDefault();
+    startCarinaQuestion(carinaInput.trim());
+  }
+
+  useEffect(() => {
+    const onAsk = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { prompt?: string } | undefined;
+      setOpen(true);
+      setTab("ai");
+      const prompt = String(detail?.prompt || "Why did that fail?").trim();
+      window.setTimeout(() => startCarinaQuestionRef.current(prompt), 0);
+    };
+    window.addEventListener(ASK_CARINA_EVENT, onAsk);
+    return () => window.removeEventListener(ASK_CARINA_EVENT, onAsk);
+  }, []);
 
   function handleCreate(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();

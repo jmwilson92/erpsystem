@@ -169,6 +169,16 @@ export async function getNotificationSummary(user: {
         href: "/notifications",
       });
     }
+    const unreadBugs = await prisma.userNotification.count({
+      where: { userId: user.id, isRead: false, type: "CARINA_BUG" },
+    });
+    if (unreadBugs > 0) {
+      items.push({
+        label: "Carina bug reports",
+        count: unreadBugs,
+        href: "/admin/errors",
+      });
+    }
   } catch {
     // advisory — never break the shell
   }

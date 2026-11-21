@@ -125,6 +125,75 @@ export async function processAiConversation(messages:{role:'user'|'assistant';co
         });
       }
     }
+    const {
+      diagnoseError,
+      errorPendingAction,
+      extractCorrelationId,
+      fileBugReport,
+      getErrorByCorrelation,
+      isErrorFixAccept,
+      isErrorPending,
+      latestErrorForUser,
+      looksLikeWhyDidThatFail,
+      markErrorResolution,
+    } = await import('./carina-errors');
+    if (isErrorPending(opts.pendingAction) && isErrorFixAccept(last)) {
+      const cid = String(opts.pendingAction?.partial?.correlationId || "");
+      const planKind = String(opts.pendingAction?.partial?.planKind || "");
+      const actionText = String(opts.pendingAction?.partial?.actionText || "");
+      const href = String(opts.pendingAction?.partial?.href || "") || undefined;
+      if (planKind === "report-bug" && cid) {
+        const ev = await getErrorByCorrelation(cid);
+        if (ev) {
+          const filed = await fileBugReport({ event: ev, steps: ev.actionAttempted || ev.route || undefined });
+          const text = `I’ve reported this to an administrator (ref ${cid}).${filed.notified ? " They’ll see it in the error log." : ""} ${ev.route ? "You can try the same step again in a moment." : ""}`.trim();
+          opts?.onDelta?.(text);
+          return wrapAway({ text, source: "local" as const, language: lang.code, pendingAction: null });
+        }
+      }
+      if ((planKind === "propose-pr" || planKind === "propose-edit") && actionText) {
+        if (voiceActions) {
+          const offered = await handleCarinaVoiceTurn({ question: actionText, pendingAction: null, userId: opts.userId });
+          if (offered) {
+            if (cid) await markErrorResolution({ correlationId: cid, resolution: "FIXED", resolvedBy: "carina" });
+            const wrapped = wrapAway({ ...offered, language: lang.code, text: offered.text });
+            if (wrapped.text) opts?.onDelta?.(wrapped.text);
+            return wrapped;
+          }
+        }
+        if (!opts?.skipCarinaTasks) {
+          const { addCarinaTask, prismaCarinaTaskDeps } = await import('./carina-tasks');
+          const taskDeps = await prismaCarinaTaskDeps();
+          const out = await addCarinaTask(taskDeps, { userId: opts.userId, text: actionText });
+          if (cid) await markErrorResolution({ correlationId: cid, resolution: out.task ? "FIXED" : "DIAGNOSED", resolvedBy: "carina" });
+          opts?.onDelta?.(out.text);
+          return wrapAway({ text: out.text, source: "local" as const, language: lang.code, href: out.href || href, pendingAction: null });
+        }
+      }
+    }
+    if (looksLikeWhyDidThatFail(last) || isErrorPending(opts.pendingAction)) {
+      const cid = extractCorrelationId(last) || String(opts.pendingAction?.partial?.correlationId || "");
+      const ev = cid ? await getErrorByCorrelation(cid) : await latestErrorForUser(opts.userId);
+      if (!ev && looksLikeWhyDidThatFail(last)) {
+        const text = "I don’t have a recent error in this session. If something just failed, try the action again or click Ask Carina on the error toast.";
+        opts?.onDelta?.(text);
+        return wrapAway({ text, source: "local" as const, language: lang.code, pendingAction: opts.pendingAction ?? null });
+      }
+      if (ev) {
+        const diagnosis = diagnoseError({ event: ev });
+        if (diagnosis.plan.kind !== "report-bug") {
+          await markErrorResolution({ correlationId: ev.correlationId, resolution: "DIAGNOSED", resolvedBy: "carina" });
+        }
+        opts?.onDelta?.(diagnosis.spoken);
+        return wrapAway({
+          text: diagnosis.spoken,
+          source: "local" as const,
+          language: lang.code,
+          href: diagnosis.plan.href,
+          pendingAction: errorPendingAction(ev.correlationId, diagnosis.plan),
+        });
+      }
+    }
     const { advanceHowto, isHowtoOfferAccept, isHowtoPending, startHowto } = await import('../ai-help/howto');
     const { looksLikeHowto, looksLikeNavigate } = await import('../ai-help/nav-registry');
     const { looksLikeRecordNav, resolveNavigation } = await import('../ai-help/navigate');

@@ -4784,6 +4784,43 @@ model CarinaFloorAlert {
   @@index([type, lastNotifiedAt])
 }
 
+/// Tenant-scoped Carina error capture. Payloads are scrubbed of secrets/PII
+/// before insert. Used for “why did that fail?” diagnosis and the admin log.
+model CarinaErrorEvent {
+  id              String    @id @default(cuid())
+  /// Stable public reference shown to the user, e.g. C-8F3A2C
+  correlationId   String    @unique
+  /// Stable machine code, e.g. VAL_REQUIRED_FIELD, PERM_DENIED, SYS_INTERNAL
+  errorCode       String
+  /// VALIDATION | STATUS_LOCK | PERMISSION | BUSINESS_RULE | NOT_FOUND | CONFLICT | SYSTEM
+  classification  String
+  httpStatus      Int?
+  message         String
+  route           String?
+  entityType      String?
+  entityId        String?
+  actionAttempted String?
+  userId          String?
+  userRole        String?
+  /// client-api | window | boundary | server | action
+  source          String    @default("client-api")
+  /// Scrubbed JSON snapshot (no tokens, passwords, or secrets)
+  payloadJson     String?
+  sessionId       String?
+  /// DIAGNOSED | FIXED | REPORTED | UNABLE
+  resolution      String?
+  resolvedAt      DateTime?
+  resolvedBy      String?
+  bugReportedAt   DateTime?
+  bugStatus       String?
+  createdAt       DateTime  @default(now())
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
+  @@index([classification, createdAt])
+  @@index([correlationId])
+}
+
 // ═══════════════════════════════════════════════════════════════
 // RECRUITING (ATS) + ONBOARDING + BACKGROUND CHECKS
 // ═══════════════════════════════════════════════════════════════

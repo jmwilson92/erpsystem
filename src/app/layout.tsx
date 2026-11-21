@@ -420,6 +420,12 @@ export default async function RootLayout({
                     message={flash.m}
                     kind={flash.k}
                     stamp={flash.t}
+                    errorCode={flash.code}
+                    correlationId={flash.cid}
+                    route={flash.route}
+                    entityType={flash.et}
+                    entityId={flash.ei}
+                    action={flash.a}
                   />
                 )}
                 {children}
@@ -458,7 +464,17 @@ export default async function RootLayout({
                 />
               )}
             {flash && (
-              <FlashToast message={flash.m} kind={flash.k} stamp={flash.t} />
+              <FlashToast
+                message={flash.m}
+                kind={flash.k}
+                stamp={flash.t}
+                errorCode={flash.code}
+                correlationId={flash.cid}
+                route={flash.route}
+                entityType={flash.et}
+                entityId={flash.ei}
+                action={flash.a}
+              />
             )}
             {children}
           </AppShell>

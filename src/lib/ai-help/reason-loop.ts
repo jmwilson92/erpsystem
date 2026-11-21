@@ -91,6 +91,21 @@ export const REASON_LOOKUP_TOOLS: GrokToolDef[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "get_error_diagnosis",
+      description:
+        "Diagnose the user’s most recent error or a specific error ref (C-XXXXXX). Use for “why did that fail?”, “what was that error?”, or after they click Ask Carina. Returns a short cause, a fix or workaround, and whether Carina can apply a data fix (confirm-gated) or should file a bug report. Never bypass permissions, signatures, or gated areas.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          correlationId: { type: "string", description: "Optional error ref like C-8F3A2C. Defaults to the latest error for this user." },
+        },
+      },
+    },
+  },
 ];
 
 export const REASON_ACTION_TOOLS: GrokToolDef[] = [
@@ -606,6 +621,34 @@ async function executeReasonTool(
       },
       href: "href" in detail ? detail.href : undefined,
       pendingAction: floorPendingAction(topic, "offerPrPart" in detail ? detail.offerPrPart : undefined),
+    };
+  }
+  if (name === "get_error_diagnosis") {
+    const { diagnoseError, errorPendingAction, getErrorByCorrelation, latestErrorForUser, markErrorResolution } = await import(
+      "@/lib/services/carina-errors"
+    );
+    const cid = String(args.correlationId || "").trim();
+    const ev = cid ? await getErrorByCorrelation(cid) : ctx.userId ? await latestErrorForUser(ctx.userId) : null;
+    if (!ev) {
+      return { result: { ok: false, message: "I don’t have a recent error in this session." } };
+    }
+    const diagnosis = diagnoseError({ event: ev });
+    if (diagnosis.plan.kind !== "report-bug") {
+      await markErrorResolution({ correlationId: ev.correlationId, resolution: "DIAGNOSED", resolvedBy: "carina" });
+    }
+    return {
+      result: {
+        ok: true,
+        text: diagnosis.spoken,
+        classification: diagnosis.classification,
+        errorCode: diagnosis.errorCode,
+        correlationId: ev.correlationId,
+        href: diagnosis.plan.href,
+        canApply: diagnosis.plan.canApply,
+        excluded: diagnosis.plan.excluded,
+      },
+      href: diagnosis.plan.href,
+      pendingAction: errorPendingAction(ev.correlationId, diagnosis.plan),
     };
   }
   return { result: { ok: false, message: `Unknown tool ${name}` } };
