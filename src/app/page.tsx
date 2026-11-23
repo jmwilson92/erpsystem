@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { prisma } from "@/lib/db";
+import { openReceivable } from "@/lib/services/ar-balance";
 import { getCurrentUser, userCanSeeFinancials } from "@/lib/auth";
 import { getNotificationSummary } from "@/lib/services/notifications";
 import { getPtoBalances } from "@/lib/services/timesheets";
@@ -205,10 +206,10 @@ export default async function DashboardPage({
     ),
   }));
   const openArList = arInvoices.filter((i) => i.status === "OPEN" || i.status === "PARTIAL");
-  const openAr = openArList.reduce((s, i) => s + i.total - i.amountPaid, 0);
+  const openAr = openArList.reduce((s, i) => s + openReceivable(i), 0);
   const overdueAr = openArList
     .filter((i) => (i.dueDate ?? i.invoiceDate) < now)
-    .reduce((s, i) => s + i.total - i.amountPaid, 0);
+    .reduce((s, i) => s + openReceivable(i), 0);
   const openAp = apInvoices
     .filter((i) => i.status === "OPEN" || i.status === "PARTIAL")
     .reduce((s, i) => s + i.total - i.amountPaid, 0);

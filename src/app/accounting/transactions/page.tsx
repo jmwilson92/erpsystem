@@ -23,7 +23,7 @@ export default async function InventoryRegisterPage({
     type: type || undefined,
     take: 300,
   });
-  const types = ["", "RECEIPT", "KIT", "ISSUE", "UNISSUE", "WO_OUTPUT", "WO_COMPLETE", "SHIP", "SCRAP", "TRANSFER", "ADJUSTMENT"];
+  const types = ["", "RECEIPT", "KIT", "ISSUE", "UNISSUE", "WO_OUTPUT", "WO_COMPLETE", "SHIP", "RMA_RECEIPT", "RMA_RESTOCK", "SCRAP", "TRANSFER", "ADJUSTMENT"];
   return (
     <div className="space-y-6">
       <PageHeader
@@ -74,7 +74,7 @@ export default async function InventoryRegisterPage({
                   <td className="px-3 py-2 font-mono">{formatCurrency(r.value)}</td>
                   <td className="px-3 py-2 text-slate-400">{r.fromLocation || "—"}</td>
                   <td className="px-3 py-2 text-slate-400">{r.toLocation || "—"}</td>
-                  <td className="px-3 py-2 text-slate-400">{r.reference || "—"}</td>
+                  <td className="px-3 py-2 text-slate-400">{r.rmaId && r.rmaNumber ? (<Link href={`/rma/${r.rmaId}`} className="text-teal-400 hover:underline">{r.rmaNumber}</Link>) : (r.reference || "—")}</td>
                   <td className="px-3 py-2">
                     {r.journalId ? (
                       <Link href={`/accounting/journal/${r.journalId}`} className="text-teal-400 hover:underline">

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { openReceivable } from "@/lib/services/ar-balance";
 import { getCurrentUser, userHasPermission } from "@/lib/auth";
 import { InlineSetting } from "@/components/settings/inline-setting";
 import {
@@ -245,6 +246,7 @@ export default async function AccountingPage({
       status: string;
       total: number;
       amountPaid: number;
+      amountCredited?: number;
       invoiceDate: Date;
       dueDate: Date | null;
     }[]
@@ -253,7 +255,7 @@ export default async function AccountingPage({
     const nowMs = Date.now();
     for (const i of invoices) {
       if (!["OPEN", "PARTIAL"].includes(i.status)) continue;
-      const open = i.total - i.amountPaid;
+      const open = openReceivable(i);
       if (open <= 0.01) continue;
       const basis = i.dueDate ?? i.invoiceDate;
       const daysPast = Math.floor((nowMs - basis.getTime()) / 86_400_000);
@@ -1370,7 +1372,7 @@ export default async function AccountingPage({
                 <span>Record payment</span>
               </div>
               {arFiltered.map((inv) => {
-                const open = inv.total - inv.amountPaid;
+                const open = openReceivable(inv);
                 return (
                   <div
                     key={inv.id}
@@ -2410,7 +2412,7 @@ export default async function AccountingPage({
                     .map((i) => (
                       <option key={i.id} value={i.id}>
                         {i.number} · {i.customer.name} · open{" "}
-                        {formatCurrency(i.total - i.amountPaid)}
+                        {formatCurrency(openReceivable(i))}
                       </option>
                     ))}
                 </select>

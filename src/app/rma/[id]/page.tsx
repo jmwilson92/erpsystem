@@ -14,6 +14,9 @@ import {
   actionAdjustRmaQuotePrice,
   actionCreateRepairQuoteForRma,
   actionUpdateRepairQuote,
+  actionReceiveRmaReturn,
+  actionDispositionRmaReceipt,
+  actionIssueRmaCreditMemo,
 } from "@/app/actions";
 import { ActionLoadingForm } from "@/components/layout/action-loading";
 
@@ -169,6 +172,168 @@ export default async function RmaDetailPage({
           </CardContent>
         </Card>
       </div>
+
+      <Card className="border-slate-800">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Returned goods and books</CardTitle>
+          <p className="text-xs text-slate-500">
+            Receive the unit into sellable stock or inspection. The books reverse
+            cost of goods sold at the original ship cost. A credit memo reduces
+            revenue and what the customer owes. Inspection stock can later go to
+            the shelf or to scrap.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <ActionLoadingForm
+            theme="planning"
+            action={actionReceiveRmaReturn}
+            className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6"
+          >
+            <input type="hidden" name="rmaId" value={rma.id} />
+            <input type="hidden" name="partId" value={rma.topPartId} />
+            <div>
+              <label className="text-[10px] uppercase text-slate-500">Quantity</label>
+              <Input name="quantity" type="number" min="0.0001" step="any" defaultValue="1" className="mt-1" />
+            </div>
+            <div>
+              <label className="text-[10px] uppercase text-slate-500">Put away to</label>
+              <select name="destination" className={`${selectClass} mt-1`} defaultValue="INSPECTION">
+                <option value="INSPECTION">Inspection / quarantine</option>
+                <option value="SELLABLE">Sellable stock</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-[10px] uppercase text-slate-500">Serial</label>
+              <Input name="serialNumber" defaultValue={rma.customerSn} className="mt-1" />
+            </div>
+            <div>
+              <label className="text-[10px] uppercase text-slate-500">Lot</label>
+              <Input name="lotNumber" className="mt-1" />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="text-[10px] uppercase text-slate-500">Notes</label>
+              <Input name="notes" className="mt-1" placeholder="Optional" />
+            </div>
+            <div className="flex items-end">
+              <Button type="submit" size="sm">Receive return</Button>
+            </div>
+          </ActionLoadingForm>
+
+          {rma.receipts.length === 0 ? (
+            <p className="text-xs text-slate-500">No returns have been received yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead className="text-left text-[10px] uppercase tracking-wide text-slate-500">
+                  <tr>
+                    {["When", "Qty", "Cost", "Where", "Disposition", "Journals", ""].map((h) => (
+                      <th key={h} className="px-2 py-1 font-medium">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rma.receipts.map((receipt) => (
+                    <tr key={receipt.id} className="border-t border-slate-800">
+                      <td className="px-2 py-2 text-xs text-slate-400">
+                        {new Date(receipt.receivedAt).toLocaleString("en-US", { timeZone: "America/Los_Angeles" })}
+                      </td>
+                      <td className="px-2 py-2 font-mono">{receipt.quantity}</td>
+                      <td className="px-2 py-2 font-mono">{formatCurrency(receipt.unitCost)}</td>
+                      <td className="px-2 py-2">
+                        {receipt.destination === "INSPECTION" ? "Inspection" : "Sellable"}
+                        {receipt.inventoryItem?.location?.code ? ` · ${receipt.inventoryItem.location.code}` : ""}
+                      </td>
+                      <td className="px-2 py-2">{receipt.disposition.replace(/_/g, " ")}</td>
+                      <td className="px-2 py-2 text-xs">
+                        {receipt.cogsJournal && (
+                          <Link href={`/accounting/journal/${receipt.cogsJournal.id}`} className="text-teal-400 hover:underline">
+                            {receipt.cogsJournal.number}
+                          </Link>
+                        )}
+                        {receipt.restockJournal && (
+                          <>
+                            {" · "}
+                            <Link href={`/accounting/journal/${receipt.restockJournal.id}`} className="text-teal-400 hover:underline">
+                              {receipt.restockJournal.number}
+                            </Link>
+                          </>
+                        )}
+                        {receipt.scrapJournal && (
+                          <>
+                            {" · "}
+                            <Link href={`/accounting/journal/${receipt.scrapJournal.id}`} className="text-teal-400 hover:underline">
+                              {receipt.scrapJournal.number}
+                            </Link>
+                          </>
+                        )}
+                        {receipt.creditMemo && (
+                          <span className="ml-1 text-slate-400">CM {receipt.creditMemo.number}</span>
+                        )}
+                      </td>
+                      <td className="px-2 py-2">
+                        <div className="flex flex-wrap gap-1">
+                          {receipt.disposition === "PENDING" && receipt.destination === "INSPECTION" && (
+                            <>
+                              <ActionLoadingForm theme="planning" action={actionDispositionRmaReceipt}>
+                                <input type="hidden" name="rmaId" value={rma.id} />
+                                <input type="hidden" name="receiptId" value={receipt.id} />
+                                <input type="hidden" name="disposition" value="RESTOCK" />
+                                <Button type="submit" size="sm" variant="secondary">To sellable stock</Button>
+                              </ActionLoadingForm>
+                              <ActionLoadingForm theme="planning" action={actionDispositionRmaReceipt}>
+                                <input type="hidden" name="rmaId" value={rma.id} />
+                                <input type="hidden" name="receiptId" value={receipt.id} />
+                                <input type="hidden" name="disposition" value="SCRAP" />
+                                <Button type="submit" size="sm" variant="outline">Scrap</Button>
+                              </ActionLoadingForm>
+                            </>
+                          )}
+                          {receipt.disposition === "RESTOCKED" && receipt.destination === "SELLABLE" && (
+                            <ActionLoadingForm theme="planning" action={actionDispositionRmaReceipt}>
+                              <input type="hidden" name="rmaId" value={rma.id} />
+                              <input type="hidden" name="receiptId" value={receipt.id} />
+                              <input type="hidden" name="disposition" value="SCRAP" />
+                              <Button type="submit" size="sm" variant="outline">Scrap</Button>
+                            </ActionLoadingForm>
+                          )}
+                          {!receipt.creditMemoId && (
+                            <ActionLoadingForm theme="planning" action={actionIssueRmaCreditMemo}>
+                              <input type="hidden" name="rmaId" value={rma.id} />
+                              <input type="hidden" name="receiptId" value={receipt.id} />
+                              <Button type="submit" size="sm" variant="outline">Issue credit memo</Button>
+                            </ActionLoadingForm>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {rma.creditMemos.length > 0 && (
+            <div className="text-sm text-slate-300">
+              <p className="text-[10px] uppercase text-slate-500">Credit memos</p>
+              <ul className="mt-1 space-y-1">
+                {rma.creditMemos.map((cm) => (
+                  <li key={cm.id}>
+                    {cm.number} · {formatCurrency(cm.total)}
+                    {cm.journalEntry && (
+                      <>
+                        {" · "}
+                        <Link href={`/accounting/journal/${cm.journalEntry.id}`} className="text-teal-400 hover:underline">
+                          {cm.journalEntry.number}
+                        </Link>
+                      </>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {canIssue && (
         <Card className="border-teal-900/40">

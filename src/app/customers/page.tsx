@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { openReceivable } from "@/lib/services/ar-balance";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { StatCard } from "@/components/shared/stat-card";
@@ -39,7 +40,7 @@ export default async function CustomersPage() {
 
   const rows = customers.map((c) => {
     const arBalance = c.invoices.reduce(
-      (s, inv) => s + Math.max(0, inv.total - inv.amountPaid),
+      (s, inv) => s + Math.max(0, openReceivable(inv)),
       0
     );
     const openSoBalance = c.salesOrders

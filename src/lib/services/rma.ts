@@ -662,6 +662,18 @@ export async function getRmaDetail(id: string) {
         orderBy: { installedAt: "desc" },
       },
       lines: true,
+      receipts: {
+        include: {
+          part: { select: { partNumber: true, description: true } },
+          inventoryItem: { include: { location: { select: { code: true, type: true } } } },
+          cogsJournal: { select: { id: true, number: true } },
+          restockJournal: { select: { id: true, number: true } },
+          scrapJournal: { select: { id: true, number: true } },
+          creditMemo: { select: { id: true, number: true, total: true } },
+        },
+        orderBy: { receivedAt: "desc" },
+      },
+      creditMemos: { orderBy: { createdAt: "desc" }, include: { journalEntry: { select: { id: true, number: true } } } },
     },
   });
 }

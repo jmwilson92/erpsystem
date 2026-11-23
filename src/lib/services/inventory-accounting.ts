@@ -1190,6 +1190,7 @@ export async function getWipByWorkOrderReport(opts?: {
 
 function classifyInventoryRow(row: {
   workOrderId: string | null;
+  quantityQuarantine?: number;
   location: { type: string };
   part: {
     inventoryAccountId: string | null;
@@ -1201,6 +1202,9 @@ function classifyInventoryRow(row: {
   if ((row.location.type || "").toUpperCase() === "WIP" || (row.location.type || "").toUpperCase() === "STAGING") {
     return "WIP" as const;
   }
+  if ((row.location.type || "").toUpperCase() === "QUARANTINE" || (row.quantityQuarantine || 0) > 0.0001) {
+    return "RI" as const;
+  }
   const structure = (row.part.itemStructure || "").toUpperCase();
   if (structure === "TOP_LEVEL_ASSEMBLY" || structure === "SUB_ASSEMBLY") return "FG" as const;
   return "RM" as const;
@@ -1208,10 +1212,13 @@ function classifyInventoryRow(row: {
 
 export async function getInventoryGlReconciliation() {
   await ensureManufacturingAccountingDefaults();
-  const [rm, wip, fg] = await Promise.all([
+  const { ensureRmaAccountingDefaults } = await import("@/lib/services/rma-accounting");
+  await ensureRmaAccountingDefaults();
+  const [rm, wip, fg, ri] = await Promise.all([
     accountByCode("1200"),
     accountByCode("1210"),
     accountByCode("1220"),
+    accountByCode("1230"),
   ]);
   const items = await prisma.inventoryItem.findMany({
     where: { quantityOnHand: { not: 0 } },
@@ -1228,12 +1235,12 @@ export async function getInventoryGlReconciliation() {
       },
     },
   });
-  const sub = { RM: 0, WIP: 0, FG: 0 };
+  const sub = { RM: 0, WIP: 0, FG: 0, RI: 0 };
   const byAccount = new Map<string, number>();
   const detail: {
     partNumber: string;
     location: string;
-    class: "RM" | "WIP" | "FG";
+    class: "RM" | "WIP" | "FG" | "RI";
     quantity: number;
     unitCost: number;
     value: number;
@@ -1244,15 +1251,17 @@ export async function getInventoryGlReconciliation() {
     const value = money(item.quantityOnHand * (item.unitCost || 0));
     sub[cls] = money(sub[cls] + value);
     const account =
-      item.part.inventoryAccountId && cls !== "WIP"
+      item.part.inventoryAccountId && cls !== "WIP" && cls !== "RI"
         ? item.part.inventoryAccountId
         : cls === "WIP"
           ? wip.id
           : cls === "FG"
             ? fg.id
-            : rm.id;
+            : cls === "RI"
+              ? ri.id
+              : rm.id;
     byAccount.set(account, money((byAccount.get(account) || 0) + value));
-    const acctRow = account === wip.id ? wip : account === fg.id ? fg : rm;
+    const acctRow = account === wip.id ? wip : account === fg.id ? fg : account === ri.id ? ri : rm;
     detail.push({
       partNumber: item.part.partNumber,
       location: item.location.code,
@@ -1278,6 +1287,7 @@ export async function getInventoryGlReconciliation() {
     { key: "RM" as const, label: "Raw materials", account: rm, subledger: sub.RM },
     { key: "WIP" as const, label: "Work in process", account: wip, subledger: wipJobs },
     { key: "FG" as const, label: "Finished goods", account: fg, subledger: sub.FG },
+    { key: "RI" as const, label: "Returns inspection", account: ri, subledger: sub.RI },
   ];
   const rows = [];
   for (const g of groups) {
@@ -1307,6 +1317,7 @@ export async function getInventoryTransactionRegister(opts?: {
   type?: string;
   workOrderId?: string;
   partId?: string;
+  rmaId?: string;
   from?: Date;
   to?: Date;
   take?: number;
@@ -1317,6 +1328,7 @@ export async function getInventoryTransactionRegister(opts?: {
       ...(opts?.type ? { type: opts.type } : {}),
       ...(opts?.workOrderId ? { workOrderId: opts.workOrderId } : {}),
       ...(opts?.partId ? { partId: opts.partId } : {}),
+      ...(opts?.rmaId ? { rmaId: opts.rmaId } : {}),
       ...(opts?.from || opts?.to
         ? {
             createdAt: {
@@ -1330,6 +1342,7 @@ export async function getInventoryTransactionRegister(opts?: {
       journalEntry: {
         select: { id: true, number: true, status: true, description: true },
       },
+      rma: { select: { id: true, number: true } },
     },
     orderBy: { createdAt: "desc" },
     take,
@@ -1356,6 +1369,8 @@ export async function getInventoryTransactionRegister(opts?: {
     lotNumber: r.lotNumber,
     serialNumber: r.serialNumber,
     workOrderId: r.workOrderId,
+    rmaId: r.rmaId,
+    rmaNumber: r.rma?.number || null,
     reference: r.reference,
     notes: r.notes,
     journalId: r.journalEntryId,

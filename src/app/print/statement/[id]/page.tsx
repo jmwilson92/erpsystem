@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { openReceivable } from "@/lib/services/ar-balance";
 import { PrintFrame } from "@/components/print/print-frame";
 import { DocHeader, DocTable } from "@/components/print/doc-parts";
 import { formatCurrency, formatDate } from "@/lib/utils";
@@ -53,7 +54,7 @@ export default async function PrintStatementPage({
   const rows = customer.invoices.map((i) => {
     const due = i.dueDate ?? i.invoiceDate;
     const daysPast = Math.floor((now - due.getTime()) / 86_400_000);
-    const open = i.total - i.amountPaid;
+    const open = openReceivable(i);
     return { invoice: i, due, daysPast, open, bucket: bucketFor(daysPast) };
   });
   const totalDue = rows.reduce((s, r) => s + r.open, 0);

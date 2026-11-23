@@ -1,3 +1,4 @@
+import { openReceivable } from "@/lib/services/ar-balance";
 import { prisma } from "@/lib/db";
 
 export type CreditSnapshot = {
@@ -57,7 +58,7 @@ export async function getCustomerCreditSnapshot(
   ]);
 
   const arBalance = invoices.reduce(
-    (s, inv) => s + Math.max(0, inv.total - inv.amountPaid),
+    (s, inv) => s + Math.max(0, openReceivable(inv)),
     0
   );
   const openSoBalance = openOrders.reduce((s, o) => s + o.totalAmount, 0);

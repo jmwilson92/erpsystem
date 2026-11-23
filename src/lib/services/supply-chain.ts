@@ -1398,7 +1398,7 @@ export async function dispositionMrb(params: {
   let returnShipmentId: string | null = null;
   let replacementPrId: string | null = null;
 
-  const scrapPostings: { id: string; quantity: number; unitCost: number; workOrderId: string | null; ownership: string }[] = [];
+  const scrapPostings: { id: string; inventoryItemId: string; quantity: number; unitCost: number; workOrderId: string | null; ownership: string }[] = [];
   const disposition = await prisma.$transaction(async (db) => {
     // Tenant-qualified row lock covers the decision and stock movements together.
     const locked = await db.mrbCase.update({ where: { id: mrb.id }, data: { updatedAt: new Date() } });
@@ -1526,7 +1526,7 @@ export async function dispositionMrb(params: {
             userId: params.decidedById,
           },
         });
-        scrapPostings.push({ id: scrapped.id, quantity: scrapQty, unitCost: item.unitCost, workOrderId: item.workOrderId, ownership: item.ownership });
+        scrapPostings.push({ id: scrapped.id, inventoryItemId: item.id, quantity: scrapQty, unitCost: item.unitCost, workOrderId: item.workOrderId, ownership: item.ownership });
       }
       // REWORK / REPAIR leave material in quarantine — the spawned WO
       // consumes it and returns conforming stock on completion.
@@ -1569,9 +1569,39 @@ export async function dispositionMrb(params: {
   for (const item of scrapPostings) {
     const amount = Math.round(item.quantity * item.unitCost * 100) / 100;
     if (amount <= 0.001) continue;
+    const receipt = await prisma.rmaReceipt.findFirst({
+      where: { inventoryItemId: item.inventoryItemId, disposition: { not: "SCRAPPED" } },
+    });
+    const creditCode = receipt
+      ? receipt.destination === "INSPECTION" && receipt.disposition === "PENDING"
+        ? "1230"
+        : "1220"
+      : undefined;
     const { postScrap } = await import("@/lib/services/gl-posting");
-    await postScrap({ materialTransactionId: item.id, amount, workOrderId: item.workOrderId,
-      governmentOwned: item.ownership === "GOVERNMENT", userId: params.decidedById, memo: `Scrap ${mrb.number}` });
+    const journal = await postScrap({ materialTransactionId: item.id, amount, workOrderId: item.workOrderId,
+      governmentOwned: item.ownership === "GOVERNMENT", userId: params.decidedById, memo: `Scrap ${mrb.number}`,
+      creditCode });
+    if (receipt) {
+      await prisma.rmaReceipt.update({
+        where: { id: receipt.id },
+        data: { disposition: "SCRAPPED", scrapJournalId: journal?.id || undefined },
+      });
+      await prisma.materialTransaction.update({
+        where: { id: item.id },
+        data: { rmaId: receipt.rmaId, rmaReceiptId: receipt.id, journalEntryId: journal?.id || undefined },
+      });
+    }
+  }
+
+  if (params.disposition === "USE_AS_IS") {
+    const { syncRmaReceiptWithMrbDisposition } = await import("@/lib/services/rma-accounting");
+    for (const hold of mrb.inventoryHolds) {
+      await syncRmaReceiptWithMrbDisposition({
+        inventoryItemId: hold.id,
+        disposition: "USE_AS_IS",
+        userId: params.decidedById,
+      });
+    }
   }
 
   if (carNumber) {

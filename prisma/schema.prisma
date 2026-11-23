@@ -331,6 +331,7 @@ model Part {
   quoteLines          QuoteLine[]
   kitOrderLines       KitOrderLine[]
   rmasAsTopPart       Rma[]                     @relation("RmaTopPart")
+  rmaReceipts         RmaReceipt[]              @relation("RmaReceiptPart")
   receivingPhotos     ReceivingPhoto[]
   receivingDocuments  ReceivingDocument[]
   travelerLines       ReceivingTravelerLine[]
@@ -2811,6 +2812,7 @@ model InventoryItem {
   transactions       MaterialTransaction[]
   governmentProperty GovernmentProperty?
   workOrderOutputs   WorkOrderOutput[]
+  rmaReceipts        RmaReceipt[]
 
   @@index([partId])
   @@index([ownership])
@@ -2819,7 +2821,7 @@ model InventoryItem {
 
 model MaterialTransaction {
   id              String         @id @default(cuid())
-  type            String // RECEIPT, PUTAWAY, ISSUE, KIT, TRANSFER, ADJUSTMENT, QUARANTINE, RELEASE, SCRAP, SHIP, WO_COMPLETE
+  type            String // RECEIPT, PUTAWAY, ISSUE, KIT, TRANSFER, ADJUSTMENT, QUARANTINE, RELEASE, SCRAP, SHIP, WO_COMPLETE, WO_OUTPUT, UNISSUE, RMA_RECEIPT, RMA_RESTOCK
   partId          String?
   inventoryItemId String?
   inventoryItem   InventoryItem? @relation(fields: [inventoryItemId], references: [id])
@@ -2828,6 +2830,9 @@ model MaterialTransaction {
   purchaseOrderId String?
   salesOrderId    String?
   kitOrderId      String?
+  rmaId           String?
+  rma             Rma?           @relation(fields: [rmaId], references: [id], onDelete: SetNull)
+  rmaReceiptId    String?
   quantity        Float
   unitCost        Float          @default(0)
   fromLocation    String?
@@ -2847,6 +2852,7 @@ model MaterialTransaction {
   @@index([workOrderId])
   @@index([lotNumber])
   @@index([journalEntryId])
+  @@index([rmaId])
 }
 
 /// One receipt of finished goods from an open work order. The job may stay open.
@@ -3042,6 +3048,9 @@ model Rma {
   workOrders     WorkOrder[]
   mrbCases       MrbCase[]
   serialInstalls SerialInstall[]
+  receipts       RmaReceipt[]
+  creditMemos    ArCreditMemo[]
+  materialTransactions MaterialTransaction[]
 
   @@index([status])
   @@index([customerId])
@@ -3060,8 +3069,94 @@ model RmaLine {
   description String?
   notes       String?
   createdAt   DateTime @default(now())
+  receipts    RmaReceipt[]
 
   @@index([rmaId])
+}
+
+/// One receipt of customer-returned goods against an RMA. The RMA may stay open.
+model RmaReceipt {
+  id                    String          @id @default(cuid())
+  rmaId                 String
+  rma                   Rma             @relation(fields: [rmaId], references: [id], onDelete: Cascade)
+  rmaLineId             String?
+  rmaLine               RmaLine?        @relation(fields: [rmaLineId], references: [id], onDelete: SetNull)
+  partId                String
+  part                  Part            @relation("RmaReceiptPart", fields: [partId], references: [id])
+  quantity              Float
+  /// Unit cost originally relieved to COGS when the goods shipped
+  unitCost              Float           @default(0)
+  /// Original selling price, used on the credit memo
+  unitPrice             Float           @default(0)
+  /// SELLABLE | INSPECTION
+  destination           String
+  /// PENDING | RESTOCKED | SCRAPPED
+  disposition           String          @default("PENDING")
+  lotNumber             String?
+  serialNumber          String?
+  salesOrderId          String?
+  shipmentId            String?
+  arInvoiceId           String?
+  inventoryItemId       String?
+  inventoryItem         InventoryItem?  @relation(fields: [inventoryItemId], references: [id], onDelete: SetNull)
+  materialTransactionId String?
+  cogsJournalId         String?
+  cogsJournal           JournalEntry?   @relation("RmaReceiptCogsJournal", fields: [cogsJournalId], references: [id], onDelete: SetNull)
+  restockJournalId      String?
+  restockJournal        JournalEntry?   @relation("RmaReceiptRestockJournal", fields: [restockJournalId], references: [id], onDelete: SetNull)
+  scrapJournalId        String?
+  scrapJournal          JournalEntry?   @relation("RmaReceiptScrapJournal", fields: [scrapJournalId], references: [id], onDelete: SetNull)
+  creditMemoId          String?
+  creditMemo            ArCreditMemo?   @relation(fields: [creditMemoId], references: [id], onDelete: SetNull)
+  mrbCaseId             String?
+  receivedById          String?
+  receivedAt            DateTime        @default(now())
+  notes                 String?
+  createdAt             DateTime        @default(now())
+
+  @@index([rmaId])
+  @@index([partId])
+  @@index([inventoryItemId])
+  @@index([creditMemoId])
+}
+
+/// Credit memo for a customer sales return. Reduces revenue and AR; applied against the original invoice when known.
+model ArCreditMemo {
+  id             String            @id @default(cuid())
+  number         String            @unique
+  customerId     String
+  customer       Customer          @relation(fields: [customerId], references: [id])
+  rmaId          String?
+  rma            Rma?              @relation(fields: [rmaId], references: [id], onDelete: SetNull)
+  arInvoiceId    String?
+  arInvoice      ArInvoice?        @relation(fields: [arInvoiceId], references: [id], onDelete: SetNull)
+  creditDate     DateTime          @default(now())
+  /// OPEN | APPLIED | VOID
+  status         String            @default("APPLIED")
+  subtotal       Float             @default(0)
+  total          Float             @default(0)
+  journalEntryId String?
+  journalEntry   JournalEntry?     @relation(fields: [journalEntryId], references: [id], onDelete: SetNull)
+  notes          String?
+  createdById    String?
+  createdAt      DateTime          @default(now())
+  lines          ArCreditMemoLine[]
+  receipts       RmaReceipt[]
+
+  @@index([customerId])
+  @@index([rmaId])
+  @@index([arInvoiceId])
+}
+
+model ArCreditMemoLine {
+  id           String       @id @default(cuid())
+  creditMemoId String
+  creditMemo   ArCreditMemo @relation(fields: [creditMemoId], references: [id], onDelete: Cascade)
+  description  String
+  quantity     Float        @default(1)
+  unitPrice    Float        @default(0)
+  amount       Float        @default(0)
+  rmaReceiptId String?
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -3616,6 +3711,10 @@ model JournalEntry {
   attachments           JournalAttachment[]
   materialTransactions  MaterialTransaction[]
   workOrderOutputs      WorkOrderOutput[]
+  rmaReceiptJournals    RmaReceipt[]   @relation("RmaReceiptCogsJournal")
+  rmaRestockJournals    RmaReceipt[]   @relation("RmaReceiptRestockJournal")
+  rmaScrapJournals      RmaReceipt[]   @relation("RmaReceiptScrapJournal")
+  creditMemos           ArCreditMemo[]
 
   @@index([programId])
   @@index([workOrderId])
@@ -3767,6 +3866,7 @@ model Customer {
   products           Product[]
   serialNumbers      SerialNumber[]
   rmas               Rma[]
+  creditMemos        ArCreditMemo[]
 }
 
 model ArInvoice {
@@ -3784,11 +3884,14 @@ model ArInvoice {
   subtotal     Float     @default(0)
   tax          Float     @default(0)
   total        Float     @default(0)
-  amountPaid   Float     @default(0)
-  notes        String?
+  amountPaid     Float     @default(0)
+  /// Sales-return credits applied to this invoice (not cash)
+  amountCredited Float     @default(0)
+  notes          String?
 
-  lines    ArInvoiceLine[]
-  payments ArPayment[]
+  lines       ArInvoiceLine[]
+  payments    ArPayment[]
+  creditMemos ArCreditMemo[]
 }
 
 model ArInvoiceLine {
