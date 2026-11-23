@@ -8,6 +8,7 @@ import {
   type LaborProgressFilters,
 } from "@/lib/services/labor-progress";
 import { prisma } from "@/lib/db";
+import { openReceivable } from "@/lib/services/ar-balance";
 import { getGaapReportPack } from "@/lib/services/gaap";
 import {
   reportGlDetail,
@@ -136,7 +137,7 @@ export async function runReport(
         rows: invoices.map((i) => {
           const due = i.dueDate ?? i.invoiceDate;
           const days = Math.max(0, Math.floor((now - due.getTime()) / 86_400_000));
-          return [i.number, i.customer.name, day(i.invoiceDate), day(i.dueDate), days, ageBucket(days), money(i.total - i.amountPaid)];
+          return [i.number, i.customer.name, day(i.invoiceDate), day(i.dueDate), days, ageBucket(days), money(openReceivable(i))];
         }),
       };
     }
@@ -1067,6 +1068,7 @@ async function reportInvRegister() {
       "From",
       "To",
       "Reference",
+      "RMA",
       "Journal",
     ],
     rows: rows.map((r) => [
@@ -1079,6 +1081,7 @@ async function reportInvRegister() {
       r.fromLocation || "",
       r.toLocation || "",
       r.reference || "",
+      r.rmaNumber || "",
       r.journalNumber || "",
     ]),
   };

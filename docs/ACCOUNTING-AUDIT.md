@@ -214,7 +214,7 @@ The AR invoice is one per sales order. COGS is not stamped with the program. `co
 
 **Gaps.** A customer return can put metal back on the shelf (or into MRB) without restoring inventory value or reducing COGS/revenue. Accountants have to journal it by hand.
 
-**Decision.** When an RMA receipt is accepted back into company stock, post Dr inventory / Cr COGS (or a returns-inward account if mapped) at the original unit cost or standard, with lot/serial, idempotent on the receipt. A credit memo (when issued) posts Dr revenue / Cr AR. Scrap and supplier-return dispositions follow §6 and §8. Repair jobs use the same WIP/output rules as any other job.
+**Decision (shipped in the RMA restock follow-up).** Receive returned goods into sellable stock or inspection/quarantine (lot/serial tracked). Receipt posts Dr finished goods (1220) or returns inspection (1230) / Cr COGS (5000) at the unit cost originally relieved on the shipment (falling back to the item’s standard or average). A credit memo posts Dr sales returns (4100) / Cr AR (1100) at the original selling price and reduces the open invoice by `amountCredited` (cash payments stay separate). Releasing inspection stock to the shelf posts Dr 1220 / Cr 1230. Scrapping posts Dr scrap expense / Cr 1230 or 1220. Journals are balanced, idempotent, tied to the RMA receipt, period-lock aware, and reversed rather than deleted. The transaction register and journal drill-down link back to the RMA.
 
 ---
 

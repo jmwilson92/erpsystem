@@ -10458,6 +10458,104 @@ export async function actionCreateRepairQuoteForRma(
   revalidatePath("/sales/quotes");
 }
 
+
+async function requireRmaOrAccounting() {
+  const { requireUser, userHasPermission } = await import("@/lib/auth");
+  const user = await requireUser();
+  const ok =
+    (await userHasPermission(user.id, "rma.issue")) ||
+    (await userHasPermission(user.id, "accounting.journal.post"));
+  if (!ok) {
+    const { redirect } = await import("next/navigation");
+    redirect("/no-access?code=rma.issue");
+  }
+  return user;
+}
+
+export async function actionReceiveRmaReturn(formData: FormData): Promise<void> {
+  const user = await requireRmaOrAccounting();
+  const rmaId = String(formData.get("rmaId") || "");
+  try {
+    const { receiveRmaReturn } = await import("@/lib/services/rma-accounting");
+    const qty = Number(formData.get("quantity") || "1");
+    const dest = String(formData.get("destination") || "INSPECTION") === "SELLABLE" ? "SELLABLE" : "INSPECTION";
+    const result = await receiveRmaReturn({
+      rmaId,
+      quantity: qty,
+      destination: dest,
+      partId: String(formData.get("partId") || "") || null,
+      lotNumber: String(formData.get("lotNumber") || "").trim() || null,
+      serialNumber: String(formData.get("serialNumber") || "").trim() || null,
+      salesOrderId: String(formData.get("salesOrderId") || "").trim() || null,
+      notes: String(formData.get("notes") || "").trim() || null,
+      userId: user.id,
+    });
+    await flashToast(
+      result.already
+        ? "This unit was already received on this RMA"
+        : `Return received to ${dest === "SELLABLE" ? "sellable stock" : "inspection"} at the original cost`
+    );
+    revalidatePath(`/rma/${rmaId}`);
+    revalidatePath("/accounting/transactions");
+    revalidatePath("/accounting/inventory-valuation");
+    revalidatePath("/accounting/wip");
+    redirect(`/rma/${rmaId}`);
+  } catch (e) {
+    rethrowIfRedirect(e);
+    await flashToast(e instanceof Error ? e.message : "Could not receive the return", "error");
+    revalidatePath(`/rma/${rmaId}`);
+  }
+}
+
+export async function actionDispositionRmaReceipt(formData: FormData): Promise<void> {
+  const user = await requireRmaOrAccounting();
+  const rmaId = String(formData.get("rmaId") || "");
+  const receiptId = String(formData.get("receiptId") || "");
+  const disposition = String(formData.get("disposition") || "") === "SCRAP" ? "SCRAP" : "RESTOCK";
+  try {
+    const { dispositionRmaReceipt } = await import("@/lib/services/rma-accounting");
+    await dispositionRmaReceipt({
+      receiptId,
+      disposition,
+      notes: String(formData.get("notes") || "").trim() || null,
+      userId: user.id,
+    });
+    await flashToast(disposition === "SCRAP" ? "Return scrapped to scrap expense" : "Return released to sellable stock");
+    revalidatePath(`/rma/${rmaId}`);
+    revalidatePath("/accounting/transactions");
+    revalidatePath("/accounting/inventory-valuation");
+    redirect(`/rma/${rmaId}`);
+  } catch (e) {
+    rethrowIfRedirect(e);
+    await flashToast(e instanceof Error ? e.message : "Disposition failed", "error");
+    revalidatePath(`/rma/${rmaId}`);
+  }
+}
+
+export async function actionIssueRmaCreditMemo(formData: FormData): Promise<void> {
+  const user = await requireRmaOrAccounting();
+  const rmaId = String(formData.get("rmaId") || "");
+  try {
+    const { issueRmaCreditMemo } = await import("@/lib/services/rma-accounting");
+    const amountRaw = String(formData.get("amount") || "").trim();
+    const memo = await issueRmaCreditMemo({
+      rmaId,
+      receiptId: String(formData.get("receiptId") || "").trim() || null,
+      amount: amountRaw ? Number(amountRaw) : null,
+      notes: String(formData.get("notes") || "").trim() || null,
+      userId: user.id,
+    });
+    await flashToast(`Credit memo ${memo.number} posted against revenue and AR`);
+    revalidatePath(`/rma/${rmaId}`);
+    revalidatePath("/accounting");
+    redirect(`/rma/${rmaId}`);
+  } catch (e) {
+    rethrowIfRedirect(e);
+    await flashToast(e instanceof Error ? e.message : "Could not issue the credit memo", "error");
+    revalidatePath(`/rma/${rmaId}`);
+  }
+}
+
 export async function actionAcceptRepairQuote(
   formData: FormData
 ): Promise<void> {

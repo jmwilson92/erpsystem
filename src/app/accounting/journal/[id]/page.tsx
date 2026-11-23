@@ -32,11 +32,29 @@ export default async function JournalDetailPage({
     },
   });
   if (!journal) notFound();
+  const [rmaReceipts, creditMemo] = await Promise.all([
+    prisma.rmaReceipt.findMany({
+      where: {
+        OR: [
+          { cogsJournalId: journal.id },
+          { restockJournalId: journal.id },
+          { scrapJournalId: journal.id },
+        ],
+      },
+      include: { rma: { select: { id: true, number: true } } },
+    }),
+    prisma.arCreditMemo.findFirst({
+      where: { OR: [{ journalEntryId: journal.id }, { id: journal.sourceId || "__none__" }] },
+      include: { rma: { select: { id: true, number: true } } },
+    }),
+  ]);
   const debit = journal.lines.reduce((s, l) => s + (l.debit || 0), 0);
   const credit = journal.lines.reduce((s, l) => s + (l.credit || 0), 0);
   const sourceHref =
     journal.source === "WO" && journal.workOrder
       ? `/work-orders/${journal.workOrder.id}`
+      : journal.source === "RMA" && (rmaReceipts[0]?.rma || creditMemo?.rma)
+        ? `/rma/${(rmaReceipts[0]?.rma || creditMemo?.rma)!.id}`
       : journal.source === "AR"
         ? "/accounting?tab=ar"
         : journal.source === "AP"
@@ -97,6 +115,18 @@ export default async function JournalDetailPage({
           </CardHeader>
           <CardContent className="space-y-2 text-sm text-slate-300">
             <p>Status: {journal.status}</p>
+            {(rmaReceipts[0]?.rma || creditMemo?.rma) && (
+              <p>
+                RMA:{" "}
+                <Link
+                  href={`/rma/${(rmaReceipts[0]?.rma || creditMemo?.rma)!.id}`}
+                  className="text-teal-400 hover:underline"
+                >
+                  {(rmaReceipts[0]?.rma || creditMemo?.rma)!.number}
+                </Link>
+                {creditMemo ? ` · credit memo ${creditMemo.number}` : ""}
+              </p>
+            )}
             {journal.workOrder && (
               <p>
                 Job:{" "}

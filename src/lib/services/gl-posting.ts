@@ -482,6 +482,9 @@ export async function postScrap(params: {
   memo?: string;
   /** Government-owned material stays off the company ledger. */
   governmentOwned?: boolean;
+  /** Credit this inventory account instead of raw materials (returns, FG, WIP). */
+  creditCode?: string;
+  db?: LedgerDb;
 }) {
   if (params.governmentOwned) return null;
   return postMapped({
@@ -493,10 +496,10 @@ export async function postScrap(params: {
     idempotencyKey: `scrap:${params.materialTransactionId}`,
     memo: params.memo,
     costElement: params.workOrderId ? "MATERIAL" : undefined,
-    creditCode: params.workOrderId ? "1210" : undefined,
+    creditCode: params.creditCode || (params.workOrderId ? "1210" : undefined),
     workOrderId: params.workOrderId,
     userId: params.userId,
-  });
+  }, params.db || prisma);
 }
 
 /** Signed dollar amount: positive means more stock was counted than the books showed. */

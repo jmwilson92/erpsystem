@@ -3,6 +3,7 @@
  * income statement, balance sheet, cash activity proxy from journals.
  */
 import { prisma } from "@/lib/db";
+import { openReceivable } from "@/lib/services/ar-balance";
 import { independentExpenseApproval, reimbursementAmount } from "@/lib/expense-approval";
 import type { Prisma } from "@prisma/client";
 type LedgerDb = Prisma.TransactionClient;
@@ -77,7 +78,7 @@ export async function getGaapReportPack() {
 
   const arOpen = ar
     .filter((i) => ["OPEN", "PARTIAL"].includes(i.status))
-    .reduce((s, i) => s + (i.total - i.amountPaid), 0);
+    .reduce((s, i) => s + openReceivable(i), 0);
   const apOpen = ap
     .filter((i) => ["OPEN", "PARTIAL"].includes(i.status))
     .reduce((s, i) => s + (i.total - i.amountPaid), 0);
@@ -762,11 +763,11 @@ async function applyArSettlementFromJournal(je: {
   if (already) return;
   const amountPaid = Math.min(inv.total, inv.amountPaid + credit);
   const status =
-    amountPaid >= inv.total - 0.001 ? "PAID" : amountPaid > 0 ? "PARTIAL" : inv.status;
+    amountPaid + (inv.amountCredited || 0) >= inv.total - 0.001 ? "PAID" : amountPaid + (inv.amountCredited || 0) > 0 ? "PARTIAL" : inv.status;
   await db.arPayment.create({
     data: {
       invoiceId: inv.id,
-      amount: Math.min(credit, inv.total - inv.amountPaid),
+      amount: Math.min(credit, openReceivable(inv)),
       method: "JOURNAL",
       reference: je.number,
       paymentDate: new Date(),
@@ -975,7 +976,7 @@ async function recordArPaymentInTransaction(params: Parameters<typeof recordArPa
   if (["PAID", "VOID"].includes(inv.status)) {
     throw new Error(`Invoice ${inv.number} is ${inv.status}`);
   }
-  if (params.amount > inv.total - inv.amountPaid + 0.001) throw new Error("Payment exceeds outstanding invoice balance");
+  if (params.amount > openReceivable(inv) + 0.001) throw new Error("Payment exceeds outstanding invoice balance");
   const amountPaid = Math.min(inv.total, inv.amountPaid + params.amount);
   const status =
     amountPaid >= inv.total - 0.001
@@ -1041,7 +1042,7 @@ async function recordApPaymentInTransaction(params: Parameters<typeof recordApPa
   if (["PAID", "VOID"].includes(inv.status)) {
     throw new Error(`Invoice ${inv.number} is ${inv.status}`);
   }
-  if (params.amount > inv.total - inv.amountPaid + 0.001) throw new Error("Payment exceeds outstanding invoice balance");
+  if (params.amount > openReceivable(inv) + 0.001) throw new Error("Payment exceeds outstanding invoice balance");
   const amountPaid = Math.min(inv.total, inv.amountPaid + params.amount);
   const status =
     amountPaid >= inv.total - 0.001
