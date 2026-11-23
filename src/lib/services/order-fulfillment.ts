@@ -1194,9 +1194,21 @@ export async function putAwayInventory(params: {
     await assertReceivingPutawayClear(db, current);
     const ownership = storageLoc.type === "GFP" || storageLoc.code.toUpperCase().startsWith("GFP") ? "GOVERNMENT" : current.ownership === "GOVERNMENT" ? "GOVERNMENT" : "COMPANY";
     const result = await db.inventoryItem.update({ where: { id: item.id }, data: { locationId: storageLoc.id, ownership, quantityAvailable: current.quantityOnHand - current.quantityCommitted } });
-    await db.materialTransaction.create({ data: { type: "PUTAWAY", partId: item.partId, inventoryItemId: item.id, quantity: current.quantityOnHand, unitCost: current.unitCost,
+    const putawayTx = await db.materialTransaction.create({ data: { type: "PUTAWAY", partId: item.partId, inventoryItemId: item.id, quantity: current.quantityOnHand, unitCost: current.unitCost,
       fromLocation: fromCode, toLocation: storageLoc.code, lotNumber: item.lotNumber, serialNumber: item.serialNumber,
       reference: `PUTAWAY-${item.id.slice(-6)}`, notes: "Put away after receiving inspection", photoUrls: photoUrls.length ? JSON.stringify(photoUrls) : undefined, userId: params.userId } });
+    const { moveCostLayers } = await import("@/lib/services/cost-layers");
+    await moveCostLayers({
+      partId: item.partId,
+      fromLocationId: current.locationId,
+      toLocationId: storageLoc.id,
+      inventoryItemId: item.id,
+      quantity: current.quantityOnHand,
+      materialTransactionId: putawayTx.id,
+      ownership: current.ownership,
+      fallbackUnitCost: current.unitCost,
+      db,
+    });
     await db.traceEvent.create({ data: { eventType: "PUTAWAY", partId: item.partId, lotNumber: item.lotNumber, serialNumber: item.serialNumber,
       quantity: current.quantityOnHand, fromLocation: fromCode, toLocation: storageLoc.code, photoUrls: photoUrls.length ? JSON.stringify(photoUrls) : undefined,
       notes: `Put away ${item.part.partNumber} to ${storageLoc.code}`, userId: params.userId } });
@@ -1481,22 +1493,44 @@ export async function completeKitOrder(params: {
           },
         });
       });
-      if (item.ownership !== "GOVERNMENT" && item.unitCost * take > 0.001) {
-        const { shouldPostIssueAtPick } = await import("@/lib/services/inventory-accounting");
-        if (await shouldPostIssueAtPick(line.part)) {
-          const { postMaterialIssue } = await import("@/lib/services/gl-posting");
-          const journal = await postMaterialIssue({
-            materialTransactionId: issued.id,
-            workOrderId: kit.workOrderId,
-            amount: Math.round(item.unitCost * take * 100) / 100,
-            userId: params.userId,
-            memo: `${line.part.partNumber} lot ${item.lotNumber || "—"}`,
+      {
+        const { consumeOutboundCost, linkConsumptionsToJournal } = await import("@/lib/services/cost-layers");
+        const relief = await consumeOutboundCost({
+          partId: line.partId,
+          locationId: item.locationId,
+          inventoryItemId: item.id,
+          quantity: take,
+          fallbackUnitCost: item.unitCost,
+          materialTransactionId: issued.id,
+          ownership: item.ownership,
+        });
+        if (Math.abs(relief.unitCost - (item.unitCost || 0)) > 0.0001) {
+          await prisma.materialTransaction.update({
+            where: { id: issued.id },
+            data: { unitCost: relief.unitCost },
           });
-          if (journal) {
-            await prisma.materialTransaction.update({
-              where: { id: issued.id },
-              data: { journalEntryId: journal.id },
+        }
+        if (item.ownership !== "GOVERNMENT" && relief.amount > 0.001) {
+          const { shouldPostIssueAtPick } = await import("@/lib/services/inventory-accounting");
+          if (await shouldPostIssueAtPick(line.part)) {
+            const { postMaterialIssue } = await import("@/lib/services/gl-posting");
+            const journal = await postMaterialIssue({
+              materialTransactionId: issued.id,
+              workOrderId: kit.workOrderId,
+              amount: relief.amount,
+              userId: params.userId,
+              memo: `${line.part.partNumber} lot ${item.lotNumber || "—"}`,
             });
+            if (journal) {
+              await prisma.materialTransaction.update({
+                where: { id: issued.id },
+                data: { journalEntryId: journal.id },
+              });
+              await linkConsumptionsToJournal({
+                materialTransactionId: issued.id,
+                journalEntryId: journal.id,
+              });
+            }
           }
         }
       }
@@ -2285,8 +2319,21 @@ async function issueManualShipmentInventory(params: { shipmentId: string; userId
       data: { quantityOnHand: { decrement: bin.take }, quantityAvailable: { decrement: fromAvailable }, quantityCommitted: { decrement: fromCommitted } },
     });
     if (!claim.count) throw new Error("Stock changed during packing; refresh and retry");
-    await db.materialTransaction.create({ data: { type: "SHIP", partId: bin.partId, inventoryItemId: bin.id,
+    const shipTx = await db.materialTransaction.create({ data: { type: "SHIP", partId: bin.partId, inventoryItemId: bin.id,
       quantity: bin.take, fromLocation: bin.locationCode, reference: s.number, notes: `Manual shipment ${s.number}`, userId: params.userId } });
+    const { consumeOutboundCost } = await import("@/lib/services/cost-layers");
+    const relief = await consumeOutboundCost({
+      partId: bin.partId,
+      locationId: bin.locationId,
+      inventoryItemId: bin.id,
+      quantity: bin.take,
+      materialTransactionId: shipTx.id,
+      ownership: bin.ownership,
+      db,
+    });
+    if (relief.unitCost) {
+      await db.materialTransaction.update({ where: { id: shipTx.id }, data: { unitCost: relief.unitCost } });
+    }
   }
 }
 
@@ -2351,8 +2398,11 @@ export async function shipSalesOrder(params: {
       committed: number;
       available: number;
       locationCode: string;
+      locationId: string;
+      ownership: string;
       lotNumber: string | null;
       serialNumber: string | null;
+      unitCost: number;
     }[];
   };
   const allocations: ShipAlloc[] = [];
@@ -2395,8 +2445,11 @@ export async function shipSalesOrder(params: {
         committed: item.quantityCommitted,
         available: item.quantityAvailable,
         locationCode: item.location.code,
+        locationId: item.locationId,
+        ownership: item.ownership,
         lotNumber: item.lotNumber,
         serialNumber: item.serialNumber,
+        unitCost: item.unitCost,
       });
       remaining -= take;
     }
@@ -2428,13 +2481,14 @@ export async function shipSalesOrder(params: {
         },
       });
 
-      await prisma.materialTransaction.create({
+      const shipTx = await prisma.materialTransaction.create({
         data: {
           type: "SHIP",
           partId: alloc.partId,
           inventoryItemId: p.itemId,
           salesOrderId: so.id,
           quantity: p.take,
+          unitCost: p.unitCost,
           fromLocation: p.locationCode,
           lotNumber: p.lotNumber,
           serialNumber: p.serialNumber,
@@ -2443,6 +2497,22 @@ export async function shipSalesOrder(params: {
           userId: params.userId,
         },
       });
+      const { consumeOutboundCost } = await import("@/lib/services/cost-layers");
+      const relief = await consumeOutboundCost({
+        partId: alloc.partId,
+        locationId: p.locationId,
+        inventoryItemId: p.itemId,
+        quantity: p.take,
+        fallbackUnitCost: p.unitCost,
+        materialTransactionId: shipTx.id,
+        ownership: p.ownership,
+      });
+      if (Math.abs(relief.unitCost - (p.unitCost || 0)) > 0.0001) {
+        await prisma.materialTransaction.update({
+          where: { id: shipTx.id },
+          data: { unitCost: relief.unitCost },
+        });
+      }
 
       await recordTrace({
         eventType: "SHIP",

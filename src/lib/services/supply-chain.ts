@@ -458,7 +458,7 @@ export async function receivePurchaseOrder(params: {
       });
     }
 
-    await prisma.materialTransaction.create({
+    const receiptTx = await prisma.materialTransaction.create({
       data: {
         type: "RECEIPT",
         partId: line.partId,
@@ -482,6 +482,20 @@ export async function receivePurchaseOrder(params: {
         userId: params.receivedById,
       },
     });
+    {
+      const { recordInboundCost } = await import("@/lib/services/cost-layers");
+      await recordInboundCost({
+        partId: line.partId,
+        locationId: receivingLoc.id,
+        inventoryItemId: invItem.id,
+        quantity: line.quantityReceived,
+        unitCost: line.unitCost,
+        sourceType: "RECEIPT",
+        sourceId: receipt.id,
+        materialTransactionId: receiptTx.id,
+        ownership: invItem.ownership,
+      });
+    }
 
     await recordTrace({
       eventType: "RECEIPT",
@@ -1398,7 +1412,7 @@ export async function dispositionMrb(params: {
   let returnShipmentId: string | null = null;
   let replacementPrId: string | null = null;
 
-  const scrapPostings: { id: string; inventoryItemId: string; quantity: number; unitCost: number; workOrderId: string | null; ownership: string }[] = [];
+  const scrapPostings: { id: string; inventoryItemId: string; partId: string; locationId: string; quantity: number; unitCost: number; workOrderId: string | null; ownership: string }[] = [];
   const disposition = await prisma.$transaction(async (db) => {
     // Tenant-qualified row lock covers the decision and stock movements together.
     const locked = await db.mrbCase.update({ where: { id: mrb.id }, data: { updatedAt: new Date() } });
@@ -1526,7 +1540,24 @@ export async function dispositionMrb(params: {
             userId: params.decidedById,
           },
         });
-        scrapPostings.push({ id: scrapped.id, inventoryItemId: item.id, quantity: scrapQty, unitCost: item.unitCost, workOrderId: item.workOrderId, ownership: item.ownership });
+        const { consumeOutboundCost } = await import("@/lib/services/cost-layers");
+        const relief = await consumeOutboundCost({
+          partId: item.partId,
+          locationId: item.locationId,
+          inventoryItemId: item.id,
+          quantity: scrapQty,
+          fallbackUnitCost: item.unitCost,
+          materialTransactionId: scrapped.id,
+          ownership: item.ownership,
+          db,
+        });
+        if (Math.abs(relief.unitCost - item.unitCost) > 0.0001) {
+          await db.materialTransaction.update({
+            where: { id: scrapped.id },
+            data: { unitCost: relief.unitCost },
+          });
+        }
+        scrapPostings.push({ id: scrapped.id, inventoryItemId: item.id, partId: item.partId, locationId: item.locationId, quantity: scrapQty, unitCost: relief.unitCost, workOrderId: item.workOrderId, ownership: item.ownership });
       }
       // REWORK / REPAIR leave material in quarantine — the spawned WO
       // consumes it and returns conforming stock on completion.

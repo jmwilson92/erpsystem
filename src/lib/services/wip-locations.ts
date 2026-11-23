@@ -106,7 +106,7 @@ export async function moveWorkOrderToLocation(params: {
         data: { locationId: dest.id },
       });
     }
-    await prisma.materialTransaction.create({
+    const moveTx = await prisma.materialTransaction.create({
       data: {
         type: "TRANSFER",
         partId: row.partId,
@@ -121,6 +121,17 @@ export async function moveWorkOrderToLocation(params: {
         notes: `WIP moved to ${dest.code}${dest.workCenter ? ` (${dest.workCenter.name})` : ""}`,
         userId: params.userId,
       },
+    });
+    const { moveCostLayers } = await import("@/lib/services/cost-layers");
+    await moveCostLayers({
+      partId: row.partId,
+      fromLocationId: row.locationId,
+      toLocationId: dest.id,
+      inventoryItemId: existing?.id ?? row.id,
+      quantity: row.quantityOnHand,
+      materialTransactionId: moveTx.id,
+      ownership: row.ownership,
+      fallbackUnitCost: row.unitCost,
     });
     moved += row.quantityOnHand;
   }

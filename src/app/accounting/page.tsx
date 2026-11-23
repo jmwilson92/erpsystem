@@ -2947,9 +2947,22 @@ export default async function AccountingPage({
                       defaultValue={acctSettings.costingMethod || "STANDARD"}
                     >
                       <option value="STANDARD">Standard cost (recommended)</option>
-                      <option value="AVERAGE">Average / actual unit cost on the bin</option>
+                      <option value="AVERAGE">Moving weighted average</option>
+                      <option value="FIFO">FIFO (first in, first out)</option>
+                      <option value="LIFO">LIFO (last in, first out)</option>
                     </select>
                   </label>
+                  <p className="text-[11px] leading-snug text-slate-500">
+                    LIFO is not permitted under IFRS.
+                  </p>
+                  <p className="text-[11px] leading-snug text-slate-500">
+                    The costing method can only be changed at a period boundary — the current
+                    open period must have no posted inventory, COGS, WIP, scrap, or RMA stock
+                    journals, and no material transactions in the period. A permitted change
+                    seeds opening layers at book value so the inventory balance does not jump.
+                    Switching to standard posts a revaluation journal when book value differs
+                    from standard × quantity.
+                  </p>
                   <label className="text-xs text-slate-500">
                     When to charge material to a job
                     <select
