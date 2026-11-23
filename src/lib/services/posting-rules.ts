@@ -389,3 +389,147 @@ export function gfpContractMatches(
     return c === v || c.includes(v) || v.includes(c);
   });
 }
+
+/** Invoice-to-receipt match. PPV is invoice minus receipt (unfavorable if the invoice is higher). */
+export function purchaseMatchEntry(params: {
+  receiptValue: number;
+  invoiceValue: number;
+  grirAccountId: string;
+  apAccountId: string;
+  ppvAccountId: string;
+}): { accountId: string; debit: number; credit: number; memo: string }[] | null {
+  const receipt = roundMoney(params.receiptValue);
+  const invoice = roundMoney(params.invoiceValue);
+  if (receipt <= 0.001 && invoice <= 0.001) return null;
+  const lines: { accountId: string; debit: number; credit: number; memo: string }[] = [];
+  if (receipt > 0.001) {
+    lines.push({
+      accountId: params.grirAccountId,
+      debit: receipt,
+      credit: 0,
+      memo: "Clear goods received",
+    });
+  }
+  if (invoice > 0.001) {
+    lines.push({
+      accountId: params.apAccountId,
+      debit: 0,
+      credit: invoice,
+      memo: "Supplier invoice",
+    });
+  }
+  const ppv = roundMoney(invoice - receipt);
+  if (ppv > 0.001) {
+    lines.push({
+      accountId: params.ppvAccountId,
+      debit: ppv,
+      credit: 0,
+      memo: "Purchase price variance (invoice above receipt)",
+    });
+  } else if (ppv < -0.001) {
+    lines.push({
+      accountId: params.ppvAccountId,
+      debit: 0,
+      credit: roundMoney(-ppv),
+      memo: "Purchase price variance (invoice below receipt)",
+    });
+  }
+  if (journalBalanceError(lines)) {
+    // A receipt with no invoice (or the reverse) is not a match entry.
+    return null;
+  }
+  return lines;
+}
+
+/** One finished-goods receipt from an open job. Relieves WIP at the unit value given. */
+export function finishedGoodsOutputEntry(params: {
+  amount: number;
+  fgAccountId: string;
+  wipAccountId: string;
+}): { accountId: string; debit: number; credit: number; memo: string }[] | null {
+  const amount = roundMoney(params.amount);
+  if (amount <= 0.001) return null;
+  return [
+    {
+      accountId: params.fgAccountId,
+      debit: amount,
+      credit: 0,
+      memo: "Finished goods received from the job",
+    },
+    {
+      accountId: params.wipAccountId,
+      debit: 0,
+      credit: amount,
+      memo: "WIP relieved at standard or current cost",
+    },
+  ];
+}
+
+export type CloseVarianceBucket = {
+  key: "MATERIAL_USAGE" | "LABOR_RATE" | "LABOR_EFFICIENCY" | "OVERHEAD" | "RESIDUAL";
+  amount: number;
+  memo: string;
+};
+
+/**
+ * Split leftover WIP on close into usage / rate / efficiency / overhead,
+ * then a residual so the 1210 balance for the job goes to zero.
+ * A positive amount is unfavorable (debit the variance account, credit WIP).
+ */
+export function closeVariancePlan(input: {
+  wipBalance: number;
+  materialIssued: number;
+  standardMaterial: number;
+  actualLabor: number;
+  clockedHours: number;
+  standardHours: number;
+  standardLaborRate: number;
+  absorbedOverhead: number;
+  standardOverhead: number;
+}): CloseVarianceBucket[] {
+  const stdRate = input.standardLaborRate > 0 ? input.standardLaborRate : 0;
+  const haveMaterialStd = Math.abs(input.standardMaterial) > 0.001;
+  const haveOhStd = Math.abs(input.standardOverhead) > 0.001;
+  const haveLaborStd = input.standardHours > 0.001 && stdRate > 0;
+  const usage = haveMaterialStd ? roundMoney(input.materialIssued - input.standardMaterial) : 0;
+  const rateVar = haveLaborStd ? roundMoney(input.actualLabor - input.clockedHours * stdRate) : 0;
+  const effVar = haveLaborStd ? roundMoney((input.clockedHours - input.standardHours) * stdRate) : 0;
+  const ohVar = haveOhStd ? roundMoney(input.absorbedOverhead - input.standardOverhead) : 0;
+  const buckets: CloseVarianceBucket[] = [
+    { key: "MATERIAL_USAGE", amount: usage, memo: "Material usage variance" },
+    { key: "LABOR_RATE", amount: rateVar, memo: "Labor rate variance" },
+    { key: "LABOR_EFFICIENCY", amount: effVar, memo: "Labor efficiency variance" },
+    { key: "OVERHEAD", amount: ohVar, memo: "Overhead variance" },
+  ];
+  const explained = roundMoney(buckets.reduce((s, b) => s + b.amount, 0));
+  const residual = roundMoney(input.wipBalance - explained);
+  buckets.push({
+    key: "RESIDUAL",
+    amount: residual,
+    memo: "Residual WIP relieved at close",
+  });
+  return buckets.filter((b) => Math.abs(b.amount) > 0.001);
+}
+
+export type ConsumptionTiming = "AT_PICK" | "BACKFLUSH";
+
+export function resolveConsumptionTiming(
+  partTiming: string | null | undefined,
+  companyTiming: string | null | undefined
+): ConsumptionTiming {
+  const raw = (partTiming || companyTiming || "AT_PICK").toUpperCase();
+  return raw === "BACKFLUSH" ? "BACKFLUSH" : "AT_PICK";
+}
+
+/** Unit value used to receive finished goods or relieve COGS. */
+export function reliefUnitCost(opts: {
+  costingMethod: string | null | undefined;
+  standardCost: number;
+  actualUnitCost: number;
+}): number {
+  const method = (opts.costingMethod || "STANDARD").toUpperCase();
+  if (method === "AVERAGE" || method === "ACTUAL") {
+    return roundMoney(opts.actualUnitCost > 0 ? opts.actualUnitCost : opts.standardCost);
+  }
+  return roundMoney(opts.standardCost > 0 ? opts.standardCost : opts.actualUnitCost);
+}

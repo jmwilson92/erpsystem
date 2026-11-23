@@ -8,10 +8,13 @@
  * Government-owned material is not put on the company's books.
  * G&A is not loaded into inventory; only fringe and shop overhead are.
  */
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { postJournal } from "@/lib/services/gaap";
 import { completionEntry, roundMoney } from "@/lib/services/posting-rules";
+
+type LedgerDb = Prisma.TransactionClient | typeof prisma;
 
 export const DEFAULT_ACCOUNT_MAP: {
   eventKey: string;
@@ -65,9 +68,9 @@ export const DEFAULT_ACCOUNT_MAP: {
   {
     eventKey: "INV_ADJUST",
     label: "Inventory count difference",
-    debitCode: "6200",
+    debitCode: "6220",
     creditCode: "1200",
-    notes: "A shortage debits the variance account. A surplus swaps the sides.",
+    notes: "A shortage debits the inventory-adjustment account. A surplus swaps the sides.",
   },
   {
     eventKey: "OSP",
@@ -100,6 +103,13 @@ const EXTRA_ACCOUNTS: {
     allowability: "UNALLOWABLE",
     farCitation: "31.205",
   },
+  { code: "2010", name: "Goods received / invoices received", type: "LIABILITY" },
+  { code: "6220", name: "Inventory adjustment", type: "EXPENSE" },
+  { code: "6221", name: "Purchase price variance", type: "EXPENSE" },
+  { code: "6230", name: "Material usage variance", type: "EXPENSE" },
+  { code: "6240", name: "Labor rate variance", type: "EXPENSE" },
+  { code: "6250", name: "Labor efficiency variance", type: "EXPENSE" },
+  { code: "6260", name: "Overhead variance", type: "EXPENSE" },
 ];
 
 const DEFAULT_POOLS = [
@@ -196,31 +206,31 @@ export async function ensureFiscalPeriods(year = new Date().getFullYear()) {
   }
 }
 
-async function accountByCode(code: string) {
-  await ensureAccountingDefaults();
-  const found = await prisma.account.findUnique({ where: { code } });
+async function accountByCode(code: string, db: LedgerDb = prisma) {
+  if (db === prisma) await ensureAccountingDefaults();
+  const found = await db.account.findUnique({ where: { code } });
   if (found) return found;
-  return prisma.account.create({
+  return db.account.create({
     data: { code, name: `Account ${code}`, type: "EXPENSE" },
   });
 }
 
-async function mappedPair(eventKey: string) {
-  await ensureAccountingDefaults();
+async function mappedPair(eventKey: string, db: LedgerDb = prisma) {
+  if (db === prisma) await ensureAccountingDefaults();
   const row =
-    (await prisma.glAccountMap.findUnique({ where: { eventKey } })) ||
+    (await db.glAccountMap.findUnique({ where: { eventKey } })) ||
     DEFAULT_ACCOUNT_MAP.find((d) => d.eventKey === eventKey);
   if (!row) throw new Error(`No account mapping for ${eventKey}`);
   const [debit, credit] = await Promise.all([
-    accountByCode(row.debitCode),
-    accountByCode(row.creditCode),
+    accountByCode(row.debitCode, db),
+    accountByCode(row.creditCode, db),
   ]);
   return { debit, credit, label: row.label };
 }
 
-async function resolveCharge(workOrderId?: string | null, projectId?: string | null) {
+async function resolveCharge(workOrderId?: string | null, projectId?: string | null, db: LedgerDb = prisma) {
   if (workOrderId) {
-    const wo = await prisma.workOrder.findUnique({
+    const wo = await db.workOrder.findUnique({
       where: { id: workOrderId },
       select: {
         id: true,
@@ -235,7 +245,7 @@ async function resolveCharge(workOrderId?: string | null, projectId?: string | n
     };
   }
   if (projectId) {
-    const project = await prisma.project.findUnique({
+    const project = await db.project.findUnique({
       where: { id: projectId },
       select: { programId: true },
     });
@@ -264,17 +274,17 @@ type MappedPost = {
   creditCode?: string;
 };
 
-async function mappedJournalParams(params: MappedPost): Promise<Parameters<typeof postJournal>[0] | null> {
+async function mappedJournalParams(params: MappedPost, db: LedgerDb = prisma): Promise<Parameters<typeof postJournal>[0] | null> {
   const amount = roundMoney(params.amount);
   if (amount <= 0.001) return null;
-  const pair = await mappedPair(params.eventKey);
+  const pair = await mappedPair(params.eventKey, db);
   const debit = params.swap ? pair.credit : pair.debit;
   const credit = params.creditCode
-    ? await accountByCode(params.creditCode)
+    ? await accountByCode(params.creditCode, db)
     : params.swap
       ? pair.debit
       : pair.credit;
-  const charge = await resolveCharge(params.workOrderId, params.projectId);
+  const charge = await resolveCharge(params.workOrderId, params.projectId, db);
   const programId = params.programId || charge.programId;
   const projectId = params.projectId || charge.projectId;
   const workOrderId = params.workOrderId || charge.workOrderId;
@@ -314,11 +324,11 @@ async function mappedJournalParams(params: MappedPost): Promise<Parameters<typeo
   };
 }
 
-async function postMapped(params: MappedPost) {
-  const journal = await mappedJournalParams(params);
+async function postMapped(params: MappedPost, db: LedgerDb = prisma) {
+  const journal = await mappedJournalParams(params, db);
   if (!journal) return null;
   try {
-    return await postJournal(journal);
+    return await postJournal(journal, db === prisma ? undefined : db);
   } catch (err) {
     await logAudit({
       entityType: "JournalEntry",
@@ -340,8 +350,10 @@ export async function postMaterialIssue(params: {
   amount: number;
   userId?: string | null;
   memo?: string;
+  db?: LedgerDb;
 }) {
-  const wo = await prisma.workOrder.findUnique({
+  const db = params.db || prisma;
+  const wo = await db.workOrder.findUnique({
     where: { id: params.workOrderId },
     select: { number: true },
   });
@@ -356,7 +368,7 @@ export async function postMaterialIssue(params: {
     costElement: "MATERIAL",
     workOrderId: params.workOrderId,
     userId: params.userId,
-  });
+  }, db);
 }
 
 export async function postDirectLabor(params: {

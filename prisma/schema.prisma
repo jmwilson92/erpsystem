@@ -282,6 +282,8 @@ model Part {
   expenseAccount            Account?       @relation("PartExpenseAccount", fields: [expenseAccountId], references: [id])
   cogsAccountId             String?
   cogsAccount               Account?       @relation("PartCogsAccount", fields: [cogsAccountId], references: [id])
+  /// AT_PICK | BACKFLUSH — null means use the company default on AccountingSettings
+  consumptionTiming         String?
   // Receiving inspection requirements (item card — not BOM)
   requiresGdtInspection     Boolean        @default(false)
   requiresFunctionalTest    Boolean        @default(false)
@@ -815,6 +817,7 @@ model WorkOrder {
   serialInstalls       SerialInstall[]
   kitSerialAssignments KitSerialAssignment[]
   journalEntries       JournalEntry[]
+  outputs              WorkOrderOutput[]
 
   @@index([status])
   @@index([workCenter])
@@ -2807,6 +2810,7 @@ model InventoryItem {
 
   transactions       MaterialTransaction[]
   governmentProperty GovernmentProperty?
+  workOrderOutputs   WorkOrderOutput[]
 
   @@index([partId])
   @@index([ownership])
@@ -2835,10 +2839,37 @@ model MaterialTransaction {
   photoUrls       String? // JSON array of photo paths / mock URLs
   userId          String?
   createdAt       DateTime       @default(now())
+  /// Journal that recorded this movement, so the subledger can drill to the GL
+  journalEntryId  String?
+  journalEntry    JournalEntry?  @relation(fields: [journalEntryId], references: [id], onDelete: SetNull)
 
   @@index([type])
   @@index([workOrderId])
   @@index([lotNumber])
+  @@index([journalEntryId])
+}
+
+/// One receipt of finished goods from an open work order. The job may stay open.
+model WorkOrderOutput {
+  id                    String       @id @default(cuid())
+  workOrderId           String
+  workOrder             WorkOrder    @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  quantity              Float
+  unitCost              Float        @default(0)
+  standardAmount        Float        @default(0)
+  lotNumber             String?
+  serialNumber          String?
+  inventoryItemId       String?
+  inventoryItem         InventoryItem? @relation(fields: [inventoryItemId], references: [id], onDelete: SetNull)
+  materialTransactionId String?
+  journalEntryId        String?
+  journalEntry          JournalEntry? @relation(fields: [journalEntryId], references: [id], onDelete: SetNull)
+  receivedById          String?
+  receivedAt            DateTime     @default(now())
+  notes                 String?
+
+  @@index([workOrderId])
+  @@index([journalEntryId])
 }
 
 model Lot {
@@ -3581,8 +3612,10 @@ model JournalEntry {
   approvedById      String?
   createdAt         DateTime  @default(now())
 
-  lines       JournalLine[]
-  attachments JournalAttachment[]
+  lines                 JournalLine[]
+  attachments           JournalAttachment[]
+  materialTransactions  MaterialTransaction[]
+  workOrderOutputs      WorkOrderOutput[]
 
   @@index([programId])
   @@index([workOrderId])
@@ -3742,6 +3775,9 @@ model ArInvoice {
   customerId   String
   customer     Customer  @relation(fields: [customerId], references: [id])
   salesOrderId String?
+  /// Set when this invoice was raised from a specific shipment
+  shipmentId   String?
+  shipment     Shipment? @relation(fields: [shipmentId], references: [id], onDelete: SetNull)
   invoiceDate  DateTime  @default(now())
   dueDate      DateTime?
   status       String    @default("OPEN") // DRAFT, OPEN, PARTIAL, PAID, VOID
@@ -3782,6 +3818,9 @@ model ApInvoice {
   supplier        Supplier?      @relation(fields: [supplierId], references: [id])
   purchaseOrderId String?
   purchaseOrder   PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
+  /// Receiving document this voucher matched (ERS or 3-way match)
+  receiptId       String?
+  receiptNumber   String?
   invoiceDate     DateTime       @default(now())
   dueDate         DateTime?
   status          String         @default("OPEN") // DRAFT, OPEN, PARTIAL, PAID, VOID
@@ -3955,6 +3994,7 @@ model Shipment {
 
   lines       ShipmentLine[]
   traceEvents TraceEvent[]
+  invoices    ArInvoice[]
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -5191,6 +5231,12 @@ model AccountingSettings {
   closedAt             DateTime?
   /// STANDARD (shipments relieve finished goods at part standard cost) | AVERAGE
   costingMethod        String    @default("STANDARD")
+  /// AT_PICK (post Dr WIP / Cr inventory when the kit is picked) | BACKFLUSH (post when finished goods are received)
+  consumptionTiming    String    @default("AT_PICK")
+  /// When true, PO receipts credit 2010 GR/IR rather than AP directly
+  useGrirClearing      Boolean   @default(true)
+  /// When true, a receipt also raises an AP voucher at PO price (PPV is zero until a different invoice is entered)
+  evaluatedReceiptSettlement Boolean @default(true)
   /// When on, the person who wrote a manual journal cannot approve it
   /// unless they hold the controller override.
   requireJournalSoD    Boolean   @default(false)

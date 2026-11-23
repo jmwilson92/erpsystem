@@ -8595,15 +8595,36 @@ export async function actionSaveAccountingSettings(
     ((formData.get("basis") as string) || "ACCRUAL").toUpperCase() === "CASH"
       ? "CASH"
       : "ACCRUAL";
+  const costingMethod =
+    ((formData.get("costingMethod") as string) || "STANDARD").toUpperCase() === "AVERAGE"
+      ? "AVERAGE"
+      : "STANDARD";
+  const consumptionTiming =
+    ((formData.get("consumptionTiming") as string) || "AT_PICK").toUpperCase() === "BACKFLUSH"
+      ? "BACKFLUSH"
+      : "AT_PICK";
+  const useGrirClearing = formData.get("useGrirClearing") === "1";
+  const evaluatedReceiptSettlement = formData.get("evaluatedReceiptSettlement") === "1";
   await prisma.accountingSettings.upsert({
     where: { id: "default" },
-    create: { id: "default", basis },
+    create: {
+      id: "default",
+      basis,
+      costingMethod,
+      consumptionTiming,
+      useGrirClearing,
+      evaluatedReceiptSettlement,
+    },
     update: {
       basis,
       fiscalYearStartMonth: Math.min(
         12,
         Math.max(1, Number(formData.get("fiscalYearStartMonth") || 1))
       ),
+      costingMethod,
+      consumptionTiming,
+      useGrirClearing,
+      evaluatedReceiptSettlement,
       updatedById: user?.id,
     },
   });
@@ -10918,4 +10939,78 @@ export async function actionDiscardBomImport(importId: string): Promise<void> {
   await flashToast("Import discarded. No BOM was created.");
   revalidatePath("/bom");
   redirect("/bom");
+}
+
+
+// ─────────────────────────────────────────────────────────────
+// Manufacturing inventory accounting
+// ─────────────────────────────────────────────────────────────
+
+export async function actionReceiveWorkOrderOutput(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const { receiveWorkOrderOutput } = await import("@/lib/services/inventory-accounting");
+  const user = await requirePermission("workorders.complete");
+  const workOrderId = String(formData.get("workOrderId") || "");
+  const quantity = Number(formData.get("quantity") || 0);
+  const result = await receiveWorkOrderOutput({
+    workOrderId,
+    quantity,
+    userId: user?.id,
+    lotNumber: String(formData.get("lotNumber") || "") || undefined,
+    serialNumber: String(formData.get("serialNumber") || "") || undefined,
+    notes: String(formData.get("notes") || "") || undefined,
+  });
+  await flashToast(`Received ${quantity} to finished goods${result.lotNumber ? ` · lot ${result.lotNumber}` : ""}. The job is still open.`);
+  revalidatePath(`/work-orders/${workOrderId}`);
+  revalidatePath("/accounting/wip");
+  revalidatePath("/inventory");
+}
+
+export async function actionCloseWorkOrderBooks(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const { closeWorkOrderBooks } = await import("@/lib/services/inventory-accounting");
+  const user = await requirePermission("workorders.complete");
+  const workOrderId = String(formData.get("workOrderId") || "");
+  await closeWorkOrderBooks({ workOrderId, userId: user?.id });
+  await prisma.workOrder.updateMany({
+    where: { id: workOrderId, status: { notIn: ["CANCELLED"] } },
+    data: { status: "COMPLETED", actualEnd: new Date() },
+  });
+  await flashToast("Job closed. Remaining WIP was moved to variance accounts.");
+  revalidatePath(`/work-orders/${workOrderId}`);
+  revalidatePath("/accounting/wip");
+}
+
+export async function actionUnissueWorkOrderMaterial(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const { unissueToStock } = await import("@/lib/services/inventory-accounting");
+  const user = await requirePermission("workorders.complete");
+  const workOrderId = String(formData.get("workOrderId") || "");
+  await unissueToStock({
+    workOrderId,
+    inventoryItemId: String(formData.get("inventoryItemId") || ""),
+    quantity: Number(formData.get("quantity") || 0),
+    userId: user?.id,
+    memo: String(formData.get("notes") || "") || undefined,
+  });
+  await flashToast("Material returned to stock and WIP reduced.");
+  revalidatePath(`/work-orders/${workOrderId}`);
+  revalidatePath("/inventory");
+  revalidatePath("/accounting/wip");
+}
+
+export async function actionMatchSupplierInvoice(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const { matchSupplierInvoice } = await import("@/lib/services/inventory-accounting");
+  const user = await requirePermission("accounting.journal.post");
+  const sourceId = String(formData.get("sourceId") || formData.get("apInvoiceId") || "");
+  const journal = await matchSupplierInvoice({
+    sourceId,
+    receiptValue: Number(formData.get("receiptValue") || 0),
+    invoiceValue: Number(formData.get("invoiceValue") || 0),
+    userId: user?.id,
+    description: String(formData.get("description") || "") || undefined,
+  });
+  await flashToast(journal ? "Invoice matched to the receipt. PPV posted if the prices differed." : "Nothing to match.");
+  revalidatePath("/accounting");
 }
