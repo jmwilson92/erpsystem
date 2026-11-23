@@ -152,6 +152,24 @@ const EXTRA_ROUTES: Omit<NavRoute, "permission">[] = [
     highlight: "bom-prototype-default",
     group: "Administration",
   },
+  {
+    href: "/accounting/wip",
+    label: "WIP by job",
+    synonyms: ["wip report", "work in process", "wip by work order", "show me wip"],
+    group: "Accounting",
+  },
+  {
+    href: "/accounting/inventory-valuation",
+    label: "Inventory to GL reconciliation",
+    synonyms: ["inventory valuation", "inventory recon", "subledger to gl", "inventory vs ledger"],
+    group: "Accounting",
+  },
+  {
+    href: "/accounting/transactions",
+    label: "Inventory transaction register",
+    synonyms: ["inventory register", "material transactions", "stock journal"],
+    group: "Accounting",
+  },
 ];
 
 export function viewPermissionForHref(href: string): string | null {

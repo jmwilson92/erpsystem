@@ -967,6 +967,19 @@ export default async function AccountingPage({
             <ArrowRight className="ml-auto h-4 w-4 text-slate-500" />
           </Link>
 
+          <div className="grid gap-3 md:grid-cols-3">
+            {[
+              { href: "/accounting/wip", title: "WIP by job", body: "Beginning, charges in, relieved to finished goods, variance, ending." },
+              { href: "/accounting/inventory-valuation", title: "Inventory vs. the ledger", body: "Subledger value compared to raw materials, WIP, and finished goods." },
+              { href: "/accounting/transactions", title: "Transaction register", body: "Stock movements with a drill-down to the journal that posted them." },
+            ].map((c) => (
+              <Link key={c.href} href={c.href} className="rounded-xl border border-slate-800 bg-slate-900/40 p-4 transition hover:border-teal-500/40">
+                <p className="font-medium text-slate-200">{c.title}</p>
+                <p className="mt-1 text-xs text-slate-500">{c.body}</p>
+              </Link>
+            ))}
+          </div>
+
           {/* Trend + bank accounts */}
           <div className="grid gap-4 lg:grid-cols-3">
             <Card className="lg:col-span-2">
@@ -2923,6 +2936,36 @@ export default async function AccountingPage({
                         </option>
                       ))}
                     </select>
+                  </label>
+                  <label className="text-xs text-slate-500">
+                    Inventory costing
+                    <select
+                      name="costingMethod"
+                      className={selectClass}
+                      defaultValue={acctSettings.costingMethod || "STANDARD"}
+                    >
+                      <option value="STANDARD">Standard cost (recommended)</option>
+                      <option value="AVERAGE">Average / actual unit cost on the bin</option>
+                    </select>
+                  </label>
+                  <label className="text-xs text-slate-500">
+                    When to charge material to a job
+                    <select
+                      name="consumptionTiming"
+                      className={selectClass}
+                      defaultValue={acctSettings.consumptionTiming || "AT_PICK"}
+                    >
+                      <option value="AT_PICK">When the kit is picked (default)</option>
+                      <option value="BACKFLUSH">When finished goods are received (backflush)</option>
+                    </select>
+                  </label>
+                  <label className="flex items-center gap-2 text-xs text-slate-400">
+                    <input type="checkbox" name="useGrirClearing" value="1" defaultChecked={acctSettings.useGrirClearing !== false} />
+                    Use a goods-received clearing account (GR/IR) on purchase receipts
+                  </label>
+                  <label className="flex items-center gap-2 text-xs text-slate-400">
+                    <input type="checkbox" name="evaluatedReceiptSettlement" value="1" defaultChecked={acctSettings.evaluatedReceiptSettlement !== false} />
+                    Auto-create the supplier payable at PO price when material is received
                   </label>
                   <Button type="submit" size="sm">
                     Save settings

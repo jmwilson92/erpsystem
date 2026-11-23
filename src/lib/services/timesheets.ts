@@ -943,6 +943,13 @@ async function finalizeApprovedTimesheet(sheetId: string) {
   } catch {
     /* non-fatal */
   }
+  const { absorbApprovedTimesheetLabor } = await import(
+    "@/lib/services/inventory-accounting"
+  );
+  await absorbApprovedTimesheetLabor({
+    timesheetId: sheetId,
+    userId: sheet.userId,
+  });
   return updated;
 }
 
@@ -1206,26 +1213,13 @@ export async function processTimesheet(params: {
     journalEntryId = je.id;
   }
 
-  try {
-    const { postDirectLabor } = await import("@/lib/services/gl-posting");
-    for (const entry of sheet.entries) {
-      if (!entry.workOrderId && !entry.projectId) continue;
-      const amt =
-        entry.costAmount || entry.hours * (entry.laborRate || DEFAULT_LABOR_RATE);
-      if (amt <= 0) continue;
-      await postDirectLabor({
-        timeEntryId: entry.id,
-        amount: Math.round(amt * 100) / 100,
-        workOrderId: entry.workOrderId,
-        projectId: entry.projectId,
-        userId: params.processor.id,
-        date: entry.date,
-        memo: `Labor ${sheet.user.name} → ${entry.workOrderId ? "job" : "project"}`,
-      });
-    }
-  } catch (err) {
-    console.error("GL labor distribution", err);
-  }
+  const { absorbApprovedTimesheetLabor } = await import(
+    "@/lib/services/inventory-accounting"
+  );
+  await absorbApprovedTimesheetLabor({
+    timesheetId: sheet.id,
+    userId: params.processor.id,
+  });
 
   const updated = await prisma.timesheet.update({
     where: { id: sheet.id },

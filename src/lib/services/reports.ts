@@ -78,6 +78,9 @@ export const REPORT_CATALOG: {
   { key: "program-pl", title: "Profit by Program", group: "Financial", description: "Funded, billed, allowable cost, and estimate at completion from the books, by PMO program" },
   { key: "job-profit", title: "Job Profitability", group: "Financial", description: "Estimate, shop log, and cost on the books for each job tied to a project" },
   { key: "wip-books", title: "WIP on the Books", group: "Financial", description: "Work-in-process balance by job from posted journals" },
+  { key: "wip-movement", title: "WIP by Job", group: "Financial", description: "Beginning WIP, material, labor and overhead in, relieved to finished goods, variance, and ending WIP" },
+  { key: "inventory-gl", title: "Inventory to GL Reconciliation", group: "Financial", description: "On-hand inventory value compared to the raw materials, WIP, and finished goods ledger balances" },
+  { key: "inv-register", title: "Inventory Transaction Register", group: "Financial", description: "Stock movements with the journal that posted them, when one exists" },
   { key: "labor-dist", title: "Labor Distribution", group: "People", description: "Hours charged to a job, project, or indirect code, with the program" },
   { key: "labor-progress", title: "Work Order Labor Progress", group: "Operations", description: "Allocated vs clocked hours by work order, rolled up to a project or budget. Filterable and exportable." },
   { key: "indirect-rates", title: "Indirect Rates", group: "Financial", description: "Provisional vs actual fringe, shop overhead, and G&A. A worksheet, not a rate agreement." },
@@ -439,6 +442,12 @@ export async function runReport(
       return reportJobProfit();
     case "wip-books":
       return reportWipBooks();
+    case "wip-movement":
+      return reportWipMovement();
+    case "inventory-gl":
+      return reportInventoryGl();
+    case "inv-register":
+      return reportInvRegister();
     case "labor-dist":
       return reportLaborDistribution();
     case "indirect-rates":
@@ -981,4 +990,96 @@ function costSourceLabel(p: {
   if (p.standardCost > 0) return "std cost";
   if (p.lastBuyCost > 0) return "last buy";
   return "no cost";
+}
+
+
+async function reportWipMovement() {
+  const { getWipByWorkOrderReport } = await import("@/lib/services/inventory-accounting");
+  const report = await getWipByWorkOrderReport({ includeClosed: true });
+  return {
+    title: "WIP by Job",
+    columns: [
+      "Job",
+      "Status",
+      "Beginning",
+      "Material in",
+      "Labor in",
+      "Overhead in",
+      "Relieved to FG",
+      "Variance",
+      "Ending WIP",
+    ],
+    rows: [
+      ...report.rows.map((r) => [
+        r.number,
+        r.status,
+        money(r.beginning),
+        money(r.materialIn),
+        money(r.laborIn),
+        money(r.overheadIn),
+        money(r.relieved),
+        money(r.variance),
+        money(r.ending),
+      ]),
+      [
+        "Total",
+        "",
+        money(report.totals.beginning),
+        money(report.totals.materialIn),
+        money(report.totals.laborIn),
+        money(report.totals.overheadIn),
+        money(report.totals.relieved),
+        money(report.totals.variance),
+        money(report.totals.ending),
+      ],
+    ],
+  };
+}
+
+async function reportInventoryGl() {
+  const { getInventoryGlReconciliation } = await import("@/lib/services/inventory-accounting");
+  const report = await getInventoryGlReconciliation();
+  return {
+    title: "Inventory to GL Reconciliation",
+    columns: ["Class", "Account", "Subledger", "General ledger", "Difference"],
+    rows: report.rows.map((r) => [
+      r.label,
+      `${r.accountCode} ${r.accountName}`,
+      money(r.subledger),
+      money(r.gl),
+      money(r.difference),
+    ]),
+  };
+}
+
+async function reportInvRegister() {
+  const { getInventoryTransactionRegister } = await import("@/lib/services/inventory-accounting");
+  const rows = await getInventoryTransactionRegister({ take: 500 });
+  return {
+    title: "Inventory Transaction Register",
+    columns: [
+      "Date",
+      "Type",
+      "Part",
+      "Qty",
+      "Unit cost",
+      "Value",
+      "From",
+      "To",
+      "Reference",
+      "Journal",
+    ],
+    rows: rows.map((r) => [
+      r.date.toISOString().slice(0, 10),
+      r.type,
+      r.partNumber,
+      String(r.quantity),
+      money(r.unitCost),
+      money(r.value),
+      r.fromLocation || "",
+      r.toLocation || "",
+      r.reference || "",
+      r.journalNumber || "",
+    ]),
+  };
 }

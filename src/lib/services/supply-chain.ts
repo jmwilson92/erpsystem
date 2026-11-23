@@ -1569,11 +1569,9 @@ export async function dispositionMrb(params: {
   for (const item of scrapPostings) {
     const amount = Math.round(item.quantity * item.unitCost * 100) / 100;
     if (amount <= 0.001) continue;
-    try {
-      const { postScrap } = await import("@/lib/services/gl-posting");
-      await postScrap({ materialTransactionId: item.id, amount, workOrderId: item.workOrderId,
-        governmentOwned: item.ownership === "GOVERNMENT", userId: params.decidedById, memo: `Scrap ${mrb.number}` });
-    } catch (err) { console.error("GL scrap", err); }
+    const { postScrap } = await import("@/lib/services/gl-posting");
+    await postScrap({ materialTransactionId: item.id, amount, workOrderId: item.workOrderId,
+      governmentOwned: item.ownership === "GOVERNMENT", userId: params.decidedById, memo: `Scrap ${mrb.number}` });
   }
 
   if (carNumber) {

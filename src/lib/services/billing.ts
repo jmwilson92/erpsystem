@@ -12,6 +12,13 @@ import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { postJournal } from "@/lib/services/gaap";
 import { chargeForPurchaseOrder, chargeForSalesOrder } from "@/lib/services/gl-posting";
+import {
+  getInventoryAccountingSettings,
+  matchSupplierInvoice,
+  postPurchaseReceipt,
+  resolveItemAccounts,
+} from "@/lib/services/inventory-accounting";
+import { reliefUnitCost } from "@/lib/services/posting-rules";
 
 const NET_DAYS = 30;
 const money = (n: number) => Math.round(n * 100) / 100;
@@ -20,15 +27,23 @@ async function account(code: string) {
   return prisma.account.findFirst({ where: { code } });
 }
 
-/** Raise the AR invoice for a shipped sales order (idempotent per SO). */
+/** Raise the AR invoice and COGS for a shipment (idempotent per shipment, or per SO if no shipment is given). */
 export async function raiseArInvoiceForShipment(params: {
   salesOrderId: string;
+  shipmentId?: string | null;
   userId?: string | null;
 }) {
-  const existing = await prisma.arInvoice.findFirst({
-    where: { salesOrderId: params.salesOrderId },
-  });
-  if (existing) return existing; // already billed
+  if (params.shipmentId) {
+    const existing = await prisma.arInvoice.findFirst({
+      where: { shipmentId: params.shipmentId },
+    });
+    if (existing) return existing;
+  } else {
+    const existing = await prisma.arInvoice.findFirst({
+      where: { salesOrderId: params.salesOrderId, shipmentId: null },
+    });
+    if (existing) return existing;
+  }
 
   const so = await prisma.salesOrder.findUnique({
     where: { id: params.salesOrderId },
@@ -39,9 +54,44 @@ export async function raiseArInvoiceForShipment(params: {
   });
   if (!so || so.lines.length === 0) return null;
 
-  const subtotal = money(
-    so.lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0)
-  );
+  let billedLines: { description: string; quantity: number; unitPrice: number; part: (typeof so.lines)[number]["part"] }[] = [];
+  if (params.shipmentId) {
+    const shipment = await prisma.shipment.findUnique({
+      where: { id: params.shipmentId },
+      include: { lines: true },
+    });
+    if (!shipment) return null;
+    if (shipment.lines.length > 0) {
+      billedLines = shipment.lines.map((sl) => {
+        const soLine = so.lines.find((l) => l.partId && l.partId === sl.partId) || so.lines[0];
+        return {
+          description: `${soLine.part?.partNumber || "Item"} — ${soLine.part?.description || sl.description || so.number}`,
+          quantity: sl.quantity,
+          unitPrice: soLine.unitPrice,
+          part: soLine.part,
+        };
+      });
+    } else {
+      // Packed shipments always have lines after pack; fall back to uninvoiced SO remainder.
+      billedLines = so.lines
+        .filter((l) => l.quantityShipped > 0)
+        .map((l) => ({
+          description: `${l.part?.partNumber || "Item"} — ${l.part?.description || l.description || so.number}`,
+          quantity: l.quantityShipped,
+          unitPrice: l.unitPrice,
+          part: l.part,
+        }));
+    }
+  } else {
+    billedLines = so.lines.map((l) => ({
+      description: `${l.part?.partNumber || "Item"} — ${l.part?.description || l.description || so.number}`,
+      quantity: l.quantity,
+      unitPrice: l.unitPrice,
+      part: l.part,
+    }));
+  }
+
+  const subtotal = money(billedLines.reduce((s, l) => s + l.quantity * l.unitPrice, 0));
   if (subtotal <= 0) return null;
 
   const count = await prisma.arInvoice.count();
@@ -50,15 +100,18 @@ export async function raiseArInvoiceForShipment(params: {
       number: `INV-${String(count + 1).padStart(5, "0")}`,
       customerId: so.customerId,
       salesOrderId: so.id,
+      shipmentId: params.shipmentId || null,
       invoiceDate: new Date(),
       dueDate: new Date(Date.now() + NET_DAYS * 86_400_000),
       status: "OPEN",
       subtotal,
       total: subtotal,
-      notes: `Auto-raised on shipment of ${so.number}`,
+      notes: params.shipmentId
+        ? `Auto-raised on shipment of ${so.number}`
+        : `Auto-raised on shipment of ${so.number}`,
       lines: {
-        create: so.lines.map((l) => ({
-          description: `${l.part?.partNumber || "Item"} — ${l.part?.description || l.description || so.number}`,
+        create: billedLines.map((l) => ({
+          description: l.description,
           quantity: l.quantity,
           unitPrice: l.unitPrice,
           amount: money(l.quantity * l.unitPrice),
@@ -67,43 +120,59 @@ export async function raiseArInvoiceForShipment(params: {
     },
   });
 
-  // Revenue recognition: Dr AR / Cr Sales Revenue.
-  // The program comes from the work order on this sales order (PMO), not a second contract file.
   const charge = await chargeForSalesOrder(so.id);
-  const [ar, revenue, cogsAcct, fg] = await Promise.all([
-    account("1100"),
-    account("4000"),
-    account("5000"),
-    account("1220"),
-  ]);
+  const [ar, revenue] = await Promise.all([account("1100"), account("4000")]);
+  const sourceKey = params.shipmentId || invoice.id;
   if (ar && revenue) {
     await postJournal({
       description: `Revenue — ${so.number} shipped (${invoice.number})`,
       source: "AR",
       sourceId: invoice.id,
+      idempotencyKey: `ar-rev:${sourceKey}`,
       programId: charge.programId || undefined,
       projectId: charge.projectId || undefined,
       workOrderId: charge.workOrderId || undefined,
       createdById: params.userId || undefined,
+      status: "POSTED",
       lines: [
         { accountId: ar.id, debit: subtotal },
         { accountId: revenue.id, credit: subtotal },
       ],
     });
   }
-  // COGS relief at standard: Dr COGS / Cr Finished Goods
-  const cogsValue = money(
-    so.lines.reduce((s, l) => s + l.quantity * (l.part?.standardCost || 0), 0)
-  );
-  if (cogsAcct && fg && cogsValue > 0) {
+
+  const settings = await getInventoryAccountingSettings();
+  const cogsGroups = new Map<string, { debitId: string; creditId: string; amount: number }>();
+  for (const line of billedLines) {
+    const accounts = await resolveItemAccounts(line.part);
+    const unit = reliefUnitCost({
+      costingMethod: settings.costingMethod,
+      standardCost: line.part?.standardCost || 0,
+      actualUnitCost: line.part?.averageCost || line.part?.lastBuyCost || line.part?.standardCost || 0,
+    });
+    const value = money(line.quantity * unit);
+    if (value <= 0.001) continue;
+    const key = `${accounts.cogs.id}:${accounts.fg.id}`;
+    const prev = cogsGroups.get(key) || { debitId: accounts.cogs.id, creditId: accounts.fg.id, amount: 0 };
+    prev.amount = money(prev.amount + value);
+    cogsGroups.set(key, prev);
+  }
+  let cogsValue = 0;
+  for (const group of cogsGroups.values()) {
+    cogsValue = money(cogsValue + group.amount);
     await postJournal({
-      description: `COGS — ${so.number} shipped at standard`,
+      description: `COGS — ${so.number} shipped`,
       source: "AR",
       sourceId: invoice.id,
+      idempotencyKey: `cogs:${sourceKey}:${group.debitId}:${group.creditId}`,
+      programId: charge.programId || undefined,
+      projectId: charge.projectId || undefined,
+      workOrderId: charge.workOrderId || undefined,
       createdById: params.userId || undefined,
+      status: "POSTED",
       lines: [
-        { accountId: cogsAcct.id, debit: cogsValue },
-        { accountId: fg.id, credit: cogsValue },
+        { accountId: group.debitId, debit: group.amount },
+        { accountId: group.creditId, credit: group.amount },
       ],
     });
   }
@@ -113,7 +182,7 @@ export async function raiseArInvoiceForShipment(params: {
     entityId: invoice.id,
     action: "AR_AUTO_RAISED",
     userId: params.userId,
-    metadata: { salesOrder: so.number, total: subtotal, cogs: cogsValue },
+    metadata: { salesOrder: so.number, shipmentId: params.shipmentId, total: subtotal, cogs: cogsValue },
   });
   return invoice;
 }
@@ -134,6 +203,14 @@ export async function raiseApInvoiceForReceipt(params: {
   );
   if (total <= 0) return null;
 
+  const already = await prisma.apInvoice.findFirst({
+    where: {
+      purchaseOrderId: params.purchaseOrderId,
+      receiptNumber: params.receiptNumber,
+    },
+  });
+  if (already) return already;
+
   const po = await prisma.purchaseOrder.findUnique({
     where: { id: params.purchaseOrderId },
     include: { supplier: true },
@@ -146,6 +223,7 @@ export async function raiseApInvoiceForReceipt(params: {
       number: `AP-${String(count + 1).padStart(5, "0")}`,
       supplierId: po.supplierId,
       purchaseOrderId: po.id,
+      receiptNumber: params.receiptNumber,
       invoiceDate: new Date(),
       dueDate: new Date(Date.now() + NET_DAYS * 86_400_000),
       status: "OPEN",
@@ -155,28 +233,26 @@ export async function raiseApInvoiceForReceipt(params: {
     },
   });
 
-  // Inventory capitalization: Dr Inventory - Raw Materials / Cr AP.
-  // Tagged to the PO's project program so the receipt is traceable. The job
-  // is charged later, when the material is issued — not on receipt.
-  const charge = await chargeForPurchaseOrder(po.id);
-  const [inv, ap] = await Promise.all([account("1200"), account("2000")]);
-  if (inv && ap) {
-    const gfpNote = po.isGovernmentProperty
-      ? "Government property receipt — confirm this should sit on the company books"
-      : params.receiptNumber;
-    await postJournal({
-      description: `Receipt ${params.receiptNumber} — PO ${po.number} inventory capitalization`,
-      source: "AP",
-      sourceId: voucher.id,
-      programId: charge.programId || undefined,
-      projectId: charge.projectId || undefined,
-      clinId: charge.clinId || undefined,
-      createdById: params.userId || undefined,
-      lines: [
-        { accountId: inv.id, debit: total, memo: gfpNote },
-        { accountId: ap.id, credit: total, memo: po.number },
-      ],
+  const settings = await getInventoryAccountingSettings();
+  if (!po.isGovernmentProperty) {
+    await postPurchaseReceipt({
+      receiptId: voucher.receiptId || voucher.id,
+      receiptNumber: params.receiptNumber,
+      purchaseOrderId: po.id,
+      amount: total,
+      governmentOwned: false,
+      userId: params.userId,
+      memo: params.receiptNumber,
     });
+    if (settings.useGrirClearing && settings.evaluatedReceiptSettlement) {
+      await matchSupplierInvoice({
+        sourceId: voucher.id,
+        receiptValue: total,
+        invoiceValue: total,
+        userId: params.userId,
+        description: `ERS match — PO ${po.number} / ${params.receiptNumber}`,
+      });
+    }
   }
 
   await logAudit({

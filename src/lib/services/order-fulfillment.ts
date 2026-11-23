@@ -1328,6 +1328,7 @@ export async function completeKitOrder(params: {
 
   // Kit material stages at the company staging location (or WIP fallback).
   const { resolveStagingLocation } = await import("./wip-locations");
+  const { consumptionTimingForPart } = await import("@/lib/services/inventory-accounting");
   const wipLoc = await resolveStagingLocation();
 
   const chargeNumber =
@@ -1348,6 +1349,16 @@ export async function completeKitOrder(params: {
   if (!wipLoc) throw new Error("Configure a kit staging location before picking");
 
   for (const line of kit.lines) {
+    if ((await consumptionTimingForPart(line.part)) === "BACKFLUSH") {
+      await prisma.kitOrderLine.update({
+        where: { id: line.id },
+        data: {
+          status: "PICKED",
+          notes: "Backflush — charged when finished goods are received",
+        },
+      });
+      continue;
+    }
     let remaining = line.quantityRequired - line.quantityPicked;
     // A retried SHORT kit must never re-stage an already picked line.
     if (remaining <= 0.0001) continue;
@@ -1471,17 +1482,22 @@ export async function completeKitOrder(params: {
         });
       });
       if (item.ownership !== "GOVERNMENT" && item.unitCost * take > 0.001) {
-        try {
+        const { shouldPostIssueAtPick } = await import("@/lib/services/inventory-accounting");
+        if (await shouldPostIssueAtPick(line.part)) {
           const { postMaterialIssue } = await import("@/lib/services/gl-posting");
-          await postMaterialIssue({
+          const journal = await postMaterialIssue({
             materialTransactionId: issued.id,
             workOrderId: kit.workOrderId,
             amount: Math.round(item.unitCost * take * 100) / 100,
             userId: params.userId,
             memo: `${line.part.partNumber} lot ${item.lotNumber || "—"}`,
           });
-        } catch (err) {
-          console.error("GL material issue", err);
+          if (journal) {
+            await prisma.materialTransaction.update({
+              where: { id: issued.id },
+              data: { journalEntryId: journal.id },
+            });
+          }
         }
       }
 
@@ -1762,50 +1778,36 @@ export async function completeWorkOrderToStock(params: {
     if (recovered) return recovered;
   }
 
+  const remaining = Math.round(((wo.quantity || 0) - (wo.quantityCompleted || 0)) * 1000) / 1000;
+  const { receiveWorkOrderOutput, closeWorkOrderBooks } = await import(
+    "@/lib/services/inventory-accounting"
+  );
   const lotNumber =
     params.lotNumber || `LOT-WO-${wo.number.replace(/\W/g, "")}`;
-  // Serialized parts get one serial PER UNIT (with as-built genealogy),
-  // minted below after the inventory row exists. The single inventory
-  // row carries the first serial only when the run is one unit.
   const serialNumber =
     params.serialNumber ||
-    (wo.part?.isSerialized && (wo.quantity || 1) <= 1
+    (wo.part?.isSerialized && remaining <= 1
       ? `SN-${wo.number}-01`
       : undefined);
-
-  // Create FG inventory — committed to SO if linked, else available
-  const commitToSo = Boolean(wo.salesOrderId && wo.salesOrderLineId);
-  const inv = await prisma.inventoryItem.create({
-    data: {
-      partId: wo.partId,
-      locationId: storageLoc.id,
-      quantityOnHand: wo.quantity,
-      quantityAvailable: commitToSo ? 0 : wo.quantity,
-      quantityCommitted: commitToSo ? wo.quantity : 0,
-      lotNumber,
-      serialNumber,
-      unitCost: wo.standardCost / (wo.quantity || 1),
-      ownership: "COMPANY",
-    },
-  });
-
-  await prisma.materialTransaction.create({
-    data: {
-      type: "WO_COMPLETE",
-      partId: wo.partId,
-      inventoryItemId: inv.id,
+  let inv: { id: string; unitCost?: number } | null = null;
+  if (remaining > 0.0001) {
+    const received = await receiveWorkOrderOutput({
       workOrderId: wo.id,
-      salesOrderId: wo.salesOrderId || undefined,
-      quantity: wo.quantity,
-      unitCost: inv.unitCost,
-      toLocation: storageLoc.code,
+      quantity: remaining,
+      userId: params.userId,
       lotNumber,
       serialNumber,
-      reference: wo.number,
       notes: "Finished assembly received to stock from traveler",
-      userId: params.userId,
-    },
-  });
+    });
+    inv = { id: received.inventoryItemId };
+  } else {
+    // All quantity was already received on earlier partial outputs.
+    const prior = await prisma.workOrderOutput.findFirst({
+      where: { workOrderId: wo.id },
+      orderBy: { receivedAt: "desc" },
+    });
+    inv = prior?.inventoryItemId ? { id: prior.inventoryItemId } : null;
+  }
 
   // Serialized parts: every finished unit leaves putaway with a serial.
   // Units serialized during the build keep theirs; any unit still blank
@@ -1849,21 +1851,7 @@ export async function completeWorkOrderToStock(params: {
       .filter((x): x is { serial: string } => !!x);
   }
 
-  // The staged WIP material is now built into the finished good — consume it
-  // so it no longer sits at a staging / work-center location in inventory.
-  const { consumeWorkOrderWip } = await import("./wip-locations");
-  await consumeWorkOrderWip({ workOrderId: wo.id, userId: params.userId });
-
-  try {
-    const { postWorkOrderCompletion } = await import("@/lib/services/gl-posting");
-    await postWorkOrderCompletion({
-      workOrderId: wo.id,
-      standardCost: wo.standardCost || 0,
-      userId: params.userId,
-    });
-  } catch (err) {
-    console.error("GL work order completion", err);
-  }
+  await closeWorkOrderBooks({ workOrderId: wo.id, userId: params.userId });
 
   await prisma.workOrder.update({
     where: { id: wo.id },
@@ -1893,7 +1881,7 @@ export async function completeWorkOrderToStock(params: {
     workOrderId: wo.id,
     salesOrderId: wo.salesOrderId,
     notes: `Assembly complete — ${wo.number} put into stock`,
-    metadata: { inventoryItemId: inv.id },
+    metadata: { inventoryItemId: inv?.id },
     userId: params.userId,
   });
 
@@ -1903,7 +1891,7 @@ export async function completeWorkOrderToStock(params: {
       where: { id: wo.salesOrderLineId },
     });
     if (line) {
-      const newAlloc = line.quantityAllocated + wo.quantity;
+      const newAlloc = line.quantityAllocated + remaining;
       await prisma.salesOrderLine.update({
         where: { id: line.id },
         data: {
@@ -1923,12 +1911,12 @@ export async function completeWorkOrderToStock(params: {
     entityId: wo.id,
     action: "COMPLETED_TO_STOCK",
     userId: params.userId,
-    metadata: { lotNumber, serialNumber, inventoryItemId: inv.id },
+    metadata: { lotNumber, serialNumber, inventoryItemId: inv?.id },
   });
 
   return {
     workOrderId: wo.id,
-    inventoryItemId: inv.id,
+    inventoryItemId: inv?.id || null,
     lotNumber,
     // Summary string for toasts: single serial, or the minted range
     serialNumber:
@@ -2535,13 +2523,14 @@ export async function shipSalesOrder(params: {
     data: { status: allShipped ? "SHIPPED" : so.status },
   });
 
-  // Shipping closes the revenue loop: raise AR only when the full order shipped
-  if (allShipped) {
+  // Each shipment books its own revenue and COGS. Idempotent per shipment.
+  {
     const { raiseArInvoiceForShipment } = await import(
       "@/lib/services/billing"
     );
     await raiseArInvoiceForShipment({
       salesOrderId: so.id,
+      shipmentId: shipment.id,
       userId: params.userId,
     });
   }

@@ -31,6 +31,9 @@ import {
   actionRemoveSerialInstall,
   actionSetWorkOrderDueDate,
   actionMoveWorkOrder,
+  actionReceiveWorkOrderOutput,
+  actionCloseWorkOrderBooks,
+  actionUnissueWorkOrderMaterial,
 } from "@/app/actions";
 import { checkBomMaterialAvailability } from "@/lib/services/order-fulfillment";
 import { ensureWorkOrderTravelerSteps } from "@/lib/services/work-orders";
@@ -130,6 +133,7 @@ export default async function WorkOrderDetailPage({
           wipInventory: {
             include: { part: { select: { partNumber: true } } },
           },
+          outputs: { orderBy: { receivedAt: "desc" } },
           materialRequisition: true,
           businessPriority: true,
           instructions: {
@@ -692,6 +696,58 @@ export default async function WorkOrderDetailPage({
             <pre className="whitespace-pre-wrap font-sans text-sm text-slate-300">
               {wo.travelerNotes}
             </pre>
+          </CardContent>
+        </Card>
+      )}
+
+      {!["COMPLETED", "CLOSED", "CANCELLED"].includes(wo.status) && wo.type !== "TASK_ONLY" && wo.partId && (
+        <Card className="border-teal-900/40">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Finished goods and WIP</CardTitle>
+            <p className="text-xs text-slate-500">
+              You can receive finished units while this job stays open. Each receipt updates inventory and relieves WIP. Close the job when you are done so any leftover WIP goes to variance.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-slate-300">
+              Received {wo.quantityCompleted}/{wo.quantity}
+              {(wo.outputs?.length || 0) > 0 ? ` · ${wo.outputs.length} receipt(s)` : ""}
+            </p>
+            {wo.quantityCompleted < wo.quantity && (
+              <form action={actionReceiveWorkOrderOutput} className="flex flex-wrap items-end gap-2">
+                <input type="hidden" name="workOrderId" value={wo.id} />
+                <label className="text-[10px] uppercase text-slate-500">
+                  Quantity to stock
+                  <Input name="quantity" type="number" step="any" min="0" defaultValue={String(wo.quantity - wo.quantityCompleted)} className="mt-0.5 h-8 w-28" />
+                </label>
+                <label className="text-[10px] uppercase text-slate-500">
+                  Lot (optional)
+                  <Input name="lotNumber" className="mt-0.5 h-8 w-40" />
+                </label>
+                <Button type="submit" size="sm">Receive to stock</Button>
+              </form>
+            )}
+            <form action={actionCloseWorkOrderBooks}>
+              <input type="hidden" name="workOrderId" value={wo.id} />
+              <Button type="submit" size="sm" variant="outline">
+                Close job and relieve remaining WIP
+              </Button>
+            </form>
+            {(wo.wipInventory || []).filter((r) => r.quantityOnHand > 0).length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-slate-400">Staged material — return to stock if it was not used</p>
+                {wo.wipInventory.filter((r) => r.quantityOnHand > 0).map((row) => (
+                  <form key={row.id} action={actionUnissueWorkOrderMaterial} className="flex flex-wrap items-end gap-2 text-sm">
+                    <input type="hidden" name="workOrderId" value={wo.id} />
+                    <input type="hidden" name="inventoryItemId" value={row.id} />
+                    <span className="font-mono text-slate-300">{row.part?.partNumber}</span>
+                    <span className="text-slate-500">on hand {row.quantityOnHand}</span>
+                    <Input name="quantity" type="number" step="any" min="0" defaultValue={String(row.quantityOnHand)} className="h-8 w-24" />
+                    <Button type="submit" size="sm" variant="outline">Return to stock</Button>
+                  </form>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

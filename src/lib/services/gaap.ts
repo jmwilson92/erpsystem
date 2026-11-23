@@ -294,6 +294,50 @@ export async function getMonthEndCloseStatus() {
     },
   ];
 
+  try {
+    const { manufacturingCloseChecklist } = await import(
+      "@/lib/services/inventory-accounting"
+    );
+    const mfg = await manufacturingCloseChecklist();
+    items.push(
+      {
+        key: "wip-jobs",
+        label: "Open jobs with WIP on the books",
+        count: mfg.openWipCount,
+        done: mfg.openWipCount === 0,
+        detail:
+          mfg.openWipCount === 0
+            ? "No leftover WIP on open or finished jobs."
+            : `${mfg.openWipCount} job(s) still have a WIP balance. Review and close or receive finished goods.`,
+        href: "/accounting/wip",
+      },
+      {
+        key: "grir",
+        label: "Unmatched purchase receipts (GR/IR)",
+        count: Math.abs(mfg.unmatchedGrir) > 0.01 ? 1 : 0,
+        done: Math.abs(mfg.unmatchedGrir) <= 0.01,
+        detail:
+          Math.abs(mfg.unmatchedGrir) <= 0.01
+            ? "Goods-received clearing is at zero."
+            : `GR/IR has a ${mfg.unmatchedGrir.toFixed(2)} balance. Match supplier invoices or confirm ERS vouchers.`,
+        href: "/accounting?tab=ap",
+      },
+      {
+        key: "counts",
+        label: "Cycle counts finished",
+        count: mfg.openCycleCounts,
+        done: mfg.openCycleCounts === 0,
+        detail:
+          mfg.openCycleCounts === 0
+            ? "No open cycle counts."
+            : `${mfg.openCycleCounts} count batch(es) still open.`,
+        href: "/inventory",
+      }
+    );
+  } catch {
+    // Chart may not be initialized yet on a brand-new tenant.
+  }
+
   return {
     items,
     ready: items.every((i) => i.done),

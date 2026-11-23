@@ -179,9 +179,11 @@ export async function consumeWorkOrderWip(params: {
       },
     });
   }
-  // Remove the WIP rows entirely — material is now inside the finished good.
-  await prisma.inventoryItem.deleteMany({
+  // Zero the WIP rows — material is now inside the finished good.
+  // Quantity is cleared instead of deleting the row so the subledger stays auditable.
+  await prisma.inventoryItem.updateMany({
     where: { workOrderId: params.workOrderId },
+    data: { quantityOnHand: 0, quantityAvailable: 0, quantityCommitted: 0 },
   });
   return { consumed: rows.length };
 }

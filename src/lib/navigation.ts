@@ -177,7 +177,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/pmo/pi", label: "PI Planning", icon: CalendarRange, keywords: ["program increment", "safe", "sprint"] },
       { href: "/pmo/alerts", label: "PM Alerts", icon: AlertTriangle, keywords: ["program alerts", "risk"] },
       { href: "/budgets", label: "Budgets", icon: Landmark, keywords: ["budget", "charge code", "direct", "indirect", "enact"] },
-      { href: "/accounting", label: "Accounting", icon: Landmark, keywords: ["gl", "gaap", "p&l", "balance sheet", "ar", "ap", "payroll", "banking", "reconcile"] },
+      { href: "/accounting", label: "Accounting", icon: Landmark, keywords: ["gl", "gaap", "p&l", "balance sheet", "ar", "ap", "payroll", "banking", "reconcile", "wip", "cogs", "inventory valuation"] },
       { href: "/accounting/govcon", label: "Contracts & Rates", icon: Landmark, keywords: ["dcaa", "far", "indirect rate", "unallowable", "clin", "contract", "govcon", "ice", "wip", "job cost"] },
       { href: "/accounting/banking", label: "Bank Connections", icon: CreditCard, keywords: ["plaid", "bank", "connect account", "feed", "transactions", "reconcile", "link"] },
       { href: "/accounting/payroll", label: "Payroll", icon: Users2, keywords: ["pay run", "net pay", "withholding", "w-4", "paystub", "wages"] },
