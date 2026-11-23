@@ -29,6 +29,20 @@ export default async function JournalDetailPage({
           partId: true,
         },
       },
+      layerConsumptions: {
+        include: {
+          layer: {
+            select: {
+              id: true,
+              unitCost: true,
+              sourceType: true,
+              receivedAt: true,
+              part: { select: { partNumber: true } },
+            },
+          },
+        },
+        orderBy: { createdAt: "asc" },
+      },
     },
   });
   if (!journal) notFound();
@@ -153,8 +167,21 @@ export default async function JournalDetailPage({
                     <li key={m.id}>
                       <Link href="/accounting/transactions" className="text-teal-400 hover:underline">
                         {m.type} · qty {m.quantity}
+                        {m.unitCost ? ` @ ${formatCurrency(m.unitCost)}` : ""}
                       </Link>
                       {m.reference ? ` · ${m.reference}` : ""}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {journal.layerConsumptions.length > 0 && (
+              <div className="pt-2">
+                <p className="text-xs uppercase text-slate-500">Cost layers consumed</p>
+                <ul className="mt-1 space-y-1 text-xs text-slate-300">
+                  {journal.layerConsumptions.map((c) => (
+                    <li key={c.id}>
+                      {c.layer.part.partNumber} · {c.layer.sourceType} @ {formatCurrency(c.unitCost)} × {c.quantity} = {formatCurrency(c.amount)}
                     </li>
                   ))}
                 </ul>

@@ -17,6 +17,12 @@ import {
   getInventoryAccountingSettings,
 } from "@/lib/services/inventory-accounting";
 import { reliefUnitCost, roundMoney } from "@/lib/services/posting-rules";
+import {
+  consumeOutboundCost,
+  linkConsumptionsToJournal,
+  moveCostLayers,
+  recordInboundCost,
+} from "@/lib/services/cost-layers";
 import { openReceivable } from "@/lib/services/ar-balance";
 
 type Db = Prisma.TransactionClient | typeof prisma;
@@ -390,6 +396,18 @@ export async function receiveRmaReturn(params: {
       where: { id: tx.id },
       data: { rmaReceiptId: receipt.id },
     });
+    await recordInboundCost({
+      partId,
+      locationId: location.id,
+      inventoryItemId: inv.id,
+      quantity: qty,
+      unitCost,
+      sourceType: destination === "SELLABLE" ? "RMA_RESTOCK" : "RMA_RECEIPT",
+      sourceId: receipt.id,
+      materialTransactionId: tx.id,
+      ownership: "COMPANY",
+      db,
+    });
     let journalId: string | null = null;
     if (amount > 0.001) {
       const journal = await postJournal(
@@ -411,6 +429,11 @@ export async function receiveRmaReturn(params: {
       await db.materialTransaction.update({
         where: { id: tx.id },
         data: { journalEntryId: journal.id },
+      });
+      await linkConsumptionsToJournal({
+        materialTransactionId: tx.id,
+        journalEntryId: journal.id,
+        db,
       });
       await db.rmaReceipt.update({
         where: { id: receipt.id },
@@ -672,6 +695,17 @@ export async function dispositionRmaReceipt(params: {
           userId: params.userId,
         },
       });
+      await moveCostLayers({
+        partId: receipt.partId,
+        fromLocationId: item.locationId,
+        toLocationId: storage!.id,
+        inventoryItemId: item.id,
+        quantity: receipt.quantity,
+        materialTransactionId: tx.id,
+        ownership: item.ownership,
+        fallbackUnitCost: receipt.unitCost,
+        db,
+      });
       let journalId: string | null = null;
       if (amount > 0.001) {
         const journal = await postJournal(
@@ -691,6 +725,7 @@ export async function dispositionRmaReceipt(params: {
         );
         journalId = journal.id;
         await db.materialTransaction.update({ where: { id: tx.id }, data: { journalEntryId: journal.id } });
+        await linkConsumptionsToJournal({ materialTransactionId: tx.id, journalEntryId: journal.id, db });
         await db.rmaReceipt.update({ where: { id: receipt.id }, data: { restockJournalId: journal.id } });
       }
       return { receiptId: receipt.id, journalId, materialTransactionId: tx.id };
@@ -722,12 +757,27 @@ export async function dispositionRmaReceipt(params: {
         userId: params.userId,
       },
     });
+    const relief = item
+      ? await consumeOutboundCost({
+          partId: receipt.partId,
+          locationId: item.locationId,
+          inventoryItemId: item.id,
+          quantity: receipt.quantity,
+          fallbackUnitCost: receipt.unitCost,
+          materialTransactionId: tx.id,
+          ownership: item.ownership,
+          db,
+        })
+      : { amount, unitCost: receipt.unitCost };
+    if (item && Math.abs(relief.unitCost - (receipt.unitCost || 0)) > 0.0001) {
+      await db.materialTransaction.update({ where: { id: tx.id }, data: { unitCost: relief.unitCost } });
+    }
     let journalId: string | null = null;
-    if (amount > 0.001) {
+    if (relief.amount > 0.001) {
       const creditCode = receipt.destination === "INSPECTION" && receipt.disposition === "PENDING" ? inspection.code : "1220";
       const journal = await postScrap({
         materialTransactionId: tx.id,
-        amount,
+        amount: relief.amount,
         userId: params.userId,
         memo: `${receipt.rma.number} return scrapped — ${receipt.part.partNumber}`,
         creditCode,
@@ -736,6 +786,7 @@ export async function dispositionRmaReceipt(params: {
       journalId = journal?.id || null;
       if (journal) {
         await db.materialTransaction.update({ where: { id: tx.id }, data: { journalEntryId: journal.id } });
+        await linkConsumptionsToJournal({ materialTransactionId: tx.id, journalEntryId: journal.id, db });
         await db.rmaReceipt.update({ where: { id: receipt.id }, data: { scrapJournalId: journal.id } });
       }
     }

@@ -17,6 +17,13 @@ import {
   type ConsumptionTiming,
 } from "@/lib/services/posting-rules";
 import {
+  consumeOutboundCost,
+  linkConsumptionsToJournal,
+  normalizeCostingMethod,
+  recordInboundCost,
+  usesCostLayers,
+} from "@/lib/services/cost-layers";
+import {
   ensureAccountingDefaults,
   postDirectLabor,
   postInventoryAdjustment,
@@ -126,12 +133,20 @@ export const MFG_ACCOUNT_DEFAULTS: {
     creditCode: "2010",
     notes: "Subcontract work is charged to WIP, not raw materials.",
   },
+  {
+    eventKey: "COSTING_REVAL",
+    label: "Inventory revaluation on costing method change",
+    debitCode: "6222",
+    creditCode: "1200",
+    notes: "Posted when switching to STANDARD if book value differs from standard × quantity. Sides swap when inventory increases.",
+  },
 ];
 
 export const MFG_EXTRA_ACCOUNTS = [
   { code: "2010", name: "Goods received / invoices received", type: "LIABILITY" },
   { code: "6220", name: "Inventory adjustment", type: "EXPENSE" },
   { code: "6221", name: "Purchase price variance", type: "EXPENSE" },
+  { code: "6222", name: "Inventory revaluation", type: "EXPENSE" },
   { code: "6230", name: "Material usage variance", type: "EXPENSE" },
   { code: "6240", name: "Labor rate variance", type: "EXPENSE" },
   { code: "6250", name: "Labor efficiency variance", type: "EXPENSE" },
@@ -182,7 +197,7 @@ export async function getInventoryAccountingSettings(db: Db = prisma) {
     update: {},
   });
   return {
-    costingMethod: (row.costingMethod || "STANDARD").toUpperCase(),
+    costingMethod: normalizeCostingMethod(row.costingMethod),
     consumptionTiming: resolveConsumptionTiming(null, row.consumptionTiming),
     useGrirClearing: row.useGrirClearing !== false,
     evaluatedReceiptSettlement: row.evaluatedReceiptSettlement !== false,
@@ -422,6 +437,18 @@ export async function unissueToStock(params: {
         userId: params.userId,
       },
     });
+    await recordInboundCost({
+      partId: wipRow.partId,
+      locationId: storage.id,
+      inventoryItemId: dest.id,
+      quantity: qty,
+      unitCost: wipRow.unitCost,
+      sourceType: "UNISSUE",
+      sourceId: wo.id,
+      materialTransactionId: tx.id,
+      ownership: wipRow.ownership,
+      db,
+    });
     let journalId: string | null = null;
     if (wipRow.ownership !== "GOVERNMENT" && amount > 0.001) {
       const journal = await postJournal(
@@ -572,11 +599,27 @@ async function backflushForOutput(params: {
             userId: params.userId,
           },
         });
-        if (row.unitCost * take > 0.001) {
+        const relief = await consumeOutboundCost({
+          partId: need.partId,
+          locationId: row.locationId,
+          inventoryItemId: row.id,
+          quantity: take,
+          fallbackUnitCost: row.unitCost,
+          materialTransactionId: issued.id,
+          ownership: row.ownership,
+          db,
+        });
+        if (Math.abs(relief.unitCost - row.unitCost) > 0.0001) {
+          await db.materialTransaction.update({
+            where: { id: issued.id },
+            data: { unitCost: relief.unitCost },
+          });
+        }
+        if (relief.amount > 0.001) {
           const journal = await postMaterialIssue({
             materialTransactionId: issued.id,
             workOrderId: params.workOrderId,
-            amount: money(row.unitCost * take),
+            amount: relief.amount,
             userId: params.userId,
             memo: `${part.partNumber} backflush`,
             db,
@@ -585,6 +628,11 @@ async function backflushForOutput(params: {
             await db.materialTransaction.update({
               where: { id: issued.id },
               data: { journalEntryId: journal.id },
+            });
+            await linkConsumptionsToJournal({
+              materialTransactionId: issued.id,
+              journalEntryId: journal.id,
+              db,
             });
           }
         }
@@ -629,11 +677,27 @@ async function backflushForOutput(params: {
           userId: params.userId,
         },
       });
-      if (bin.ownership !== "GOVERNMENT" && bin.unitCost * take > 0.001) {
+      const relief = await consumeOutboundCost({
+        partId: need.partId,
+        locationId: bin.locationId,
+        inventoryItemId: bin.id,
+        quantity: take,
+        fallbackUnitCost: bin.unitCost,
+        materialTransactionId: issued.id,
+        ownership: bin.ownership,
+        db,
+      });
+      if (Math.abs(relief.unitCost - bin.unitCost) > 0.0001) {
+        await db.materialTransaction.update({
+          where: { id: issued.id },
+          data: { unitCost: relief.unitCost },
+        });
+      }
+      if (bin.ownership !== "GOVERNMENT" && relief.amount > 0.001) {
         const journal = await postMaterialIssue({
           materialTransactionId: issued.id,
           workOrderId: params.workOrderId,
-          amount: money(bin.unitCost * take),
+          amount: relief.amount,
           userId: params.userId,
           memo: `${part.partNumber} backflush`,
           db,
@@ -642,6 +706,11 @@ async function backflushForOutput(params: {
           await db.materialTransaction.update({
             where: { id: issued.id },
             data: { journalEntryId: journal.id },
+          });
+          await linkConsumptionsToJournal({
+            materialTransactionId: issued.id,
+            journalEntryId: journal.id,
+            db,
           });
         }
       }
@@ -688,14 +757,18 @@ export async function receiveWorkOrderOutput(params: {
     (await prisma.location.findFirst());
   if (!storage) throw new Error("A storage location is required for finished goods");
   const unitStd = (wo.standardCost || 0) / (wo.quantity || 1);
-  const actualUnit = unitStd;
+  const accounts = await resolveItemAccounts(wo.part);
+  let actualUnit = unitStd;
+  if (normalizeCostingMethod(settings.costingMethod) !== "STANDARD") {
+    const wip = await wipBalanceForJob(wo.id, accounts.wip.id);
+    actualUnit = remaining > 0.0001 ? money(wip / remaining) : unitStd;
+  }
   const unitCost = reliefUnitCost({
     costingMethod: settings.costingMethod,
     standardCost: unitStd,
     actualUnitCost: actualUnit,
   });
   const amount = money(unitCost * qty);
-  const accounts = await resolveItemAccounts(wo.part);
   const lotNumber = params.lotNumber || `LOT-WO-${wo.number.replace(/\W/g, "")}-${Date.now().toString(36).toUpperCase()}`;
   const serialNumber =
     params.serialNumber ||
@@ -740,6 +813,18 @@ export async function receiveWorkOrderOutput(params: {
         notes: params.notes || "Finished goods received; job remains open",
         userId: params.userId,
       },
+    });
+    await recordInboundCost({
+      partId: wo.partId!,
+      locationId: storage.id,
+      inventoryItemId: inv.id,
+      quantity: qty,
+      unitCost,
+      sourceType: "WO_OUTPUT",
+      sourceId: wo.id,
+      materialTransactionId: tx.id,
+      ownership: "COMPANY",
+      db,
     });
     await consumeStagedProportion({
       workOrderId: wo.id,
@@ -1235,6 +1320,26 @@ export async function getInventoryGlReconciliation() {
       },
     },
   });
+  const settings = await getInventoryAccountingSettings();
+  const layerValueByKey = new Map<string, { qty: number; value: number }>();
+  if (usesCostLayers(settings.costingMethod)) {
+    const layers = await prisma.inventoryCostLayer.findMany({
+      where: { quantityRemaining: { gt: 0 } },
+    });
+    for (const layer of layers) {
+      const key = `${layer.partId}:${layer.locationId}`;
+      const cur = layerValueByKey.get(key) || { qty: 0, value: 0 };
+      cur.qty += layer.quantityRemaining;
+      cur.value += layer.quantityRemaining * layer.unitCost;
+      layerValueByKey.set(key, cur);
+    }
+  }
+  const locationQty = new Map<string, number>();
+  for (const item of items) {
+    const key = `${item.partId}:${item.locationId}`;
+    locationQty.set(key, (locationQty.get(key) || 0) + item.quantityOnHand);
+  }
+  const layerAllocated = new Map<string, number>();
   const sub = { RM: 0, WIP: 0, FG: 0, RI: 0 };
   const byAccount = new Map<string, number>();
   const detail: {
@@ -1248,7 +1353,26 @@ export async function getInventoryGlReconciliation() {
   }[] = [];
   for (const item of items) {
     const cls = classifyInventoryRow(item);
-    const value = money(item.quantityOnHand * (item.unitCost || 0));
+    let unitCost = item.unitCost || 0;
+    let value = money(item.quantityOnHand * unitCost);
+    const layerKey = `${item.partId}:${item.locationId}`;
+    const layer = layerValueByKey.get(layerKey);
+    if (usesCostLayers(settings.costingMethod) && cls !== "WIP" && layer) {
+      const locQty = locationQty.get(layerKey) || item.quantityOnHand;
+      const allocated = layerAllocated.get(layerKey) || 0;
+      const share =
+        locQty > 0.0000001
+          ? money(layer.value * (item.quantityOnHand / locQty))
+          : 0;
+      // Give leftover cents to the last bin at this key so the class totals tie.
+      const last = money(allocated + share);
+      const isLast =
+        Math.abs((locationQty.get(layerKey) || 0) - item.quantityOnHand) < 0.0001 ||
+        Math.abs((allocated + item.quantityOnHand) - locQty) < 0.0001;
+      value = isLast ? money(layer.value - allocated) : share;
+      layerAllocated.set(layerKey, money(allocated + value));
+      unitCost = item.quantityOnHand > 0.0000001 ? money(value / item.quantityOnHand) : 0;
+    }
     sub[cls] = money(sub[cls] + value);
     const account =
       item.part.inventoryAccountId && cls !== "WIP" && cls !== "RI"
@@ -1267,7 +1391,7 @@ export async function getInventoryGlReconciliation() {
       location: item.location.code,
       class: cls,
       quantity: item.quantityOnHand,
-      unitCost: item.unitCost,
+      unitCost,
       value,
       accountCode: acctRow.code,
     });

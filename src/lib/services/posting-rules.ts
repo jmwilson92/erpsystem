@@ -528,7 +528,7 @@ export function reliefUnitCost(opts: {
   actualUnitCost: number;
 }): number {
   const method = (opts.costingMethod || "STANDARD").toUpperCase();
-  if (method === "AVERAGE" || method === "ACTUAL") {
+  if (method === "AVERAGE" || method === "ACTUAL" || method === "FIFO" || method === "LIFO") {
     return roundMoney(opts.actualUnitCost > 0 ? opts.actualUnitCost : opts.standardCost);
   }
   return roundMoney(opts.standardCost > 0 ? opts.standardCost : opts.actualUnitCost);

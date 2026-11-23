@@ -12,7 +12,7 @@ Each section is one business event. **Today** is what the code does now. **Gap**
 
 Default account codes below are the seeded chart. Companies can remap shop events in `GlAccountMap`. Per-part inventory / COGS / expense accounts exist on the item card but are labeled in the schema as “choice only — not posted yet.”
 
-**Costing method today:** `AccountingSettings.costingMethod` defaults to `STANDARD` and is stored, but almost every relief still uses the part’s **standard cost**. Inventory rows also carry a receipt `unitCost`, and the part has `averageCost` / `lastBuyCost`, but shipping and finished-goods putaway do not use them. There is no FIFO layer.
+**Costing method today:** `AccountingSettings.costingMethod` defaults to `STANDARD` and is stored, but almost every relief still uses the part’s **standard cost**. Inventory rows also carry a receipt `unitCost`, and the part has `averageCost` / `lastBuyCost`, but shipping and finished-goods putaway do not use them. FIFO and LIFO layers are documented in docs/COSTING-METHODS.md.
 
 ---
 
@@ -256,7 +256,7 @@ The AR invoice is one per sales order. COGS is not stamped with the program. `co
 
 ## Decisions the owner should confirm
 
-1. **Costing method default stays STANDARD.** Finished-goods receipts and COGS relieve at standard cost. If the company switch is set to AVERAGE, those events use the bin or current job unit cost instead. FIFO is not built in this pass.
+1. **Costing method default stays STANDARD.** Finished-goods receipts and COGS relieve at standard cost and AP purchase-price variance is unchanged. Companies may also choose AVERAGE (moving weighted average, recomputed on receipt), FIFO, or LIFO in the accounting workbench. FIFO/LIFO use additive `InventoryCostLayer` rows. See `docs/COSTING-METHODS.md` for the method-change policy. LIFO is not permitted under IFRS.
 2. **Consumption default stays AT_PICK** (today’s kit behavior). Backflush is opt-in per item or by changing the company default.
 3. **Receipts will credit GR/IR (2010), not AP directly.** ERS remains on by default and immediately clears GR/IR at PO price (PPV zero) so the payable still appears at receipt. Turn ERS off to wait for a supplier invoice and book PPV.
 4. **Labor hits WIP when the timesheet is approved**, not only when payroll is processed.

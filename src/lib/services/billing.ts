@@ -19,6 +19,10 @@ import {
   resolveItemAccounts,
 } from "@/lib/services/inventory-accounting";
 import { reliefUnitCost } from "@/lib/services/posting-rules";
+import {
+  normalizeCostingMethod,
+  shipmentCostFromTransactions,
+} from "@/lib/services/cost-layers";
 
 const NET_DAYS = 30;
 const money = (n: number) => Math.round(n * 100) / 100;
@@ -142,15 +146,31 @@ export async function raiseArInvoiceForShipment(params: {
   }
 
   const settings = await getInventoryAccountingSettings();
+  const method = normalizeCostingMethod(settings.costingMethod);
+  const shipment = params.shipmentId
+    ? await prisma.shipment.findUnique({ where: { id: params.shipmentId }, select: { number: true } })
+    : null;
   const cogsGroups = new Map<string, { debitId: string; creditId: string; amount: number }>();
   for (const line of billedLines) {
     const accounts = await resolveItemAccounts(line.part);
-    const unit = reliefUnitCost({
-      costingMethod: settings.costingMethod,
-      standardCost: line.part?.standardCost || 0,
-      actualUnitCost: line.part?.averageCost || line.part?.lastBuyCost || line.part?.standardCost || 0,
-    });
-    const value = money(line.quantity * unit);
+    let value = 0;
+    if (method !== "STANDARD" && line.part?.id) {
+      const shipped = await shipmentCostFromTransactions({
+        salesOrderId: so.id,
+        shipmentNumber: shipment?.number || null,
+        partId: line.part.id,
+        quantity: line.quantity,
+      });
+      if (shipped != null) value = shipped;
+    }
+    if (value <= 0.001) {
+      const unit = reliefUnitCost({
+        costingMethod: settings.costingMethod,
+        standardCost: line.part?.standardCost || 0,
+        actualUnitCost: line.part?.averageCost || line.part?.lastBuyCost || line.part?.standardCost || 0,
+      });
+      value = money(line.quantity * unit);
+    }
     if (value <= 0.001) continue;
     const key = `${accounts.cogs.id}:${accounts.fg.id}`;
     const prev = cogsGroups.get(key) || { debitId: accounts.cogs.id, creditId: accounts.fg.id, amount: 0 };

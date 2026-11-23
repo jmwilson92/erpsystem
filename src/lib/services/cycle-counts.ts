@@ -160,6 +160,7 @@ export async function completeCycleCount(params: {
       orderBy: { quantityOnHand: "desc" },
     });
     let remaining = variance;
+    const applied: { row: (typeof rows)[number]; delta: number }[] = [];
     for (const [i, row] of rows.entries()) {
       // Positive variance: add everything to the first row. Negative: drain rows in order.
       const delta =
@@ -180,6 +181,7 @@ export async function completeCycleCount(params: {
           ),
         },
       });
+      applied.push({ row, delta });
       remaining -= delta;
       if (remaining === 0) break;
     }
@@ -187,8 +189,34 @@ export async function completeCycleCount(params: {
       where: { id: line.id },
       data: { adjustedAt: new Date() },
     });
-    const unitCost = rows[0]?.unitCost || 0;
-    const dollarVariance = variance * unitCost;
+    const { consumeOutboundCost, recordInboundCost } = await import("@/lib/services/cost-layers");
+    let dollarVariance = 0;
+    for (const { row, delta } of applied) {
+      if (delta > 0) {
+        await recordInboundCost({
+          partId: line.partId,
+          locationId: row.locationId,
+          inventoryItemId: row.id,
+          quantity: delta,
+          unitCost: row.unitCost,
+          sourceType: "ADJUSTMENT",
+          sourceId: line.id,
+          ownership: row.ownership,
+        });
+        dollarVariance += delta * (row.unitCost || 0);
+      } else if (delta < 0) {
+        const relief = await consumeOutboundCost({
+          partId: line.partId,
+          locationId: row.locationId,
+          inventoryItemId: row.id,
+          quantity: -delta,
+          fallbackUnitCost: row.unitCost,
+          ownership: row.ownership,
+        });
+        dollarVariance -= relief.amount;
+      }
+    }
+    dollarVariance = Math.round(dollarVariance * 100) / 100;
     if (Math.abs(dollarVariance) > 0.001) {
       const { postInventoryAdjustment } = await import("@/lib/services/gl-posting");
       await postInventoryAdjustment({

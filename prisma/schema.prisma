@@ -319,6 +319,7 @@ model Part {
   bomHeaders          BomHeader[]
   bomLines            BomLine[]                 @relation("ComponentPart")
   inventoryItems      InventoryItem[]
+  costLayers          InventoryCostLayer[]
   poLines             PurchaseOrderLine[]
   workOrders          WorkOrder[]
   workInstructions    WorkInstruction[]
@@ -2779,6 +2780,7 @@ model Location {
   workCenter   WorkCenter? @relation(fields: [workCenterId], references: [id], onDelete: SetNull)
 
   inventoryItems InventoryItem[]
+  costLayers     InventoryCostLayer[]
   workOrdersHere WorkOrder[]     @relation("WoCurrentLocation")
 
   @@unique([warehouseId, code])
@@ -2813,6 +2815,7 @@ model InventoryItem {
   governmentProperty GovernmentProperty?
   workOrderOutputs   WorkOrderOutput[]
   rmaReceipts        RmaReceipt[]
+  costLayers         InventoryCostLayer[]
 
   @@index([partId])
   @@index([ownership])
@@ -2847,6 +2850,8 @@ model MaterialTransaction {
   /// Journal that recorded this movement, so the subledger can drill to the GL
   journalEntryId  String?
   journalEntry    JournalEntry?  @relation(fields: [journalEntryId], references: [id], onDelete: SetNull)
+  costLayersCreated   InventoryCostLayer[]
+  layerConsumptions   InventoryLayerConsumption[]
 
   @@index([type])
   @@index([workOrderId])
@@ -2854,6 +2859,60 @@ model MaterialTransaction {
   @@index([journalEntryId])
   @@index([rmaId])
 }
+
+/// FIFO/LIFO cost layer by item/location. Additive: quantityRemaining is
+/// zeroed on consume, never deleted. Receipts, WO output, RMA restock,
+/// opening balances, increasing adjustments, and unissues create layers.
+/// Picks, shipments (COGS), scrap, and decreasing adjustments consume them
+/// oldest-first (FIFO) or newest-first (LIFO) and post the layer cost.
+model InventoryCostLayer {
+  id                    String   @id @default(cuid())
+  partId                String
+  part                  Part     @relation(fields: [partId], references: [id])
+  locationId            String
+  location              Location @relation(fields: [locationId], references: [id])
+  inventoryItemId       String?
+  inventoryItem         InventoryItem? @relation(fields: [inventoryItemId], references: [id], onDelete: SetNull)
+  quantityOriginal      Float
+  quantityRemaining     Float
+  unitCost              Float
+  /// RECEIPT | WO_OUTPUT | RMA_RECEIPT | RMA_RESTOCK | OPENING | ADJUSTMENT | TRANSFER | UNISSUE
+  sourceType            String
+  sourceId              String?
+  materialTransactionId String?
+  materialTransaction   MaterialTransaction? @relation(fields: [materialTransactionId], references: [id], onDelete: SetNull)
+  journalEntryId        String?
+  journalEntry          JournalEntry? @relation(fields: [journalEntryId], references: [id], onDelete: SetNull)
+  receivedAt            DateTime @default(now())
+  createdAt             DateTime @default(now())
+  consumptions          InventoryLayerConsumption[]
+
+  @@index([partId, locationId, receivedAt])
+  @@index([partId, quantityRemaining])
+  @@index([inventoryItemId])
+  @@index([materialTransactionId])
+  @@index([journalEntryId])
+}
+
+/// Drill-down of a FIFO/LIFO consume: which layer funded a movement and at what cost.
+model InventoryLayerConsumption {
+  id                    String   @id @default(cuid())
+  layerId               String
+  layer                 InventoryCostLayer @relation(fields: [layerId], references: [id])
+  quantity              Float
+  unitCost              Float
+  amount                Float
+  materialTransactionId String?
+  materialTransaction   MaterialTransaction? @relation(fields: [materialTransactionId], references: [id], onDelete: SetNull)
+  journalEntryId        String?
+  journalEntry          JournalEntry? @relation(fields: [journalEntryId], references: [id], onDelete: SetNull)
+  createdAt             DateTime @default(now())
+
+  @@index([layerId])
+  @@index([materialTransactionId])
+  @@index([journalEntryId])
+}
+
 
 /// One receipt of finished goods from an open work order. The job may stay open.
 model WorkOrderOutput {
@@ -3715,6 +3774,8 @@ model JournalEntry {
   rmaRestockJournals    RmaReceipt[]   @relation("RmaReceiptRestockJournal")
   rmaScrapJournals      RmaReceipt[]   @relation("RmaReceiptScrapJournal")
   creditMemos           ArCreditMemo[]
+  costLayers            InventoryCostLayer[]
+  layerConsumptions     InventoryLayerConsumption[]
 
   @@index([programId])
   @@index([workOrderId])
@@ -5332,7 +5393,8 @@ model AccountingSettings {
   closedThroughDate    DateTime?
   closedById           String?
   closedAt             DateTime?
-  /// STANDARD (shipments relieve finished goods at part standard cost) | AVERAGE
+  /// STANDARD | AVERAGE | FIFO | LIFO. STANDARD relieves at Part.standardCost and keeps PPV.
+  /// AVERAGE is a moving weighted average recomputed on receipt. FIFO/LIFO use InventoryCostLayer.
   costingMethod        String    @default("STANDARD")
   /// AT_PICK (post Dr WIP / Cr inventory when the kit is picked) | BACKFLUSH (post when finished goods are received)
   consumptionTiming    String    @default("AT_PICK")

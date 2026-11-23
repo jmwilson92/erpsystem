@@ -8595,16 +8595,15 @@ export async function actionSaveAccountingSettings(
     ((formData.get("basis") as string) || "ACCRUAL").toUpperCase() === "CASH"
       ? "CASH"
       : "ACCRUAL";
-  const costingMethod =
-    ((formData.get("costingMethod") as string) || "STANDARD").toUpperCase() === "AVERAGE"
-      ? "AVERAGE"
-      : "STANDARD";
+  const { changeCostingMethod, normalizeCostingMethod } = await import("@/lib/services/cost-layers");
+  const costingMethod = normalizeCostingMethod(formData.get("costingMethod") as string);
   const consumptionTiming =
     ((formData.get("consumptionTiming") as string) || "AT_PICK").toUpperCase() === "BACKFLUSH"
       ? "BACKFLUSH"
       : "AT_PICK";
   const useGrirClearing = formData.get("useGrirClearing") === "1";
   const evaluatedReceiptSettlement = formData.get("evaluatedReceiptSettlement") === "1";
+  const existingSettings = await prisma.accountingSettings.findUnique({ where: { id: "default" } });
   await prisma.accountingSettings.upsert({
     where: { id: "default" },
     create: {
@@ -8621,13 +8620,15 @@ export async function actionSaveAccountingSettings(
         12,
         Math.max(1, Number(formData.get("fiscalYearStartMonth") || 1))
       ),
-      costingMethod,
       consumptionTiming,
       useGrirClearing,
       evaluatedReceiptSettlement,
       updatedById: user?.id,
     },
   });
+  if (normalizeCostingMethod(existingSettings?.costingMethod) !== costingMethod) {
+    await changeCostingMethod({ nextMethod: costingMethod, userId: user?.id });
+  }
   await logAudit({
     entityType: "AccountingSettings",
     entityId: "default",
