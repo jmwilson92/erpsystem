@@ -4455,9 +4455,10 @@ export async function actionCompleteKit(formData: FormData): Promise<void> {
     revalidateFulfillmentPaths([`/kitting/${kitOrderId}`, "/kitting"]);
     return;
   }
-  if (kit && "pendingApproval" in kit && kit.pendingApproval) {
+  const heldKit = kit as { pendingApproval?: boolean; productionJournalNumber?: string } | null;
+  if (heldKit?.pendingApproval) {
     await flashToast(
-      `Kit ${kit.productionJournalNumber} was sent for approval. Stock and the general ledger will post after an assigned approver signs off.`
+      `Kit ${heldKit.productionJournalNumber} was sent for approval. Stock and the general ledger will post after an assigned approver signs off.`
     );
   }
   revalidateFulfillmentPaths([
