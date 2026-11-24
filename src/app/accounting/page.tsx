@@ -150,6 +150,12 @@ export default async function AccountingPage({
   }
 
   const pack = await getGaapReportPack();
+  const productionApproverCandidates = await prisma.user.findMany({
+    where: { isActive: true },
+    select: { id: true, name: true, role: true },
+    orderBy: { name: "asc" },
+    take: 200,
+  });
   const [cashFlow, recurringTemplates, overview, bankOverview, closeStatus] =
     await Promise.all([
       getCashFlowStatement({ from: validFrom, to: validTo }),
@@ -2981,6 +2987,70 @@ export default async function AccountingPage({
                   <label className="flex items-center gap-2 text-xs text-slate-400">
                     <input type="checkbox" name="evaluatedReceiptSettlement" value="1" defaultChecked={acctSettings.evaluatedReceiptSettlement !== false} />
                     Auto-create the supplier payable at PO price when material is received
+                  </label>
+                  <label className="flex items-center gap-2 text-xs text-slate-400">
+                    <input type="checkbox" name="productionApprovalRequired" value="1" defaultChecked={acctSettings.productionApprovalRequired === true} />
+                    Require approval before kit, consume, and finished-goods output post
+                  </label>
+                  <p className="text-[11px] leading-snug text-slate-500">
+                    Off by default. When on, those movements go to a pending production journal
+                    with no stock or general-ledger change until an assigned approver posts them.
+                    Optional approvers can also be set on a work center.
+                  </p>
+                  <fieldset className="space-y-1">
+                    <legend className="text-xs text-slate-500">Roles that may approve production journals</legend>
+                    <div className="flex flex-wrap gap-3 text-xs text-slate-400">
+                      {["ADMIN", "PRODUCTION", "ACCOUNTING", "QUALITY", "ENGINEERING"].map((role) => {
+                        const selected = (() => {
+                          try {
+                            return JSON.parse(acctSettings.productionApproverRoles || "[]").includes(role);
+                          } catch {
+                            return false;
+                          }
+                        })();
+                        return (
+                          <label key={role} className="flex items-center gap-1">
+                            <input type="checkbox" name="productionApproverRoles" value={role} defaultChecked={selected} />
+                            {role}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </fieldset>
+                  <fieldset className="space-y-1">
+                    <legend className="text-xs text-slate-500">People who may approve production journals</legend>
+                    {productionApproverCandidates.length === 0 ? (
+                      <p className="text-xs text-slate-600">No active users to assign yet.</p>
+                    ) : (
+                      <div className="grid gap-1 sm:grid-cols-2">
+                        {productionApproverCandidates.map((u) => {
+                          const selected = (() => {
+                            try {
+                              return (JSON.parse(acctSettings.productionApproverUserIds || "[]") as string[]).includes(u.id);
+                            } catch {
+                              return false;
+                            }
+                          })();
+                          return (
+                            <label key={u.id} className="flex items-center gap-2 text-xs text-slate-400">
+                              <input type="checkbox" name="productionApproverUserIds" value={u.id} defaultChecked={selected} />
+                              {u.name} <span className="text-slate-600">({u.role})</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </fieldset>
+                  <label className="text-xs text-slate-500">
+                    Auto-approve at or below this amount (leave blank to always require approval)
+                    <Input
+                      name="productionApprovalThreshold"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      className="mt-1 h-8"
+                      defaultValue={acctSettings.productionApprovalThreshold ?? ""}
+                    />
                   </label>
                   <Button type="submit" size="sm">
                     Save settings

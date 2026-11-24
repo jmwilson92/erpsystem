@@ -16,6 +16,9 @@ import { actionDecidePto, actionAdvanceExpense } from "@/app/actions";
 import { CalendarCheck, Clock, Receipt, ShoppingCart, Sparkles } from "lucide-react";
 import { actionDecideCarinaAction } from "@/app/ai/carina-task-actions";
 import { listCarinaApprovalsForUser, prismaCarinaTaskDeps } from "@/lib/services/carina-tasks";
+import { listPendingProductionJournalsForUser } from "@/lib/services/production-journals";
+import { ProductionJournalReviewRow } from "@/components/accounting/production-journal-review";
+import { ClipboardList } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +39,10 @@ export default async function ApprovalsPage() {
   const carinaActions = await listCarinaApprovalsForUser(await prismaCarinaTaskDeps(), {
     userId: user.id,
   }).catch(() => []);
+  const productionJournals = await listPendingProductionJournalsForUser({
+    userId: user.id,
+    userRole: user.role,
+  });
   const openPrs = prsWaiting.length + poAmendments.length;
 
   // Serialize dates for the client queue component.
@@ -57,7 +64,8 @@ export default async function ApprovalsPage() {
     expenses.length === 0 &&
     prsWaiting.length === 0 &&
     poAmendments.length === 0 &&
-    carinaActions.length === 0;
+    carinaActions.length === 0 &&
+    productionJournals.length === 0;
 
   return (
     <div className="space-y-6">
@@ -66,7 +74,7 @@ export default async function ApprovalsPage() {
         description={`Pending decisions for ${scopeLabel}`}
       />
 
-      <div className="grid gap-4 sm:grid-cols-4" data-tour="approvals-stats">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5" data-tour="approvals-stats">
         <Card>
           <CardContent className="flex items-center gap-3 p-4">
             <CalendarCheck className="h-5 w-5 text-amber-400" />
@@ -109,7 +117,38 @@ export default async function ApprovalsPage() {
             </div>
           </CardContent>
         </Card>
+        <Card>
+          <CardContent className="flex items-center gap-3 p-4">
+            <ClipboardList className="h-5 w-5 text-teal-400" />
+            <div>
+              <p className="text-xl font-bold tabular-nums">{productionJournals.length}</p>
+              <p className="text-xs text-slate-500">Production journals</p>
+            </div>
+          </CardContent>
+        </Card>
       </div>
+
+      {productionJournals.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Production journals waiting on your decision</CardTitle>
+            <p className="text-xs text-slate-500">
+              Kit, consumption, and finished-goods output stay unposted until you approve.
+              You can adjust the quantity (with a note) before posting. Rejecting returns the journal with a reason — it is never deleted.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {productionJournals.map((journal) => (
+              <ProductionJournalReviewRow
+                key={journal.id}
+                journal={journal}
+                canDecide
+                showWorkOrder
+              />
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {prsWaiting.length > 0 && (
         <Card>

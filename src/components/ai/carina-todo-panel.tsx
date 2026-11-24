@@ -106,6 +106,7 @@ export function CarinaTodoPanel({ compact = false }: { compact?: boolean }) {
           <li className="text-xs text-slate-500">Nothing on my list yet.</li>
         )}
         {visible.map((task, index) => {
+          const isProductionJournal = task.id.startsWith("pj:");
           const log = parseTaskLog(task.log);
           const open = openLog === task.id;
           return (
@@ -125,7 +126,10 @@ export function CarinaTodoPanel({ compact = false }: { compact?: boolean }) {
                       <>
                         {" "}
                         ·{" "}
-                        <Link href={`/approvals#carina-${task.id}`} className="text-teal-400 hover:underline">
+                        <Link
+                          href={isProductionJournal ? `/approvals#${task.id.replace("pj:", "pj-")}` : `/approvals#carina-${task.id}`}
+                          className="text-teal-400 hover:underline"
+                        >
                           Open in Approvals
                         </Link>
                       </>
@@ -141,6 +145,7 @@ export function CarinaTodoPanel({ compact = false }: { compact?: boolean }) {
                     )}
                   </p>
                 </div>
+                {!isProductionJournal && (
                 <div className="flex shrink-0 gap-1">
                   <Button
                     type="button"
@@ -148,10 +153,13 @@ export function CarinaTodoPanel({ compact = false }: { compact?: boolean }) {
                     variant="ghost"
                     disabled={index === 0 || pending}
                     onClick={() => {
-                      const ids = visible.map((t) => t.id);
-                      [ids[index - 1], ids[index]] = [ids[index], ids[index - 1]];
+                      const ids = visible.filter((t) => !t.id.startsWith("pj:")).map((t) => t.id);
+                      const from = ids.indexOf(task.id);
+                      if (from <= 0) return;
+                      [ids[from - 1], ids[from]] = [ids[from], ids[from - 1]];
                       start(async () => {
-                        setTasks(await actionReorderCarinaTasks(ids));
+                        await actionReorderCarinaTasks(ids);
+                        await refresh();
                       });
                     }}
                   >
@@ -163,18 +171,22 @@ export function CarinaTodoPanel({ compact = false }: { compact?: boolean }) {
                     variant="ghost"
                     disabled={index === visible.length - 1 || pending}
                     onClick={() => {
-                      const ids = visible.map((t) => t.id);
-                      [ids[index + 1], ids[index]] = [ids[index], ids[index + 1]];
+                      const ids = visible.filter((t) => !t.id.startsWith("pj:")).map((t) => t.id);
+                      const from = ids.indexOf(task.id);
+                      if (from < 0 || from >= ids.length - 1) return;
+                      [ids[from + 1], ids[from]] = [ids[from], ids[from + 1]];
                       start(async () => {
-                        setTasks(await actionReorderCarinaTasks(ids));
+                        await actionReorderCarinaTasks(ids);
+                        await refresh();
                       });
                     }}
                   >
                     ↓
                   </Button>
                 </div>
+                )}
               </div>
-              {task.status !== "done" && task.status !== "cancelled" && task.status !== "working" && (
+              {!isProductionJournal && task.status !== "done" && task.status !== "cancelled" && task.status !== "working" && (
                 <form
                   className="mt-2 flex gap-1"
                   onSubmit={(e) => {
@@ -193,7 +205,7 @@ export function CarinaTodoPanel({ compact = false }: { compact?: boolean }) {
                   </Button>
                 </form>
               )}
-              {task.status !== "done" && task.status !== "cancelled" && (
+              {!isProductionJournal && task.status !== "done" && task.status !== "cancelled" && (
                 <form
                   className="mt-1"
                   onSubmit={(e) => {
@@ -211,14 +223,14 @@ export function CarinaTodoPanel({ compact = false }: { compact?: boolean }) {
                   </Button>
                 </form>
               )}
-              <button
+              {!isProductionJournal && <button
                 type="button"
                 className="mt-1 text-[11px] text-teal-400 hover:underline"
                 onClick={() => setOpenLog(open ? null : task.id)}
               >
                 {open ? "Hide log" : "Show log"}
-              </button>
-              {open && (
+              </button>}
+              {open && !isProductionJournal && (
                 <ol className="mt-1 space-y-1 border-t border-slate-800/80 pt-1 text-[11px] text-slate-400">
                   {log.length === 0 && <li>No log entries yet.</li>}
                   {log.map((entry, i) => (

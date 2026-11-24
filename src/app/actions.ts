@@ -863,6 +863,9 @@ export async function actionSaveWorkCenter(formData: FormData): Promise<void> {
     isDefault:
       formData.get("isDefault") === "true" || formData.get("isDefault") === "on",
     sortOrder: Number(formData.get("sortOrder") || 0),
+    productionApproverUserId: formData.has("productionApproverUserId")
+      ? String(formData.get("productionApproverUserId") || "").trim() || null
+      : undefined,
     userId: user?.id,
   });
   await flashToast("Workcenter saved");
@@ -4451,6 +4454,11 @@ export async function actionCompleteKit(formData: FormData): Promise<void> {
     );
     revalidateFulfillmentPaths([`/kitting/${kitOrderId}`, "/kitting"]);
     return;
+  }
+  if (kit && "pendingApproval" in kit && kit.pendingApproval) {
+    await flashToast(
+      `Kit ${kit.productionJournalNumber} was sent for approval. Stock and the general ledger will post after an assigned approver signs off.`
+    );
   }
   revalidateFulfillmentPaths([
     `/work-orders/${kit?.workOrderId}`,
@@ -8603,6 +8611,22 @@ export async function actionSaveAccountingSettings(
       : "AT_PICK";
   const useGrirClearing = formData.get("useGrirClearing") === "1";
   const evaluatedReceiptSettlement = formData.get("evaluatedReceiptSettlement") === "1";
+  const productionApprovalRequired = formData.get("productionApprovalRequired") === "1";
+  const productionApproverUserIds = JSON.stringify(
+    [
+      ...formData.getAll("productionApproverUserIds"),
+      ...String(formData.get("productionApproverUserIdsText") || "").split(/[,;\s]+/),
+    ].map((v) => String(v).trim()).filter(Boolean)
+  );
+  const productionApproverRoles = JSON.stringify(
+    formData.getAll("productionApproverRoles").map((v) => String(v).trim().toUpperCase()).filter(Boolean)
+  );
+  const thresholdRaw = String(formData.get("productionApprovalThreshold") || "").trim();
+  const productionApprovalThreshold =
+    thresholdRaw === "" ? null : Number(thresholdRaw);
+  if (productionApprovalThreshold != null && (!Number.isFinite(productionApprovalThreshold) || productionApprovalThreshold < 0)) {
+    throw new Error("Auto-approve threshold must be a positive number, or left blank");
+  }
   const existingSettings = await prisma.accountingSettings.findUnique({ where: { id: "default" } });
   await prisma.accountingSettings.upsert({
     where: { id: "default" },
@@ -8613,6 +8637,10 @@ export async function actionSaveAccountingSettings(
       consumptionTiming,
       useGrirClearing,
       evaluatedReceiptSettlement,
+      productionApprovalRequired,
+      productionApproverUserIds,
+      productionApproverRoles,
+      productionApprovalThreshold,
     },
     update: {
       basis,
@@ -8623,6 +8651,10 @@ export async function actionSaveAccountingSettings(
       consumptionTiming,
       useGrirClearing,
       evaluatedReceiptSettlement,
+      productionApprovalRequired,
+      productionApproverUserIds,
+      productionApproverRoles,
+      productionApprovalThreshold,
       updatedById: user?.id,
     },
   });
@@ -11059,7 +11091,13 @@ export async function actionReceiveWorkOrderOutput(formData: FormData): Promise<
     serialNumber: String(formData.get("serialNumber") || "") || undefined,
     notes: String(formData.get("notes") || "") || undefined,
   });
-  await flashToast(`Received ${quantity} to finished goods${result.lotNumber ? ` · lot ${result.lotNumber}` : ""}. The job is still open.`);
+  if ("pendingApproval" in result && result.pendingApproval) {
+    await flashToast(
+      `Sent ${result.productionJournalNumber} for approval. Finished goods will post after an assigned approver signs off.`
+    );
+  } else {
+    await flashToast(`Received ${quantity} to finished goods${result.lotNumber ? ` · lot ${result.lotNumber}` : ""}. The job is still open.`);
+  }
   revalidatePath(`/work-orders/${workOrderId}`);
   revalidatePath("/accounting/wip");
   revalidatePath("/inventory");
@@ -11078,6 +11116,66 @@ export async function actionCloseWorkOrderBooks(formData: FormData): Promise<voi
   await flashToast("Job closed. Remaining WIP was moved to variance accounts.");
   revalidatePath(`/work-orders/${workOrderId}`);
   revalidatePath("/accounting/wip");
+}
+
+export async function actionApproveProductionJournal(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  const { approveProductionJournal } = await import("@/lib/services/production-journals");
+  const id = String(formData.get("productionJournalId") || "");
+  const quantityRaw = String(formData.get("quantity") || "").trim();
+  const quantity = quantityRaw ? Number(quantityRaw) : undefined;
+  const lineQuantities: Record<string, number> = {};
+  for (const [key, value] of formData.entries()) {
+    if (!key.startsWith("lineQty_")) continue;
+    const lineId = key.replace("lineQty_", "");
+    const n = Number(value);
+    if (lineId && Number.isFinite(n)) lineQuantities[lineId] = n;
+  }
+  const journal = await approveProductionJournal({
+    id,
+    userId: user?.id,
+    userRole: user?.role,
+    quantity,
+    lineQuantities: Object.keys(lineQuantities).length ? lineQuantities : undefined,
+    note: String(formData.get("quantityEditNote") || "") || undefined,
+  });
+  await flashToast(`${journal.number} approved and posted.`);
+  revalidatePath("/approvals");
+  revalidatePath("/accounting");
+  revalidatePath("/ai");
+  revalidatePath("/notifications");
+  if (journal.workOrderId) revalidatePath(`/work-orders/${journal.workOrderId}`);
+}
+
+export async function actionRejectProductionJournal(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  const { rejectProductionJournal } = await import("@/lib/services/production-journals");
+  const journal = await rejectProductionJournal({
+    id: String(formData.get("productionJournalId") || ""),
+    reason: String(formData.get("reason") || ""),
+    userId: user?.id,
+    userRole: user?.role,
+  });
+  await flashToast(`${journal.number} was returned: ${journal.rejectReason}`);
+  revalidatePath("/approvals");
+  revalidatePath("/ai");
+  revalidatePath("/notifications");
+  if (journal.workOrderId) revalidatePath(`/work-orders/${journal.workOrderId}`);
+}
+
+export async function actionSetWorkCenterProductionApprover(formData: FormData): Promise<void> {
+  const { requirePermission } = await import("@/lib/auth");
+  const user = await requirePermission("workcenters.manage");
+  const id = String(formData.get("workCenterId") || "");
+  const productionApproverUserId = String(formData.get("productionApproverUserId") || "").trim() || null;
+  await prisma.workCenter.update({
+    where: { id },
+    data: { productionApproverUserId },
+  });
+  await flashToast("Work center production approver saved");
+  revalidatePath("/workcenters");
+  revalidatePath(`/workcenters/${id}`);
+  void user;
 }
 
 export async function actionUnissueWorkOrderMaterial(formData: FormData): Promise<void> {

@@ -35,6 +35,12 @@ import {
   actionCloseWorkOrderBooks,
   actionUnissueWorkOrderMaterial,
 } from "@/app/actions";
+import { getCurrentUser } from "@/lib/auth";
+import {
+  listProductionJournalsForWorkOrder,
+  userCanDecideProductionJournal,
+} from "@/lib/services/production-journals";
+import { ProductionJournalReviewRow } from "@/components/accounting/production-journal-review";
 import { checkBomMaterialAvailability } from "@/lib/services/order-fulfillment";
 import { ensureWorkOrderTravelerSteps } from "@/lib/services/work-orders";
 import {
@@ -197,6 +203,16 @@ export default async function WorkOrderDetailPage({
       }),
     ]);
   if (!wo) notFound();
+
+  const user = await getCurrentUser();
+  const productionJournals = await listProductionJournalsForWorkOrder(wo.id);
+  const pendingProduction = productionJournals.filter((j) => j.status === "PENDING" || j.status === "POSTING");
+  const canDecideProduction = await Promise.all(
+    pendingProduction.map((journal) =>
+      userCanDecideProductionJournal({ userId: user?.id, userRole: user?.role, journal })
+    )
+  );
+  const canDecideById = new Map(pendingProduction.map((j, i) => [j.id, canDecideProduction[i]]));
   const labor = await getWorkOrderLaborProgress(wo.id);
 
   const testProcsForForm = testProcedures.filter(
@@ -700,6 +716,36 @@ export default async function WorkOrderDetailPage({
         </Card>
       )}
 
+      {productionJournals.length > 0 && (
+        <Card className="border-amber-900/40">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Production journals</CardTitle>
+            <p className="text-xs text-slate-500">
+              Kit, consumption, and finished-goods output waiting for approval do not move stock or the general ledger until they are posted. This job cannot close while any are still pending.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {productionJournals.map((journal) => (
+              <ProductionJournalReviewRow
+                key={journal.id}
+                journal={{
+                  ...journal,
+                  workOrder: { id: wo.id, number: wo.number },
+                  part: journal.partId && wo.part
+                    ? { partNumber: wo.part.partNumber, description: wo.part.description }
+                    : null,
+                  kitOrder: wo.kitOrders.find((k) => k.id === journal.kitOrderId)
+                    ? { id: journal.kitOrderId!, number: wo.kitOrders.find((k) => k.id === journal.kitOrderId)!.number }
+                    : null,
+                }}
+                canDecide={canDecideById.get(journal.id) === true}
+                showWorkOrder={false}
+              />
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
       {!["COMPLETED", "CLOSED", "CANCELLED"].includes(wo.status) && wo.type !== "TASK_ONLY" && wo.partId && (
         <Card className="border-teal-900/40">
           <CardHeader className="pb-2">
@@ -729,10 +775,15 @@ export default async function WorkOrderDetailPage({
             )}
             <form action={actionCloseWorkOrderBooks}>
               <input type="hidden" name="workOrderId" value={wo.id} />
-              <Button type="submit" size="sm" variant="outline">
+              <Button type="submit" size="sm" variant="outline" disabled={pendingProduction.length > 0}>
                 Close job and relieve remaining WIP
               </Button>
             </form>
+            {pendingProduction.length > 0 && (
+              <p className="text-xs text-amber-400">
+                Close is blocked until {pendingProduction.map((j) => j.number).join(", ")} {pendingProduction.length === 1 ? "is" : "are"} approved or returned.
+              </p>
+            )}
             {(wo.wipInventory || []).filter((r) => r.quantityOnHand > 0).length > 0 && (
               <div className="space-y-2">
                 <p className="text-xs font-medium text-slate-400">Staged material — return to stock if it was not used</p>

@@ -1322,6 +1322,8 @@ export async function completeKitOrder(params: {
   userId?: string;
   /** Optional per-line preferred inventory item / location picks: lineId → inventoryItemId */
   linePicks?: Record<string, string>;
+  /** Set when an approver is posting a previously queued kit journal. */
+  executeApproved?: boolean;
 }) {
   const kit = await prisma.kitOrder.findUnique({
     where: { id: params.kitOrderId },
@@ -1337,6 +1339,71 @@ export async function completeKitOrder(params: {
   });
   if (!kit) throw new Error("Kit order not found");
   if (kit.status === "COMPLETE") return kit;
+
+  if (!params.executeApproved) {
+    const { consumptionTimingForPart } = await import("@/lib/services/inventory-accounting");
+    const {
+      shouldHoldProductionJournal,
+      queueProductionJournal,
+      recordAutoApprovedProductionJournal,
+    } = await import("@/lib/services/production-journals");
+    const lines: {
+      lineId: string;
+      partId: string;
+      partNumber?: string;
+      quantityRequested: number;
+      unitCost?: number;
+    }[] = [];
+    let amount = 0;
+    let quantity = 0;
+    for (const line of kit.lines) {
+      if ((await consumptionTimingForPart(line.part)) === "BACKFLUSH") continue;
+      const remaining = line.quantityRequired - line.quantityPicked;
+      if (remaining <= 0.0001) continue;
+      const bins = await getAvailableInventory(line.partId);
+      const unit = bins[0]?.unitCost || line.part?.standardCost || line.part?.averageCost || 0;
+      amount += remaining * unit;
+      quantity += remaining;
+      lines.push({
+        lineId: line.id,
+        partId: line.partId,
+        partNumber: line.part?.partNumber,
+        quantityRequested: remaining,
+        unitCost: unit,
+      });
+    }
+    if (lines.length) {
+      const decision = await shouldHoldProductionJournal({
+        amount,
+        workCenterCode: kit.workOrder.workCenter,
+      });
+      if (decision.hold) {
+        const queued = await queueProductionJournal({
+          type: "KIT",
+          workOrderId: kit.workOrderId,
+          workCenterCode: kit.workOrder.workCenter,
+          kitOrderId: kit.id,
+          quantity,
+          amount,
+          payload: { kitOrderId: kit.id, linePicks: params.linePicks, lines },
+          notes: `Kit ${kit.number} for ${kit.workOrder.number}`,
+          requestedById: params.userId,
+        });
+        return Object.assign(kit, {
+          pendingApproval: true as const,
+          productionJournalId: queued.id,
+          productionJournalNumber: queued.number,
+        });
+      }
+      if (decision.autoApproved) {
+        (params as { _autoApproveKit?: { amount: number; quantity: number; lines: typeof lines } })._autoApproveKit = {
+          amount,
+          quantity,
+          lines,
+        };
+      }
+    }
+  }
 
   // Kit material stages at the company staging location (or WIP fallback).
   const { resolveStagingLocation } = await import("./wip-locations");
@@ -1687,10 +1754,25 @@ export async function completeKitOrder(params: {
     partIds: kit.lines.map((l) => l.partId),
   });
 
-  return prisma.kitOrder.findUnique({
+  const finished = await prisma.kitOrder.findUnique({
     where: { id: kit.id },
     include: { lines: { include: { part: true } }, workOrder: true },
   });
+  const auto = (params as { _autoApproveKit?: { amount: number; quantity: number; lines: unknown } })._autoApproveKit;
+  if (auto && finished) {
+    const { recordAutoApprovedProductionJournal } = await import("@/lib/services/production-journals");
+    await recordAutoApprovedProductionJournal({
+      type: "KIT",
+      workOrderId: kit.workOrderId,
+      workCenterCode: kit.workOrder.workCenter,
+      kitOrderId: kit.id,
+      quantity: auto.quantity,
+      amount: auto.amount,
+      payload: { kitOrderId: kit.id, linePicks: params.linePicks, lines: auto.lines as never },
+      requestedById: params.userId,
+    });
+  }
+  return finished;
 }
 
 /** KITTED → RELEASED → IN_PROGRESS (start first production step). */
@@ -1738,6 +1820,8 @@ export async function completeWorkOrderToStock(params: {
   if (["COMPLETED", "CLOSED", "CANCELLED"].includes(wo.status)) {
     throw new Error(`WO already ${wo.status}`);
   }
+  const { assertNoPendingProductionJournals } = await import("@/lib/services/production-journals");
+  await assertNoPendingProductionJournals(wo.id);
 
   // Require all traveler steps signed if any exist
   const pendingSteps = await prisma.workOrderStepCompletion.count({
@@ -1833,6 +1917,11 @@ export async function completeWorkOrderToStock(params: {
       serialNumber,
       notes: "Finished assembly received to stock from traveler",
     });
+    if ("pendingApproval" in received && received.pendingApproval) {
+      throw new Error(
+        `This traveler cannot close yet — production journal ${received.productionJournalNumber} is waiting for approval of the finished-goods receipt.`
+      );
+    }
     inv = { id: received.inventoryItemId };
   } else {
     // All quantity was already received on earlier partial outputs.

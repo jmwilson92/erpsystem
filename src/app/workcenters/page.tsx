@@ -15,6 +15,12 @@ export default async function WorkCentersPage() {
   const centers = await prisma.workCenter.findMany({
     orderBy: [{ area: "asc" }, { sortOrder: "asc" }, { code: "asc" }],
   });
+  const users = await prisma.user.findMany({
+    where: { isActive: true },
+    select: { id: true, name: true, role: true },
+    orderBy: { name: "asc" },
+    take: 200,
+  });
 
   const byArea = WORK_AREAS.map((area) => ({
     area,
@@ -59,6 +65,9 @@ export default async function WorkCentersPage() {
                   <p className="text-[10px] text-slate-600">
                     Cap {c.capacityHoursPerDay}h/d · eff{" "}
                     {Math.round(c.efficiency * 100)}%
+                    {c.productionApproverUserId
+                      ? ` · approver ${users.find((u) => u.id === c.productionApproverUserId)?.name || "assigned"}`
+                      : ""}
                   </p>
                 </Link>
               ))}

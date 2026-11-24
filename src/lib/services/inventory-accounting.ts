@@ -201,6 +201,10 @@ export async function getInventoryAccountingSettings(db: Db = prisma) {
     consumptionTiming: resolveConsumptionTiming(null, row.consumptionTiming),
     useGrirClearing: row.useGrirClearing !== false,
     evaluatedReceiptSettlement: row.evaluatedReceiptSettlement !== false,
+    productionApprovalRequired: row.productionApprovalRequired === true,
+    productionApproverUserIds: row.productionApproverUserIds || "[]",
+    productionApproverRoles: row.productionApproverRoles || "[]",
+    productionApprovalThreshold: row.productionApprovalThreshold,
   };
 }
 
@@ -730,6 +734,8 @@ export async function receiveWorkOrderOutput(params: {
   lotNumber?: string;
   serialNumber?: string;
   notes?: string;
+  /** Set when an approver is posting a previously queued output journal. */
+  executeApproved?: boolean;
 }) {
   const qty = params.quantity;
   if (!(qty > 0) || !Number.isFinite(qty)) {
@@ -769,6 +775,50 @@ export async function receiveWorkOrderOutput(params: {
     actualUnitCost: actualUnit,
   });
   const amount = money(unitCost * qty);
+  let autoApproveOutput = false;
+  if (!params.executeApproved) {
+    const { shouldHoldProductionJournal, queueProductionJournal } = await import(
+      "@/lib/services/production-journals"
+    );
+    const decision = await shouldHoldProductionJournal({
+      amount,
+      workCenterCode: wo.workCenter,
+    });
+    if (decision.hold) {
+      const queued = await queueProductionJournal({
+        type: "OUTPUT",
+        workOrderId: wo.id,
+        workCenterCode: wo.workCenter,
+        partId: wo.partId,
+        quantity: qty,
+        amount,
+        unitCost,
+        payload: {
+          workOrderId: wo.id,
+          quantity: qty,
+          lotNumber: params.lotNumber,
+          serialNumber: params.serialNumber,
+          notes: params.notes,
+          partId: wo.partId || undefined,
+        },
+        notes: params.notes || `Finished goods from ${wo.number}`,
+        requestedById: params.userId,
+      });
+      return {
+        pendingApproval: true as const,
+        productionJournalId: queued.id,
+        productionJournalNumber: queued.number,
+        inventoryItemId: "",
+        outputId: "",
+        journalId: null,
+        lotNumber: params.lotNumber,
+        serialNumber: params.serialNumber,
+        unitCost,
+        amount,
+      };
+    }
+    autoApproveOutput = decision.autoApproved;
+  }
   const lotNumber = params.lotNumber || `LOT-WO-${wo.number.replace(/\W/g, "")}-${Date.now().toString(36).toUpperCase()}`;
   const serialNumber =
     params.serialNumber ||
@@ -898,7 +948,54 @@ export async function receiveWorkOrderOutput(params: {
     userId: params.userId,
     metadata: { quantity: qty, lotNumber, remaining: money(remaining - qty) },
   });
+  if (autoApproveOutput) {
+    const { recordAutoApprovedProductionJournal } = await import(
+      "@/lib/services/production-journals"
+    );
+    await recordAutoApprovedProductionJournal({
+      type: "OUTPUT",
+      workOrderId: wo.id,
+      workCenterCode: wo.workCenter,
+      partId: wo.partId,
+      quantity: qty,
+      amount,
+      unitCost,
+      payload: {
+        workOrderId: wo.id,
+        quantity: qty,
+        lotNumber,
+        serialNumber,
+        notes: params.notes,
+        partId: wo.partId || undefined,
+      },
+      journalEntryId: result.journalId,
+      requestedById: params.userId,
+    });
+  }
   return result;
+}
+
+export async function executeApprovedConsume(params: {
+  workOrderId: string;
+  quantity: number;
+  partId?: string | null;
+  userId?: string | null;
+}) {
+  await backflushForOutput({
+    workOrderId: params.workOrderId,
+    outputQty: params.quantity,
+    userId: params.userId,
+  });
+  const issue = await prisma.materialTransaction.findFirst({
+    where: {
+      workOrderId: params.workOrderId,
+      type: "ISSUE",
+      ...(params.partId ? { partId: params.partId } : {}),
+    },
+    orderBy: { createdAt: "desc" },
+    select: { journalEntryId: true },
+  });
+  return { journalId: issue?.journalEntryId || null };
 }
 
 async function wipBalanceForJob(workOrderId: string, wipAccountId: string) {
@@ -922,6 +1019,8 @@ export async function closeWorkOrderBooks(params: {
     include: { part: true },
   });
   if (!wo) throw new Error("Work order not found");
+  const { assertNoPendingProductionJournals } = await import("@/lib/services/production-journals");
+  await assertNoPendingProductionJournals(wo.id);
   const accounts = await resolveItemAccounts(wo.part);
   const completed = wo.quantityCompleted || 0;
   const qty = wo.quantity || 1;

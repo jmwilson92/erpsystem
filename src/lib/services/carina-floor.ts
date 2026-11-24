@@ -693,7 +693,7 @@ async function loadCapacityWeeks(week0: Date, count: number): Promise<CapacityWe
 async function loadFloorSignals(now: Date): Promise<FloorSignals> {
   const today = new Date(now);
   today.setHours(0, 0, 0, 0);
-  const [openWos, inProgress, lateWos, overWos, pastPos, ncrs, mrb, approvals] = await Promise.all([
+  const [openWos, inProgress, lateWos, overWos, pastPos, ncrs, mrb, approvals, productionApprovals] = await Promise.all([
     prisma.workOrder.count({ where: { status: OPEN_WO } }),
     prisma.workOrder.count({ where: { status: "IN_PROGRESS" } }),
     prisma.workOrder.findMany({
@@ -720,6 +720,7 @@ async function loadFloorSignals(now: Date): Promise<FloorSignals> {
     }),
     prisma.mrbCase.count({ where: { status: { in: ["OPEN", "IN_REVIEW"] } } }),
     prisma.approval.count({ where: { status: "PENDING" } }),
+    prisma.productionJournal.count({ where: { status: { in: ["PENDING", "POSTING"] } } }),
   ]);
 
   const progress = await getWorkOrderLaborProgressMany(overWos.map((w) => w.id));
@@ -746,7 +747,7 @@ async function loadFloorSignals(now: Date): Promise<FloorSignals> {
       .map((p) => ({ id: p.id, number: p.number, promisedDate: p.promisedDate!, href: `/purchasing/po/${p.id}` })),
     openNcrs: ncrs.map((n) => ({ id: n.id, number: n.number, href: `/quality/ncr/${n.id}` })),
     openMrb: mrb,
-    pendingApprovals: approvals,
+    pendingApprovals: approvals + productionApprovals,
   };
 }
 

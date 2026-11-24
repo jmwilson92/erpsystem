@@ -149,6 +149,20 @@ export async function getNotificationSummary(user: {
         href: "/approvals",
       });
     }
+    const { listPendingProductionJournalsForUser } = await import(
+      "@/lib/services/production-journals"
+    );
+    const productionInbox = await listPendingProductionJournalsForUser({
+      userId: user.id,
+      userRole: user.role,
+    });
+    if (productionInbox.length > 0) {
+      items.push({
+        label: "Production journals waiting on you",
+        count: productionInbox.length,
+        href: "/approvals",
+      });
+    }
     const unreadCarina = await prisma.userNotification.count({
       where: { userId: user.id, isRead: false, type: "CARINA_TASK" },
     });
