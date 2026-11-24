@@ -320,6 +320,7 @@ model Part {
   bomLines            BomLine[]                 @relation("ComponentPart")
   inventoryItems      InventoryItem[]
   costLayers          InventoryCostLayer[]
+  productionJournals  ProductionJournal[]
   poLines             PurchaseOrderLine[]
   workOrders          WorkOrder[]
   workInstructions    WorkInstruction[]
@@ -820,6 +821,7 @@ model WorkOrder {
   kitSerialAssignments KitSerialAssignment[]
   journalEntries       JournalEntry[]
   outputs              WorkOrderOutput[]
+  productionJournals   ProductionJournal[]
 
   @@index([status])
   @@index([workCenter])
@@ -834,6 +836,53 @@ model WorkOrder {
   @@index([scheduleRisk])
   @@index([rmaId])
   @@index([quoteId])
+}
+
+
+/// A kit, consumption, or finished-goods output waiting to post. Status is
+/// PENDING, APPROVED, or REJECTED — rows are never deleted. Approval posts
+/// inventory and the GL atomically with the company costing method.
+model ProductionJournal {
+  id                     String    @id @default(cuid())
+  number                 String    @unique
+  /// KIT | CONSUME | OUTPUT
+  type                   String
+  /// PENDING | POSTING | APPROVED | REJECTED
+  status                 String    @default("PENDING")
+  workOrderId            String
+  workOrder              WorkOrder @relation(fields: [workOrderId], references: [id])
+  workCenterId           String?
+  workCenter             WorkCenter? @relation(fields: [workCenterId], references: [id], onDelete: SetNull)
+  kitOrderId             String?
+  kitOrder               KitOrder? @relation(fields: [kitOrderId], references: [id], onDelete: SetNull)
+  partId                 String?
+  part                   Part?     @relation(fields: [partId], references: [id], onDelete: SetNull)
+  quantityRequested      Float
+  quantityApproved       Float?
+  amount                 Float     @default(0)
+  unitCost               Float     @default(0)
+  /// JSON payload with enough to execute the movement
+  payload                String    @default("{}")
+  rejectReason           String?
+  notes                  String?
+  requestedById          String?
+  assignedApproverId     String?
+  decidedById            String?
+  decidedAt              DateTime?
+  quantityEditedById     String?
+  quantityEditedAt       DateTime?
+  quantityEditNote       String?
+  journalEntryId         String?
+  journalEntry           JournalEntry? @relation(fields: [journalEntryId], references: [id], onDelete: SetNull)
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  @@index([status])
+  @@index([workOrderId])
+  @@index([assignedApproverId])
+  @@index([kitOrderId])
+  @@index([journalEntryId])
+  @@index([type, status])
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -3776,6 +3825,7 @@ model JournalEntry {
   creditMemos           ArCreditMemo[]
   costLayers            InventoryCostLayer[]
   layerConsumptions     InventoryLayerConsumption[]
+  productionJournals    ProductionJournal[]
 
   @@index([programId])
   @@index([workOrderId])
@@ -4180,6 +4230,7 @@ model KitOrder {
 
   lines       KitOrderLine[]
   traceEvents TraceEvent[]
+  productionJournals ProductionJournal[]
 
   @@index([workOrderId])
   @@index([status])
@@ -5410,6 +5461,16 @@ model AccountingSettings {
   requireTotalTime     Boolean   @default(false)
   /// When on, editing a timecard that already had time requires a reason.
   requireTimeChangeReason Boolean @default(false)
+  /// When on, kit / consume / finished-goods output are held as a PENDING
+  /// production journal until an assigned approver posts them. Default off.
+  productionApprovalRequired Boolean @default(false)
+  /// JSON array of user ids who may approve production journals.
+  productionApproverUserIds String @default("[]")
+  /// JSON array of roles that may approve (e.g. ["ADMIN","PRODUCTION"]).
+  productionApproverRoles String @default("[]")
+  /// Auto-approve (and post immediately) when the estimated amount is at or
+  /// below this value. Null means never auto-approve.
+  productionApprovalThreshold Float?
   updatedById          String?
   updatedAt            DateTime  @updatedAt
 }
@@ -5683,11 +5744,14 @@ model WorkCenter {
   isActive            Boolean  @default(true)
   isDefault           Boolean  @default(false) // default station when routing by area only
   sortOrder           Int      @default(0)
+  /// Optional override: this user is assigned production journals for this station.
+  productionApproverUserId String?
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
   staff     WorkCenterStaff[]
   locations Location[]
+  productionJournals ProductionJournal[]
 
   @@index([area, isActive])
 }

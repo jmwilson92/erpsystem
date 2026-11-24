@@ -21,7 +21,18 @@ async function requireUser() {
 export async function actionListCarinaTasks(): Promise<CarinaTaskRecord[]> {
   const user = await requireUser();
   const deps = await prismaCarinaTaskDeps();
-  return deps.tasks.listForUser(user.id);
+  const tasks = await deps.tasks.listForUser(user.id);
+  const { listPendingProductionJournalsForUser, productionJournalAsCarinaTask } = await import(
+    "@/lib/services/production-journals"
+  );
+  const journals = await listPendingProductionJournalsForUser({
+    userId: user.id,
+    userRole: user.role,
+  });
+  const extras = journals.map((journal) =>
+    productionJournalAsCarinaTask({ journal, userId: user.id })
+  );
+  return [...extras, ...tasks];
 }
 
 export async function actionAddCarinaTask(formData: FormData) {
@@ -60,7 +71,10 @@ export async function actionUpdateCarinaTask(formData: FormData) {
 export async function actionReorderCarinaTasks(taskIds: string[]) {
   const user = await requireUser();
   const deps = await prismaCarinaTaskDeps();
-  return reorderCarinaTasks(deps, { userId: user.id, taskIds });
+  return reorderCarinaTasks(deps, {
+    userId: user.id,
+    taskIds: taskIds.filter((id) => !id.startsWith("pj:")),
+  });
 }
 
 export async function actionDecideCarinaAction(formData: FormData): Promise<void> {

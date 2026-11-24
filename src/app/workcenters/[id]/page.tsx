@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { WORK_AREA_LABELS } from "@/lib/work-areas";
 import { formatDate } from "@/lib/utils";
 import { Factory, ClipboardList, Users2, Gauge } from "lucide-react";
+import { actionSetWorkCenterProductionApprover } from "@/app/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,12 @@ export default async function WorkCenterDetailPage({
   });
   if (!wc) notFound();
 
+  const users = await prisma.user.findMany({
+    where: { isActive: true },
+    select: { id: true, name: true, role: true },
+    orderBy: { name: "asc" },
+    take: 200,
+  });
   const [activeWos, recentDone, statusHistory] = await Promise.all([
     prisma.workOrder.findMany({
       where: { workCenter: wc.code, status: { in: ACTIVE } },
@@ -81,6 +88,38 @@ export default async function WorkCenterDetailPage({
         />
         <StatCard title="Completed here" value={recentDone} subtitle="Lifetime WOs" icon={ClipboardList} accent="emerald" />
       </div>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Production journal approver</CardTitle>
+          <p className="text-xs text-slate-500">
+            Optional. Kit, consume, and output journals for jobs at this station go to this person first. Leave blank to use the company approvers on the accounting workbench.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <form action={actionSetWorkCenterProductionApprover} className="flex flex-wrap items-end gap-2">
+            <input type="hidden" name="workCenterId" value={wc.id} />
+            <label className="text-[10px] uppercase text-slate-500">
+              Assigned approver
+              <select
+                name="productionApproverUserId"
+                defaultValue={wc.productionApproverUserId || ""}
+                className="mt-0.5 block h-9 rounded-md border border-slate-700 bg-slate-950 px-2 text-sm text-slate-200"
+              >
+                <option value="">— Use company approvers —</option>
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name} ({u.role})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Button type="submit" size="sm">
+              Save approver
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">

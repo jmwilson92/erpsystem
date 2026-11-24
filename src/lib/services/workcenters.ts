@@ -92,6 +92,7 @@ export async function saveWorkCenter(params: {
   isActive?: boolean;
   isDefault?: boolean;
   sortOrder?: number;
+  productionApproverUserId?: string | null;
   userId?: string;
 }) {
   const code = params.code.trim().toUpperCase();
@@ -122,6 +123,7 @@ export async function saveWorkCenter(params: {
         isActive: params.isActive ?? true,
         isDefault: params.isDefault ?? false,
         sortOrder: params.sortOrder ?? 0,
+        productionApproverUserId: params.productionApproverUserId ?? undefined,
       },
     });
     await logAudit({
@@ -144,6 +146,7 @@ export async function saveWorkCenter(params: {
       isActive: params.isActive ?? true,
       isDefault: params.isDefault ?? false,
       sortOrder: params.sortOrder ?? 0,
+      productionApproverUserId: params.productionApproverUserId || null,
     },
   });
   await logAudit({
